@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     vibevoice_url: str = "http://127.0.0.1:8001"
     audio_queue_chunks: int = 32
     max_audio_frame_bytes: int = 1024 * 1024
+    faster_whisper_model: str = "small"
+    faster_whisper_device: str = "auto"
+    faster_whisper_compute_type: str = "default"
+    faster_whisper_chunk_seconds: float = 4.0
     vad_threshold_dbfs: float = -45.0
     vad_hangover_frames: int = 3
     audio_backpressure_warn_ms: float = 50.0
