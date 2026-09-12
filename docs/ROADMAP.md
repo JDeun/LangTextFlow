@@ -115,7 +115,7 @@
 - [x] target language export + source fallback
 - [x] persistence failure degraded mode / UI warning
 - [x] session detail/transcript 검색 UI
-- [ ] session 제목/메모 사후 편집
+- [x] session 제목/메모 사후 편집 + original Session Context 보존
 
 ## P3C — Product UX
 
