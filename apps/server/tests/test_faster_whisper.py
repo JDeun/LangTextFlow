@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from array import array
 
 import pytest
 
+from langtextflow.asr.base import AsrEngineError
 from langtextflow.asr.faster_whisper import DecodedSegment, FasterWhisperStreamingAsrEngine
 from langtextflow.models import CaptionStage, SessionContext, StartSessionRequest
 
@@ -32,6 +34,12 @@ class FakeFasterWhisperEngine(FasterWhisperStreamingAsrEngine):
                 text=f"chunk-{len(self.decoded_sizes)}",
             )
         ]
+
+
+class FailingFasterWhisperEngine(FakeFasterWhisperEngine):
+    def _transcribe_chunk_sync(self, pcm_f32le: bytes, request: StartSessionRequest):
+        del pcm_f32le, request
+        raise RuntimeError("GPU lost")
 
 
 @pytest.mark.asyncio
@@ -71,6 +79,28 @@ async def test_faster_whisper_micro_batches_and_flushes_residual_audio() -> None
     assert published[1].start_ms == 100
     assert published[1].end_ms == 150
     assert published[1].text == "chunk-2"
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_records_worker_failure_and_rejects_more_audio() -> None:
+    async def publish(event) -> None:
+        del event
+
+    engine = FailingFasterWhisperEngine(publish, chunk_seconds=0.05, queue_chunks=2)
+    await engine.start(StartSessionRequest(engine="faster-whisper"))
+    await engine.feed_audio(pcm(0.05))
+
+    for _ in range(20):
+        if engine.failure is not None:
+            break
+        await asyncio.sleep(0)
+
+    assert engine.running is False
+    assert engine.failure is not None
+    assert "GPU lost" in engine.failure
+    with pytest.raises(AsrEngineError, match="GPU lost"):
+        await engine.feed_audio(pcm(0.01))
+    await engine.stop()
 
 
 def test_faster_whisper_rejects_invalid_chunk_duration() -> None:
