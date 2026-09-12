@@ -28,6 +28,14 @@ class AsrEngine(ABC):
     @abstractmethod
     def sample_rate(self) -> int: ...
 
+    @property
+    def queue_depth(self) -> int:
+        return 0
+
+    @property
+    def queue_capacity(self) -> int:
+        return 0
+
     @abstractmethod
     async def start(self, request: StartSessionRequest) -> None: ...
 

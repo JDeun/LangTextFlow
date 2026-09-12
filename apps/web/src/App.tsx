@@ -8,6 +8,7 @@ import {
 import { AudienceAccess } from "./AudienceAccess";
 import { GlossaryManager } from "./GlossaryManager";
 import { SessionHistory } from "./SessionHistory";
+import { TelemetryPanel } from "./TelemetryPanel";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
@@ -247,7 +248,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P3B</span>
+            <span className="beta">P1C</span>
           </div>
 
           <label>
@@ -407,6 +408,8 @@ function OperatorApp() {
               </small>
             )}
           </div>
+
+          <TelemetryPanel apiUrl={API_URL} running={running} />
         </aside>
 
         <section className="main-column">

@@ -61,6 +61,14 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
     def sample_rate(self) -> int:
         return self._sample_rate
 
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize() if self._queue is not None else 0
+
+    @property
+    def queue_capacity(self) -> int:
+        return self.queue_chunks
+
     async def start(self, request: StartSessionRequest) -> None:
         if self.running:
             return
@@ -130,10 +138,13 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         assert self._ws is not None
         while True:
             frame = await self._queue.get()
-            if frame is None:
-                await self._ws.send("end")
-                return
-            await self._ws.send(frame)
+            try:
+                if frame is None:
+                    await self._ws.send("end")
+                    return
+                await self._ws.send(frame)
+            finally:
+                self._queue.task_done()
 
     async def _receive_loop(self) -> None:
         assert self._ws is not None

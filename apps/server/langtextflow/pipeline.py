@@ -27,6 +27,14 @@ class CaptionPipeline:
         self._queue: asyncio.Queue[TranscriptEvent | None] = asyncio.Queue(maxsize=128)
         self._worker_task: asyncio.Task[None] | None = None
 
+    @property
+    def queue_depth(self) -> int:
+        return self._queue.qsize()
+
+    @property
+    def queue_capacity(self) -> int:
+        return self._queue.maxsize
+
     async def start(self, request: StartSessionRequest) -> None:
         await self.stop()
         self.request = request
@@ -78,6 +86,7 @@ class CaptionPipeline:
         while True:
             event = await self._queue.get()
             if event is None:
+                self._queue.task_done()
                 return
             try:
                 await self._process_stable(event)

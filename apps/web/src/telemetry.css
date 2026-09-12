@@ -1,0 +1,130 @@
+.telemetry-card {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #29313a;
+  border-radius: 12px;
+  background: #0d1116;
+}
+
+.telemetry-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: #7c8996;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.telemetry-live,
+.telemetry-idle {
+  padding: 3px 6px;
+  border-radius: 5px;
+  background: #1d252d;
+  color: #8d98a3;
+  font-size: 9px;
+}
+
+.telemetry-live {
+  background: #173127;
+  color: #77d59a;
+}
+
+.telemetry-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #232b33;
+  border-radius: 9px;
+  background: #10151a;
+}
+
+.telemetry-input > div {
+  display: grid;
+  gap: 2px;
+}
+
+.telemetry-input strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.telemetry-input small {
+  color: #687581;
+  font-size: 10px;
+}
+
+.voice-indicator {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 50%;
+  background: #4d555e;
+}
+
+.voice-indicator.active {
+  background: #67d391;
+  box-shadow: 0 0 10px rgba(103, 211, 145, .48);
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+
+.telemetry-metric {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid #242c34;
+  border-radius: 8px;
+  background: #101419;
+}
+
+.telemetry-metric > span,
+.telemetry-metric > small {
+  display: block;
+  overflow: hidden;
+  color: #65717d;
+  font-size: 9px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.telemetry-metric > strong {
+  display: block;
+  margin: 4px 0 2px;
+  color: #dce3e9;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry-metric.warning {
+  border-color: #59462c;
+  background: #1c1710;
+}
+
+.telemetry-metric.warning > strong {
+  color: #e2b36e;
+}
+
+.telemetry-metric.danger {
+  border-color: #5a3037;
+  background: #201317;
+}
+
+.telemetry-metric.danger > strong {
+  color: #ed929b;
+}
+
+.telemetry-empty {
+  color: #6d7883;
+  font-size: 10px;
+  line-height: 1.5;
+}

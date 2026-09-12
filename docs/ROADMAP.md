@@ -33,10 +33,16 @@
 - [x] VibeVoice-ASR-Streaming sidecar adapter
 - [x] Context/Glossary → VibeVoice context_info 전달
 - [ ] faster-whisper fallback adapter
-- [ ] VAD
-- [ ] draft/stable latency 계측
-- [ ] 장시간 세션 backpressure / recovery telemetry
+- [x] RMS/energy monitoring VAD (audio frame은 제거하지 않음)
+- [x] audio level / voice activity operator UI
+- [x] ASR lag 계측
+- [x] correction / translation / commit latency 계측
+- [x] ASR / postprocess / persistence queue telemetry
+- [x] audio enqueue backpressure counter + ASR queue high-watermark
+- [ ] semantic VAD/gating benchmark 및 필요 시 적용
+- [ ] provider reconnect / failure telemetry
 - [ ] 한국어·영어 실제 집회 샘플 벤치마크
+- [ ] 30/60/90분 장시간 soak test
 
 ## P2A — Correction / Translation
 

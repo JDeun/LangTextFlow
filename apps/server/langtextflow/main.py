@@ -23,6 +23,7 @@ from .models import (
 from .network import is_loopback_client, local_ipv4_addresses
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
+from .telemetry import RealtimeMetrics
 
 settings = get_settings()
 runtime = CaptionRuntime()
@@ -39,7 +40,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.7.0",
+    version="0.8.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -98,6 +99,12 @@ async def network_info(request: Request) -> NetworkInfo:
 async def get_state(request: Request) -> SessionState:
     _require_operator(request)
     return runtime.state
+
+
+@app.get("/api/v1/metrics", response_model=RealtimeMetrics)
+async def realtime_metrics(request: Request) -> RealtimeMetrics:
+    _require_operator(request)
+    return runtime.metrics_snapshot()
 
 
 @app.get("/api/v1/captions", response_model=list[TranscriptEvent])
