@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -12,10 +15,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: python -m pip install --upgrade pip
+      - name: Upgrade packaging bootstrap tools
+        run: python -m pip install --upgrade "pip>=26" "setuptools>=83" wheel
       - run: pip install -e '.[dev]'
-      - run: ruff check apps/server
-      - run: pytest
+      - name: Verify installed dependency consistency
+        run: python -m pip check
+      - name: Repository hygiene scan
+        run: python scripts/repo_hygiene.py
+      - name: Hugging Face snapshot access policy
+        run: python scripts/check_hf_snapshot_calls.py
+      - name: Python lint
+        run: ruff check apps/server scripts
+      - name: Backend tests and coverage gate
+        run: >-
+          pytest --strict-config --strict-markers
+          --cov=apps/server/langtextflow
+          --cov-report=term-missing
+          --cov-fail-under=60
+      - name: Python dependency vulnerability audit
+        run: pip-audit
+      - name: Python static security scan
+        run: bandit -r apps/server/langtextflow -ll -s B615
 
   frontend:
     runs-on: ubuntu-latest
@@ -27,5 +47,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install
-      - run: npm run build
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install pinned frontend dependencies
+        run: npm ci
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
+      - name: Build frontend
+        run: npm run build

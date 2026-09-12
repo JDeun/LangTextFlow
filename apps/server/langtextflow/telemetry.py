@@ -7,6 +7,9 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel
 
+MAX_ABS_PCM_SAMPLE = 4.0
+MAX_PCM_FRAME_BYTES = 1024 * 1024
+
 
 class RealtimeMetrics(BaseModel):
     audio_frames_received: int = 0
@@ -36,6 +39,35 @@ class RealtimeMetrics(BaseModel):
     last_event_at: datetime | None = None
 
 
+def decode_pcm_f32le(
+    pcm_f32le: bytes,
+    *,
+    max_frame_bytes: int = MAX_PCM_FRAME_BYTES,
+) -> array.array:
+    """Validate and decode one little-endian float32 PCM frame.
+
+    Browser audio should stay close to [-1, 1]. A wider absolute limit allows
+    modest DSP overshoot while rejecting NaN/Inf and absurd amplitudes before
+    they can poison RMS telemetry or downstream ASR buffers.
+    """
+
+    if not pcm_f32le or len(pcm_f32le) % 4:
+        raise ValueError("audio frame must contain little-endian float32 PCM")
+    if len(pcm_f32le) > max_frame_bytes:
+        raise ValueError("audio frame is larger than the configured safety limit")
+
+    samples = array.array("f")
+    samples.frombytes(pcm_f32le)
+    if sys.byteorder != "little":
+        samples.byteswap()
+    for sample in samples:
+        if not math.isfinite(sample):
+            raise ValueError("audio frame contains non-finite float32 samples")
+        if abs(sample) > MAX_ABS_PCM_SAMPLE:
+            raise ValueError("audio frame contains implausible float32 PCM amplitude")
+    return samples
+
+
 class EnergyVad:
     """Dependency-free activity detector used for monitoring, never audio dropping.
 
@@ -53,12 +85,7 @@ class EnergyVad:
         self._hangover = 0
 
     def analyze(self, pcm_f32le: bytes) -> tuple[float, bool]:
-        if not pcm_f32le or len(pcm_f32le) % 4:
-            raise ValueError("audio frame must contain little-endian float32 PCM")
-        samples = array.array("f")
-        samples.frombytes(pcm_f32le)
-        if sys.byteorder != "little":
-            samples.byteswap()
+        samples = decode_pcm_f32le(pcm_f32le)
         if not samples:
             return -120.0, False
 

@@ -8,18 +8,22 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from xml.etree import ElementTree
 
+from defusedxml import ElementTree
 from pypdf import PdfReader
 
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
 MAX_DOCUMENT_CHARS = 60_000
 MAX_DOCX_XML_BYTES = 20 * 1024 * 1024
+MAX_DOCX_TOTAL_UNCOMPRESSED_BYTES = 50 * 1024 * 1024
+MAX_DOCX_ENTRIES = 2000
+MAX_DOCX_COMPRESSION_RATIO = 200.0
 MAX_PDF_PAGES = 300
 
 _TEXT_EXTENSIONS = {".txt", ".md", ".markdown"}
 _SUPPORTED_EXTENSIONS = _TEXT_EXTENSIONS | {".pdf", ".docx"}
 _WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_FORBIDDEN_XML_MARKERS = (b"<!doctype", b"<!entity")
 
 
 @dataclass(frozen=True)
@@ -114,23 +118,48 @@ def _extract_pdf(data: bytes) -> str:
     return "\n\n".join(pages)
 
 
+def _validate_docx_archive(archive: zipfile.ZipFile) -> zipfile.ZipInfo:
+    entries = archive.infolist()
+    if len(entries) > MAX_DOCX_ENTRIES:
+        raise ValueError("DOCX contains too many ZIP entries")
+
+    total_uncompressed = 0
+    for info in entries:
+        if info.flag_bits & 0x1:
+            raise ValueError("encrypted DOCX files are not supported")
+        total_uncompressed += info.file_size
+        if total_uncompressed > MAX_DOCX_TOTAL_UNCOMPRESSED_BYTES:
+            raise ValueError("DOCX expands beyond the safe uncompressed-size limit")
+        if info.file_size:
+            ratio = info.file_size / max(1, info.compress_size)
+            if ratio > MAX_DOCX_COMPRESSION_RATIO:
+                raise ValueError("DOCX contains an unsafe compression ratio")
+
+    try:
+        document = archive.getinfo("word/document.xml")
+    except KeyError as exc:
+        raise ValueError("DOCX is missing word/document.xml") from exc
+    if document.file_size > MAX_DOCX_XML_BYTES:
+        raise ValueError("DOCX document XML is too large to extract safely")
+    return document
+
+
 def _extract_docx(data: bytes) -> str:
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            try:
-                info = archive.getinfo("word/document.xml")
-            except KeyError as exc:
-                raise ValueError("DOCX is missing word/document.xml") from exc
-            if info.file_size > MAX_DOCX_XML_BYTES:
-                raise ValueError("DOCX document XML is too large to extract safely")
+            info = _validate_docx_archive(archive)
             xml_bytes = archive.read(info)
     except zipfile.BadZipFile as exc:
         raise ValueError("DOCX file is not a valid Office document") from exc
 
+    lowered = xml_bytes.lower()
+    if any(marker in lowered for marker in _FORBIDDEN_XML_MARKERS):
+        raise ValueError("DOCX XML contains forbidden DTD/entity declarations")
+
     try:
         root = ElementTree.fromstring(xml_bytes)
-    except ElementTree.ParseError as exc:
-        raise ValueError("DOCX document XML is malformed") from exc
+    except (ElementTree.ParseError, ValueError) as exc:
+        raise ValueError("DOCX document XML is malformed or unsafe") from exc
 
     paragraphs: list[str] = []
     for paragraph in root.iter(f"{_WORD_NS}p"):

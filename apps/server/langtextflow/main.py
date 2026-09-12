@@ -32,7 +32,7 @@ from .models import (
     StartSessionRequest,
     TranscriptEvent,
 )
-from .network import is_loopback_client, local_ipv4_addresses
+from .network import is_loopback_client, local_ipv4_addresses, websocket_origin_allowed
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
@@ -86,9 +86,17 @@ def _require_operator(request: Request) -> None:
         raise HTTPException(status_code=403, detail="operator API is local-only")
 
 
+def _websocket_origin_allowed(websocket: WebSocket) -> bool:
+    return websocket_origin_allowed(
+        websocket.headers.get("origin"),
+        allowed_origins=settings.cors_origins,
+        allowed_origin_regex=settings.cors_origin_regex,
+    )
+
+
 def _operator_websocket_allowed(websocket: WebSocket) -> bool:
     host = websocket.client.host if websocket.client else None
-    return is_loopback_client(host)
+    return is_loopback_client(host) and _websocket_origin_allowed(websocket)
 
 
 def _audience_rate_limit_error(retry_after: int) -> HTTPException:
@@ -470,7 +478,8 @@ async def audience_captions(request: Request, join_code: str) -> list[Transcript
 
 
 async def _caption_socket(websocket: WebSocket) -> None:
-    await runtime.hub.connect(websocket)
+    if not await runtime.hub.connect(websocket):
+        return
     try:
         await websocket.send_json(
             {
@@ -479,24 +488,33 @@ async def _caption_socket(websocket: WebSocket) -> None:
             }
         )
         while True:
-            await websocket.receive_text()
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            await websocket.close(code=4400, reason="caption socket is server-push only")
+            break
     except WebSocketDisconnect:
+        pass
+    finally:
         runtime.hub.disconnect(websocket)
-    except Exception:
-        runtime.hub.disconnect(websocket)
-        raise
 
 
 @app.websocket("/ws/captions")
 async def caption_socket(websocket: WebSocket) -> None:
     if not _operator_websocket_allowed(websocket):
-        await websocket.close(code=4403, reason="operator socket is local-only")
+        await websocket.close(
+            code=4403,
+            reason="operator socket is local-only or origin is not allowed",
+        )
         return
     await _caption_socket(websocket)
 
 
 @app.websocket("/ws/audience/{join_code}")
 async def audience_caption_socket(websocket: WebSocket, join_code: str) -> None:
+    if not _websocket_origin_allowed(websocket):
+        await websocket.close(code=4403, reason="websocket origin is not allowed")
+        return
     host = websocket.client.host if websocket.client else None
     retry_after = audience_join_limiter.retry_after(host)
     if retry_after is not None:
@@ -518,7 +536,10 @@ async def audience_caption_socket(websocket: WebSocket, join_code: str) -> None:
 @app.websocket("/ws/audio")
 async def audio_socket(websocket: WebSocket) -> None:
     if not _operator_websocket_allowed(websocket):
-        await websocket.close(code=4403, reason="operator audio socket is local-only")
+        await websocket.close(
+            code=4403,
+            reason="operator audio socket is local-only or origin is not allowed",
+        )
         return
     try:
         info = runtime.audio_info()
@@ -542,6 +563,9 @@ async def audio_socket(websocket: WebSocket) -> None:
                 await runtime.feed_audio(frame)
             elif text == "end":
                 await runtime.end_audio()
+                break
+            else:
+                await websocket.close(code=4400, reason="invalid audio control message")
                 break
     except WebSocketDisconnect:
         pass
