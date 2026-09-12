@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
+import "./contextDocuments.css";
 import type { ReferenceDocument } from "./types";
 
 const MAX_DOCUMENTS = 4;
