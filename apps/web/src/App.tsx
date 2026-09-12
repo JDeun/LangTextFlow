@@ -132,8 +132,8 @@ function OperatorApp() {
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
   const [hotwords, setHotwords] = useState("요한복음, 로마서, 복음, 은혜, 칭의, 성화");
-  const [engine, setEngine] = useState("mock");
-  const [translationProvider, setTranslationProvider] = useState("demo");
+  const [engine, setEngine] = useState("auto");
+  const [translationProvider, setTranslationProvider] = useState("ollama");
   const [translationModel, setTranslationModel] = useState("translategemma:4b");
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [deviceId, setDeviceId] = useState("");
@@ -145,6 +145,7 @@ function OperatorApp() {
   const latest = segments.at(-1);
   const recent = useMemo(() => segments.slice(-6).reverse(), [segments]);
   const historyRefreshToken = `${session?.session_id ?? "none"}:${running}`;
+  const needsAudio = engine !== "mock";
 
   function changeEngine(nextEngine: string) {
     setEngine(nextEngine);
@@ -167,7 +168,7 @@ function OperatorApp() {
     setError("");
     try {
       let selectedDevice = deviceId;
-      if (engine === "vibevoice" && !selectedDevice) {
+      if (needsAudio && !selectedDevice) {
         const result = await requestAudioInputs();
         setDevices(result);
         selectedDevice = result[0]?.deviceId || "";
@@ -248,7 +249,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P1C</span>
+            <span className="beta">P1D</span>
           </div>
 
           <label>
@@ -321,9 +322,14 @@ function OperatorApp() {
               onChange={(event) => changeEngine(event.target.value)}
               disabled={running}
             >
-              <option value="mock">Demo engine</option>
+              <option value="auto">Auto · VibeVoice → faster-whisper</option>
               <option value="vibevoice">VibeVoice Streaming (local sidecar)</option>
+              <option value="faster-whisper">faster-whisper (local fallback)</option>
+              <option value="mock">Demo engine</option>
             </select>
+            {engine === "auto" && (
+              <small>VibeVoice 시작 실패 시 로컬 faster-whisper로 자동 전환합니다.</small>
+            )}
           </label>
           <label>
             번역 엔진
@@ -349,7 +355,7 @@ function OperatorApp() {
             </label>
           )}
 
-          {engine === "vibevoice" && (
+          {needsAudio && (
             <div className="device-block">
               <label>
                 오디오 입력

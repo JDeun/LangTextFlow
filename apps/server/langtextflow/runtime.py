@@ -4,7 +4,13 @@ import time
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from .asr import AsrEngine, MockStreamingAsrEngine, VibeVoiceStreamingAsrEngine
+from .asr import (
+    AsrEngine,
+    FasterWhisperStreamingAsrEngine,
+    MockStreamingAsrEngine,
+    StartupFallbackAsrEngine,
+    VibeVoiceStreamingAsrEngine,
+)
 from .config import get_settings
 from .hub import WebSocketHub
 from .models import (
@@ -128,15 +134,39 @@ class CaptionRuntime:
                 self._persistence_queue.task_done()
                 self._refresh_queue_metrics()
 
+    def _vibevoice_engine(self) -> VibeVoiceStreamingAsrEngine:
+        return VibeVoiceStreamingAsrEngine(
+            self.pipeline.ingest,
+            base_url=self.settings.vibevoice_url,
+            queue_chunks=self.settings.audio_queue_chunks,
+            max_frame_bytes=self.settings.max_audio_frame_bytes,
+        )
+
+    def _faster_whisper_engine(self) -> FasterWhisperStreamingAsrEngine:
+        return FasterWhisperStreamingAsrEngine(
+            self.pipeline.ingest,
+            model=self.settings.faster_whisper_model,
+            device=self.settings.faster_whisper_device,
+            compute_type=self.settings.faster_whisper_compute_type,
+            chunk_seconds=self.settings.faster_whisper_chunk_seconds,
+            queue_chunks=self.settings.audio_queue_chunks,
+            max_frame_bytes=self.settings.max_audio_frame_bytes,
+        )
+
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
         if request.engine == "mock":
             return MockStreamingAsrEngine(self.pipeline.ingest)
         if request.engine == "vibevoice":
-            return VibeVoiceStreamingAsrEngine(
+            return self._vibevoice_engine()
+        if request.engine == "faster-whisper":
+            return self._faster_whisper_engine()
+        if request.engine == "auto":
+            return StartupFallbackAsrEngine(
                 self.pipeline.ingest,
-                base_url=self.settings.vibevoice_url,
-                queue_chunks=self.settings.audio_queue_chunks,
-                max_frame_bytes=self.settings.max_audio_frame_bytes,
+                [
+                    ("vibevoice", self._vibevoice_engine()),
+                    ("faster-whisper", self._faster_whisper_engine()),
+                ],
             )
         raise ValueError(f"unsupported engine: {request.engine}")
 
@@ -199,6 +229,18 @@ class CaptionRuntime:
             self.state.persistence_error = str(exc)
         try:
             await engine.start(request)
+            active_provider = getattr(engine, "active_provider", None)
+            if active_provider:
+                self.state.engine = str(active_provider)
+                if self.state.session_id:
+                    try:
+                        await asyncio.to_thread(
+                            self.history.update_engine,
+                            self.state.session_id,
+                            self.state.engine,
+                        )
+                    except Exception as exc:
+                        self.state.persistence_error = str(exc)
             self.state.audio_sample_rate = engine.sample_rate
             self._refresh_queue_metrics()
         except Exception:
