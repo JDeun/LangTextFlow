@@ -1,0 +1,5 @@
+{"id":"church-ko-john-alias","source_language":"ko","source_text":"오늘 요한 보금 3장 말씀입니다","expected_text":"오늘 요한복음 3장 말씀입니다","critical_tokens":["요한복음","3장"],"context":{"title":"교회 집회","preset":"church"}}
+{"id":"church-ko-already-correct","source_language":"ko","source_text":"복음은 하나님의 은혜를 전합니다","expected_text":"복음은 하나님의 은혜를 전합니다","critical_tokens":["복음","은혜"],"context":{"title":"교회 집회","preset":"church"}}
+{"id":"church-ko-romans-reference","source_language":"ko","source_text":"로마 써 8장 1절을 읽겠습니다","expected_text":"로마서 8장 1절을 읽겠습니다","critical_tokens":["로마서","8장","1절"],"context":{"title":"성경 공부","preset":"church"}}
+{"id":"church-ko-negation-regression","source_language":"ko","source_text":"구원은 우리의 행위로 얻는 것이 아닙니다","expected_text":"구원은 우리의 행위로 얻는 것이 아닙니다","critical_tokens":["아닙니다"],"context":{"title":"복음 집회","preset":"church"}}
+{"id":"church-ko-context-needed","source_language":"ko","source_text":"요한 보끔 3장 16절 말씀입니다","expected_text":"요한복음 3장 16절 말씀입니다","critical_tokens":["요한복음","3장","16절"],"context":{"title":"요한복음 3장","preset":"church","glossary":[{"term":"요한복음","aliases":["요한 보금"],"category":"bible","presets":["church"]}],"reference_text":"오늘 본문은 요한복음 3장 16절입니다."}}
