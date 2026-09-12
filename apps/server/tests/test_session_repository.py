@@ -1,3 +1,4 @@
+import sqlite3
 from datetime import UTC, datetime
 
 from langtextflow.models import (
@@ -87,6 +88,7 @@ def test_session_history_keeps_latest_segment_version(tmp_path) -> None:
     sessions = repository.list_sessions()
     assert sessions[0].segment_count == 1
     assert sessions[0].title == "Mission Meeting"
+    assert sessions[0].notes == ""
 
 
 def test_session_history_can_record_resolved_asr_provider(tmp_path) -> None:
@@ -101,6 +103,55 @@ def test_session_history_can_record_resolved_asr_provider(tmp_path) -> None:
 
     assert detail is not None
     assert detail.engine == "faster-whisper"
+
+
+def test_session_metadata_edit_preserves_original_context_snapshot(tmp_path) -> None:
+    repository = SessionRepository(str(tmp_path / "langtextflow.db"))
+    repository.initialize()
+    repository.create_session(_state(), _request())
+
+    assert repository.update_metadata(
+        "session-1",
+        title="2026 Mission Meeting - reviewed",
+        notes="John 3:16 translation checked. Follow up on speaker label.",
+    )
+
+    detail = repository.get_session("session-1")
+    assert detail is not None
+    assert detail.title == "2026 Mission Meeting - reviewed"
+    assert detail.notes.startswith("John 3:16")
+    assert detail.context.title == "Mission Meeting"
+
+
+def test_initialize_migrates_existing_sessions_table_with_notes(tmp_path) -> None:
+    database_path = tmp_path / "legacy.db"
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE sessions (
+                session_id TEXT PRIMARY KEY,
+                join_code TEXT NOT NULL,
+                title TEXT NOT NULL,
+                presenter TEXT,
+                preset TEXT NOT NULL,
+                source_language TEXT NOT NULL,
+                target_languages_json TEXT NOT NULL,
+                engine TEXT NOT NULL,
+                translation_provider TEXT NOT NULL,
+                translation_model TEXT,
+                context_json TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                ended_at TEXT
+            )
+            """
+        )
+
+    repository = SessionRepository(str(database_path))
+    repository.initialize()
+
+    with sqlite3.connect(database_path) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
+    assert "notes" in columns
 
 
 def test_session_end_and_delete_cascades_transcript(tmp_path) -> None:
