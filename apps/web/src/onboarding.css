@@ -1,3 +1,13 @@
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.setup-button {
+  white-space: nowrap;
+}
+
 .onboarding-backdrop {
   position: fixed;
   inset: 0;
@@ -340,6 +350,12 @@
 }
 
 @media (max-width: 640px) {
+  .topbar-actions {
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 8px;
+  }
+
   .onboarding-backdrop {
     padding: 10px;
   }
