@@ -69,7 +69,8 @@ def extract_context_document(
     if not normalized:
         if suffix == ".pdf":
             raise ValueError(
-                "PDF has no extractable text; scanned/image-only PDFs require OCR, which is not enabled"
+                "PDF has no extractable text; scanned/image-only PDFs require OCR, "
+                "which is not enabled"
             )
         raise ValueError("context document contains no extractable text")
 
