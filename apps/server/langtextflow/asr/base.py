@@ -36,6 +36,11 @@ class AsrEngine(ABC):
     def queue_capacity(self) -> int:
         return 0
 
+    @property
+    def failure(self) -> str | None:
+        """Return the current fatal provider failure, if any."""
+        return None
+
     @abstractmethod
     async def start(self, request: StartSessionRequest) -> None: ...
 
