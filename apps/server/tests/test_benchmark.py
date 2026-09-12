@@ -63,7 +63,8 @@ def test_text_quality_metrics_are_deterministic() -> None:
     assert normalize_text("  요한복음\n3장  ") == "요한복음 3장"
     assert error_rate(["a", "b", "c"], ["a", "x", "c"]) == pytest.approx(1 / 3)
 
-    metrics = quality_metrics("오늘 우리는 요한복음 3장을 봅니다", "오늘 우리는 요한복음 3장을 봅니다")
+    sentence = "오늘 우리는 요한복음 3장을 봅니다"
+    metrics = quality_metrics(sentence, sentence)
     assert metrics == {"cer": 0.0, "wer": 0.0}
 
     changed = quality_metrics("John chapter three", "John chapter four")
