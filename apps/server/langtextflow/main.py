@@ -470,7 +470,8 @@ async def audience_captions(request: Request, join_code: str) -> list[Transcript
 
 
 async def _caption_socket(websocket: WebSocket) -> None:
-    await runtime.hub.connect(websocket)
+    if not await runtime.hub.connect(websocket):
+        return
     try:
         await websocket.send_json(
             {
@@ -479,12 +480,15 @@ async def _caption_socket(websocket: WebSocket) -> None:
             }
         )
         while True:
-            await websocket.receive_text()
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            await websocket.close(code=4400, reason="caption socket is server-push only")
+            break
     except WebSocketDisconnect:
+        pass
+    finally:
         runtime.hub.disconnect(websocket)
-    except Exception:
-        runtime.hub.disconnect(websocket)
-        raise
 
 
 @app.websocket("/ws/captions")
@@ -542,6 +546,9 @@ async def audio_socket(websocket: WebSocket) -> None:
                 await runtime.feed_audio(frame)
             elif text == "end":
                 await runtime.end_audio()
+                break
+            else:
+                await websocket.close(code=4400, reason="invalid audio control message")
                 break
     except WebSocketDisconnect:
         pass
