@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     ollama_correction_model: str = "qwen3.5:4b"
     correction_timeout_seconds: float = 4.0
     ollama_translation_model: str = "translategemma:4b"
+    openai_compatible_url: str = "http://127.0.0.1:1234/v1"
+    openai_compatible_api_key: str = ""
+    openai_compatible_translation_model: str = ""
+    openai_compatible_timeout_seconds: float = 20.0
 
     model_config = SettingsConfigDict(
         env_prefix="LANGTEXTFLOW_",

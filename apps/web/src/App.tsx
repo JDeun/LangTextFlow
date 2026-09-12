@@ -70,6 +70,10 @@ function captionLanguages(sourceLanguage: string, targetLanguages: string[]) {
   return [sourceLanguage, ...targetLanguages.filter((code) => code !== sourceLanguage)];
 }
 
+function translationProviderUsesModel(provider: string) {
+  return provider === "ollama" || provider === "openai-compatible";
+}
+
 function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode: boolean }) {
   const { connected, segments } = useCaptionSocket(`/ws/audience/${encodeURIComponent(joinCode)}`);
   const [session, setSession] = useState<AudienceSessionView | null>(null);
@@ -268,7 +272,7 @@ function OperatorApp() {
       engine,
       translation_provider: translationProvider,
     });
-    if (translationProvider === "ollama" && translationModel.trim()) {
+    if (translationProviderUsesModel(translationProvider) && translationModel.trim()) {
       query.set("translation_model", translationModel.trim());
     }
     const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
@@ -307,7 +311,9 @@ function OperatorApp() {
           correction_provider: correctionProvider,
           correction_model: correctionProvider === "ollama" ? correctionModel : null,
           translation_provider: translationProvider,
-          translation_model: translationProvider === "ollama" ? translationModel : null,
+          translation_model: translationProviderUsesModel(translationProvider)
+            ? translationModel
+            : null,
           context: {
             title,
             presenter: presenter || null,
@@ -528,18 +534,23 @@ function OperatorApp() {
             >
               {engine === "mock" && <option value="demo">Demo translator</option>}
               <option value="ollama">Ollama (local)</option>
+              <option value="openai-compatible">OpenAI-compatible API</option>
               <option value="none">번역 사용 안 함</option>
             </select>
           </label>
-          {translationProvider === "ollama" && (
+          {translationProviderUsesModel(translationProvider) && (
             <label>
-              Ollama 번역 모델
+              {translationProvider === "ollama" ? "Ollama 번역 모델" : "API 번역 모델 ID"}
               <input
                 value={translationModel}
                 onChange={(event) => setTranslationModel(event.target.value)}
                 disabled={running}
               />
-              <small>권장 시작점: translategemma:4b</small>
+              <small>
+                {translationProvider === "ollama"
+                  ? "권장 시작점: translategemma:4b"
+                  : "서버의 /v1/models가 반환하는 정확한 model id를 입력하세요."}
+              </small>
             </label>
           )}
 

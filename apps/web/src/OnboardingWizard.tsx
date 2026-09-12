@@ -14,6 +14,10 @@ const PRESETS: Array<[ProductPreset, string]> = [
   ["lecture", "강의"],
 ];
 
+function providerUsesModel(provider: string) {
+  return provider === "ollama" || provider === "openai-compatible";
+}
+
 interface OnboardingWizardProps {
   open: boolean;
   engine: string;
@@ -68,7 +72,7 @@ export function OnboardingWizard({
         engine,
         translation_provider: translationProvider,
       });
-      if (translationProvider === "ollama" && translationModel.trim()) {
+      if (providerUsesModel(translationProvider) && translationModel.trim()) {
         query.set("translation_model", translationModel.trim());
       }
       const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
@@ -181,7 +185,7 @@ export function OnboardingWizard({
             <div className="onboarding-copy">
               <h2>실시간 자막을 시작하기 전에 필요한 항목을 확인합니다.</h2>
               <p>
-                음성 인식, 로컬 번역, 마이크와 기본 언어를 순서대로 점검합니다.
+                음성 인식, 번역, 마이크와 기본 언어를 순서대로 점검합니다.
                 설치되어 있는 구성요소를 기준으로 안전한 기본 설정도 제안합니다.
               </p>
               <div className="onboarding-note">
@@ -193,7 +197,7 @@ export function OnboardingWizard({
           {step === 1 && (
             <div className="onboarding-copy">
               <h2>시스템 구성</h2>
-              {loading && <p>로컬 ASR/번역 환경을 확인하는 중입니다…</p>}
+              {loading && <p>ASR/번역 환경을 확인하는 중입니다…</p>}
               {error && <div className="onboarding-error">{error}</div>}
               {report && (
                 <>
@@ -328,17 +332,21 @@ export function OnboardingWizard({
                     onChange={(event) => onTranslationProviderChange(event.target.value)}
                   >
                     <option value="ollama">Ollama</option>
+                    <option value="openai-compatible">OpenAI-compatible API</option>
                     <option value="none">번역 사용 안 함</option>
                     {engine === "mock" && <option value="demo">Demo translator</option>}
                   </select>
                 </label>
-                {translationProvider === "ollama" && (
+                {providerUsesModel(translationProvider) && (
                   <label>
                     번역 모델
                     <input
                       value={translationModel}
                       onChange={(event) => onTranslationModelChange(event.target.value)}
                     />
+                    {translationProvider === "openai-compatible" && (
+                      <small>/v1/models가 반환하는 정확한 model id를 입력하세요.</small>
+                    )}
                   </label>
                 )}
               </div>

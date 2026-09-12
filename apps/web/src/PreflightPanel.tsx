@@ -25,6 +25,10 @@ function checkSymbol(check: PreflightCheck) {
   return "×";
 }
 
+function providerUsesModel(provider: string) {
+  return provider === "ollama" || provider === "openai-compatible";
+}
+
 export function PreflightPanel({
   engine,
   translationProvider,
@@ -46,7 +50,7 @@ export function PreflightPanel({
         engine,
         translation_provider: translationProvider,
       });
-      if (translationProvider === "ollama" && translationModel.trim()) {
+      if (providerUsesModel(translationProvider) && translationModel.trim()) {
         query.set("translation_model", translationModel.trim());
       }
       const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
@@ -109,7 +113,7 @@ export function PreflightPanel({
     if (!recommendation?.engine) return false;
     if (recommendation.engine !== engine) return true;
     if (recommendation.translation_provider !== translationProvider) return true;
-    if (recommendation.translation_provider === "ollama") {
+    if (providerUsesModel(recommendation.translation_provider)) {
       return recommendation.translation_model !== translationModel.trim();
     }
     return false;
