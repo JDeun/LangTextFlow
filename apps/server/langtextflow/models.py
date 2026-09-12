@@ -39,7 +39,7 @@ class TranscriptEvent(BaseModel):
     emitted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     @model_validator(mode="after")
-    def validate_commit_state(self) -> "TranscriptEvent":
+    def validate_commit_state(self) -> TranscriptEvent:
         if self.committed and self.stage is not CaptionStage.COMMITTED:
             raise ValueError("committed=true requires stage=committed")
         if self.end_ms is not None and self.end_ms < self.start_ms:
