@@ -103,11 +103,6 @@ class CaptionRuntime:
         self.store.clear()
         await self.pipeline.start(request)
         engine = self._build_engine(request)
-        try:
-            await engine.start(request)
-        except Exception:
-            await self.pipeline.stop()
-            raise
         self.engine = engine
         self.state = SessionState(
             session_id=str(uuid4()),
@@ -127,9 +122,19 @@ class CaptionRuntime:
             await asyncio.to_thread(self.history.create_session, self.state, request)
         except Exception as exc:
             self.state.persistence_error = str(exc)
+        try:
+            await engine.start(request)
+        except Exception:
+            self.state.running = False
+            self.engine = None
+            await self.pipeline.stop()
+            if self.state.session_id and self.state.persistence_error is None:
+                await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
+            raise
         return self.state
 
     async def stop(self) -> SessionState:
+        was_running = self.state.running
         session_id = self.state.session_id
         if self.engine is not None:
             await self.engine.stop()
@@ -137,7 +142,7 @@ class CaptionRuntime:
         await self.pipeline.stop()
         if self._persistence_task is not None:
             await self._persistence_queue.join()
-        if session_id and self._persistence_task is not None:
+        if was_running and session_id and self._persistence_task is not None:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception as exc:
