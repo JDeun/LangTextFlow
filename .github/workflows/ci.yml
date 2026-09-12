@@ -22,16 +22,26 @@ jobs:
         run: python -m pip check
       - name: Repository hygiene scan
         run: python scripts/repo_hygiene.py
+      - name: Markdown link integrity
+        run: python scripts/check_markdown_links.py
       - name: Hugging Face snapshot access policy
         run: python scripts/check_hf_snapshot_calls.py
       - name: Python lint
         run: ruff check apps/server scripts
+      - name: Adversarial boundary regression gate
+        run: >-
+          pytest -q
+          apps/server/tests/test_adversarial_inputs.py
+          apps/server/tests/test_adversarial_schema.py
+          apps/server/tests/test_api_boundaries.py
+          apps/server/tests/test_malformed_corpus.py
+          apps/server/tests/test_runtime_lifecycle.py
       - name: Backend tests and coverage gate
         run: >-
           pytest --strict-config --strict-markers
           --cov=apps/server/langtextflow
           --cov-report=term-missing
-          --cov-fail-under=60
+          --cov-fail-under=70
       - name: Python dependency vulnerability audit
         run: pip-audit
       - name: Python static security scan
@@ -53,5 +63,5 @@ jobs:
         run: npm ci
       - name: Audit frontend dependencies
         run: npm audit --audit-level=high
-      - name: Build frontend
+      - name: Type-check and production build
         run: npm run build
