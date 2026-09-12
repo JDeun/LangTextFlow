@@ -18,7 +18,13 @@ from .benchmark import (
     quality_metrics,
 )
 from .config import get_settings
-from .models import CaptionStage, ProductPreset, SessionContext, StartSessionRequest, TranscriptEvent
+from .models import (
+    CaptionStage,
+    ProductPreset,
+    SessionContext,
+    StartSessionRequest,
+    TranscriptEvent,
+)
 from .runtime import CaptionRuntime
 from .telemetry import RealtimeMetrics
 
