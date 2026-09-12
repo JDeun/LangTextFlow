@@ -168,20 +168,19 @@ class ModelSetupManager:
         )
         try:
             timeout = httpx.Timeout(connect=5.0, read=None, write=30.0, pool=5.0)
-            async with self._client(timeout=timeout) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self.settings.ollama_url.rstrip('/')}/api/pull",
-                    json={"model": job.model, "stream": True},
-                ) as response:
-                    response.raise_for_status()
-                    async for line in response.aiter_lines():
-                        if not line.strip():
-                            continue
-                        payload = _parse_progress_line(line)
-                        if payload is None:
-                            continue
-                        await self._apply_ollama_progress(job_id, payload)
+            async with self._client(timeout=timeout) as client, client.stream(
+                "POST",
+                f"{self.settings.ollama_url.rstrip('/')}/api/pull",
+                json={"model": job.model, "stream": True},
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.strip():
+                        continue
+                    payload = _parse_progress_line(line)
+                    if payload is None:
+                        continue
+                    await self._apply_ollama_progress(job_id, payload)
 
             await self._update_job(
                 job_id,
