@@ -25,6 +25,7 @@ _WORD_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 @dataclass(frozen=True)
 class ExtractedDocument:
     text: str
+    size_bytes: int
     character_count: int
     truncated: bool
     sha256: str
@@ -77,6 +78,7 @@ def extract_context_document(
     text = normalized[:max_chars].rstrip() if truncated else normalized
     return ExtractedDocument(
         text=text,
+        size_bytes=len(data),
         character_count=character_count,
         truncated=truncated,
         sha256=hashlib.sha256(data).hexdigest(),
