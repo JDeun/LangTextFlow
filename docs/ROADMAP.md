@@ -125,9 +125,13 @@
 - [x] 현재 선택 구성 기준 blocking preflight
 - [x] 설치/실행 가능한 provider 기반 권장 구성 + one-click 적용
 - [x] 세션 시작 직전 blocking preflight guard
+- [x] Ollama translation model pull/status/cancel UI
+- [x] faster-whisper package와 model cache readiness 분리
+- [x] faster-whisper model prefetch/cache + cancellable setup job
+- [x] onboarding / preflight에서 누락 model repair action
 - [ ] VibeVoice sidecar 자동 설치/실행
-- [ ] faster-whisper 모델 자동 다운로드/검증
-- [ ] 번역 모델 자동 설치/실행
+- [ ] faster-whisper runtime package 자동 설치/복구
+- [ ] Ollama application 자체 설치/실행
 - [ ] 실제 benchmark 기반 ASR model/device/compute 추천 preset
 - [ ] 다중 target language 운영자 UX
 - [ ] 글꼴/크기/행수/자막 유지시간 설정

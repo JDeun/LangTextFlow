@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
+import { ModelSetupControl } from "./ModelSetupControl";
 import type {
   PreflightCheck,
   RecommendedConfiguration,
@@ -57,6 +58,10 @@ export function PreflightPanel({
     }
   }, [engine, translationModel, translationProvider]);
 
+  const handleModelCompleted = useCallback(() => {
+    void load();
+  }, [load]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
     return () => window.clearTimeout(timer);
@@ -108,6 +113,33 @@ export function PreflightPanel({
     }
     return false;
   }, [engine, report, translationModel, translationProvider]);
+
+  const ollamaReady = report?.checks.some(
+    (check) => check.id === "ollama" && check.status === "ready",
+  ) ?? false;
+  const translationModelMissing = report?.checks.some(
+    (check) => check.id === "translation-model" && check.status === "missing",
+  ) ?? false;
+  const canPrepareTranslationModel =
+    translationProvider === "ollama"
+    && Boolean(translationModel.trim())
+    && ollamaReady
+    && translationModelMissing;
+
+  const whisperPackageReady = report?.checks.some(
+    (check) => check.id === "faster-whisper" && check.status === "ready",
+  ) ?? false;
+  const whisperModelCheck = report?.checks.find(
+    (check) => check.id === "faster-whisper-model",
+  );
+  const whisperModel = typeof whisperModelCheck?.details.model === "string"
+    ? whisperModelCheck.details.model
+    : "";
+  const canPrepareWhisperModel =
+    (engine === "auto" || engine === "faster-whisper")
+    && whisperPackageReady
+    && whisperModelCheck?.status === "missing"
+    && Boolean(whisperModel);
 
   if (!open) {
     return (
@@ -162,6 +194,38 @@ export function PreflightPanel({
               <button onClick={() => onApplyRecommendation(report.recommended)}>
                 권장 구성 적용
               </button>
+            </div>
+          )}
+
+          {canPrepareWhisperModel && (
+            <div className="preflight-repair">
+              <div>
+                <small>Auto fallback 준비</small>
+                <strong>{whisperModel} ASR 모델 cache가 없습니다.</strong>
+                <span>세션 전에 다운로드하면 failover 시 다운로드 지연 없이 전환할 수 있습니다.</span>
+              </div>
+              <ModelSetupControl
+                provider="faster-whisper"
+                model={whisperModel}
+                enabled
+                onCompleted={handleModelCompleted}
+              />
+            </div>
+          )}
+
+          {canPrepareTranslationModel && (
+            <div className="preflight-repair">
+              <div>
+                <small>자동 해결 가능</small>
+                <strong>번역 모델이 아직 없습니다.</strong>
+                <span>실행 중인 Ollama를 통해 선택한 모델을 내려받을 수 있습니다.</span>
+              </div>
+              <ModelSetupControl
+                provider="ollama"
+                model={translationModel}
+                enabled
+                onCompleted={handleModelCompleted}
+              />
             </div>
           )}
 

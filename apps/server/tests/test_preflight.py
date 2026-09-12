@@ -21,12 +21,14 @@ def base_checks(
     *,
     vibevoice: CheckStatus = CheckStatus.MISSING,
     faster_whisper: CheckStatus = CheckStatus.MISSING,
+    whisper_model: CheckStatus = CheckStatus.MISSING,
     ollama: CheckStatus = CheckStatus.MISSING,
     model: CheckStatus = CheckStatus.MISSING,
 ) -> list[PreflightCheck]:
     return [
         check("vibevoice", vibevoice),
         check("faster-whisper", faster_whisper),
+        check("faster-whisper-model", whisper_model),
         check("ollama", ollama),
         check("translation-model", model),
     ]
@@ -35,6 +37,7 @@ def base_checks(
 def test_auto_asr_requires_only_one_ready_provider() -> None:
     checks = base_checks(
         faster_whisper=CheckStatus.READY,
+        whisper_model=CheckStatus.READY,
         ollama=CheckStatus.READY,
         model=CheckStatus.READY,
     )
@@ -63,9 +66,41 @@ def test_auto_asr_blocks_when_both_providers_are_missing() -> None:
     assert blocking == ["vibevoice", "faster-whisper"]
 
 
+def test_explicit_whisper_requires_cached_model() -> None:
+    checks = base_checks(
+        faster_whisper=CheckStatus.READY,
+        whisper_model=CheckStatus.MISSING,
+    )
+
+    blocking = _blocking_checks(
+        checks,
+        engine="faster-whisper",
+        translation_provider="none",
+    )
+
+    assert blocking == ["faster-whisper-model"]
+
+
+def test_auto_can_start_on_vibevoice_without_whisper_cache() -> None:
+    checks = base_checks(
+        vibevoice=CheckStatus.READY,
+        faster_whisper=CheckStatus.READY,
+        whisper_model=CheckStatus.MISSING,
+    )
+
+    blocking = _blocking_checks(
+        checks,
+        engine="auto",
+        translation_provider="none",
+    )
+
+    assert blocking == []
+
+
 def test_explicit_vibevoice_does_not_accept_whisper_as_substitute() -> None:
     checks = base_checks(
         faster_whisper=CheckStatus.READY,
+        whisper_model=CheckStatus.READY,
         ollama=CheckStatus.READY,
         model=CheckStatus.READY,
     )
@@ -112,6 +147,7 @@ def test_recommendation_prefers_auto_when_both_asr_providers_are_ready() -> None
         base_checks(
             vibevoice=CheckStatus.READY,
             faster_whisper=CheckStatus.READY,
+            whisper_model=CheckStatus.READY,
             ollama=CheckStatus.READY,
             model=CheckStatus.READY,
         ),
@@ -125,13 +161,29 @@ def test_recommendation_prefers_auto_when_both_asr_providers_are_ready() -> None
 
 def test_recommendation_uses_whisper_without_vibevoice() -> None:
     recommendation = _recommended_configuration(
-        base_checks(faster_whisper=CheckStatus.READY),
+        base_checks(
+            faster_whisper=CheckStatus.READY,
+            whisper_model=CheckStatus.READY,
+        ),
         model="translategemma:4b",
     )
 
     assert recommendation.engine == "faster-whisper"
     assert recommendation.translation_provider == "none"
     assert recommendation.translation_model is None
+
+
+def test_recommendation_uses_vibevoice_if_whisper_cache_is_missing() -> None:
+    recommendation = _recommended_configuration(
+        base_checks(
+            vibevoice=CheckStatus.READY,
+            faster_whisper=CheckStatus.READY,
+            whisper_model=CheckStatus.MISSING,
+        ),
+        model="translategemma:4b",
+    )
+
+    assert recommendation.engine == "vibevoice"
 
 
 def test_recommendation_does_not_suggest_demo_when_no_real_asr_exists() -> None:

@@ -16,6 +16,34 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 
+_FASTER_WHISPER_REPOS = {
+    "tiny.en": "Systran/faster-whisper-tiny.en",
+    "tiny": "Systran/faster-whisper-tiny",
+    "base.en": "Systran/faster-whisper-base.en",
+    "base": "Systran/faster-whisper-base",
+    "small.en": "Systran/faster-whisper-small.en",
+    "small": "Systran/faster-whisper-small",
+    "medium.en": "Systran/faster-whisper-medium.en",
+    "medium": "Systran/faster-whisper-medium",
+    "large-v1": "Systran/faster-whisper-large-v1",
+    "large-v2": "Systran/faster-whisper-large-v2",
+    "large-v3": "Systran/faster-whisper-large-v3",
+    "large": "Systran/faster-whisper-large-v3",
+    "distil-large-v2": "Systran/faster-distil-whisper-large-v2",
+    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
+    "distil-small.en": "Systran/faster-distil-whisper-small.en",
+    "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
+    "distil-large-v3.5": "distil-whisper/distil-large-v3.5-ct2",
+    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
+}
+_WHISPER_REQUIRED_FILES = {
+    "config.json",
+    "model.bin",
+    "preprocessor_config.json",
+    "tokenizer.json",
+}
+
 
 class CheckStatus(StrEnum):
     READY = "ready"
@@ -195,9 +223,9 @@ def _nvidia_check() -> PreflightCheck:
     )
 
 
-def _faster_whisper_check() -> PreflightCheck:
+def _faster_whisper_checks(model: str) -> list[PreflightCheck]:
     installed = importlib.util.find_spec("faster_whisper") is not None
-    return PreflightCheck(
+    package_check = PreflightCheck(
         id="faster-whisper",
         label="faster-whisper",
         status=CheckStatus.READY if installed else CheckStatus.MISSING,
@@ -212,6 +240,102 @@ def _faster_whisper_check() -> PreflightCheck:
             else "Auto fallback을 사용하려면 LangTextFlow의 whisper 선택 의존성을 설치하세요."
         ),
     )
+    if not installed:
+        return [
+            package_check,
+            PreflightCheck(
+                id="faster-whisper-model",
+                label="faster-whisper 모델",
+                status=CheckStatus.MISSING,
+                summary=f"{model} 모델 cache를 확인할 수 없습니다.",
+                details={"model": model},
+                recommendation="먼저 faster-whisper runtime을 설치하세요.",
+            ),
+        ]
+
+    local_path = Path(model).expanduser()
+    if local_path.is_dir():
+        missing = sorted(
+            filename
+            for filename in _WHISPER_REQUIRED_FILES
+            if not (local_path / filename).is_file()
+        )
+        return [
+            package_check,
+            PreflightCheck(
+                id="faster-whisper-model",
+                label="faster-whisper 모델",
+                status=CheckStatus.READY if not missing else CheckStatus.MISSING,
+                summary=(
+                    f"로컬 모델 {local_path}이 준비되어 있습니다."
+                    if not missing
+                    else f"로컬 모델에 필수 파일 {len(missing)}개가 없습니다."
+                ),
+                details={"model": model, "path": str(local_path), "missing": missing},
+            ),
+        ]
+
+    repo_id = model if "/" in model else _FASTER_WHISPER_REPOS.get(model)
+    if repo_id is None:
+        return [
+            package_check,
+            PreflightCheck(
+                id="faster-whisper-model",
+                label="faster-whisper 모델",
+                status=CheckStatus.MISSING,
+                summary=f"지원되는 faster-whisper model 이름이 아닙니다: {model}",
+                details={"model": model},
+            ),
+        ]
+
+    try:
+        from huggingface_hub import snapshot_download
+
+        cached_path = Path(
+            snapshot_download(
+                repo_id,
+                local_files_only=True,
+                allow_patterns=[
+                    "config.json",
+                    "preprocessor_config.json",
+                    "model.bin",
+                    "tokenizer.json",
+                    "vocabulary.*",
+                ],
+            )
+        )
+        missing = sorted(
+            filename
+            for filename in _WHISPER_REQUIRED_FILES
+            if not (cached_path / filename).is_file()
+        )
+        if missing:
+            raise FileNotFoundError(
+                "cached snapshot is incomplete: " + ", ".join(missing)
+            )
+    except Exception as exc:
+        return [
+            package_check,
+            PreflightCheck(
+                id="faster-whisper-model",
+                label="faster-whisper 모델",
+                status=CheckStatus.MISSING,
+                summary=f"{model} 모델이 로컬 cache에 준비되어 있지 않습니다.",
+                details={"model": model, "repo_id": repo_id, "error": str(exc)},
+                recommendation="세션 시작 전에 모델을 다운로드하세요.",
+            ),
+        ]
+
+    return [
+        package_check,
+        PreflightCheck(
+            id="faster-whisper-model",
+            label="faster-whisper 모델",
+            status=CheckStatus.READY,
+            summary=f"{model} 모델이 로컬 cache에 준비되어 있습니다.",
+            details={"model": model, "repo_id": repo_id, "path": str(cached_path)},
+        ),
+    ]
 
 
 async def _vibevoice_check(settings: Settings) -> PreflightCheck:
@@ -305,6 +429,12 @@ def _is_ready(check: PreflightCheck) -> bool:
     return check.status is CheckStatus.READY
 
 
+def _whisper_ready(indexed: dict[str, PreflightCheck]) -> bool:
+    return _is_ready(indexed["faster-whisper"]) and _is_ready(
+        indexed["faster-whisper-model"]
+    )
+
+
 def _blocking_checks(
     checks: list[PreflightCheck],
     *,
@@ -313,15 +443,22 @@ def _blocking_checks(
 ) -> list[str]:
     indexed = {check.id: check for check in checks}
     blocking: list[str] = []
+    vibevoice_ready = _is_ready(indexed["vibevoice"])
+    whisper_ready = _whisper_ready(indexed)
 
-    if engine == "vibevoice" and not _is_ready(indexed["vibevoice"]):
+    if engine == "vibevoice" and not vibevoice_ready:
         blocking.append("vibevoice")
-    elif engine == "faster-whisper" and not _is_ready(indexed["faster-whisper"]):
-        blocking.append("faster-whisper")
-    elif engine == "auto" and not (
-        _is_ready(indexed["vibevoice"]) or _is_ready(indexed["faster-whisper"])
-    ):
-        blocking.extend(["vibevoice", "faster-whisper"])
+    elif engine == "faster-whisper" and not whisper_ready:
+        if not _is_ready(indexed["faster-whisper"]):
+            blocking.append("faster-whisper")
+        elif not _is_ready(indexed["faster-whisper-model"]):
+            blocking.append("faster-whisper-model")
+    elif engine == "auto" and not (vibevoice_ready or whisper_ready):
+        blocking.append("vibevoice")
+        if not _is_ready(indexed["faster-whisper"]):
+            blocking.append("faster-whisper")
+        elif not _is_ready(indexed["faster-whisper-model"]):
+            blocking.append("faster-whisper-model")
     elif engine not in {"auto", "vibevoice", "faster-whisper", "mock"}:
         blocking.append("engine")
 
@@ -343,26 +480,26 @@ def _recommended_configuration(
 ) -> RecommendedConfiguration:
     indexed = {check.id: check for check in checks}
     vibevoice_ready = _is_ready(indexed["vibevoice"])
-    whisper_ready = _is_ready(indexed["faster-whisper"])
+    whisper_ready = _whisper_ready(indexed)
     reasons: list[str] = []
 
     if vibevoice_ready and whisper_ready:
         engine: str | None = "auto"
         reasons.append(
-            "VibeVoice와 faster-whisper가 모두 준비되어 있어 "
+            "VibeVoice와 faster-whisper model cache가 모두 준비되어 있어 "
             "Auto 복구 경로를 사용할 수 있습니다."
         )
     elif vibevoice_ready:
         engine = "vibevoice"
-        reasons.append("VibeVoice가 준비되어 있고 faster-whisper fallback은 사용할 수 없습니다.")
+        reasons.append("VibeVoice만 즉시 실행 가능한 상태이므로 단독 사용을 권장합니다.")
     elif whisper_ready:
         engine = "faster-whisper"
-        reasons.append("VibeVoice가 준비되지 않아 사용 가능한 로컬 faster-whisper를 권장합니다.")
+        reasons.append("준비된 로컬 faster-whisper를 사용할 수 있습니다.")
     else:
         engine = None
         reasons.append(
             "사용 가능한 실제 ASR provider가 없습니다. "
-            "설치 또는 sidecar 실행이 필요합니다."
+            "모델 준비 또는 sidecar 실행이 필요합니다."
         )
 
     ollama_ready = _is_ready(indexed["ollama"])
@@ -391,14 +528,15 @@ async def run_preflight(
     translation_provider: str = "ollama",
 ) -> SystemPreflight:
     model = translation_model or settings.ollama_translation_model
-    nvidia, vibevoice, ollama = await asyncio.gather(
+    nvidia, whisper, vibevoice, ollama = await asyncio.gather(
         asyncio.to_thread(_nvidia_check),
+        asyncio.to_thread(_faster_whisper_checks, settings.faster_whisper_model),
         _vibevoice_check(settings),
         _ollama_checks(settings, model),
     )
     memory_gb = _memory_gb()
     disk_free_gb = _disk_free_gb(settings.database_path)
-    checks: list[PreflightCheck] = [nvidia, _faster_whisper_check(), vibevoice, *ollama]
+    checks: list[PreflightCheck] = [nvidia, *whisper, vibevoice, *ollama]
     if memory_gb is not None:
         checks.append(
             PreflightCheck(

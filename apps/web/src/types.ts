@@ -8,6 +8,7 @@ export type CaptionStage =
 export type ProductPreset = "general" | "church" | "conference" | "lecture";
 export type OutputMode = "operator" | "audience" | "projector" | "obs" | "overlay";
 export type PreflightStatus = "ready" | "warning" | "missing" | "error" | "info";
+export type ModelSetupJobState = "queued" | "running" | "completed" | "cancelled" | "error";
 
 export interface GlossaryEntry {
   term: string;
@@ -145,6 +146,23 @@ export interface SystemPreflight {
   disk_free_gb: number | null;
   checks: PreflightCheck[];
   recommended: RecommendedConfiguration;
+}
+
+export interface ModelSetupJob {
+  job_id: string;
+  provider: string;
+  model: string;
+  state: ModelSetupJobState;
+  status: string;
+  digest: string | null;
+  completed_bytes: number | null;
+  total_bytes: number | null;
+  progress_percent: number | null;
+  details: Record<string, unknown>;
+  error: string | null;
+  started_at: string;
+  updated_at: string;
+  finished_at: string | null;
 }
 
 export interface RealtimeMetrics {
