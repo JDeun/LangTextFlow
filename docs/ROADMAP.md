@@ -97,7 +97,7 @@
 - [x] LAN origin CORS allowlist regex
 - [x] operator REST/WebSocket/audio control을 loopback-only로 제한
 - [x] audience REST/WebSocket만 join code 기반 LAN 접근 허용
-- [ ] join code rate limit / brute-force hardening
+- [x] join code rate limit / brute-force hardening
 - [ ] mDNS 기반 사람이 읽기 쉬운 local hostname
 
 ## P3B — Session history / export

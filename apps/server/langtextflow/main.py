@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket,
 from fastapi.middleware.cors import CORSMiddleware
 
 from .asr import AsrEngineError
+from .audience_security import AudienceJoinRateLimiter
 from .config import get_settings
 from .exports import export_json, export_srt, export_txt, export_vtt
 from .glossary_repository import GlossaryRepository
@@ -42,6 +43,12 @@ runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
 model_setup_manager = ModelSetupManager(settings)
 vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
+audience_join_limiter = AudienceJoinRateLimiter(
+    max_failures=settings.audience_join_max_failures,
+    window_seconds=settings.audience_join_window_seconds,
+    block_seconds=settings.audience_join_block_seconds,
+    max_clients=settings.audience_join_max_tracked_clients,
+)
 
 
 @asynccontextmanager
@@ -81,6 +88,29 @@ def _require_operator(request: Request) -> None:
 def _operator_websocket_allowed(websocket: WebSocket) -> bool:
     host = websocket.client.host if websocket.client else None
     return is_loopback_client(host)
+
+
+def _audience_rate_limit_error(retry_after: int) -> HTTPException:
+    return HTTPException(
+        status_code=429,
+        detail="too many invalid audience join-code attempts",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _authorize_audience(client_host: str | None, join_code: str) -> AudienceSessionView:
+    retry_after = audience_join_limiter.retry_after(client_host)
+    if retry_after is not None:
+        raise _audience_rate_limit_error(retry_after)
+    try:
+        view = runtime.audience_view(join_code)
+    except KeyError as exc:
+        retry_after = audience_join_limiter.record_failure(client_host)
+        if retry_after is not None:
+            raise _audience_rate_limit_error(retry_after) from exc
+        raise HTTPException(status_code=404, detail="audience session not found") from exc
+    audience_join_limiter.record_success(client_host)
+    return view
 
 
 def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
@@ -403,19 +433,15 @@ async def audio_config(request: Request) -> AudioStreamInfo:
 
 
 @app.get("/api/v1/audience/{join_code}", response_model=AudienceSessionView)
-async def audience_session(join_code: str) -> AudienceSessionView:
-    try:
-        return runtime.audience_view(join_code)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="audience session not found") from exc
+async def audience_session(request: Request, join_code: str) -> AudienceSessionView:
+    host = request.client.host if request.client else None
+    return _authorize_audience(host, join_code)
 
 
 @app.get("/api/v1/audience/{join_code}/captions", response_model=list[TranscriptEvent])
-async def audience_captions(join_code: str) -> list[TranscriptEvent]:
-    try:
-        runtime.audience_view(join_code)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="audience session not found") from exc
+async def audience_captions(request: Request, join_code: str) -> list[TranscriptEvent]:
+    host = request.client.host if request.client else None
+    _authorize_audience(host, join_code)
     return runtime.store.snapshot()
 
 
@@ -447,11 +473,21 @@ async def caption_socket(websocket: WebSocket) -> None:
 
 @app.websocket("/ws/audience/{join_code}")
 async def audience_caption_socket(websocket: WebSocket, join_code: str) -> None:
+    host = websocket.client.host if websocket.client else None
+    retry_after = audience_join_limiter.retry_after(host)
+    if retry_after is not None:
+        await websocket.close(code=4429, reason=f"retry after {retry_after}s")
+        return
     try:
         runtime.audience_view(join_code)
     except KeyError:
-        await websocket.close(code=4404, reason="audience session not found")
+        retry_after = audience_join_limiter.record_failure(host)
+        if retry_after is not None:
+            await websocket.close(code=4429, reason=f"retry after {retry_after}s")
+        else:
+            await websocket.close(code=4404, reason="audience session not found")
         return
+    audience_join_limiter.record_success(host)
     await _caption_socket(websocket)
 
 

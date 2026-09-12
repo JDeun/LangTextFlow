@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     max_segments: int = 100
     database_path: str = "data/langtextflow.db"
+    audience_join_max_failures: int = 8
+    audience_join_window_seconds: float = 60.0
+    audience_join_block_seconds: float = 300.0
+    audience_join_max_tracked_clients: int = 4096
     vibevoice_url: str = "http://127.0.0.1:8001"
     vibevoice_repo_path: str = ""
     vibevoice_python: str = ""
