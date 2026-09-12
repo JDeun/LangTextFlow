@@ -89,3 +89,9 @@ export interface AudienceSessionView {
   target_languages: string[];
   started_at: string | null;
 }
+
+export interface NetworkInfo {
+  addresses: string[];
+  frontend_port: number;
+  backend_port: number;
+}
