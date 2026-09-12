@@ -10,10 +10,19 @@ from langtextflow.telemetry import EnergyVad, latency_ms
 
 
 class DummyAudioEngine(AsrEngine):
-    def __init__(self, publish, *, failure: str | None = None) -> None:
+    def __init__(
+        self,
+        publish,
+        *,
+        failure: str | None = None,
+        failover_count: int = 0,
+        last_failover_reason: str | None = None,
+    ) -> None:
         super().__init__(publish)
         self.frames: list[bytes] = []
         self._failure = failure
+        self._failover_count = failover_count
+        self._last_failover_reason = last_failover_reason
 
     @property
     def running(self) -> bool:
@@ -38,6 +47,14 @@ class DummyAudioEngine(AsrEngine):
     @property
     def failure(self) -> str | None:
         return self._failure
+
+    @property
+    def failover_count(self) -> int:
+        return self._failover_count
+
+    @property
+    def last_failover_reason(self) -> str | None:
+        return self._last_failover_reason
 
     async def start(self, request) -> None:
         del request
@@ -105,6 +122,8 @@ async def test_runtime_tracks_audio_activity_queue_and_provider_health() -> None
     assert metrics.asr_provider == "dummy"
     assert metrics.asr_running is True
     assert metrics.asr_failure is None
+    assert metrics.asr_failover_count == 0
+    assert metrics.asr_last_failover_reason is None
     assert metrics.asr_queue_depth == 3
     assert metrics.asr_queue_capacity == 8
     assert metrics.asr_queue_high_watermark == 3
@@ -121,6 +140,23 @@ def test_runtime_metrics_surface_provider_failure() -> None:
     assert metrics.asr_provider == "faster-whisper"
     assert metrics.asr_running is False
     assert metrics.asr_failure == "GPU worker failed"
+
+
+def test_runtime_metrics_surface_recovered_failover() -> None:
+    runtime = CaptionRuntime()
+    runtime.engine = DummyAudioEngine(
+        runtime.pipeline.ingest,
+        failover_count=1,
+        last_failover_reason="vibevoice: socket lost",
+    )
+    runtime.state = SessionState(running=True, engine="faster-whisper")
+
+    metrics = runtime.metrics_snapshot()
+
+    assert metrics.asr_running is True
+    assert metrics.asr_failure is None
+    assert metrics.asr_failover_count == 1
+    assert metrics.asr_last_failover_reason == "vibevoice: socket lost"
 
 
 @pytest.mark.asyncio

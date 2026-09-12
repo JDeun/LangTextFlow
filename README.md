@@ -47,10 +47,14 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - session context/hotwords/glossary → VibeVoice `context_info`
 - faster-whisper local micro-batch adapter
 - faster-whisper에 source language / initial prompt / hotwords 전달
-- `Auto` 모드: 세션 시작 시 VibeVoice를 우선 시도하고 실패하면 faster-whisper 사용
-- 실제로 선택된 ASR provider를 session state/history에 기록
+- `Auto` 모드 시작 시 VibeVoice 우선, 시작 실패 시 faster-whisper 사용
+- `Auto` 모드 세션 도중 VibeVoice fatal failure 감지 시 faster-whisper로 one-way handoff
+- 최근 PCM ring buffer replay + provider-local timestamp를 session global timeline으로 rebase
+- replay 구간의 완전 중복 timestamp event 제거 + exact suffix/prefix text overlap 제거
+- 실제 active ASR provider를 session state/history에 반영
+- failover count/reason을 telemetry와 운영자 UI에 유지
 
-> `Auto`의 fallback은 현재 **세션 시작 시점**에만 동작합니다. 세션 도중 provider가 종료된 경우의 seamless failover는 audio replay와 duplicate suppression이 필요하므로 별도 reliability 단계입니다.
+> Mid-session failover는 현재 `Auto`에서 **VibeVoice → faster-whisper 한 방향**으로 동작합니다. 실패 provider 자동 재시도/failback은 중복 자막과 provider oscillation 위험 때문에 아직 적용하지 않습니다.
 
 ### Realtime observability
 
@@ -58,6 +62,8 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - VAD는 PCM을 제거하지 않으며 모든 오디오를 ASR에 전달
 - ASR / correction·translation / persistence queue depth 관측
 - ASR queue high-watermark 및 audio enqueue backpressure 횟수
+- ASR provider `LIVE / STARTING / FAILED / IDLE` health 표시
+- 성공적으로 복구된 provider handoff 횟수와 직전 failover 원인 표시
 - `audio end → STABLE`, `STABLE → CORRECTED`, `CORRECTED → TRANSLATED`, `STABLE → COMMITTED` 지연 계측
 - 운영자 화면에서 queue saturation과 latency를 warning/danger 단계로 표시
 - operator-only `/api/v1/metrics` endpoint
@@ -128,7 +134,7 @@ npm run dev
 
 > 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 히스토리, telemetry, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
 
-- **Auto**: VibeVoice를 우선 사용하고 시작 실패 시 faster-whisper로 전환합니다.
+- **Auto**: VibeVoice를 우선 사용하고 시작/실행 failure 시 faster-whisper로 전환합니다.
 - **VibeVoice Streaming**: 로컬 VibeVoice sidecar만 사용합니다.
 - **faster-whisper**: 로컬 micro-batch Whisper adapter만 사용합니다.
 - **Demo engine**: 실제 모델 없이 전체 caption state pipeline을 확인합니다.
@@ -153,11 +159,12 @@ LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
 - [`docs/VIBEVOICE.md`](docs/VIBEVOICE.md)
 - [`docs/FASTER_WHISPER.md`](docs/FASTER_WHISPER.md)
 - [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)
+- [`docs/FAILOVER.md`](docs/FAILOVER.md)
 
 ## 아직 필요한 주요 작업
 
-- 세션 도중 ASR reconnect / seamless failover
-- 한국어·영어 현장 benchmark + 30/60/90분 soak test
+- 실제 한국어·영어 현장 failover benchmark + 30/60/90분 soak test
+- 실패 provider retry/failback 정책 검증
 - semantic VAD/gating 필요성 benchmark
 - constrained LLM correction + provenance/confidence
 - QR join brute-force/rate-limit hardening

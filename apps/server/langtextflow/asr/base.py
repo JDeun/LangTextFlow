@@ -41,6 +41,16 @@ class AsrEngine(ABC):
         """Return the current fatal provider failure, if any."""
         return None
 
+    @property
+    def failover_count(self) -> int:
+        """Number of successful mid-session provider handoffs."""
+        return 0
+
+    @property
+    def last_failover_reason(self) -> str | None:
+        """Most recent reason that caused a successful provider handoff."""
+        return None
+
     @abstractmethod
     async def start(self, request: StartSessionRequest) -> None: ...
 

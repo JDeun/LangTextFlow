@@ -45,11 +45,15 @@
 - [x] provider runtime failure 상태 contract (`running` / `failure`)
 - [x] VibeVoice sender/receiver 및 faster-whisper worker failure telemetry
 - [x] 운영자 UI의 ASR `LIVE / STARTING / FAILED / IDLE` 상태 표시
-- [ ] 세션 도중 provider reconnect / seamless failover
-- [ ] replay buffer + duplicate suppression 기반 mid-session fallback
+- [x] `Auto` mid-session one-way failover: VibeVoice → faster-whisper
+- [x] bounded PCM replay ring buffer + provider-local timestamp rebasing
+- [x] replay 구간 timestamp/text overlap duplicate suppression
+- [x] provider health monitor + feed-path failover trigger
+- [x] failover count/reason telemetry + recovered operator state
+- [ ] 실패 provider 재시도 / controlled failback 정책
+- [ ] fuzzy duplicate suppression 필요성 benchmark
 - [ ] semantic VAD/gating benchmark 및 필요 시 적용
-- [ ] provider reconnect attempt/success counter
-- [ ] 한국어·영어 실제 집회 샘플 벤치마크
+- [ ] 한국어·영어 실제 집회 샘플 failover benchmark
 - [ ] 30/60/90분 장시간 soak test
 
 ## P2A — Correction / Translation

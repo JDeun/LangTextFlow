@@ -8,9 +8,10 @@ from .asr import (
     AsrEngine,
     FasterWhisperStreamingAsrEngine,
     MockStreamingAsrEngine,
-    StartupFallbackAsrEngine,
+    ReplayFallbackAsrEngine,
     VibeVoiceStreamingAsrEngine,
 )
+from .asr.base import PublishEvent
 from .config import get_settings
 from .hub import WebSocketHub
 from .models import (
@@ -134,17 +135,35 @@ class CaptionRuntime:
                 self._persistence_queue.task_done()
                 self._refresh_queue_metrics()
 
-    def _vibevoice_engine(self) -> VibeVoiceStreamingAsrEngine:
+    async def _on_asr_provider_change(self, provider: str) -> None:
+        if self.state.engine == provider:
+            return
+        self.state.engine = provider
+        if not self.state.session_id:
+            return
+        try:
+            await asyncio.to_thread(
+                self.history.update_engine,
+                self.state.session_id,
+                provider,
+            )
+        except Exception as exc:
+            self.state.persistence_error = str(exc)
+
+    def _vibevoice_engine(self, publish: PublishEvent | None = None) -> VibeVoiceStreamingAsrEngine:
         return VibeVoiceStreamingAsrEngine(
-            self.pipeline.ingest,
+            publish or self.pipeline.ingest,
             base_url=self.settings.vibevoice_url,
             queue_chunks=self.settings.audio_queue_chunks,
             max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
 
-    def _faster_whisper_engine(self) -> FasterWhisperStreamingAsrEngine:
+    def _faster_whisper_engine(
+        self,
+        publish: PublishEvent | None = None,
+    ) -> FasterWhisperStreamingAsrEngine:
         return FasterWhisperStreamingAsrEngine(
-            self.pipeline.ingest,
+            publish or self.pipeline.ingest,
             model=self.settings.faster_whisper_model,
             device=self.settings.faster_whisper_device,
             compute_type=self.settings.faster_whisper_compute_type,
@@ -161,12 +180,15 @@ class CaptionRuntime:
         if request.engine == "faster-whisper":
             return self._faster_whisper_engine()
         if request.engine == "auto":
-            return StartupFallbackAsrEngine(
+            return ReplayFallbackAsrEngine(
                 self.pipeline.ingest,
                 [
-                    ("vibevoice", self._vibevoice_engine()),
-                    ("faster-whisper", self._faster_whisper_engine()),
+                    ("vibevoice", lambda publish: self._vibevoice_engine(publish)),
+                    ("faster-whisper", lambda publish: self._faster_whisper_engine(publish)),
                 ],
+                replay_seconds=self.settings.asr_replay_seconds,
+                health_check_seconds=self.settings.asr_health_check_seconds,
+                on_provider_change=self._on_asr_provider_change,
             )
         raise ValueError(f"unsupported engine: {request.engine}")
 
@@ -182,9 +204,12 @@ class CaptionRuntime:
 
     def _refresh_queue_metrics(self) -> None:
         if self.engine is not None:
-            self.metrics.asr_provider = self.state.engine
+            active_provider = getattr(self.engine, "active_provider", None)
+            self.metrics.asr_provider = str(active_provider or self.state.engine)
             self.metrics.asr_running = self.engine.running
             self.metrics.asr_failure = self.engine.failure
+            self.metrics.asr_failover_count = self.engine.failover_count
+            self.metrics.asr_last_failover_reason = self.engine.last_failover_reason
             self.metrics.asr_queue_depth = self.engine.queue_depth
             self.metrics.asr_queue_capacity = self.engine.queue_capacity
             self.metrics.asr_queue_high_watermark = max(
@@ -195,6 +220,8 @@ class CaptionRuntime:
             self.metrics.asr_provider = None
             self.metrics.asr_running = False
             self.metrics.asr_failure = None
+            self.metrics.asr_failover_count = 0
+            self.metrics.asr_last_failover_reason = None
             self.metrics.asr_queue_depth = 0
             self.metrics.asr_queue_capacity = 0
         self.metrics.persistence_queue_depth = self._persistence_queue.qsize()
@@ -237,16 +264,7 @@ class CaptionRuntime:
             await engine.start(request)
             active_provider = getattr(engine, "active_provider", None)
             if active_provider:
-                self.state.engine = str(active_provider)
-                if self.state.session_id:
-                    try:
-                        await asyncio.to_thread(
-                            self.history.update_engine,
-                            self.state.session_id,
-                            self.state.engine,
-                        )
-                    except Exception as exc:
-                        self.state.persistence_error = str(exc)
+                await self._on_asr_provider_change(str(active_provider))
             self.state.audio_sample_rate = engine.sample_rate
             self._refresh_queue_metrics()
         except Exception:

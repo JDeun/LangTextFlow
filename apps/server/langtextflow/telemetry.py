@@ -19,6 +19,8 @@ class RealtimeMetrics(BaseModel):
     asr_provider: str | None = None
     asr_running: bool = False
     asr_failure: str | None = None
+    asr_failover_count: int = 0
+    asr_last_failover_reason: str | None = None
     asr_queue_depth: int = 0
     asr_queue_capacity: int = 0
     asr_queue_high_watermark: int = 0
