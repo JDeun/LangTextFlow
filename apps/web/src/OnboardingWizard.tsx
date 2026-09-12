@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { API_URL } from "./api";
+import { ModelSetupControl } from "./ModelSetupControl";
 import type { ProductPreset, RecommendedConfiguration, SystemPreflight } from "./types";
 import "./onboarding.css";
 
@@ -84,6 +85,10 @@ export function OnboardingWizard({
     }
   }, [engine, translationModel, translationProvider]);
 
+  const handleModelCompleted = useCallback(() => {
+    void loadPreflight();
+  }, [loadPreflight]);
+
   useEffect(() => {
     if (!open || step !== 1) return;
     void loadPreflight();
@@ -125,6 +130,17 @@ export function OnboardingWizard({
     setStep(0);
   }
 
+  const ollamaReady = report?.checks.some(
+    (check) => check.id === "ollama" && check.status === "ready",
+  ) ?? false;
+  const translationModelMissing = report?.checks.some(
+    (check) => check.id === "translation-model" && check.status === "missing",
+  ) ?? false;
+  const canPrepareTranslationModel =
+    translationProvider === "ollama"
+    && Boolean(translationModel.trim())
+    && ollamaReady
+    && translationModelMissing;
   const steps = ["시작", "시스템", "마이크", "언어", "완료"];
 
   return (
@@ -157,7 +173,7 @@ export function OnboardingWizard({
                 설치되어 있는 구성요소를 기준으로 안전한 기본 설정도 제안합니다.
               </p>
               <div className="onboarding-note">
-                점검 과정은 모델이나 드라이버를 임의로 설치하지 않습니다.
+                운영체제 패키지나 드라이버는 사용자 동의 없이 변경하지 않습니다.
               </div>
             </div>
           )}
@@ -191,6 +207,20 @@ export function OnboardingWizard({
                       <button onClick={() => onApplyRecommendation(report.recommended)}>
                         권장 구성 적용
                       </button>
+                    </div>
+                  )}
+                  {canPrepareTranslationModel && (
+                    <div className="onboarding-repair">
+                      <div>
+                        <small>자동 해결 가능</small>
+                        <strong>선택한 번역 모델을 준비할 수 있습니다.</strong>
+                        <span>실행 중인 Ollama에 모델을 내려받고 완료 후 자동으로 다시 점검합니다.</span>
+                      </div>
+                      <ModelSetupControl
+                        model={translationModel}
+                        enabled
+                        onCompleted={handleModelCompleted}
+                      />
                     </div>
                   )}
                   <div className="onboarding-check-list">
