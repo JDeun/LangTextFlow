@@ -28,16 +28,17 @@ def test_operator_websocket_rejects_hostile_origin_from_loopback() -> None:
         main_module.app,
         client=("127.0.0.1", 50000),
     )
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect(
-            "/ws/captions",
-            headers={"origin": "https://localhost.evil.example"},
-        ):
-            pass
+    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+        "/ws/captions",
+        headers={"origin": "https://localhost.evil.example"},
+    ):
+        pass
     assert exc_info.value.code == 4403
 
 
-def test_audience_rate_limit_uses_socket_ip_not_forwarded_for(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_audience_rate_limit_uses_socket_ip_not_forwarded_for(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     limiter = AudienceJoinRateLimiter(
         max_failures=2,
         window_seconds=60.0,
@@ -75,12 +76,11 @@ def test_audience_websocket_origin_failure_does_not_consume_join_attempt(
         client=("198.51.100.45", 50000),
     )
 
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with client.websocket_connect(
-            "/ws/audience/INVALID",
-            headers={"origin": "https://evil.example"},
-        ):
-            pass
+    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+        "/ws/audience/INVALID",
+        headers={"origin": "https://evil.example"},
+    ):
+        pass
 
     assert exc_info.value.code == 4403
     assert limiter.tracked_clients() == 0
