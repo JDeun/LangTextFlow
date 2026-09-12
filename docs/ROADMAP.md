@@ -129,7 +129,8 @@
 - [x] faster-whisper package와 model cache readiness 분리
 - [x] faster-whisper model prefetch/cache + cancellable setup job
 - [x] onboarding / preflight에서 누락 model repair action
-- [ ] VibeVoice sidecar 자동 설치/실행
+- [x] 준비된 VibeVoice sidecar start/status/stop lifecycle + external ownership 보호
+- [ ] VibeVoice runtime/repository/model 자동 설치·검증
 - [ ] faster-whisper runtime package 자동 설치/복구
 - [ ] Ollama application 자체 설치/실행
 - [ ] 실제 benchmark 기반 ASR model/device/compute 추천 preset

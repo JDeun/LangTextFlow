@@ -15,6 +15,19 @@ def pcm(seconds: float, sample_rate: int = 16000) -> bytes:
     return array("f", [0.1] * count).tobytes()
 
 
+async def wait_for_failure(
+    engine: FasterWhisperStreamingAsrEngine,
+    *,
+    timeout: float = 1.0,
+) -> str:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if engine.failure is not None:
+            return engine.failure
+        await asyncio.sleep(0.001)
+    raise AssertionError("faster-whisper worker failure was not observed before timeout")
+
+
 class FakeFasterWhisperEngine(FasterWhisperStreamingAsrEngine):
     def __init__(self, publish, **kwargs) -> None:
         super().__init__(publish, **kwargs)
@@ -90,14 +103,10 @@ async def test_faster_whisper_records_worker_failure_and_rejects_more_audio() ->
     await engine.start(StartSessionRequest(engine="faster-whisper"))
     await engine.feed_audio(pcm(0.05))
 
-    for _ in range(20):
-        if engine.failure is not None:
-            break
-        await asyncio.sleep(0)
+    failure = await wait_for_failure(engine)
 
     assert engine.running is False
-    assert engine.failure is not None
-    assert "GPU lost" in engine.failure
+    assert "GPU lost" in failure
     with pytest.raises(AsrEngineError, match="GPU lost"):
         await engine.feed_audio(pcm(0.01))
     await engine.stop()

@@ -9,6 +9,13 @@ export type ProductPreset = "general" | "church" | "conference" | "lecture";
 export type OutputMode = "operator" | "audience" | "projector" | "obs" | "overlay";
 export type PreflightStatus = "ready" | "warning" | "missing" | "error" | "info";
 export type ModelSetupJobState = "queued" | "running" | "completed" | "cancelled" | "error";
+export type VibeVoiceLifecycleMode =
+  | "unconfigured"
+  | "stopped"
+  | "starting"
+  | "managed"
+  | "external"
+  | "error";
 
 export interface GlossaryEntry {
   term: string;
@@ -163,6 +170,22 @@ export interface ModelSetupJob {
   started_at: string;
   updated_at: string;
   finished_at: string | null;
+}
+
+export interface VibeVoiceLifecycleState {
+  mode: VibeVoiceLifecycleMode;
+  configured: boolean;
+  managed: boolean;
+  running: boolean;
+  healthy: boolean;
+  pid: number | null;
+  status: string;
+  error: string | null;
+  url: string;
+  repo_path: string | null;
+  model_path: string | null;
+  started_at: string | null;
+  log_tail: string[];
 }
 
 export interface RealtimeMetrics {

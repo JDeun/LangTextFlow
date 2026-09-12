@@ -26,11 +26,13 @@ from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
 from .telemetry import RealtimeMetrics
+from .vibevoice_lifecycle import VibeVoiceLifecycleManager, VibeVoiceLifecycleState
 
 settings = get_settings()
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
 model_setup_manager = ModelSetupManager(settings)
+vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
 
 
 @asynccontextmanager
@@ -38,13 +40,14 @@ async def lifespan(_: FastAPI):
     glossary_repository.initialize()
     await runtime.initialize()
     yield
-    await model_setup_manager.shutdown()
     await runtime.shutdown()
+    await vibevoice_lifecycle.shutdown()
+    await model_setup_manager.shutdown()
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.11.0",
+    version="0.12.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -113,6 +116,32 @@ async def system_preflight(
         engine=engine,
         translation_provider=translation_provider,
     )
+
+
+@app.get("/api/v1/setup/vibevoice", response_model=VibeVoiceLifecycleState)
+async def vibevoice_lifecycle_status(request: Request) -> VibeVoiceLifecycleState:
+    _require_operator(request)
+    return await vibevoice_lifecycle.status()
+
+
+@app.post("/api/v1/setup/vibevoice/start", response_model=VibeVoiceLifecycleState)
+async def start_vibevoice_sidecar(request: Request) -> VibeVoiceLifecycleState:
+    _require_operator(request)
+    try:
+        return await vibevoice_lifecycle.start()
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/setup/vibevoice/stop", response_model=VibeVoiceLifecycleState)
+async def stop_vibevoice_sidecar(request: Request) -> VibeVoiceLifecycleState:
+    _require_operator(request)
+    if runtime.state.running:
+        raise HTTPException(
+            status_code=409,
+            detail="active caption session must be stopped before stopping VibeVoice",
+        )
+    return await vibevoice_lifecycle.stop()
 
 
 @app.get("/api/v1/setup/jobs", response_model=list[ModelSetupJob])

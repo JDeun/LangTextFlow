@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     max_segments: int = 100
     database_path: str = "data/langtextflow.db"
     vibevoice_url: str = "http://127.0.0.1:8001"
+    vibevoice_repo_path: str = ""
+    vibevoice_python: str = ""
+    vibevoice_model_path: str = ""
+    vibevoice_tensor_parallel_size: int = 1
+    vibevoice_max_model_len: int = 16384
+    vibevoice_max_audio_windows: int = 512
+    vibevoice_mm_processor_cache_gb: float = 16.0
+    vibevoice_gpu_memory_utilization: float = 0.85
+    vibevoice_startup_timeout_seconds: float = 600.0
     audio_queue_chunks: int = 32
     max_audio_frame_bytes: int = 1024 * 1024
     asr_replay_seconds: float = 8.0

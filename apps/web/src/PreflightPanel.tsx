@@ -6,6 +6,7 @@ import type {
   RecommendedConfiguration,
   SystemPreflight,
 } from "./types";
+import { VibeVoiceLifecycleControl } from "./VibeVoiceLifecycleControl";
 import "./preflight.css";
 
 type MicrophoneState = "unchecked" | "checking" | "ready" | "error";
@@ -58,7 +59,7 @@ export function PreflightPanel({
     }
   }, [engine, translationModel, translationProvider]);
 
-  const handleModelCompleted = useCallback(() => {
+  const handleRepairCompleted = useCallback(() => {
     void load();
   }, [load]);
 
@@ -140,6 +141,7 @@ export function PreflightPanel({
     && whisperPackageReady
     && whisperModelCheck?.status === "missing"
     && Boolean(whisperModel);
+  const vibevoiceRelevant = engine === "auto" || engine === "vibevoice";
 
   if (!open) {
     return (
@@ -197,6 +199,10 @@ export function PreflightPanel({
             </div>
           )}
 
+          {vibevoiceRelevant && (
+            <VibeVoiceLifecycleControl enabled onReady={handleRepairCompleted} />
+          )}
+
           {canPrepareWhisperModel && (
             <div className="preflight-repair">
               <div>
@@ -208,7 +214,7 @@ export function PreflightPanel({
                 provider="faster-whisper"
                 model={whisperModel}
                 enabled
-                onCompleted={handleModelCompleted}
+                onCompleted={handleRepairCompleted}
               />
             </div>
           )}
@@ -224,7 +230,7 @@ export function PreflightPanel({
                 provider="ollama"
                 model={translationModel}
                 enabled
-                onCompleted={handleModelCompleted}
+                onCompleted={handleRepairCompleted}
               />
             </div>
           )}
