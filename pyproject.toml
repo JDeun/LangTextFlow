@@ -16,6 +16,7 @@ dependencies = [
   "httpx>=0.28,<1",
   "websockets>=15,<18",
   "pypdf>=6.18,<7",
+  "defusedxml>=0.7.1,<1",
 ]
 
 [project.optional-dependencies]
