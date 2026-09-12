@@ -23,7 +23,7 @@
 - [x] 운영자 UI에서 공유 링크 제공
 - [ ] QR code 렌더링
 - [ ] Context 문서 업로드/추출
-- [ ] SQLite 세션/용어집 영속화
+- [ ] SQLite 세션/transcript 영속화
 
 ## P1B — Real audio / ASR
 
@@ -38,7 +38,7 @@
 - [ ] 장시간 세션 backpressure / recovery telemetry
 - [ ] 한국어·영어 실제 집회 샘플 벤치마크
 
-## P2 — Correction / Translation
+## P2A — Correction / Translation
 
 - [x] STABLE 이후 순차 post-processing pipeline
 - [x] deterministic normalization / explicit alias correction
@@ -47,11 +47,23 @@
 - [x] Ollama local translation provider
 - [x] TranslateGemma 4B 기본 로컬 번역 모델 설정
 - [x] 번역 장애 시 원문 자막 지속(degraded mode)
-- [ ] glossary manager UI (성경/교회 preset 포함)
 - [ ] constrained LLM correction interface
 - [ ] 추가 local/cloud translation adapters
-- [ ] 용어집의 ASR hotword + correction + translation 동시 반영 UI
 - [ ] segment별 correction provenance / confidence
+
+## P2B — Glossary persistence
+
+- [x] SQLite glossary repository
+- [x] glossary CRUD API
+- [x] 운영자 glossary manager UI
+- [x] 교회 기본 용어 preset import
+- [x] 용어별 alias / 번역 / category / boost / enabled 상태
+- [x] General / Church / Conference / Lecture 적용 범위
+- [x] 세션 시작 시 preset별 활성 glossary snapshot
+- [x] 동일 snapshot을 ASR context + correction + translation에 공유
+- [x] 기존 DB에 `presets_json`을 추가하는 경량 migration
+- [ ] glossary import/export (JSON/CSV)
+- [ ] 최근 세션 기반 glossary 추천
 
 ## P3 — Product UX
 
@@ -63,7 +75,7 @@
 - [ ] QR audience page + 다중 target language UX
 - [ ] 글꼴/크기/행수/자막 유지시간 설정
 - [ ] 세션 기록/검색/내보내기 (TXT/SRT/VTT/JSON)
-- [ ] 최근 세션 기반 glossary 추천
+- [ ] glossary import/export 및 추천 UX
 
 ## P4 — Distribution / Reliability
 
