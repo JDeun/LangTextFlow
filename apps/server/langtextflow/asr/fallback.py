@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import suppress
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
 from langtextflow.models import StartSessionRequest
@@ -63,10 +64,8 @@ class StartupFallbackAsrEngine(AsrEngine):
                 await engine.start(request)
             except Exception as exc:
                 failures.append(f"{name}: {exc}")
-                try:
+                with suppress(Exception):
                     await engine.stop()
-                except Exception:
-                    pass
                 continue
             self._active_name = name
             self._active = engine
