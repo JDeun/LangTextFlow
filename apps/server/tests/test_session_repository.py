@@ -29,6 +29,8 @@ def _request() -> StartSessionRequest:
         source_language="ko",
         target_languages=["en"],
         engine="mock",
+        correction_provider="ollama",
+        correction_model="qwen3.5:4b",
         translation_provider="demo",
         context=SessionContext(title="Mission Meeting"),
     )
@@ -89,6 +91,8 @@ def test_session_history_keeps_latest_segment_version(tmp_path) -> None:
     assert sessions[0].segment_count == 1
     assert sessions[0].title == "Mission Meeting"
     assert sessions[0].notes == ""
+    assert sessions[0].correction_provider == "ollama"
+    assert sessions[0].correction_model == "qwen3.5:4b"
 
 
 def test_session_history_can_record_resolved_asr_provider(tmp_path) -> None:
@@ -123,7 +127,7 @@ def test_session_metadata_edit_preserves_original_context_snapshot(tmp_path) -> 
     assert detail.context.title == "Mission Meeting"
 
 
-def test_initialize_migrates_existing_sessions_table_with_notes(tmp_path) -> None:
+def test_initialize_migrates_existing_sessions_table_with_history_fields(tmp_path) -> None:
     database_path = tmp_path / "legacy.db"
     with sqlite3.connect(database_path) as connection:
         connection.execute(
@@ -152,6 +156,8 @@ def test_initialize_migrates_existing_sessions_table_with_notes(tmp_path) -> Non
     with sqlite3.connect(database_path) as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
     assert "notes" in columns
+    assert "correction_provider" in columns
+    assert "correction_model" in columns
 
 
 def test_session_end_and_delete_cascades_transcript(tmp_path) -> None:

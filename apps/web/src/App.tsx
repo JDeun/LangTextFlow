@@ -177,6 +177,8 @@ function OperatorApp() {
   const [hotwords, setHotwords] = useState("요한복음, 로마서, 복음, 은혜, 칭의, 성화");
   const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);
   const [engine, setEngine] = useState("auto");
+  const [correctionProvider, setCorrectionProvider] = useState("none");
+  const [correctionModel, setCorrectionModel] = useState("qwen3.5:4b");
   const [translationProvider, setTranslationProvider] = useState("ollama");
   const [translationModel, setTranslationModel] = useState("translategemma:4b");
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
@@ -302,6 +304,8 @@ function OperatorApp() {
           source_language: sourceLanguage,
           target_languages: targetLanguages,
           engine,
+          correction_provider: correctionProvider,
+          correction_model: correctionProvider === "ollama" ? correctionModel : null,
           translation_provider: translationProvider,
           translation_model: translationProvider === "ollama" ? translationModel : null,
           context: {
@@ -493,6 +497,29 @@ function OperatorApp() {
             )}
           </label>
           <label>
+            문맥 기반 LLM 보정
+            <select
+              value={correctionProvider}
+              onChange={(event) => setCorrectionProvider(event.target.value)}
+              disabled={running}
+            >
+              <option value="none">규칙 기반 보정만</option>
+              <option value="ollama">Ollama constrained correction (local)</option>
+            </select>
+            <small>LLM 실패·timeout·과도한 수정은 자동 거부하고 규칙 기반 결과를 사용합니다.</small>
+          </label>
+          {correctionProvider === "ollama" && (
+            <label>
+              Ollama 보정 모델
+              <input
+                value={correctionModel}
+                onChange={(event) => setCorrectionModel(event.target.value)}
+                disabled={running}
+              />
+              <small>기본값: qwen3.5:4b · 다른 로컬 instruction model로 교체 가능합니다.</small>
+            </label>
+          )}
+          <label>
             번역 엔진
             <select
               value={translationProvider}
@@ -565,6 +592,14 @@ function OperatorApp() {
             </div>
             {session?.audio_sample_rate && (
               <small>{session.engine} · {session.audio_sample_rate} Hz</small>
+            )}
+            {session?.correction_status.enabled && (
+              <small>
+                보정: {session.correction_status.provider} / {session.correction_status.model || "default"}
+                {session.correction_status.available
+                  ? " · ready"
+                  : ` · deterministic fallback: ${session.correction_status.error || "unavailable"}`}
+              </small>
             )}
             {session?.translation_status.enabled && (
               <small>

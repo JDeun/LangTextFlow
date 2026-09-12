@@ -69,7 +69,7 @@
 - [x] TranslateGemma 4B 기본 로컬 번역 모델 설정
 - [x] 번역 장애 시 원문 자막 지속(degraded mode)
 - [x] 임의 source language → 복수 target language fan-out
-- [ ] constrained LLM correction interface
+- [x] constrained LLM correction interface + Ollama adapter + safety gate/degraded fallback
 - [ ] 추가 local/cloud translation adapters
 - [ ] segment별 correction provenance / confidence
 

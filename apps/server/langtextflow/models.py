@@ -194,7 +194,7 @@ class TranscriptEvent(BaseModel):
         return self
 
 
-class TranslationStatus(BaseModel):
+class ProviderStatus(BaseModel):
     enabled: bool = False
     provider: str = "none"
     model: str | None = None
@@ -202,10 +202,20 @@ class TranslationStatus(BaseModel):
     error: str | None = None
 
 
+class CorrectionStatus(ProviderStatus):
+    pass
+
+
+class TranslationStatus(ProviderStatus):
+    pass
+
+
 class StartSessionRequest(BaseModel):
     source_language: str = Field(default="ko", min_length=2, max_length=16)
     target_languages: list[str] = Field(default_factory=lambda: ["en"], min_length=1)
     engine: str = "mock"
+    correction_provider: str = "none"
+    correction_model: str | None = None
     translation_provider: str = "none"
     translation_model: str | None = None
     context: SessionContext = Field(default_factory=SessionContext)
@@ -235,6 +245,7 @@ class SessionState(BaseModel):
     context: SessionContext | None = None
     audio_required: bool = False
     audio_sample_rate: int | None = None
+    correction_status: CorrectionStatus = Field(default_factory=CorrectionStatus)
     translation_status: TranslationStatus = Field(default_factory=TranslationStatus)
     persistence_error: str | None = None
     started_at: datetime | None = None
@@ -250,6 +261,8 @@ class SessionRecord(BaseModel):
     source_language: str
     target_languages: list[str]
     engine: str
+    correction_provider: str = "none"
+    correction_model: str | None = None
     translation_provider: str
     translation_model: str | None
     started_at: datetime
