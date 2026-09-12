@@ -26,6 +26,7 @@ from .models import (
     GlossaryRecord,
     NetworkInfo,
     SessionDetail,
+    SessionMetadataUpdate,
     SessionRecord,
     SessionState,
     StartSessionRequest,
@@ -265,6 +266,29 @@ async def session_history(request: Request, limit: int = 50) -> list[SessionReco
 @app.get("/api/v1/history/{session_id}", response_model=SessionDetail)
 async def history_session(request: Request, session_id: str) -> SessionDetail:
     _require_operator(request)
+    session = await asyncio.to_thread(runtime.history.get_session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return session
+
+
+@app.patch("/api/v1/history/{session_id}", response_model=SessionDetail)
+async def update_history_session(
+    request: Request,
+    session_id: str,
+    payload: SessionMetadataUpdate,
+) -> SessionDetail:
+    _require_operator(request)
+    if runtime.state.running and runtime.state.session_id == session_id:
+        raise HTTPException(status_code=409, detail="cannot edit active session metadata")
+    updated = await asyncio.to_thread(
+        runtime.history.update_metadata,
+        session_id,
+        title=payload.title,
+        notes=payload.notes,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="session not found")
     session = await asyncio.to_thread(runtime.history.get_session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")

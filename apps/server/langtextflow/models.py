@@ -244,6 +244,7 @@ class SessionRecord(BaseModel):
     session_id: str
     join_code: str
     title: str
+    notes: str = ""
     presenter: str | None
     preset: ProductPreset
     source_language: str
@@ -258,6 +259,24 @@ class SessionRecord(BaseModel):
 
 class SessionDetail(SessionRecord):
     context: SessionContext
+
+
+class SessionMetadataUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=120)
+    notes: str = Field(default="", max_length=8000)
+
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("session title is required")
+        return normalized
+
+    @field_validator("notes")
+    @classmethod
+    def normalize_notes(cls, value: str) -> str:
+        return value.strip()
 
 
 class AudienceSessionView(BaseModel):

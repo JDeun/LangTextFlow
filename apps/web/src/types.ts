@@ -117,6 +117,7 @@ export interface SessionRecord {
   session_id: string;
   join_code: string;
   title: string;
+  notes: string;
   presenter: string | null;
   preset: ProductPreset;
   source_language: string;
