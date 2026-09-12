@@ -84,7 +84,7 @@
 - [x] 세션 시작 시 preset별 활성 glossary snapshot
 - [x] 동일 snapshot을 ASR context + correction + translation에 공유
 - [x] 기존 DB에 `presets_json`을 추가하는 경량 migration
-- [ ] glossary import/export (JSON/CSV)
+- [x] glossary import/export (JSON/CSV) + atomic upsert/skip 정책
 - [ ] 최근 세션 기반 glossary 추천
 
 ## P3A — Audience onboarding / LAN
@@ -134,11 +134,12 @@
 - [x] 임의 source → 복수 target 운영자 UX + 원문 track 상시 제공
 - [x] audience/projector/OBS에서 원문 또는 번역 언어 선택
 - [x] 세션 Display Profile: 글꼴/크기/행수/유지시간/원문 병기/정렬 + 출력 화면 공통 적용
+- [x] glossary JSON/CSV import/export UX + 중복 처리 정책 선택
 - [ ] VibeVoice runtime/repository/model 자동 설치·검증
 - [ ] faster-whisper runtime package 자동 설치/복구
 - [ ] Ollama application 자체 설치/실행
 - [ ] 실제 benchmark 기반 ASR model/device/compute 추천 preset
-- [ ] glossary import/export 및 추천 UX
+- [ ] glossary 추천 UX
 
 ## P4 — Distribution / Reliability
 
