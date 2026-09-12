@@ -98,6 +98,14 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - 번역 언어가 존재하면 해당 번역문을 자막 파일로 export하고, 없으면 원문으로 fallback
 - 활성 세션 삭제 방지 및 기록 저장 장애를 UI에 별도 표시
 
+### Benchmark / reliability harness
+
+- ASR 단독 micro-benchmark: realtime lag, RTF, CER/WER, queue, RSS, failover/duplicate 후보
+- full runtime benchmark: ASR → correction → translation → persistence 전체 지연/queue 측정
+- `realtime` / `max` pacing
+- 동일 WAV fixture 반복을 통한 30/60/90분 soak 입력
+- 실제 사용자 DB를 오염시키지 않는 임시 benchmark DB
+
 ## 개발 실행
 
 ### Backend
@@ -142,6 +150,34 @@ npm run dev
 
 로컬 사용자 데이터베이스 기본 경로는 `data/langtextflow.db`이며 Git에 포함되지 않습니다.
 
+## Benchmark
+
+메모리 측정과 faster-whisper benchmark를 포함하려면:
+
+```bash
+pip install -e '.[dev,whisper,benchmark]'
+```
+
+ASR provider만 비교:
+
+```bash
+langtextflow-benchmark fixture.wav --engine auto --pace realtime
+```
+
+실제 correction/translation/persistence까지 포함한 전체 runtime 비교:
+
+```bash
+langtextflow-runtime-benchmark fixture.wav \
+  --engine auto \
+  --source-language ko \
+  --target-language en \
+  --translation-provider ollama \
+  --preset church \
+  --pace realtime
+```
+
+장시간 검증은 `--duration-minutes 30`, `60`, `90`으로 동일 fixture를 반복합니다. 실제 field 결과는 장비와 녹음 샘플이 필요하므로 harness 구현과 별도로 검증합니다.
+
 ## VibeVoice
 
 기본 sidecar 주소는 `http://127.0.0.1:8001`입니다.
@@ -160,17 +196,18 @@ LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
 - [`docs/FASTER_WHISPER.md`](docs/FASTER_WHISPER.md)
 - [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)
 - [`docs/FAILOVER.md`](docs/FAILOVER.md)
+- [`docs/BENCHMARK.md`](docs/BENCHMARK.md)
 
 ## 아직 필요한 주요 작업
 
-- 실제 한국어·영어 현장 failover benchmark + 30/60/90분 soak test
+- 실제 한국어·영어 현장 failover benchmark + 대상 장비 30/60/90분 soak test
 - 실패 provider retry/failback 정책 검증
 - semantic VAD/gating 필요성 benchmark
 - constrained LLM correction + provenance/confidence
 - QR join brute-force/rate-limit hardening
 - context 문서 업로드/추출
-- Tauri desktop shell, 모델/sidecar 자동 설치, hardware auto-detection
-- signed Windows/macOS installer
+- onboarding/system preflight, 모델/sidecar 자동 설치, hardware auto-detection
+- Tauri desktop shell + signed Windows/macOS installer
 
 ## 라이선스
 
