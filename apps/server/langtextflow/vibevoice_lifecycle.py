@@ -87,8 +87,13 @@ class VibeVoiceLifecycleManager:
 
             if healthy:
                 managed = process_live
+                mode = (
+                    VibeVoiceLifecycleMode.MANAGED
+                    if managed
+                    else VibeVoiceLifecycleMode.EXTERNAL
+                )
                 return self._state(
-                    VibeVoiceLifecycleMode.MANAGED if managed else VibeVoiceLifecycleMode.EXTERNAL,
+                    mode,
                     configured=configured,
                     managed=managed,
                     running=True,
@@ -101,8 +106,13 @@ class VibeVoiceLifecycleManager:
                 )
 
             if process_live:
+                mode = (
+                    VibeVoiceLifecycleMode.STARTING
+                    if start_pending
+                    else VibeVoiceLifecycleMode.ERROR
+                )
                 return self._state(
-                    VibeVoiceLifecycleMode.STARTING if start_pending else VibeVoiceLifecycleMode.ERROR,
+                    mode,
                     configured=configured,
                     managed=True,
                     running=True,
@@ -110,7 +120,10 @@ class VibeVoiceLifecycleManager:
                     status=(
                         "VibeVoice sidecar가 시작 중입니다."
                         if start_pending
-                        else "VibeVoice 프로세스는 실행 중이지만 health check에 응답하지 않습니다."
+                        else (
+                            "VibeVoice 프로세스는 실행 중이지만 "
+                            "health check에 응답하지 않습니다."
+                        )
                     ),
                     error=None if start_pending else self._last_error,
                 )
@@ -178,9 +191,7 @@ class VibeVoiceLifecycleManager:
     async def stop(self) -> VibeVoiceLifecycleState:
         async with self._operation_lock:
             async with self._lock:
-                process = self._process
                 start_task = self._start_task
-                managed = process is not None
                 if start_task is not None and not start_task.done():
                     start_task.cancel()
 
@@ -188,6 +199,8 @@ class VibeVoiceLifecycleManager:
                 with suppress(asyncio.CancelledError):
                     await start_task
 
+            async with self._lock:
+                managed = self._process is not None
             if managed:
                 await self._terminate_owned_process()
                 async with self._lock:
@@ -199,7 +212,8 @@ class VibeVoiceLifecycleManager:
                 return current.model_copy(
                     update={
                         "status": (
-                            "외부 VibeVoice sidecar는 LangTextFlow가 소유하지 않아 종료하지 않았습니다."
+                            "외부 VibeVoice sidecar는 LangTextFlow가 소유하지 않아 "
+                            "종료하지 않았습니다."
                         )
                     }
                 )
@@ -231,7 +245,8 @@ class VibeVoiceLifecycleManager:
             while asyncio.get_running_loop().time() < deadline:
                 if process.returncode is not None:
                     raise RuntimeError(
-                        f"VibeVoice process exited before becoming ready: {process.returncode}"
+                        "VibeVoice process exited before becoming ready: "
+                        f"{process.returncode}"
                     )
                 if await self._probe_health():
                     async with self._lock:
@@ -280,14 +295,25 @@ class VibeVoiceLifecycleManager:
         except ValueError as exc:
             return str(exc)
 
-        repo = Path(self.settings.vibevoice_repo_path).expanduser() if self.settings.vibevoice_repo_path else None
+        repo = (
+            Path(self.settings.vibevoice_repo_path).expanduser()
+            if self.settings.vibevoice_repo_path
+            else None
+        )
         if repo is None or not repo.is_dir():
             return "VibeVoice repository 경로를 설정하고 먼저 runtime을 준비하세요."
         server_module = repo / "vllm_plugin" / "asr_streaming_server.py"
         if not server_module.is_file():
-            return "VibeVoice repository에서 vllm_plugin/asr_streaming_server.py를 찾지 못했습니다."
+            return (
+                "VibeVoice repository에서 "
+                "vllm_plugin/asr_streaming_server.py를 찾지 못했습니다."
+            )
 
-        model = Path(self.settings.vibevoice_model_path).expanduser() if self.settings.vibevoice_model_path else None
+        model = (
+            Path(self.settings.vibevoice_model_path).expanduser()
+            if self.settings.vibevoice_model_path
+            else None
+        )
         if model is None or not model.is_dir():
             return "준비된 VibeVoice streaming checkpoint의 로컬 경로를 설정하세요."
         if not (model / "preprocessor_config.json").is_file():
@@ -408,6 +434,11 @@ class VibeVoiceLifecycleManager:
     ) -> VibeVoiceLifecycleState:
         process = self._process
         pid = getattr(process, "pid", None) if managed else None
+        started_at = (
+            self._started_at
+            if managed or mode is VibeVoiceLifecycleMode.STARTING
+            else None
+        )
         return VibeVoiceLifecycleState(
             mode=mode,
             configured=configured,
@@ -420,7 +451,7 @@ class VibeVoiceLifecycleManager:
             url=self.settings.vibevoice_url,
             repo_path=self.settings.vibevoice_repo_path or None,
             model_path=self.settings.vibevoice_model_path or None,
-            started_at=self._started_at if managed or mode is VibeVoiceLifecycleMode.STARTING else None,
+            started_at=started_at,
             log_tail=list(self._logs),
         )
 
