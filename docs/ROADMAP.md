@@ -42,10 +42,13 @@
 - [x] correction / translation / commit latency 계측
 - [x] ASR / postprocess / persistence queue telemetry
 - [x] audio enqueue backpressure counter + ASR queue high-watermark
+- [x] provider runtime failure 상태 contract (`running` / `failure`)
+- [x] VibeVoice sender/receiver 및 faster-whisper worker failure telemetry
+- [x] 운영자 UI의 ASR `LIVE / STARTING / FAILED / IDLE` 상태 표시
 - [ ] 세션 도중 provider reconnect / seamless failover
 - [ ] replay buffer + duplicate suppression 기반 mid-session fallback
 - [ ] semantic VAD/gating benchmark 및 필요 시 적용
-- [ ] provider reconnect / failure telemetry
+- [ ] provider reconnect attempt/success counter
 - [ ] 한국어·영어 실제 집회 샘플 벤치마크
 - [ ] 30/60/90분 장시간 soak test
 
