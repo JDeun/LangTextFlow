@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import "./history.css";
 import type { SessionRecord } from "./types";
 
 interface SessionHistoryProps {
