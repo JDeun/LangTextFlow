@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
 from langtextflow.models import StartSessionRequest, TranscriptEvent
 
 ProviderFactory = Callable[[PublishEvent], AsrEngine]
+ProviderChange = Callable[[str], Awaitable[None]]
 
 
 def _strip_exact_text_overlap(previous: str, current: str, *, minimum: int = 4) -> str:
@@ -130,6 +131,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
         *,
         replay_seconds: float = 8.0,
         health_check_seconds: float = 0.25,
+        on_provider_change: ProviderChange | None = None,
     ) -> None:
         super().__init__(publish)
         if not candidates:
@@ -141,6 +143,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self.candidates = list(candidates)
         self.replay_seconds = replay_seconds
         self.health_check_seconds = health_check_seconds
+        self.on_provider_change = on_provider_change
         self._request: StartSessionRequest | None = None
         self._active_name: str | None = None
         self._active_index = -1
@@ -231,6 +234,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
                 failures.append(f"{self.candidates[index][0]}: {exc}")
                 continue
             self._activate_candidate(index, engine, generation=0, origin_ms=0.0)
+            await self._notify_provider_change()
             await self._flush_pending_events()
             self._health_task = asyncio.create_task(
                 self._health_loop(),
@@ -360,6 +364,10 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._failure = None
         self._pending_generation = None
 
+    async def _notify_provider_change(self) -> None:
+        if self.on_provider_change is not None and self._active_name is not None:
+            await self.on_provider_change(self._active_name)
+
     async def _failover_locked(self, reason: str) -> None:
         if self._request is None:
             raise AsrEngineError("ASR fallback session is not initialized")
@@ -377,14 +385,15 @@ class ReplayFallbackAsrEngine(AsrEngine):
 
         for index in range(self._active_index + 1, len(self.candidates)):
             name = self.candidates[index][0]
+            engine: AsrEngine | None = None
             try:
                 engine = await self._start_candidate(index, generation=generation)
                 for frame in replay_frames:
                     await engine.feed_audio(frame)
             except Exception as exc:
                 failures.append(f"{name}: {exc}")
-                with suppress(Exception):
-                    if 'engine' in locals():
+                if engine is not None:
+                    with suppress(Exception):
                         await engine.stop()
                 self._pending_generation = None
                 self._pending_events.clear()
@@ -398,6 +407,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
             )
             self._failover_count += 1
             self._last_failover_reason = f"{old_name}: {reason}"
+            await self._notify_provider_change()
             await self._flush_pending_events()
             return
 
