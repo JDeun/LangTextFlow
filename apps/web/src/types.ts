@@ -124,6 +124,8 @@ export interface RealtimeMetrics {
   asr_provider: string | null;
   asr_running: boolean;
   asr_failure: string | null;
+  asr_failover_count: number;
+  asr_last_failover_reason: string | null;
   asr_queue_depth: number;
   asr_queue_capacity: number;
   asr_queue_high_watermark: number;
