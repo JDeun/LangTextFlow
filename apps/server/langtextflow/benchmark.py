@@ -268,6 +268,62 @@ def segment_quality(segments: list[ObservedSegment]) -> dict[str, Any]:
     }
 
 
+def _auto_generation(segment_id: str) -> int | None:
+    parts = segment_id.split("-", 2)
+    if len(parts) != 3 or parts[0] != "auto":
+        return None
+    try:
+        return int(parts[1])
+    except ValueError:
+        return None
+
+
+def handoff_metrics(segments: list[ObservedSegment]) -> dict[str, Any]:
+    transitions: list[dict[str, Any]] = []
+    previous: ObservedSegment | None = None
+    previous_generation: int | None = None
+    for segment in segments:
+        generation = _auto_generation(segment.segment_id)
+        if (
+            previous is not None
+            and previous_generation is not None
+            and generation is not None
+            and generation > previous_generation
+        ):
+            audio_gap_ms = (
+                segment.start_ms - previous.end_ms if previous.end_ms is not None else None
+            )
+            transitions.append(
+                {
+                    "from_generation": previous_generation,
+                    "to_generation": generation,
+                    "audio_gap_ms": audio_gap_ms,
+                    "delivery_gap_ms": round(
+                        segment.received_elapsed_ms - previous.received_elapsed_ms,
+                        1,
+                    ),
+                    "previous_segment_id": previous.segment_id,
+                    "next_segment_id": segment.segment_id,
+                }
+            )
+        if generation is not None:
+            previous_generation = generation
+        previous = segment
+
+    positive_audio_gaps = [
+        transition["audio_gap_ms"]
+        for transition in transitions
+        if transition["audio_gap_ms"] is not None and transition["audio_gap_ms"] > 0
+    ]
+    delivery_gaps = [transition["delivery_gap_ms"] for transition in transitions]
+    return {
+        "observed_transition_count": len(transitions),
+        "max_positive_audio_gap_ms": max(positive_audio_gaps) if positive_audio_gaps else 0,
+        "max_delivery_gap_ms": max(delivery_gaps) if delivery_gaps else None,
+        "transitions": transitions,
+    }
+
+
 def build_asr_engine(
     engine_name: str,
     publish: PublishEvent,
@@ -434,6 +490,10 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
     audio_duration_seconds = fed_frames / info.sample_rate
     feed_wall_seconds = feed_finished_at - audio_started
     total_audio_phase_seconds = finished_at - audio_started
+    last_output_seconds = (
+        collector.segments[-1].received_elapsed_ms / 1000.0 if collector.segments else 0.0
+    )
+    processing_completion_seconds = max(feed_wall_seconds, last_output_seconds)
     lag_values = [
         segment.realtime_lag_ms
         for segment in collector.segments
@@ -450,10 +510,11 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
         "startup_ms": round(startup_seconds * 1000.0, 1),
         "audio_duration_ms": round(audio_duration_seconds * 1000.0, 1),
         "feed_wall_ms": round(feed_wall_seconds * 1000.0, 1),
+        "processing_completion_ms": round(processing_completion_seconds * 1000.0, 1),
         "drain_ms": round(drain_seconds * 1000.0, 1),
         "total_audio_phase_ms": round(total_audio_phase_seconds * 1000.0, 1),
         "wall_to_audio_ratio": round(total_audio_phase_seconds / audio_duration_seconds, 4),
-        "throughput_rtf": round(total_audio_phase_seconds / audio_duration_seconds, 4)
+        "throughput_rtf": round(processing_completion_seconds / audio_duration_seconds, 4)
         if options.pace == "max"
         else None,
         "first_stable_ms": (
@@ -514,6 +575,7 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
             "queue_capacity": provider_snapshot["queue_capacity"],
         },
         "timing": timing,
+        "handoff": handoff_metrics(collector.segments),
         "memory": memory.report(),
         "quality": {
             **quality_metrics(reference, hypothesis),
