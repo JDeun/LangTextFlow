@@ -142,6 +142,12 @@ class StartSessionRequest(BaseModel):
             raise ValueError("at least one target language is required")
         return normalized
 
+    @model_validator(mode="after")
+    def validate_language_flow(self) -> StartSessionRequest:
+        if self.source_language in self.target_languages:
+            raise ValueError("source language is always the original track and cannot be a target")
+        return self
+
 
 class SessionState(BaseModel):
     session_id: str | None = None

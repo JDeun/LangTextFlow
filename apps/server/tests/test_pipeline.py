@@ -57,3 +57,46 @@ async def test_stable_segment_flows_through_correction_translation_and_commit() 
     assert published[1].text == "오늘 우리가 볼 말씀은 요한복음 삼장입니다"
     assert published[2].translations["en"] == "Today we will look at John chapter 3."
     assert published[-1].committed is True
+
+
+@pytest.mark.asyncio
+async def test_pipeline_fans_out_any_source_to_multiple_targets() -> None:
+    published: list[TranscriptEvent] = []
+    committed = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+        if event.stage is CaptionStage.COMMITTED:
+            committed.set()
+
+    pipeline = CaptionPipeline(publish, Settings())
+    await pipeline.start(
+        StartSessionRequest(
+            source_language="ja",
+            target_languages=["ko", "en"],
+            translation_provider="demo",
+        )
+    )
+    try:
+        await pipeline.ingest(
+            TranscriptEvent(
+                segment_id="seg-ja-1",
+                version=1,
+                stage=CaptionStage.STABLE,
+                source_language="ja",
+                text="福音について話します",
+                start_ms=0,
+                end_ms=1600,
+            )
+        )
+        await asyncio.wait_for(committed.wait(), timeout=1.0)
+    finally:
+        await pipeline.stop()
+
+    translated = next(event for event in published if event.stage is CaptionStage.TRANSLATED)
+    assert translated.translations == {
+        "ko": "[KO demo] 福音について話します",
+        "en": "[EN demo] 福音について話します",
+    }
+    assert published[-1].translations == translated.translations
+    assert published[-1].committed is True

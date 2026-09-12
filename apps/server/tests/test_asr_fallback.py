@@ -171,7 +171,9 @@ async def test_replay_fallback_replays_recent_audio_rebases_time_and_suppresses_
         health_check_seconds=60.0,
         on_provider_change=provider_changed,
     )
-    await engine.start(StartSessionRequest(engine="auto", source_language="en"))
+    await engine.start(
+        StartSessionRequest(engine="auto", source_language="en", target_languages=["ko"])
+    )
     assert engine.active_provider == "primary"
     assert provider_changes == ["primary"]
 

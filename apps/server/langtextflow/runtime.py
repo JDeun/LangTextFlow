@@ -48,29 +48,42 @@ class CaptionRuntime:
             tuple[str, TranscriptEvent] | None
         ] = asyncio.Queue(maxsize=1024)
         self._persistence_task: asyncio.Task[None] | None = None
+        self._initialized = False
 
     async def initialize(self) -> None:
-        if self._persistence_task is not None:
+        if self._initialized:
             return
         await asyncio.to_thread(self.history.initialize)
+        self._initialized = True
+
+    def _start_persistence_worker(self) -> None:
+        if self._persistence_task is not None:
+            return
+        self._persistence_queue = asyncio.Queue(maxsize=1024)
         self._persistence_task = asyncio.create_task(
             self._persistence_worker(),
             name="session-persistence",
         )
 
+    async def _stop_persistence_worker(self) -> None:
+        task = self._persistence_task
+        if task is None:
+            return
+        await self._persistence_queue.join()
+        await self._persistence_queue.put(None)
+        await task
+        self._persistence_task = None
+        self._refresh_queue_metrics()
+
     async def shutdown(self) -> None:
         await self.stop()
-        if self._persistence_task is not None:
-            await self._persistence_queue.put(None)
-            await self._persistence_task
-            self._persistence_task = None
 
     async def _publish(self, event: TranscriptEvent) -> None:
         self.store.apply(event)
         self._observe_event(event)
         await self.hub.broadcast(event)
         session_id = self.state.session_id
-        if not session_id:
+        if not session_id or self._persistence_task is None:
             self._refresh_queue_metrics()
             return
         try:
@@ -260,6 +273,7 @@ class CaptionRuntime:
             await asyncio.to_thread(self.history.create_session, self.state, request)
         except Exception as exc:
             self.state.persistence_error = str(exc)
+        self._start_persistence_worker()
         try:
             await engine.start(request)
             active_provider = getattr(engine, "active_provider", None)
@@ -271,6 +285,7 @@ class CaptionRuntime:
             self.state.running = False
             self.engine = None
             await self.pipeline.stop()
+            await self._stop_persistence_worker()
             if self.state.session_id and self.state.persistence_error is None:
                 await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
             raise
@@ -283,9 +298,8 @@ class CaptionRuntime:
             await self.engine.stop()
             self.engine = None
         await self.pipeline.stop()
-        if self._persistence_task is not None:
-            await self._persistence_queue.join()
-        if was_running and session_id and self._persistence_task is not None:
+        await self._stop_persistence_worker()
+        if was_running and session_id:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception as exc:
