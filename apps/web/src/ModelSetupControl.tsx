@@ -3,7 +3,10 @@ import { API_URL } from "./api";
 import type { ModelSetupJob } from "./types";
 import "./modelSetup.css";
 
+type SetupProvider = "ollama" | "faster-whisper";
+
 interface ModelSetupControlProps {
+  provider?: SetupProvider;
   model: string;
   enabled: boolean;
   onCompleted?: () => void;
@@ -19,7 +22,23 @@ function formatBytes(value: number | null) {
   return `${value} B`;
 }
 
-export function ModelSetupControl({ model, enabled, onCompleted }: ModelSetupControlProps) {
+function setupEndpoint(provider: SetupProvider) {
+  return provider === "ollama"
+    ? "/api/v1/setup/ollama/pull"
+    : "/api/v1/setup/faster-whisper/prefetch";
+}
+
+function actionLabel(provider: SetupProvider, model: string) {
+  if (provider === "faster-whisper") return `${model || "ASR 모델"} 미리 다운로드`;
+  return `${model || "번역 모델"} 다운로드`;
+}
+
+export function ModelSetupControl({
+  provider = "ollama",
+  model,
+  enabled,
+  onCompleted,
+}: ModelSetupControlProps) {
   const [job, setJob] = useState<ModelSetupJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -58,18 +77,18 @@ export function ModelSetupControl({ model, enabled, onCompleted }: ModelSetupCon
   }, [active, job, onCompleted]);
 
   useEffect(() => {
-    if (job && job.model !== model.trim()) {
+    if (job && (job.model !== model.trim() || job.provider !== provider)) {
       setJob(null);
       setError("");
     }
-  }, [job, model]);
+  }, [job, model, provider]);
 
   async function start() {
     if (!enabled || !model.trim()) return;
     setBusy(true);
     setError("");
     try {
-      const response = await fetch(`${API_URL}/api/v1/setup/ollama/pull`, {
+      const response = await fetch(`${API_URL}${setupEndpoint(provider)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: model.trim() }),
@@ -107,7 +126,7 @@ export function ModelSetupControl({ model, enabled, onCompleted }: ModelSetupCon
     <div className="model-setup-control">
       {!job && (
         <button onClick={start} disabled={busy || !enabled || !model.trim()}>
-          {busy ? "준비 중…" : `${model || "번역 모델"} 다운로드`}
+          {busy ? "준비 중…" : actionLabel(provider, model)}
         </button>
       )}
 
