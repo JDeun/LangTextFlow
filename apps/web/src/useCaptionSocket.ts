@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { SnapshotEvent, TranscriptEvent } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-const WS_URL = API_URL.replace(/^http/, "ws") + "/ws/captions";
 
-export function useCaptionSocket() {
+export function useCaptionSocket(path = "/ws/captions") {
   const [connected, setConnected] = useState(false);
   const [segments, setSegments] = useState<Record<string, TranscriptEvent>>({});
 
@@ -12,9 +11,10 @@ export function useCaptionSocket() {
     let socket: WebSocket | undefined;
     let retryTimer: number | undefined;
     let disposed = false;
+    const wsUrl = API_URL.replace(/^http/, "ws") + path;
 
     const connect = () => {
-      socket = new WebSocket(WS_URL);
+      socket = new WebSocket(wsUrl);
       socket.onopen = () => setConnected(true);
       socket.onclose = () => {
         setConnected(false);
@@ -41,7 +41,7 @@ export function useCaptionSocket() {
       if (retryTimer) window.clearTimeout(retryTimer);
       socket?.close();
     };
-  }, []);
+  }, [path]);
 
   const ordered = useMemo(
     () => Object.values(segments).sort((a, b) => a.start_ms - b.start_ms),

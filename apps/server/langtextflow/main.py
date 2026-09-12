@@ -4,7 +4,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .models import SessionState, StartSessionRequest, TranscriptEvent
+from .models import AudienceSessionView, SessionState, StartSessionRequest, TranscriptEvent
 from .runtime import CaptionRuntime
 
 settings = get_settings()
@@ -19,7 +19,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version="0.2.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -60,8 +60,24 @@ async def stop_session() -> SessionState:
     return await runtime.stop()
 
 
-@app.websocket("/ws/captions")
-async def caption_socket(websocket: WebSocket) -> None:
+@app.get("/api/v1/audience/{join_code}", response_model=AudienceSessionView)
+async def audience_session(join_code: str) -> AudienceSessionView:
+    try:
+        return runtime.audience_view(join_code)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="audience session not found") from exc
+
+
+@app.get("/api/v1/audience/{join_code}/captions", response_model=list[TranscriptEvent])
+async def audience_captions(join_code: str) -> list[TranscriptEvent]:
+    try:
+        runtime.audience_view(join_code)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="audience session not found") from exc
+    return runtime.store.snapshot()
+
+
+async def _caption_socket(websocket: WebSocket) -> None:
     await runtime.hub.connect(websocket)
     try:
         await websocket.send_json(
@@ -77,3 +93,18 @@ async def caption_socket(websocket: WebSocket) -> None:
     except Exception:
         runtime.hub.disconnect(websocket)
         raise
+
+
+@app.websocket("/ws/captions")
+async def caption_socket(websocket: WebSocket) -> None:
+    await _caption_socket(websocket)
+
+
+@app.websocket("/ws/audience/{join_code}")
+async def audience_caption_socket(websocket: WebSocket, join_code: str) -> None:
+    try:
+        runtime.audience_view(join_code)
+    except KeyError:
+        await websocket.close(code=4404, reason="audience session not found")
+        return
+    await _caption_socket(websocket)
