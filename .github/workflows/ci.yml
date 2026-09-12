@@ -22,6 +22,8 @@ jobs:
         run: python -m pip check
       - name: Repository hygiene scan
         run: python scripts/repo_hygiene.py
+      - name: Hugging Face snapshot access policy
+        run: python scripts/check_hf_snapshot_calls.py
       - name: Python lint
         run: ruff check apps/server scripts
       - name: Backend tests and coverage gate
@@ -33,7 +35,7 @@ jobs:
       - name: Python dependency vulnerability audit
         run: pip-audit
       - name: Python static security scan
-        run: bandit -r apps/server/langtextflow -ll
+        run: bandit -r apps/server/langtextflow -ll -s B615
 
   frontend:
     runs-on: ubuntu-latest
