@@ -21,7 +21,7 @@
 - [x] Projector view
 - [x] OBS Browser Source용 transparent view
 - [x] 운영자 UI에서 공유 링크 제공
-- [ ] QR code 렌더링
+- [x] QR code 렌더링 + LAN audience URL
 - [ ] Context 문서 업로드/추출
 - [ ] SQLite 세션/transcript 영속화
 
@@ -65,14 +65,27 @@
 - [ ] glossary import/export (JSON/CSV)
 - [ ] 최근 세션 기반 glossary 추천
 
-## P3 — Product UX
+## P3A — Audience onboarding / LAN
+
+- [x] 브라우저가 현재 host 기준으로 audience API/WebSocket을 해석
+- [x] private LAN / CGNAT(Tailscale 포함) IPv4 후보 탐색
+- [x] 로컬 QR 생성 (외부 QR 서비스 불필요)
+- [x] 복수 네트워크 주소 선택 UI
+- [x] Vite dev/preview LAN bind
+- [x] LAN origin CORS allowlist regex
+- [x] operator REST/WebSocket/audio control을 loopback-only로 제한
+- [x] audience REST/WebSocket만 join code 기반 LAN 접근 허용
+- [ ] join code rate limit / brute-force hardening
+- [ ] mDNS 기반 사람이 읽기 쉬운 local hostname
+
+## P3B — Product UX
 
 - [ ] onboarding wizard
 - [ ] VibeVoice sidecar 자동 설치/실행/상태 진단
 - [ ] 번역 모델 자동 설치/실행/상태 진단
 - [ ] 모델 자동 다운로드/검증
 - [ ] GPU/CPU 자동 감지와 권장 preset
-- [ ] QR audience page + 다중 target language UX
+- [ ] 다중 target language 운영자 UX
 - [ ] 글꼴/크기/행수/자막 유지시간 설정
 - [ ] 세션 기록/검색/내보내기 (TXT/SRT/VTT/JSON)
 - [ ] glossary import/export 및 추천 UX
