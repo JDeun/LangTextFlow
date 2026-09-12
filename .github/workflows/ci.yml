@@ -47,16 +47,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install frontend dependencies
-        run: npm install
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install pinned frontend dependencies
+        run: npm ci
       - name: Audit frontend dependencies
         run: npm audit --audit-level=high
       - name: Build frontend
         run: npm run build
-      - name: Upload generated lockfile for repository pinning
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-package-lock
-          path: apps/web/package-lock.json
-          if-no-files-found: error
-          retention-days: 1
