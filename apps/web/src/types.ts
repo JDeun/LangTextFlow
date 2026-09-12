@@ -90,13 +90,16 @@ export interface SnapshotEvent {
   segments: TranscriptEvent[];
 }
 
-export interface TranslationStatus {
+export interface ProviderStatus {
   enabled: boolean;
   provider: string;
   model: string | null;
   available: boolean;
   error: string | null;
 }
+
+export interface CorrectionStatus extends ProviderStatus {}
+export interface TranslationStatus extends ProviderStatus {}
 
 export interface SessionState {
   session_id: string | null;
@@ -108,6 +111,7 @@ export interface SessionState {
   context: SessionContext | null;
   audio_required: boolean;
   audio_sample_rate: number | null;
+  correction_status: CorrectionStatus;
   translation_status: TranslationStatus;
   persistence_error: string | null;
   started_at: string | null;
@@ -123,6 +127,8 @@ export interface SessionRecord {
   source_language: string;
   target_languages: string[];
   engine: string;
+  correction_provider: string;
+  correction_model: string | null;
   translation_provider: string;
   translation_model: string | null;
   started_at: string;
@@ -232,6 +238,7 @@ export interface RealtimeMetrics {
   asr_failure: string | null;
   asr_failover_count: number;
   asr_last_failover_reason: string | null;
+  asr_last_failover_audio_ms: number | null;
   asr_queue_depth: number;
   asr_queue_capacity: number;
   asr_queue_high_watermark: number;
