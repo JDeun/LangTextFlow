@@ -105,6 +105,16 @@ class VibeVoiceLifecycleManager:
                     ),
                 )
 
+            if start_pending and not process_live:
+                return self._state(
+                    VibeVoiceLifecycleMode.STARTING,
+                    configured=configured,
+                    managed=False,
+                    running=False,
+                    healthy=False,
+                    status="VibeVoice sidecar 실행을 준비하는 중입니다.",
+                )
+
             if process_live:
                 mode = (
                     VibeVoiceLifecycleMode.STARTING
@@ -222,10 +232,12 @@ class VibeVoiceLifecycleManager:
     async def shutdown(self) -> None:
         async with self._lock:
             owned = self._process is not None
-        if owned:
+            start_pending = self._start_task is not None and not self._start_task.done()
+        if owned or start_pending:
             await self.stop()
 
     async def _run_start(self) -> None:
+        current_task = asyncio.current_task()
         process: Any | None = None
         try:
             command, cwd, env = self._build_command()
@@ -265,7 +277,7 @@ class VibeVoiceLifecycleManager:
                 await self._terminate_owned_process()
         finally:
             async with self._lock:
-                if self._start_task is asyncio.current_task():
+                if self._start_task is current_task:
                     self._start_task = None
 
     async def _probe_health(self) -> bool:
