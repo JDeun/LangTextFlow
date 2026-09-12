@@ -18,7 +18,13 @@ from .models import (
     TranscriptEvent,
     TranslationStatus,
 )
-from .translation import DemoTranslator, OllamaTranslator, TranslationError, Translator
+from .translation import (
+    DemoTranslator,
+    OllamaTranslator,
+    OpenAICompatibleTranslator,
+    TranslationError,
+    Translator,
+)
 
 
 class CaptionPipeline:
@@ -116,6 +122,19 @@ class CaptionPipeline:
             return OllamaTranslator(
                 base_url=self.settings.ollama_url,
                 model=request.translation_model or self.settings.ollama_translation_model,
+            )
+        if provider == "openai-compatible":
+            return OpenAICompatibleTranslator(
+                base_url=self.settings.openai_compatible_url,
+                model=(
+                    request.translation_model
+                    or self.settings.openai_compatible_translation_model
+                ),
+                api_key=self.settings.openai_compatible_api_key,
+                request_timeout_seconds=max(
+                    self.settings.openai_compatible_timeout_seconds,
+                    0.1,
+                ),
             )
         raise ValueError(f"unsupported translation provider: {provider}")
 
