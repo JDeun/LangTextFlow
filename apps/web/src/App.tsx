@@ -6,6 +6,7 @@ import {
   type AudioInputDevice,
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
+import { ContextDocumentManager } from "./ContextDocumentManager";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
@@ -22,6 +23,7 @@ import type {
   CaptionDisplaySettings,
   ProductPreset,
   RecommendedConfiguration,
+  ReferenceDocument,
   SessionState,
   SystemPreflight,
   TranscriptEvent,
@@ -173,6 +175,7 @@ function OperatorApp() {
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
   const [hotwords, setHotwords] = useState("요한복음, 로마서, 복음, 은혜, 칭의, 성화");
+  const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);
   const [engine, setEngine] = useState("auto");
   const [translationProvider, setTranslationProvider] = useState("ollama");
   const [translationModel, setTranslationModel] = useState("translategemma:4b");
@@ -308,6 +311,8 @@ function OperatorApp() {
             description: "",
             hotwords: splitHotwords(hotwords),
             glossary: [],
+            reference_documents: referenceDocuments,
+            reference_text: "",
             output_modes: ["audience", "projector", "obs"],
             audience_access: true,
             display_settings: displaySettings,
@@ -317,6 +322,9 @@ function OperatorApp() {
       if (!response.ok) throw new Error(await response.text());
       const nextSession = (await response.json()) as SessionState;
       setSession(nextSession);
+      if (nextSession.context?.reference_documents) {
+        setReferenceDocuments(nextSession.context.reference_documents);
+      }
 
       if (nextSession.audio_required) {
         const capture = new AudioCaptureController();
@@ -454,6 +462,12 @@ function OperatorApp() {
             />
             <small>일회성 세션 힌트입니다. 반복 사용할 용어는 아래 용어집에 저장하세요.</small>
           </label>
+
+          <ContextDocumentManager
+            value={referenceDocuments}
+            disabled={running}
+            onChange={setReferenceDocuments}
+          />
 
           <GlossaryManager
             apiUrl={API_URL}
