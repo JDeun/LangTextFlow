@@ -386,7 +386,7 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
             ),
             PreflightCheck(
                 id="translation-model",
-                label="번역 모델",
+                label="Ollama 번역 모델",
                 status=CheckStatus.MISSING,
                 summary=f"{model} 설치 여부를 확인할 수 없습니다.",
             ),
@@ -401,11 +401,7 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
         or name.casefold().removesuffix(":latest") == normalized.removesuffix(":latest")
         for name in names
     )
-    summary = (
-        f"{model} 모델이 준비되어 있습니다."
-        if available
-        else f"{model} 모델이 없습니다."
-    )
+    summary = f"{model} 모델이 준비되어 있습니다." if available else f"{model} 모델이 없습니다."
     return [
         PreflightCheck(
             id="ollama",
@@ -416,7 +412,7 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
         ),
         PreflightCheck(
             id="translation-model",
-            label="번역 모델",
+            label="Ollama 번역 모델",
             status=CheckStatus.READY if available else CheckStatus.MISSING,
             summary=summary,
             details={"model": model},
@@ -425,13 +421,98 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
     ]
 
 
-def _is_ready(check: PreflightCheck) -> bool:
-    return check.status is CheckStatus.READY
+async def _openai_compatible_checks(
+    settings: Settings,
+    model: str,
+) -> list[PreflightCheck]:
+    base_url = settings.openai_compatible_url.rstrip("/")
+    headers = (
+        {"Authorization": f"Bearer {settings.openai_compatible_api_key.strip()}"}
+        if settings.openai_compatible_api_key.strip()
+        else {}
+    )
+    try:
+        async with httpx.AsyncClient(timeout=2.5) as client:
+            response = await client.get(f"{base_url}/models", headers=headers)
+            response.raise_for_status()
+            raw_payload = response.json()
+            payload = raw_payload if isinstance(raw_payload, dict) else {}
+    except Exception as exc:
+        return [
+            PreflightCheck(
+                id="openai-compatible",
+                label="OpenAI-compatible API",
+                status=CheckStatus.MISSING,
+                summary="OpenAI-compatible endpoint에 연결할 수 없습니다.",
+                details={
+                    "url": base_url,
+                    "authenticated": bool(headers),
+                    "error": str(exc),
+                },
+                recommendation="LM Studio, vLLM 또는 호환 API endpoint 설정을 확인하세요.",
+            ),
+            PreflightCheck(
+                id="openai-compatible-model",
+                label="OpenAI-compatible 번역 모델",
+                status=CheckStatus.MISSING,
+                summary=(
+                    f"{model} 사용 가능 여부를 확인할 수 없습니다."
+                    if model
+                    else "번역 모델 이름이 설정되지 않았습니다."
+                ),
+            ),
+        ]
+
+    raw_models = payload.get("data", [])
+    models = raw_models if isinstance(raw_models, list) else []
+    model_ids = [
+        str(item.get("id", ""))
+        for item in models
+        if isinstance(item, dict) and item.get("id")
+    ]
+    available = bool(model) and model in model_ids
+    return [
+        PreflightCheck(
+            id="openai-compatible",
+            label="OpenAI-compatible API",
+            status=CheckStatus.READY,
+            summary="OpenAI-compatible /v1 API가 응답합니다.",
+            details={
+                "url": base_url,
+                "authenticated": bool(headers),
+                "models": len(model_ids),
+            },
+        ),
+        PreflightCheck(
+            id="openai-compatible-model",
+            label="OpenAI-compatible 번역 모델",
+            status=CheckStatus.READY if available else CheckStatus.MISSING,
+            summary=(
+                f"{model} 모델이 준비되어 있습니다."
+                if available
+                else (
+                    f"{model} 모델을 endpoint에서 찾지 못했습니다."
+                    if model
+                    else "번역 모델 이름이 설정되지 않았습니다."
+                )
+            ),
+            details={"model": model},
+            recommendation=(
+                None
+                if available
+                else "서버에 로드된 정확한 model id를 번역 모델에 입력하세요."
+            ),
+        ),
+    ]
+
+
+def _is_ready(check: PreflightCheck | None) -> bool:
+    return check is not None and check.status is CheckStatus.READY
 
 
 def _whisper_ready(indexed: dict[str, PreflightCheck]) -> bool:
-    return _is_ready(indexed["faster-whisper"]) and _is_ready(
-        indexed["faster-whisper-model"]
+    return _is_ready(indexed.get("faster-whisper")) and _is_ready(
+        indexed.get("faster-whisper-model")
     )
 
 
@@ -443,30 +524,35 @@ def _blocking_checks(
 ) -> list[str]:
     indexed = {check.id: check for check in checks}
     blocking: list[str] = []
-    vibevoice_ready = _is_ready(indexed["vibevoice"])
+    vibevoice_ready = _is_ready(indexed.get("vibevoice"))
     whisper_ready = _whisper_ready(indexed)
 
     if engine == "vibevoice" and not vibevoice_ready:
         blocking.append("vibevoice")
     elif engine == "faster-whisper" and not whisper_ready:
-        if not _is_ready(indexed["faster-whisper"]):
+        if not _is_ready(indexed.get("faster-whisper")):
             blocking.append("faster-whisper")
-        elif not _is_ready(indexed["faster-whisper-model"]):
+        elif not _is_ready(indexed.get("faster-whisper-model")):
             blocking.append("faster-whisper-model")
     elif engine == "auto" and not (vibevoice_ready or whisper_ready):
         blocking.append("vibevoice")
-        if not _is_ready(indexed["faster-whisper"]):
+        if not _is_ready(indexed.get("faster-whisper")):
             blocking.append("faster-whisper")
-        elif not _is_ready(indexed["faster-whisper-model"]):
+        elif not _is_ready(indexed.get("faster-whisper-model")):
             blocking.append("faster-whisper-model")
     elif engine not in {"auto", "vibevoice", "faster-whisper", "mock"}:
         blocking.append("engine")
 
     if translation_provider == "ollama":
-        if not _is_ready(indexed["ollama"]):
+        if not _is_ready(indexed.get("ollama")):
             blocking.append("ollama")
-        if not _is_ready(indexed["translation-model"]):
+        if not _is_ready(indexed.get("translation-model")):
             blocking.append("translation-model")
+    elif translation_provider == "openai-compatible":
+        if not _is_ready(indexed.get("openai-compatible")):
+            blocking.append("openai-compatible")
+        if not _is_ready(indexed.get("openai-compatible-model")):
+            blocking.append("openai-compatible-model")
     elif translation_provider not in {"none", "demo"}:
         blocking.append("translation-provider")
 
@@ -477,9 +563,10 @@ def _recommended_configuration(
     checks: list[PreflightCheck],
     *,
     model: str,
+    openai_model: str | None = None,
 ) -> RecommendedConfiguration:
     indexed = {check.id: check for check in checks}
-    vibevoice_ready = _is_ready(indexed["vibevoice"])
+    vibevoice_ready = _is_ready(indexed.get("vibevoice"))
     whisper_ready = _whisper_ready(indexed)
     reasons: list[str] = []
 
@@ -502,16 +589,24 @@ def _recommended_configuration(
             "모델 준비 또는 sidecar 실행이 필요합니다."
         )
 
-    ollama_ready = _is_ready(indexed["ollama"])
-    translation_model_ready = _is_ready(indexed["translation-model"])
-    if ollama_ready and translation_model_ready:
+    ollama_ready = _is_ready(indexed.get("ollama"))
+    ollama_model_ready = _is_ready(indexed.get("translation-model"))
+    compatible_ready = _is_ready(indexed.get("openai-compatible"))
+    compatible_model_ready = _is_ready(indexed.get("openai-compatible-model"))
+    if ollama_ready and ollama_model_ready:
         translation_provider = "ollama"
         translation_model: str | None = model
         reasons.append(f"Ollama와 {model}이 준비되어 있어 로컬 번역을 사용할 수 있습니다.")
+    elif compatible_ready and compatible_model_ready and openai_model:
+        translation_provider = "openai-compatible"
+        translation_model = openai_model
+        reasons.append(
+            f"OpenAI-compatible endpoint와 {openai_model}이 준비되어 있습니다."
+        )
     else:
         translation_provider = "none"
         translation_model = None
-        reasons.append("로컬 번역 환경이 완전하지 않아 원문 자막 우선 구성을 권장합니다.")
+        reasons.append("번역 환경이 완전하지 않아 원문 자막 우선 구성을 권장합니다.")
 
     return RecommendedConfiguration(
         engine=engine,
@@ -527,16 +622,32 @@ async def run_preflight(
     engine: str = "auto",
     translation_provider: str = "ollama",
 ) -> SystemPreflight:
-    model = translation_model or settings.ollama_translation_model
-    nvidia, whisper, vibevoice, ollama = await asyncio.gather(
+    ollama_model = (
+        translation_model
+        if translation_provider == "ollama" and translation_model
+        else settings.ollama_translation_model
+    )
+    openai_model = (
+        translation_model
+        if translation_provider == "openai-compatible" and translation_model
+        else settings.openai_compatible_translation_model
+    )
+    nvidia, whisper, vibevoice, ollama, openai_compatible = await asyncio.gather(
         asyncio.to_thread(_nvidia_check),
         asyncio.to_thread(_faster_whisper_checks, settings.faster_whisper_model),
         _vibevoice_check(settings),
-        _ollama_checks(settings, model),
+        _ollama_checks(settings, ollama_model),
+        _openai_compatible_checks(settings, openai_model),
     )
     memory_gb = _memory_gb()
     disk_free_gb = _disk_free_gb(settings.database_path)
-    checks: list[PreflightCheck] = [nvidia, *whisper, vibevoice, *ollama]
+    checks: list[PreflightCheck] = [
+        nvidia,
+        *whisper,
+        vibevoice,
+        *ollama,
+        *openai_compatible,
+    ]
     if memory_gb is not None:
         checks.append(
             PreflightCheck(
@@ -570,10 +681,16 @@ async def run_preflight(
         engine=engine,
         translation_provider=translation_provider,
     )
+    selected_model: str | None = None
+    if translation_provider == "ollama":
+        selected_model = ollama_model
+    elif translation_provider == "openai-compatible":
+        selected_model = openai_model or None
+
     return SystemPreflight(
         requested_engine=engine,
         translation_provider=translation_provider,
-        translation_model=model if translation_provider == "ollama" else None,
+        translation_model=selected_model,
         ready=not blocking,
         blocking_checks=blocking,
         platform=platform.platform(),
@@ -583,5 +700,9 @@ async def run_preflight(
         memory_gb=memory_gb,
         disk_free_gb=disk_free_gb,
         checks=checks,
-        recommended=_recommended_configuration(checks, model=model),
+        recommended=_recommended_configuration(
+            checks,
+            model=ollama_model,
+            openai_model=openai_model or None,
+        ),
     )
