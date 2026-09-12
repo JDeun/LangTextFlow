@@ -32,13 +32,18 @@
 - [x] backend audio WebSocket + bounded provider queue
 - [x] VibeVoice-ASR-Streaming sidecar adapter
 - [x] Context/Glossary → VibeVoice context_info 전달
-- [ ] faster-whisper fallback adapter
+- [x] faster-whisper local micro-batch adapter
+- [x] faster-whisper initial_prompt + hotwords + source language 전달
+- [x] `Auto` startup fallback: VibeVoice → faster-whisper
+- [x] fallback 이후 실제 active provider를 session state/history에 기록
 - [x] RMS/energy monitoring VAD (audio frame은 제거하지 않음)
 - [x] audio level / voice activity operator UI
 - [x] ASR lag 계측
 - [x] correction / translation / commit latency 계측
 - [x] ASR / postprocess / persistence queue telemetry
 - [x] audio enqueue backpressure counter + ASR queue high-watermark
+- [ ] 세션 도중 provider reconnect / seamless failover
+- [ ] replay buffer + duplicate suppression 기반 mid-session fallback
 - [ ] semantic VAD/gating benchmark 및 필요 시 적용
 - [ ] provider reconnect / failure telemetry
 - [ ] 한국어·영어 실제 집회 샘플 벤치마크
@@ -105,9 +110,9 @@
 
 - [ ] onboarding wizard
 - [ ] VibeVoice sidecar 자동 설치/실행/상태 진단
+- [ ] faster-whisper 모델 자동 다운로드/검증
 - [ ] 번역 모델 자동 설치/실행/상태 진단
-- [ ] 모델 자동 다운로드/검증
-- [ ] GPU/CPU 자동 감지와 권장 preset
+- [ ] GPU/CPU 자동 감지와 ASR model/device/compute preset
 - [ ] 다중 target language 운영자 UX
 - [ ] 글꼴/크기/행수/자막 유지시간 설정
 - [ ] glossary import/export 및 추천 UX
