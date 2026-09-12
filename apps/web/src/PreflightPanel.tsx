@@ -126,6 +126,21 @@ export function PreflightPanel({
     && ollamaReady
     && translationModelMissing;
 
+  const whisperPackageReady = report?.checks.some(
+    (check) => check.id === "faster-whisper" && check.status === "ready",
+  ) ?? false;
+  const whisperModelCheck = report?.checks.find(
+    (check) => check.id === "faster-whisper-model",
+  );
+  const whisperModel = typeof whisperModelCheck?.details.model === "string"
+    ? whisperModelCheck.details.model
+    : "";
+  const canPrepareWhisperModel =
+    (engine === "auto" || engine === "faster-whisper")
+    && whisperPackageReady
+    && whisperModelCheck?.status === "missing"
+    && Boolean(whisperModel);
+
   if (!open) {
     return (
       <button
@@ -182,6 +197,22 @@ export function PreflightPanel({
             </div>
           )}
 
+          {canPrepareWhisperModel && (
+            <div className="preflight-repair">
+              <div>
+                <small>Auto fallback 준비</small>
+                <strong>{whisperModel} ASR 모델 cache가 없습니다.</strong>
+                <span>세션 전에 다운로드하면 failover 시 다운로드 지연 없이 전환할 수 있습니다.</span>
+              </div>
+              <ModelSetupControl
+                provider="faster-whisper"
+                model={whisperModel}
+                enabled
+                onCompleted={handleModelCompleted}
+              />
+            </div>
+          )}
+
           {canPrepareTranslationModel && (
             <div className="preflight-repair">
               <div>
@@ -190,6 +221,7 @@ export function PreflightPanel({
                 <span>실행 중인 Ollama를 통해 선택한 모델을 내려받을 수 있습니다.</span>
               </div>
               <ModelSetupControl
+                provider="ollama"
                 model={translationModel}
                 enabled
                 onCompleted={handleModelCompleted}
