@@ -45,6 +45,8 @@ class Settings(BaseSettings):
     vad_hangover_frames: int = 3
     audio_backpressure_warn_ms: float = 50.0
     ollama_url: str = "http://127.0.0.1:11434"
+    ollama_correction_model: str = "qwen3.5:4b"
+    correction_timeout_seconds: float = 4.0
     ollama_translation_model: str = "translategemma:4b"
 
     model_config = SettingsConfigDict(
