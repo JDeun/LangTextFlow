@@ -41,7 +41,8 @@ class GlossaryRepository:
             }
             if "presets_json" not in columns:
                 connection.execute(
-                    "ALTER TABLE glossary_entries ADD COLUMN presets_json TEXT NOT NULL DEFAULT '[]'"
+                    "ALTER TABLE glossary_entries ADD COLUMN presets_json "
+                    "TEXT NOT NULL DEFAULT '[]'"
                 )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary_entries(term)"
