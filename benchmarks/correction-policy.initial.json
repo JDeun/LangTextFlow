@@ -1,0 +1,15 @@
+{
+  "minimums": {
+    "summary.exact_correct_rate": 0.95,
+    "summary.change_detection.precision": 0.98,
+    "summary.change_detection.recall": 0.9,
+    "summary.critical_token_accuracy": 0.99,
+    "summary.numeric_token_accuracy": 1.0
+  },
+  "maximums": {
+    "summary.harmful_change_rate": 0.01,
+    "summary.missed_correction_rate": 0.1,
+    "summary.wrong_change_rate": 0.03,
+    "summary.latency_p95_ms": 2500.0
+  }
+}
