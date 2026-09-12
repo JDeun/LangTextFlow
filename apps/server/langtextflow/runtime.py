@@ -366,5 +366,6 @@ class CaptionRuntime:
             preset=context.preset,
             source_language=self.state.source_language,
             target_languages=self.state.target_languages,
+            display_settings=context.display_settings,
             started_at=self.state.started_at,
         )

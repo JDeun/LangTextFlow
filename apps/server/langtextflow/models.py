@@ -38,6 +38,27 @@ class OutputMode(StrEnum):
     OVERLAY = "overlay"
 
 
+class CaptionFontFamily(StrEnum):
+    SYSTEM = "system"
+    SANS = "sans"
+    SERIF = "serif"
+    MONO = "mono"
+
+
+class CaptionTextAlign(StrEnum):
+    LEFT = "left"
+    CENTER = "center"
+
+
+class CaptionDisplaySettings(BaseModel):
+    font_family: CaptionFontFamily = CaptionFontFamily.SYSTEM
+    font_scale_percent: int = Field(default=100, ge=70, le=180)
+    max_lines: int = Field(default=2, ge=1, le=4)
+    hold_seconds: float = Field(default=8.0, ge=0.0, le=30.0)
+    show_source_when_translated: bool = True
+    text_align: CaptionTextAlign = CaptionTextAlign.CENTER
+
+
 class GlossaryEntry(BaseModel):
     term: str = Field(min_length=1, max_length=160)
     aliases: list[str] = Field(default_factory=list)
@@ -78,6 +99,7 @@ class SessionContext(BaseModel):
         default_factory=lambda: [OutputMode.AUDIENCE, OutputMode.PROJECTOR, OutputMode.OBS]
     )
     audience_access: bool = True
+    display_settings: CaptionDisplaySettings = Field(default_factory=CaptionDisplaySettings)
 
     @field_validator("hotwords")
     @classmethod
@@ -193,6 +215,7 @@ class AudienceSessionView(BaseModel):
     preset: ProductPreset
     source_language: str
     target_languages: list[str]
+    display_settings: CaptionDisplaySettings = Field(default_factory=CaptionDisplaySettings)
     started_at: datetime | None
 
 

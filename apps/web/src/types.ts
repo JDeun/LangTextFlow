@@ -7,6 +7,8 @@ export type CaptionStage =
 
 export type ProductPreset = "general" | "church" | "conference" | "lecture";
 export type OutputMode = "operator" | "audience" | "projector" | "obs" | "overlay";
+export type CaptionFontFamily = "system" | "sans" | "serif" | "mono";
+export type CaptionTextAlign = "left" | "center";
 export type PreflightStatus = "ready" | "warning" | "missing" | "error" | "info";
 export type ModelSetupJobState = "queued" | "running" | "completed" | "cancelled" | "error";
 export type VibeVoiceLifecycleMode =
@@ -16,6 +18,15 @@ export type VibeVoiceLifecycleMode =
   | "managed"
   | "external"
   | "error";
+
+export interface CaptionDisplaySettings {
+  font_family: CaptionFontFamily;
+  font_scale_percent: number;
+  max_lines: number;
+  hold_seconds: number;
+  show_source_when_translated: boolean;
+  text_align: CaptionTextAlign;
+}
 
 export interface GlossaryEntry {
   term: string;
@@ -42,6 +53,7 @@ export interface SessionContext {
   glossary: GlossaryEntry[];
   output_modes: OutputMode[];
   audience_access: boolean;
+  display_settings: CaptionDisplaySettings;
 }
 
 export interface TranscriptEvent {
@@ -113,6 +125,7 @@ export interface AudienceSessionView {
   preset: ProductPreset;
   source_language: string;
   target_languages: string[];
+  display_settings: CaptionDisplaySettings;
   started_at: string | null;
 }
 
