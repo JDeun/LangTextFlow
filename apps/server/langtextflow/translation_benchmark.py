@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import platform
 import statistics
 import time
 from dataclasses import dataclass
@@ -156,6 +158,19 @@ def _mean_optional(values: list[float | None], digits: int = 4) -> float | None:
     return round(statistics.fmean(present), digits)
 
 
+def _environment() -> dict[str, str | None]:
+    return {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "machine": platform.machine() or None,
+        "processor": platform.processor() or None,
+    }
+
+
+def _fixture_digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 async def run_translation_benchmark(
     options: TranslationBenchmarkOptions,
     *,
@@ -165,6 +180,7 @@ async def run_translation_benchmark(
     if options.repeats < 1:
         raise ValueError("benchmark repeats must be at least 1")
     fixtures = load_fixtures(options.fixtures_path)
+    fixture_sha256 = _fixture_digest(options.fixtures_path)
     active_settings = settings or get_settings()
     active_translator = translator or build_translator(
         options.provider,
@@ -176,13 +192,16 @@ async def run_translation_benchmark(
     try:
         await active_translator.prepare()
     except TranslationError as exc:
+        await active_translator.close()
         return {
             "schema_version": 1,
             "status": "provider-unavailable",
             "generated_at": datetime.now(UTC).isoformat(),
+            "environment": _environment(),
             "provider": options.provider,
             "model": getattr(active_translator, "model", options.model),
             "prepare_ms": round((time.perf_counter() - prepare_started) * 1000.0, 1),
+            "fixture_sha256": fixture_sha256,
             "error": str(exc),
             "fixtures": [],
         }
@@ -263,10 +282,12 @@ async def run_translation_benchmark(
         "schema_version": 1,
         "status": "ok" if successful_runs == total_runs else "partial-failure",
         "generated_at": datetime.now(UTC).isoformat(),
+        "environment": _environment(),
         "provider": options.provider,
         "model": getattr(active_translator, "model", options.model),
         "config": {
             "fixtures_path": str(options.fixtures_path),
+            "fixture_sha256": fixture_sha256,
             "fixture_count": len(fixtures),
             "repeats": options.repeats,
             "total_runs": total_runs,
