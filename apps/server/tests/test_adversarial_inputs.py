@@ -13,7 +13,7 @@ import pytest
 from langtextflow.context_documents import extract_context_document
 from langtextflow.hub import WebSocketHub
 from langtextflow.models import CaptionStage, TranscriptEvent
-from langtextflow.telemetry import EnergyVad, MAX_PCM_FRAME_BYTES, decode_pcm_f32le
+from langtextflow.telemetry import MAX_PCM_FRAME_BYTES, EnergyVad, decode_pcm_f32le
 
 
 def _f32(*values: float) -> bytes:
