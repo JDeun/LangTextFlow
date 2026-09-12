@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 
-from ..models import CaptionStage, StartSessionRequest, TranscriptEvent
-from .base import AsrEngine, PublishEvent
+from langtextflow.asr.base import AsrEngine, PublishEvent
+from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
 
 
 SAMPLES = [
