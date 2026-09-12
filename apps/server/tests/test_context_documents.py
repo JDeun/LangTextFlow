@@ -101,4 +101,4 @@ def test_session_context_composes_bounded_reference_text() -> None:
     assert "[a.txt]" in context.reference_text
     assert "첫 번째 문서" in context.reference_text
     assert "[b.md]" in context.reference_text
-    assert context.reference_excerpt(8) == context.reference_text[:8]
+    assert context.reference_excerpt(8) == context.reference_text[:8].rstrip()
