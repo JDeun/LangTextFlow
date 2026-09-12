@@ -98,12 +98,19 @@ class SessionRepository:
                     request.context.preset.value,
                     request.source_language,
                     json.dumps(request.target_languages),
-                    request.engine,
+                    state.engine,
                     request.translation_provider,
                     request.translation_model,
                     request.context.model_dump_json(),
                     state.started_at.isoformat(),
                 ),
+            )
+
+    def update_engine(self, session_id: str, engine: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE sessions SET engine = ? WHERE session_id = ?",
+                (engine, session_id),
             )
 
     def mark_ended(self, session_id: str, ended_at: datetime | None = None) -> None:
