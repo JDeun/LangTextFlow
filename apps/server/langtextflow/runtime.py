@@ -1,6 +1,7 @@
 import asyncio
 import secrets
-from datetime import UTC, datetime
+import time
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from .asr import AsrEngine, MockStreamingAsrEngine, VibeVoiceStreamingAsrEngine
@@ -9,6 +10,7 @@ from .hub import WebSocketHub
 from .models import (
     AudienceSessionView,
     AudioStreamInfo,
+    CaptionStage,
     SessionState,
     StartSessionRequest,
     TranscriptEvent,
@@ -16,6 +18,7 @@ from .models import (
 from .pipeline import CaptionPipeline
 from .session_repository import SessionRepository
 from .store import CaptionStore
+from .telemetry import EnergyVad, RealtimeMetrics, latency_ms
 
 _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
@@ -29,6 +32,12 @@ class CaptionRuntime:
         self.pipeline = CaptionPipeline(self._publish, self.settings)
         self.engine: AsrEngine | None = None
         self.history = SessionRepository(self.settings.database_path)
+        self.metrics = RealtimeMetrics()
+        self._vad = EnergyVad(
+            threshold_dbfs=self.settings.vad_threshold_dbfs,
+            hangover_frames=self.settings.vad_hangover_frames,
+        )
+        self._stage_times: dict[str, dict[CaptionStage, datetime]] = {}
         self._persistence_queue: asyncio.Queue[
             tuple[str, TranscriptEvent] | None
         ] = asyncio.Queue(maxsize=1024)
@@ -52,14 +61,52 @@ class CaptionRuntime:
 
     async def _publish(self, event: TranscriptEvent) -> None:
         self.store.apply(event)
+        self._observe_event(event)
         await self.hub.broadcast(event)
         session_id = self.state.session_id
         if not session_id:
+            self._refresh_queue_metrics()
             return
         try:
             self._persistence_queue.put_nowait((session_id, event))
         except asyncio.QueueFull:
             self.state.persistence_error = "transcript persistence queue is full"
+        self._refresh_queue_metrics()
+
+    def _observe_event(self, event: TranscriptEvent) -> None:
+        self.metrics.last_event_at = event.emitted_at
+        timings = self._stage_times.setdefault(event.segment_id, {})
+        timings[event.stage] = event.emitted_at
+
+        if event.stage is CaptionStage.STABLE:
+            self.metrics.last_correction_latency_ms = None
+            self.metrics.last_translation_latency_ms = None
+            self.metrics.last_commit_latency_ms = None
+            if self.state.started_at is not None and event.end_ms is not None:
+                expected_end = self.state.started_at + timedelta(milliseconds=event.end_ms)
+                self.metrics.last_asr_lag_ms = latency_ms(expected_end, event.emitted_at)
+            return
+
+        if event.stage is CaptionStage.CORRECTED:
+            stable_at = timings.get(CaptionStage.STABLE)
+            if stable_at is not None:
+                self.metrics.last_correction_latency_ms = latency_ms(stable_at, event.emitted_at)
+            return
+
+        if event.stage is CaptionStage.TRANSLATED:
+            corrected_at = timings.get(CaptionStage.CORRECTED)
+            if corrected_at is not None:
+                self.metrics.last_translation_latency_ms = latency_ms(
+                    corrected_at,
+                    event.emitted_at,
+                )
+            return
+
+        if event.stage is CaptionStage.COMMITTED:
+            stable_at = timings.get(CaptionStage.STABLE)
+            if stable_at is not None:
+                self.metrics.last_commit_latency_ms = latency_ms(stable_at, event.emitted_at)
+            self._stage_times.pop(event.segment_id, None)
 
     async def _persistence_worker(self) -> None:
         while True:
@@ -79,6 +126,7 @@ class CaptionRuntime:
                         self.state.persistence_error = str(exc)
             finally:
                 self._persistence_queue.task_done()
+                self._refresh_queue_metrics()
 
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
         if request.engine == "mock":
@@ -96,11 +144,38 @@ class CaptionRuntime:
     def _join_code(length: int = 6) -> str:
         return "".join(secrets.choice(_JOIN_ALPHABET) for _ in range(length))
 
+    def _reset_metrics(self) -> None:
+        self.metrics = RealtimeMetrics()
+        self._stage_times.clear()
+        self._vad.reset()
+        self._refresh_queue_metrics()
+
+    def _refresh_queue_metrics(self) -> None:
+        if self.engine is not None:
+            self.metrics.asr_queue_depth = self.engine.queue_depth
+            self.metrics.asr_queue_capacity = self.engine.queue_capacity
+            self.metrics.asr_queue_high_watermark = max(
+                self.metrics.asr_queue_high_watermark,
+                self.engine.queue_depth,
+            )
+        else:
+            self.metrics.asr_queue_depth = 0
+            self.metrics.asr_queue_capacity = 0
+        self.metrics.persistence_queue_depth = self._persistence_queue.qsize()
+        self.metrics.persistence_queue_capacity = self._persistence_queue.maxsize
+        self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
+        self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
+
+    def metrics_snapshot(self) -> RealtimeMetrics:
+        self._refresh_queue_metrics()
+        return self.metrics.model_copy(deep=True)
+
     async def start(self, request: StartSessionRequest) -> SessionState:
         await self.initialize()
         if self.state.running:
             await self.stop()
         self.store.clear()
+        self._reset_metrics()
         await self.pipeline.start(request)
         engine = self._build_engine(request)
         self.engine = engine
@@ -124,6 +199,8 @@ class CaptionRuntime:
             self.state.persistence_error = str(exc)
         try:
             await engine.start(request)
+            self.state.audio_sample_rate = engine.sample_rate
+            self._refresh_queue_metrics()
         except Exception:
             self.state.running = False
             self.engine = None
@@ -148,16 +225,36 @@ class CaptionRuntime:
             except Exception as exc:
                 self.state.persistence_error = str(exc)
         self.state.running = False
+        self.metrics.voice_active = False
+        self._refresh_queue_metrics()
         return self.state
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
         if self.engine is None or not self.state.running or not self.engine.accepts_audio:
             raise RuntimeError("there is no active audio ASR session")
+
+        dbfs, voice_active = self._vad.analyze(pcm_f32le)
+        self.metrics.audio_frames_received += 1
+        self.metrics.audio_bytes_received += len(pcm_f32le)
+        self.metrics.audio_duration_ms += round(
+            (len(pcm_f32le) / 4 / self.engine.sample_rate) * 1000.0,
+            3,
+        )
+        self.metrics.audio_rms_dbfs = dbfs
+        self.metrics.voice_active = voice_active
+
+        started = time.perf_counter()
         await self.engine.feed_audio(pcm_f32le)
+        enqueue_wait_ms = round((time.perf_counter() - started) * 1000.0, 1)
+        self.metrics.last_audio_enqueue_wait_ms = enqueue_wait_ms
+        if enqueue_wait_ms >= self.settings.audio_backpressure_warn_ms:
+            self.metrics.audio_backpressure_events += 1
+        self._refresh_queue_metrics()
 
     async def end_audio(self) -> None:
         if self.engine is not None and self.engine.accepts_audio:
             await self.engine.end_audio()
+            self._refresh_queue_metrics()
 
     def audio_info(self) -> AudioStreamInfo:
         if self.engine is None or not self.state.running:
