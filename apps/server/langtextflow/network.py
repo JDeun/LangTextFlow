@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import socket
 from ipaddress import IPv4Address, ip_address, ip_network
 
@@ -50,3 +51,27 @@ def is_loopback_client(host: str | None) -> bool:
         return ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def websocket_origin_allowed(
+    origin: str | None,
+    *,
+    allowed_origins: list[str],
+    allowed_origin_regex: str,
+) -> bool:
+    """Reject cross-site browser WebSockets while preserving non-browser clients.
+
+    Browsers send an Origin header for WebSocket handshakes. CLI/native clients may
+    omit it, so a missing Origin is accepted and authorization remains the endpoint's
+    responsibility. When Origin is present it must match the same local/LAN/Tailscale
+    policy used by the HTTP CORS configuration.
+    """
+
+    if origin is None:
+        return True
+    normalized = origin.strip()
+    if not normalized:
+        return False
+    if normalized in allowed_origins:
+        return True
+    return re.fullmatch(allowed_origin_regex, normalized) is not None
