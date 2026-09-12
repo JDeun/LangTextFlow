@@ -241,6 +241,8 @@ class CaptionRuntime:
         self.metrics.persistence_queue_capacity = self._persistence_queue.maxsize
         self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
         self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
+        self.state.correction_status = self.pipeline.correction_status
+        self.state.translation_status = self.pipeline.status
 
     def metrics_snapshot(self) -> RealtimeMetrics:
         self._refresh_queue_metrics()
@@ -265,6 +267,7 @@ class CaptionRuntime:
             context=request.context,
             audio_required=engine.accepts_audio,
             audio_sample_rate=engine.sample_rate,
+            correction_status=self.pipeline.correction_status,
             translation_status=self.pipeline.status,
             persistence_error=None,
             started_at=datetime.now(UTC),
