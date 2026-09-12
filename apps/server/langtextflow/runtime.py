@@ -35,12 +35,13 @@ class CaptionRuntime:
         self._persistence_task: asyncio.Task[None] | None = None
 
     async def initialize(self) -> None:
+        if self._persistence_task is not None:
+            return
         await asyncio.to_thread(self.history.initialize)
-        if self._persistence_task is None:
-            self._persistence_task = asyncio.create_task(
-                self._persistence_worker(),
-                name="session-persistence",
-            )
+        self._persistence_task = asyncio.create_task(
+            self._persistence_worker(),
+            name="session-persistence",
+        )
 
     async def shutdown(self) -> None:
         await self.stop()
@@ -96,6 +97,7 @@ class CaptionRuntime:
         return "".join(secrets.choice(_JOIN_ALPHABET) for _ in range(length))
 
     async def start(self, request: StartSessionRequest) -> SessionState:
+        await self.initialize()
         if self.state.running:
             await self.stop()
         self.store.clear()
@@ -133,8 +135,9 @@ class CaptionRuntime:
             await self.engine.stop()
             self.engine = None
         await self.pipeline.stop()
-        await self._persistence_queue.join()
-        if session_id:
+        if self._persistence_task is not None:
+            await self._persistence_queue.join()
+        if session_id and self._persistence_task is not None:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception as exc:
