@@ -170,6 +170,17 @@ class SessionContext(BaseModel):
         return self.reference_text[:max_chars].rstrip()
 
 
+class CorrectionProvenance(BaseModel):
+    method: str = Field(pattern="^(deterministic|llm|fallback)$")
+    provider: str | None = None
+    model: str | None = None
+    deterministic_changed: bool = False
+    llm_attempted: bool = False
+    llm_applied: bool = False
+    changed: bool = False
+    fallback_reason: str | None = Field(default=None, max_length=1000)
+
+
 class TranscriptEvent(BaseModel):
     type: str = "transcript"
     segment_id: str
@@ -182,6 +193,7 @@ class TranscriptEvent(BaseModel):
     end_ms: int | None = Field(default=None, ge=0)
     speaker: str | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    correction: CorrectionProvenance | None = None
     committed: bool = False
     emitted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
