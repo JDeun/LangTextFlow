@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AudioCaptureController,
+  requestAudioInputs,
+  type AudioInputDevice,
+} from "./audioCapture";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
@@ -44,7 +49,8 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
   const { connected, segments } = useCaptionSocket(`/ws/audience/${encodeURIComponent(joinCode)}`);
   const [session, setSession] = useState<AudienceSessionView | null>(null);
   const [error, setError] = useState("");
-  const [language, setLanguage] = useState("");
+  const queryLanguage = new URLSearchParams(window.location.search).get("lang") ?? "";
+  const [language, setLanguage] = useState(queryLanguage);
   const latest = segments.at(-1);
 
   useEffect(() => {
@@ -114,12 +120,16 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
 
 function OperatorApp() {
   const { connected, segments } = useCaptionSocket();
+  const captureRef = useRef<AudioCaptureController | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("ko");
   const [targetLanguage, setTargetLanguage] = useState("en");
   const [title, setTitle] = useState("새 실시간 자막 세션");
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
   const [hotwords, setHotwords] = useState("요한복음, 로마서, 복음, 은혜, 칭의, 성화");
+  const [engine, setEngine] = useState("mock");
+  const [devices, setDevices] = useState<AudioInputDevice[]>([]);
+  const [deviceId, setDeviceId] = useState("");
   const [session, setSession] = useState<SessionState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -135,17 +145,37 @@ function OperatorApp() {
     ? `${window.location.origin}/display/${session.join_code}?mode=obs&lang=${targetLanguage}`
     : "";
 
+  async function refreshDevices() {
+    setError("");
+    try {
+      const result = await requestAudioInputs();
+      setDevices(result);
+      setDeviceId((current) => current || result[0]?.deviceId || "");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "오디오 장치를 찾지 못했습니다.");
+    }
+  }
+
   async function start() {
     setBusy(true);
     setError("");
     try {
+      let selectedDevice = deviceId;
+      if (engine === "vibevoice" && !selectedDevice) {
+        const result = await requestAudioInputs();
+        setDevices(result);
+        selectedDevice = result[0]?.deviceId || "";
+        setDeviceId(selectedDevice);
+        if (!selectedDevice) throw new Error("사용 가능한 오디오 입력 장치가 없습니다.");
+      }
+
       const response = await fetch(`${API_URL}/api/v1/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           source_language: sourceLanguage,
           target_languages: [targetLanguage],
-          engine: "mock",
+          engine,
           context: {
             title,
             presenter: presenter || null,
@@ -159,8 +189,19 @@ function OperatorApp() {
         }),
       });
       if (!response.ok) throw new Error(await response.text());
-      setSession((await response.json()) as SessionState);
+      const nextSession = (await response.json()) as SessionState;
+      setSession(nextSession);
+
+      if (nextSession.audio_required) {
+        const capture = new AudioCaptureController();
+        captureRef.current = capture;
+        await capture.start(selectedDevice);
+      }
     } catch (reason) {
+      await captureRef.current?.stop();
+      captureRef.current = null;
+      await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" }).catch(() => undefined);
+      setSession(null);
       setError(reason instanceof Error ? reason.message : "세션을 시작하지 못했습니다.");
     } finally {
       setBusy(false);
@@ -171,6 +212,8 @@ function OperatorApp() {
     setBusy(true);
     setError("");
     try {
+      await captureRef.current?.stop();
+      captureRef.current = null;
       const response = await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
       if (!response.ok) throw new Error(await response.text());
       setSession((await response.json()) as SessionState);
@@ -201,7 +244,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P1A</span>
+            <span className="beta">P1B</span>
           </div>
 
           <label>
@@ -235,15 +278,30 @@ function OperatorApp() {
           <label>
             중요 용어 / Hotwords
             <textarea rows={4} value={hotwords} onChange={(event) => setHotwords(event.target.value)} disabled={running} />
-            <small>쉼표 또는 줄바꿈으로 구분합니다. 향후 VibeVoice hotword와 교정/번역 용어집에 함께 사용됩니다.</small>
+            <small>VibeVoice context와 이후 교정/번역 용어집에 공통으로 사용합니다.</small>
           </label>
           <label>
             음성 인식 엔진
-            <select value="mock" disabled>
-              <option value="mock">Demo streaming engine</option>
+            <select value={engine} onChange={(event) => setEngine(event.target.value)} disabled={running}>
+              <option value="mock">Demo engine</option>
+              <option value="vibevoice">VibeVoice Streaming (local sidecar)</option>
             </select>
-            <small>실제 VibeVoice / faster-whisper 연결은 P1B에서 추가합니다.</small>
           </label>
+
+          {engine === "vibevoice" && (
+            <div className="device-block">
+              <label>
+                오디오 입력
+                <select value={deviceId} onChange={(event) => setDeviceId(event.target.value)} disabled={running}>
+                  <option value="">{devices.length ? "기본 입력 장치" : "장치를 먼저 찾으세요"}</option>
+                  {devices.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label}</option>)}
+                </select>
+              </label>
+              <button className="secondary-button device-button" onClick={refreshDevices} disabled={running || busy}>
+                마이크 권한 / 장치 새로고침
+              </button>
+            </div>
+          )}
 
           {error && <div className="error-box">{error}</div>}
           <button className={running ? "stop-button" : "start-button"} onClick={running ? stop : start} disabled={busy || !connected}>
@@ -258,6 +316,7 @@ function OperatorApp() {
                 <i key={stage} className={latest?.stage === stage ? "active" : ""} title={stage} />
               ))}
             </div>
+            {session?.audio_sample_rate && <small>{session.engine} · {session.audio_sample_rate} Hz</small>}
           </div>
         </aside>
 

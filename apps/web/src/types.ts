@@ -57,6 +57,8 @@ export interface SessionState {
   target_languages: string[];
   engine: string;
   context: SessionContext | null;
+  audio_required: boolean;
+  audio_sample_rate: number | null;
   started_at: string | null;
 }
 

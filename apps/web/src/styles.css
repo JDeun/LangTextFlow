@@ -33,10 +33,14 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .start-button { background: #e9edf2; color: #101318; }
 .stop-button { background: #4d2227; color: #ffb6bc; }
 .secondary-button { width: auto; margin: 0; background: #222932; color: #cbd4dc; padding: 9px 11px; font-size: 12px; }
+.device-block { padding: 12px; border: 1px solid #29313a; border-radius: 12px; background: #101419; }
+.device-block label { margin: 0 0 10px; }
+.device-button { width: 100%; }
 .error-box { padding: 10px 12px; margin-top: 12px; border: 1px solid #5b2f35; border-radius: 9px; background: #2c171b; color: #ffb6bc; font-size: 12px; }
 .pipeline-card { margin-top: 18px; padding: 14px; border-radius: 12px; background: #0f1216; border: 1px solid #232a31; }
 .pipeline-card span { display: block; color: #74808c; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 .pipeline-card strong { display: block; margin: 6px 0 12px; font-size: 14px; text-transform: uppercase; }
+.pipeline-card small { display: block; margin-top: 9px; color: #68737f; font-size: 11px; }
 .stage-track { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
 .stage-track i { height: 4px; border-radius: 99px; background: #2b323a; }
 .stage-track i.active { background: #7da7d1; box-shadow: 0 0 8px rgba(125, 167, 209, .5); }

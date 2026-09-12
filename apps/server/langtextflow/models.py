@@ -126,6 +126,8 @@ class SessionState(BaseModel):
     target_languages: list[str] = Field(default_factory=lambda: ["en"])
     engine: str = "mock"
     context: SessionContext | None = None
+    audio_required: bool = False
+    audio_sample_rate: int | None = None
     started_at: datetime | None = None
 
 
@@ -139,3 +141,11 @@ class AudienceSessionView(BaseModel):
     source_language: str
     target_languages: list[str]
     started_at: datetime | None
+
+
+class AudioStreamInfo(BaseModel):
+    engine: str
+    required: bool
+    sample_rate: int
+    channels: int = 1
+    sample_format: str = "f32le"

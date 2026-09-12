@@ -27,13 +27,15 @@
 
 ## P1B — Real audio / ASR
 
-- [ ] 마이크/오디오 인터페이스 장치 열거 및 선택
-- [ ] bounded audio queue + VAD
-- [ ] VibeVoice-ASR-Streaming adapter
+- [x] 브라우저 마이크/오디오 인터페이스 장치 열거 및 선택
+- [x] AudioWorklet 기반 mono float32 PCM 스트리밍
+- [x] backend audio WebSocket + bounded provider queue
+- [x] VibeVoice-ASR-Streaming sidecar adapter
+- [x] Context/Glossary → VibeVoice context_info 전달
 - [ ] faster-whisper fallback adapter
-- [ ] Context/Glossary → VibeVoice hotword 전달
+- [ ] VAD
 - [ ] draft/stable latency 계측
-- [ ] 장시간 세션 backpressure / recovery
+- [ ] 장시간 세션 backpressure / recovery telemetry
 - [ ] 한국어·영어 실제 집회 샘플 벤치마크
 
 ## P2 — Correction / Translation
@@ -48,6 +50,7 @@
 ## P3 — Product UX
 
 - [ ] onboarding wizard
+- [ ] VibeVoice sidecar 자동 설치/실행/상태 진단
 - [ ] 모델 자동 다운로드/검증
 - [ ] GPU/CPU 자동 감지와 권장 preset
 - [ ] QR audience page + 다중 target language UX
