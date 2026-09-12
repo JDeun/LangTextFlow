@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -13,6 +14,7 @@ from .models import (
     TranscriptEvent,
 )
 from .pipeline import CaptionPipeline
+from .session_repository import SessionRepository
 from .store import CaptionStore
 
 _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -26,10 +28,57 @@ class CaptionRuntime:
         self.state = SessionState()
         self.pipeline = CaptionPipeline(self._publish, self.settings)
         self.engine: AsrEngine | None = None
+        self.history = SessionRepository(self.settings.database_path)
+        self._persistence_queue: asyncio.Queue[
+            tuple[str, TranscriptEvent] | None
+        ] = asyncio.Queue(maxsize=1024)
+        self._persistence_task: asyncio.Task[None] | None = None
+
+    async def initialize(self) -> None:
+        if self._persistence_task is not None:
+            return
+        await asyncio.to_thread(self.history.initialize)
+        self._persistence_task = asyncio.create_task(
+            self._persistence_worker(),
+            name="session-persistence",
+        )
+
+    async def shutdown(self) -> None:
+        await self.stop()
+        if self._persistence_task is not None:
+            await self._persistence_queue.put(None)
+            await self._persistence_task
+            self._persistence_task = None
 
     async def _publish(self, event: TranscriptEvent) -> None:
         self.store.apply(event)
         await self.hub.broadcast(event)
+        session_id = self.state.session_id
+        if not session_id:
+            return
+        try:
+            self._persistence_queue.put_nowait((session_id, event))
+        except asyncio.QueueFull:
+            self.state.persistence_error = "transcript persistence queue is full"
+
+    async def _persistence_worker(self) -> None:
+        while True:
+            item = await self._persistence_queue.get()
+            try:
+                if item is None:
+                    return
+                session_id, event = item
+                try:
+                    await asyncio.to_thread(
+                        self.history.upsert_segment,
+                        session_id,
+                        event,
+                    )
+                except Exception as exc:
+                    if self.state.session_id == session_id:
+                        self.state.persistence_error = str(exc)
+            finally:
+                self._persistence_queue.task_done()
 
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
         if request.engine == "mock":
@@ -48,16 +97,12 @@ class CaptionRuntime:
         return "".join(secrets.choice(_JOIN_ALPHABET) for _ in range(length))
 
     async def start(self, request: StartSessionRequest) -> SessionState:
+        await self.initialize()
         if self.state.running:
             await self.stop()
         self.store.clear()
         await self.pipeline.start(request)
         engine = self._build_engine(request)
-        try:
-            await engine.start(request)
-        except Exception:
-            await self.pipeline.stop()
-            raise
         self.engine = engine
         self.state = SessionState(
             session_id=str(uuid4()),
@@ -70,15 +115,38 @@ class CaptionRuntime:
             audio_required=engine.accepts_audio,
             audio_sample_rate=engine.sample_rate,
             translation_status=self.pipeline.status,
+            persistence_error=None,
             started_at=datetime.now(UTC),
         )
+        try:
+            await asyncio.to_thread(self.history.create_session, self.state, request)
+        except Exception as exc:
+            self.state.persistence_error = str(exc)
+        try:
+            await engine.start(request)
+        except Exception:
+            self.state.running = False
+            self.engine = None
+            await self.pipeline.stop()
+            if self.state.session_id and self.state.persistence_error is None:
+                await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
+            raise
         return self.state
 
     async def stop(self) -> SessionState:
+        was_running = self.state.running
+        session_id = self.state.session_id
         if self.engine is not None:
             await self.engine.stop()
             self.engine = None
         await self.pipeline.stop()
+        if self._persistence_task is not None:
+            await self._persistence_queue.join()
+        if was_running and session_id and self._persistence_task is not None:
+            try:
+                await asyncio.to_thread(self.history.mark_ended, session_id)
+            except Exception as exc:
+                self.state.persistence_error = str(exc)
         self.state.running = False
         return self.state
 

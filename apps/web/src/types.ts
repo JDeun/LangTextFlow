@@ -75,7 +75,24 @@ export interface SessionState {
   audio_required: boolean;
   audio_sample_rate: number | null;
   translation_status: TranslationStatus;
+  persistence_error: string | null;
   started_at: string | null;
+}
+
+export interface SessionRecord {
+  session_id: string;
+  join_code: string;
+  title: string;
+  presenter: string | null;
+  preset: ProductPreset;
+  source_language: string;
+  target_languages: string[];
+  engine: string;
+  translation_provider: string;
+  translation_model: string | null;
+  started_at: string;
+  ended_at: string | null;
+  segment_count: number;
 }
 
 export interface AudienceSessionView {

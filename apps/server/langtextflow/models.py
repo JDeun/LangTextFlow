@@ -154,7 +154,28 @@ class SessionState(BaseModel):
     audio_required: bool = False
     audio_sample_rate: int | None = None
     translation_status: TranslationStatus = Field(default_factory=TranslationStatus)
+    persistence_error: str | None = None
     started_at: datetime | None = None
+
+
+class SessionRecord(BaseModel):
+    session_id: str
+    join_code: str
+    title: str
+    presenter: str | None
+    preset: ProductPreset
+    source_language: str
+    target_languages: list[str]
+    engine: str
+    translation_provider: str
+    translation_model: str | None
+    started_at: datetime
+    ended_at: datetime | None = None
+    segment_count: int = 0
+
+
+class SessionDetail(SessionRecord):
+    context: SessionContext
 
 
 class AudienceSessionView(BaseModel):

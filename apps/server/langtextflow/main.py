@@ -1,10 +1,12 @@
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .asr import AsrEngineError
 from .config import get_settings
+from .exports import export_json, export_srt, export_txt, export_vtt
 from .glossary_repository import GlossaryRepository
 from .models import (
     AudienceSessionView,
@@ -12,6 +14,8 @@ from .models import (
     GlossaryEntry,
     GlossaryRecord,
     NetworkInfo,
+    SessionDetail,
+    SessionRecord,
     SessionState,
     StartSessionRequest,
     TranscriptEvent,
@@ -28,13 +32,14 @@ glossary_repository = GlossaryRepository(settings.database_path)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     glossary_repository.initialize()
+    await runtime.initialize()
     yield
-    await runtime.stop()
+    await runtime.shutdown()
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.6.0",
+    version="0.7.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -69,6 +74,11 @@ def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
     return request.model_copy(update={"context": context})
 
 
+def _best_export_segments(segments: list[TranscriptEvent]) -> list[TranscriptEvent]:
+    committed = [segment for segment in segments if segment.committed]
+    return committed or segments
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -94,6 +104,81 @@ async def get_state(request: Request) -> SessionState:
 async def get_captions(request: Request) -> list[TranscriptEvent]:
     _require_operator(request)
     return runtime.store.snapshot()
+
+
+@app.get("/api/v1/history", response_model=list[SessionRecord])
+async def session_history(request: Request, limit: int = 50) -> list[SessionRecord]:
+    _require_operator(request)
+    return await asyncio.to_thread(runtime.history.list_sessions, limit)
+
+
+@app.get("/api/v1/history/{session_id}", response_model=SessionDetail)
+async def history_session(request: Request, session_id: str) -> SessionDetail:
+    _require_operator(request)
+    session = await asyncio.to_thread(runtime.history.get_session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return session
+
+
+@app.get(
+    "/api/v1/history/{session_id}/captions",
+    response_model=list[TranscriptEvent],
+)
+async def history_captions(request: Request, session_id: str) -> list[TranscriptEvent]:
+    _require_operator(request)
+    session = await asyncio.to_thread(runtime.history.get_session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return await asyncio.to_thread(runtime.history.segments, session_id)
+
+
+@app.get("/api/v1/history/{session_id}/export")
+async def history_export(
+    request: Request,
+    session_id: str,
+    export_format: str = Query(default="srt", alias="format"),
+    lang: str | None = None,
+) -> Response:
+    _require_operator(request)
+    session = await asyncio.to_thread(runtime.history.get_session, session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    segments = _best_export_segments(
+        await asyncio.to_thread(runtime.history.segments, session_id)
+    )
+    normalized = export_format.lower()
+    if normalized == "srt":
+        content = export_srt(segments, lang)
+        media_type = "application/x-subrip; charset=utf-8"
+    elif normalized == "vtt":
+        content = export_vtt(segments, lang)
+        media_type = "text/vtt; charset=utf-8"
+    elif normalized == "txt":
+        content = export_txt(segments, lang)
+        media_type = "text/plain; charset=utf-8"
+    elif normalized == "json":
+        content = export_json(session, segments)
+        media_type = "application/json; charset=utf-8"
+    else:
+        raise HTTPException(status_code=400, detail="format must be srt, vtt, txt, or json")
+    filename = f"langtextflow-{session_id}.{normalized}"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.delete("/api/v1/history/{session_id}", status_code=204)
+async def delete_history_session(request: Request, session_id: str) -> Response:
+    _require_operator(request)
+    if runtime.state.running and runtime.state.session_id == session_id:
+        raise HTTPException(status_code=409, detail="cannot delete active session")
+    deleted = await asyncio.to_thread(runtime.history.delete_session, session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="session not found")
+    return Response(status_code=204)
 
 
 @app.get("/api/v1/glossary", response_model=list[GlossaryRecord])

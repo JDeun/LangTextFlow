@@ -13,7 +13,7 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - **Domain-aware**: context/hotword/glossary를 ASR·교정·번역에서 공유합니다.
 - **Local-first**: 가능한 처리는 로컬에서 수행하고, 클라우드 기능은 명시적으로 선택합니다.
 - **Audience-first UX**: 운영자는 복잡한 파이프라인 대신 세션, 언어, 입력 장치와 출력 화면만 다룹니다.
-- **Graceful degradation**: 번역이나 보조 provider가 실패해도 원문 자막은 계속 송출합니다.
+- **Graceful degradation**: 번역이나 기록 provider가 실패해도 라이브 원문 자막은 계속 송출합니다.
 
 ## 현재 구현 상태
 
@@ -68,6 +68,16 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - 세션 시작 시 현재 preset에 맞는 활성 용어를 immutable snapshot으로 주입
 - 동일 snapshot을 ASR hotword/context, correction, translation terminology에 공유
 
+### Session history / export
+
+- 세션 메타데이터와 최신 transcript segment를 SQLite에 영속화
+- 라이브 WebSocket 송출과 DB 저장을 별도 persistence queue로 분리
+- 오래된 segment version이 최종 committed 자막을 덮어쓰지 못하도록 DB upsert guard 적용
+- 운영자 UI에서 최근 세션 기록, segment 수, 엔진 정보를 확인
+- SRT / WebVTT / TXT / JSON 내보내기
+- 번역 언어가 존재하면 해당 번역문을 자막 파일로 export하고, 없으면 원문으로 fallback
+- 활성 세션 삭제 방지 및 기록 저장 장애를 UI에 별도 표시
+
 ## 개발 실행
 
 ### Backend
@@ -89,7 +99,7 @@ npm run dev
 
 운영자 PC에서는 `http://localhost:5173`을 엽니다. 세션을 시작하면 LangTextFlow가 사용할 수 있는 LAN 주소를 찾아 청중용 QR을 생성합니다. 청중은 같은 네트워크에서 QR을 스캔해 자막 페이지에 접속합니다.
 
-> 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
+> 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 히스토리, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
 
 - **Demo engine**: 실제 모델 없이 전체 caption state pipeline을 확인합니다.
 - **VibeVoice Streaming**: 로컬 VibeVoice sidecar를 실행한 뒤 마이크/오디오 인터페이스를 선택해 실제 음성을 전송합니다.
@@ -119,8 +129,8 @@ LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
 - VAD / latency telemetry / backpressure observability
 - 한국어·영어 현장 benchmark + 30/60/90분 soak test
 - constrained LLM correction + provenance/confidence
-- 세션/transcript persistence + export
 - QR join brute-force/rate-limit hardening
+- context 문서 업로드/추출
 - Tauri desktop shell, 모델/sidecar 자동 설치, hardware auto-detection
 - signed Windows/macOS installer
 
