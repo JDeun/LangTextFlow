@@ -33,6 +33,9 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - Audience web view
 - Projector full-screen view
 - OBS Browser Source용 transparent view
+- 같은 LAN의 청중을 위한 QR join UX
+- Wi-Fi/Ethernet/Tailscale 계열 로컬 주소 후보 탐색
+- audience endpoint는 LAN에서 접근 가능하고 operator control API는 loopback-only
 
 ### Real audio / VibeVoice
 
@@ -73,7 +76,7 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -e '.[dev]'
-uvicorn langtextflow.main:app --app-dir apps/server --reload
+uvicorn langtextflow.main:app --app-dir apps/server --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend
@@ -84,7 +87,9 @@ npm install
 npm run dev
 ```
 
-브라우저에서 `http://localhost:5173`을 엽니다.
+운영자 PC에서는 `http://localhost:5173`을 엽니다. 세션을 시작하면 LangTextFlow가 사용할 수 있는 LAN 주소를 찾아 청중용 QR을 생성합니다. 청중은 같은 네트워크에서 QR을 스캔해 자막 페이지에 접속합니다.
+
+> 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
 
 - **Demo engine**: 실제 모델 없이 전체 caption state pipeline을 확인합니다.
 - **VibeVoice Streaming**: 로컬 VibeVoice sidecar를 실행한 뒤 마이크/오디오 인터페이스를 선택해 실제 음성을 전송합니다.
@@ -114,8 +119,8 @@ LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
 - VAD / latency telemetry / backpressure observability
 - 한국어·영어 현장 benchmark + 30/60/90분 soak test
 - constrained LLM correction + provenance/confidence
-- QR audience onboarding
 - 세션/transcript persistence + export
+- QR join brute-force/rate-limit hardening
 - Tauri desktop shell, 모델/sidecar 자동 설치, hardware auto-detection
 - signed Windows/macOS installer
 

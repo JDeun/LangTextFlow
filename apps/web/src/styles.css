@@ -71,10 +71,19 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 
 .main-column { display: grid; gap: 18px; min-width: 0; }
 .share-panel { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; }
+.audience-access { align-items: stretch; }
+.audience-access-info { min-width: 0; flex: 1; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; }
+.audience-host-select { width: min(320px, 100%); margin: 12px 0 0; }
+.audience-host-select select { padding: 8px 10px; font-size: 12px; }
 .eyebrow { display: block; color: #65717d; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
-.join-code { display: inline-block; margin: 4px 10px 0 0; font-size: 24px; letter-spacing: .12em; }
+.join-code { display: inline-block; margin: 4px 10px 4px 0; font-size: 28px; letter-spacing: .12em; }
 .share-note { color: #77838f; font-size: 12px; }
-.share-links { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.share-links { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-start; margin-top: 14px; }
+.network-warning { margin-top: 10px; color: #e1ad70; font-size: 11px; line-height: 1.5; }
+.qr-card { width: 210px; flex: 0 0 210px; display: grid; place-items: center; gap: 8px; padding: 12px; border-radius: 14px; background: #f5f7f8; color: #30363d; }
+.qr-card img { width: 176px; height: 176px; display: block; }
+.qr-card small { max-width: 184px; font-size: 9px; line-height: 1.35; text-align: center; overflow-wrap: anywhere; }
+.qr-placeholder { width: 176px; height: 176px; border-radius: 8px; background: repeating-linear-gradient(45deg, #e2e5e8, #e2e5e8 10px, #f3f5f7 10px, #f3f5f7 20px); }
 .preview { overflow: hidden; }
 .preview-toolbar { height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 17px; border-bottom: 1px solid #232a31; color: #7f8a96; font-size: 12px; }
 .stage-screen { aspect-ratio: 16 / 7.4; min-height: 330px; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; text-align: center; padding: 9% 8%; background: linear-gradient(180deg, #111821 0%, #07090c 100%); }
@@ -116,4 +125,5 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .stage-screen { min-height: 260px; }
   .share-panel { align-items: flex-start; flex-direction: column; }
   .share-links { justify-content: flex-start; }
+  .qr-card { width: 100%; flex-basis: auto; }
 }

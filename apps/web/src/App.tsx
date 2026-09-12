@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { API_URL } from "./api";
 import {
   AudioCaptureController,
   requestAudioInputs,
   type AudioInputDevice,
 } from "./audioCapture";
+import { AudienceAccess } from "./AudienceAccess";
 import { GlossaryManager } from "./GlossaryManager";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
@@ -12,8 +14,6 @@ import type {
   SessionState,
   TranscriptEvent,
 } from "./types";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 const LANGUAGES = [
   ["ko", "한국어"],
@@ -68,7 +68,9 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
   }, [joinCode]);
 
   if (error) return <main className="audience-error">{error}</main>;
-  if (!session || !language) return <main className="audience-error">세션을 불러오는 중입니다…</main>;
+  if (!session || !language) {
+    return <main className="audience-error">세션을 불러오는 중입니다…</main>;
+  }
 
   if (displayMode) {
     const mode = new URLSearchParams(window.location.search).get("mode") ?? "projector";
@@ -140,13 +142,6 @@ function OperatorApp() {
   const running = session?.running ?? false;
   const latest = segments.at(-1);
   const recent = useMemo(() => segments.slice(-6).reverse(), [segments]);
-  const joinUrl = session?.join_code ? `${window.location.origin}/audience/${session.join_code}` : "";
-  const projectorUrl = session?.join_code
-    ? `${window.location.origin}/display/${session.join_code}?mode=projector&lang=${targetLanguage}`
-    : "";
-  const obsUrl = session?.join_code
-    ? `${window.location.origin}/display/${session.join_code}?mode=obs&lang=${targetLanguage}`
-    : "";
 
   function changeEngine(nextEngine: string) {
     setEngine(nextEngine);
@@ -234,10 +229,6 @@ function OperatorApp() {
     }
   }
 
-  async function copy(value: string) {
-    await navigator.clipboard.writeText(value);
-  }
-
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -254,7 +245,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P2B</span>
+            <span className="beta">P3A</span>
           </div>
 
           <label>
@@ -263,31 +254,53 @@ function OperatorApp() {
           </label>
           <label>
             발표자 / 강사
-            <input value={presenter} onChange={(event) => setPresenter(event.target.value)} disabled={running} placeholder="선택 사항" />
+            <input
+              value={presenter}
+              onChange={(event) => setPresenter(event.target.value)}
+              disabled={running}
+              placeholder="선택 사항"
+            />
           </label>
           <label>
             사용 목적
-            <select value={preset} onChange={(event) => setPreset(event.target.value as ProductPreset)} disabled={running}>
+            <select
+              value={preset}
+              onChange={(event) => setPreset(event.target.value as ProductPreset)}
+              disabled={running}
+            >
               {PRESETS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
             </select>
           </label>
           <div className="language-grid">
             <label>
               입력 언어
-              <select value={sourceLanguage} onChange={(event) => setSourceLanguage(event.target.value)} disabled={running}>
+              <select
+                value={sourceLanguage}
+                onChange={(event) => setSourceLanguage(event.target.value)}
+                disabled={running}
+              >
                 {LANGUAGES.map(([code, label]) => <option value={code} key={code}>{label}</option>)}
               </select>
             </label>
             <label>
               자막 언어
-              <select value={targetLanguage} onChange={(event) => setTargetLanguage(event.target.value)} disabled={running}>
+              <select
+                value={targetLanguage}
+                onChange={(event) => setTargetLanguage(event.target.value)}
+                disabled={running}
+              >
                 {LANGUAGES.map(([code, label]) => <option value={code} key={code}>{label}</option>)}
               </select>
             </label>
           </div>
           <label>
             중요 용어 / Hotwords
-            <textarea rows={4} value={hotwords} onChange={(event) => setHotwords(event.target.value)} disabled={running} />
+            <textarea
+              rows={4}
+              value={hotwords}
+              onChange={(event) => setHotwords(event.target.value)}
+              disabled={running}
+            />
             <small>일회성 세션 힌트입니다. 반복 사용할 용어는 아래 용어집에 저장하세요.</small>
           </label>
 
@@ -300,14 +313,22 @@ function OperatorApp() {
 
           <label>
             음성 인식 엔진
-            <select value={engine} onChange={(event) => changeEngine(event.target.value)} disabled={running}>
+            <select
+              value={engine}
+              onChange={(event) => changeEngine(event.target.value)}
+              disabled={running}
+            >
               <option value="mock">Demo engine</option>
               <option value="vibevoice">VibeVoice Streaming (local sidecar)</option>
             </select>
           </label>
           <label>
             번역 엔진
-            <select value={translationProvider} onChange={(event) => setTranslationProvider(event.target.value)} disabled={running}>
+            <select
+              value={translationProvider}
+              onChange={(event) => setTranslationProvider(event.target.value)}
+              disabled={running}
+            >
               {engine === "mock" && <option value="demo">Demo translator</option>}
               <option value="ollama">Ollama (local)</option>
               <option value="none">번역 사용 안 함</option>
@@ -316,7 +337,11 @@ function OperatorApp() {
           {translationProvider === "ollama" && (
             <label>
               Ollama 번역 모델
-              <input value={translationModel} onChange={(event) => setTranslationModel(event.target.value)} disabled={running} />
+              <input
+                value={translationModel}
+                onChange={(event) => setTranslationModel(event.target.value)}
+                disabled={running}
+              />
               <small>권장 시작점: translategemma:4b</small>
             </label>
           )}
@@ -325,19 +350,35 @@ function OperatorApp() {
             <div className="device-block">
               <label>
                 오디오 입력
-                <select value={deviceId} onChange={(event) => setDeviceId(event.target.value)} disabled={running}>
-                  <option value="">{devices.length ? "기본 입력 장치" : "장치를 먼저 찾으세요"}</option>
-                  {devices.map((device) => <option value={device.deviceId} key={device.deviceId}>{device.label}</option>)}
+                <select
+                  value={deviceId}
+                  onChange={(event) => setDeviceId(event.target.value)}
+                  disabled={running}
+                >
+                  <option value="">
+                    {devices.length ? "기본 입력 장치" : "장치를 먼저 찾으세요"}
+                  </option>
+                  {devices.map((device) => (
+                    <option value={device.deviceId} key={device.deviceId}>{device.label}</option>
+                  ))}
                 </select>
               </label>
-              <button className="secondary-button device-button" onClick={refreshDevices} disabled={running || busy}>
+              <button
+                className="secondary-button device-button"
+                onClick={refreshDevices}
+                disabled={running || busy}
+              >
                 마이크 권한 / 장치 새로고침
               </button>
             </div>
           )}
 
           {error && <div className="error-box">{error}</div>}
-          <button className={running ? "stop-button" : "start-button"} onClick={running ? stop : start} disabled={busy || !connected}>
+          <button
+            className={running ? "stop-button" : "start-button"}
+            onClick={running ? stop : start}
+            disabled={busy || !connected}
+          >
             {busy ? "처리 중…" : running ? "자막 중지" : "세션 시작"}
           </button>
 
@@ -349,11 +390,15 @@ function OperatorApp() {
                 <i key={stage} className={latest?.stage === stage ? "active" : ""} title={stage} />
               ))}
             </div>
-            {session?.audio_sample_rate && <small>{session.engine} · {session.audio_sample_rate} Hz</small>}
+            {session?.audio_sample_rate && (
+              <small>{session.engine} · {session.audio_sample_rate} Hz</small>
+            )}
             {session?.translation_status.enabled && (
               <small>
                 번역: {session.translation_status.provider} / {session.translation_status.model || "default"}
-                {session.translation_status.available ? " · ready" : ` · unavailable: ${session.translation_status.error || "unknown"}`}
+                {session.translation_status.available
+                  ? " · ready"
+                  : ` · unavailable: ${session.translation_status.error || "unknown"}`}
               </small>
             )}
           </div>
@@ -361,18 +406,7 @@ function OperatorApp() {
 
         <section className="main-column">
           {session?.join_code && (
-            <div className="share-panel panel">
-              <div>
-                <span className="eyebrow">Audience access</span>
-                <strong className="join-code">{session.join_code}</strong>
-                <span className="share-note">같은 네트워크에서 청중용 페이지를 열 수 있습니다.</span>
-              </div>
-              <div className="share-links">
-                <button className="secondary-button" onClick={() => copy(joinUrl)}>청중 링크 복사</button>
-                <button className="secondary-button" onClick={() => window.open(projectorUrl, "_blank")}>프로젝터 열기</button>
-                <button className="secondary-button" onClick={() => copy(obsUrl)}>OBS URL 복사</button>
-              </div>
-            </div>
+            <AudienceAccess joinCode={session.join_code} targetLanguage={targetLanguage} />
           )}
 
           <div className="preview panel">
@@ -384,14 +418,18 @@ function OperatorApp() {
               <div className={`caption ${latest?.stage === "partial" ? "draft" : ""}`}>
                 {displayCaption(latest, targetLanguage)}
               </div>
-              {latest?.translations[targetLanguage] && <div className="source-caption">{latest.text}</div>}
+              {latest?.translations[targetLanguage] && (
+                <div className="source-caption">{latest.text}</div>
+              )}
             </div>
           </div>
 
           <div className="transcript panel">
             <div className="section-heading">실시간 세그먼트</div>
             <div className="transcript-list">
-              {recent.length === 0 && <div className="empty">아직 수신된 세그먼트가 없습니다.</div>}
+              {recent.length === 0 && (
+                <div className="empty">아직 수신된 세그먼트가 없습니다.</div>
+              )}
               {recent.map((segment) => (
                 <article className="segment" key={segment.segment_id}>
                   <div className="segment-meta">
@@ -400,7 +438,9 @@ function OperatorApp() {
                     <span>v{segment.version}</span>
                   </div>
                   <div className="segment-text">{displayCaption(segment, targetLanguage)}</div>
-                  {segment.translations[targetLanguage] && <div className="segment-source">{segment.text}</div>}
+                  {segment.translations[targetLanguage] && (
+                    <div className="segment-source">{segment.text}</div>
+                  )}
                 </article>
               ))}
             </div>

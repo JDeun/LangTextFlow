@@ -175,3 +175,9 @@ class AudioStreamInfo(BaseModel):
     sample_rate: int
     channels: int = 1
     sample_format: str = "f32le"
+
+
+class NetworkInfo(BaseModel):
+    addresses: list[str] = Field(default_factory=list)
+    frontend_port: int = Field(default=5173, ge=1, le=65535)
+    backend_port: int = Field(default=8000, ge=1, le=65535)

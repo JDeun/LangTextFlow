@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .asr import AsrEngineError
@@ -11,10 +11,12 @@ from .models import (
     AudioStreamInfo,
     GlossaryEntry,
     GlossaryRecord,
+    NetworkInfo,
     SessionState,
     StartSessionRequest,
     TranscriptEvent,
 )
+from .network import is_loopback_client, local_ipv4_addresses
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
 
@@ -32,17 +34,29 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.5.0",
+    version="0.6.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=settings.cors_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _require_operator(request: Request) -> None:
+    host = request.client.host if request.client else None
+    if not is_loopback_client(host):
+        raise HTTPException(status_code=403, detail="operator API is local-only")
+
+
+def _operator_websocket_allowed(websocket: WebSocket) -> bool:
+    host = websocket.client.host if websocket.client else None
+    return is_loopback_client(host)
 
 
 def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
@@ -60,28 +74,47 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/api/v1/network", response_model=NetworkInfo)
+async def network_info(request: Request) -> NetworkInfo:
+    _require_operator(request)
+    return NetworkInfo(
+        addresses=local_ipv4_addresses(),
+        frontend_port=settings.frontend_port,
+        backend_port=settings.backend_port,
+    )
+
+
 @app.get("/api/v1/state", response_model=SessionState)
-async def get_state() -> SessionState:
+async def get_state(request: Request) -> SessionState:
+    _require_operator(request)
     return runtime.state
 
 
 @app.get("/api/v1/captions", response_model=list[TranscriptEvent])
-async def get_captions() -> list[TranscriptEvent]:
+async def get_captions(request: Request) -> list[TranscriptEvent]:
+    _require_operator(request)
     return runtime.store.snapshot()
 
 
 @app.get("/api/v1/glossary", response_model=list[GlossaryRecord])
-def list_glossary() -> list[GlossaryRecord]:
+def list_glossary(request: Request) -> list[GlossaryRecord]:
+    _require_operator(request)
     return glossary_repository.list()
 
 
 @app.post("/api/v1/glossary", response_model=GlossaryRecord, status_code=201)
-def create_glossary(entry: GlossaryEntry) -> GlossaryRecord:
+def create_glossary(request: Request, entry: GlossaryEntry) -> GlossaryRecord:
+    _require_operator(request)
     return glossary_repository.create(entry)
 
 
 @app.put("/api/v1/glossary/{record_id}", response_model=GlossaryRecord)
-def update_glossary(record_id: str, entry: GlossaryEntry) -> GlossaryRecord:
+def update_glossary(
+    record_id: str,
+    request: Request,
+    entry: GlossaryEntry,
+) -> GlossaryRecord:
+    _require_operator(request)
     record = glossary_repository.update(record_id, entry)
     if record is None:
         raise HTTPException(status_code=404, detail="glossary entry not found")
@@ -89,21 +122,24 @@ def update_glossary(record_id: str, entry: GlossaryEntry) -> GlossaryRecord:
 
 
 @app.delete("/api/v1/glossary/{record_id}", status_code=204)
-def delete_glossary(record_id: str) -> Response:
+def delete_glossary(record_id: str, request: Request) -> Response:
+    _require_operator(request)
     if not glossary_repository.delete(record_id):
         raise HTTPException(status_code=404, detail="glossary entry not found")
     return Response(status_code=204)
 
 
 @app.post("/api/v1/glossary/presets/church", response_model=list[GlossaryRecord])
-def seed_church_glossary() -> list[GlossaryRecord]:
+def seed_church_glossary(request: Request) -> list[GlossaryRecord]:
+    _require_operator(request)
     return glossary_repository.seed(CHURCH_GLOSSARY)
 
 
 @app.post("/api/v1/session/start", response_model=SessionState)
-async def start_session(request: StartSessionRequest) -> SessionState:
+async def start_session(request: Request, payload: StartSessionRequest) -> SessionState:
+    _require_operator(request)
     try:
-        return await runtime.start(_with_saved_glossary(request))
+        return await runtime.start(_with_saved_glossary(payload))
     except AsrEngineError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -111,12 +147,14 @@ async def start_session(request: StartSessionRequest) -> SessionState:
 
 
 @app.post("/api/v1/session/stop", response_model=SessionState)
-async def stop_session() -> SessionState:
+async def stop_session(request: Request) -> SessionState:
+    _require_operator(request)
     return await runtime.stop()
 
 
 @app.get("/api/v1/audio/config", response_model=AudioStreamInfo)
-async def audio_config() -> AudioStreamInfo:
+async def audio_config(request: Request) -> AudioStreamInfo:
+    _require_operator(request)
     try:
         return runtime.audio_info()
     except RuntimeError as exc:
@@ -160,6 +198,9 @@ async def _caption_socket(websocket: WebSocket) -> None:
 
 @app.websocket("/ws/captions")
 async def caption_socket(websocket: WebSocket) -> None:
+    if not _operator_websocket_allowed(websocket):
+        await websocket.close(code=4403, reason="operator socket is local-only")
+        return
     await _caption_socket(websocket)
 
 
@@ -175,6 +216,9 @@ async def audience_caption_socket(websocket: WebSocket, join_code: str) -> None:
 
 @app.websocket("/ws/audio")
 async def audio_socket(websocket: WebSocket) -> None:
+    if not _operator_websocket_allowed(websocket):
+        await websocket.close(code=4403, reason="operator audio socket is local-only")
+        return
     try:
         info = runtime.audio_info()
     except RuntimeError:

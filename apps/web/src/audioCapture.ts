@@ -1,5 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
-const AUDIO_WS_URL = API_URL.replace(/^http/, "ws") + "/ws/audio";
+import { getWebSocketUrl } from "./api";
 
 export interface AudioInputDevice {
   deviceId: string;
@@ -73,7 +72,7 @@ export class AudioCaptureController {
     });
 
     try {
-      this.socket = new WebSocket(AUDIO_WS_URL);
+      this.socket = new WebSocket(getWebSocketUrl("/ws/audio"));
       this.socket.binaryType = "arraybuffer";
       const config = await waitForAudioConfig(this.socket);
 
