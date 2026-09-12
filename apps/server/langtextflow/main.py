@@ -502,7 +502,10 @@ async def _caption_socket(websocket: WebSocket) -> None:
 @app.websocket("/ws/captions")
 async def caption_socket(websocket: WebSocket) -> None:
     if not _operator_websocket_allowed(websocket):
-        await websocket.close(code=4403, reason="operator socket is local-only or origin is not allowed")
+        await websocket.close(
+            code=4403,
+            reason="operator socket is local-only or origin is not allowed",
+        )
         return
     await _caption_socket(websocket)
 
