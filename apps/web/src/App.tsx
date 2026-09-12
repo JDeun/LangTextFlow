@@ -7,9 +7,11 @@ import {
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
 import { GlossaryManager } from "./GlossaryManager";
+import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { PreflightPanel } from "./PreflightPanel";
 import { SessionHistory } from "./SessionHistory";
+import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
@@ -21,13 +23,6 @@ import type {
   TranscriptEvent,
 } from "./types";
 
-const LANGUAGES = [
-  ["ko", "한국어"],
-  ["en", "English"],
-  ["ja", "日本語"],
-  ["zh", "中文"],
-] as const;
-
 const PRESETS: Array<[ProductPreset, string]> = [
   ["general", "일반"],
   ["church", "교회 / 선교 집회"],
@@ -37,9 +32,10 @@ const PRESETS: Array<[ProductPreset, string]> = [
 
 const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 
-function displayCaption(segment: TranscriptEvent | undefined, targetLanguage: string) {
+function displayCaption(segment: TranscriptEvent | undefined, language: string) {
   if (!segment) return "말하기를 시작하면 자막이 이곳에 표시됩니다.";
-  return segment.translations[targetLanguage] || segment.text;
+  if (language === segment.source_language) return segment.text;
+  return segment.translations[language] || segment.text;
 }
 
 function splitHotwords(value: string) {
@@ -52,6 +48,19 @@ function splitHotwords(value: string) {
 function joinCodeFromPath(prefix: string) {
   const match = window.location.pathname.match(new RegExp(`^/${prefix}/([A-Za-z0-9]+)`));
   return match?.[1]?.toUpperCase() ?? null;
+}
+
+function defaultTargetForSource(sourceLanguage: string) {
+  return sourceLanguage === "ko" ? "en" : "ko";
+}
+
+function reconcileTargets(sourceLanguage: string, targets: string[]) {
+  const filtered = targets.filter((code) => code !== sourceLanguage);
+  return filtered.length > 0 ? filtered : [defaultTargetForSource(sourceLanguage)];
+}
+
+function captionLanguages(sourceLanguage: string, targetLanguages: string[]) {
+  return [sourceLanguage, ...targetLanguages.filter((code) => code !== sourceLanguage)];
 }
 
 function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode: boolean }) {
@@ -70,7 +79,11 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
       })
       .then((data) => {
         setSession(data);
-        setLanguage((current) => current || data.target_languages[0] || data.source_language);
+        const available = captionLanguages(data.source_language, data.target_languages);
+        setLanguage((current) => {
+          if (current && available.includes(current)) return current;
+          return data.target_languages[0] || data.source_language;
+        });
       })
       .catch((reason: Error) => setError(reason.message));
   }, [joinCode]);
@@ -80,6 +93,9 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
     return <main className="audience-error">세션을 불러오는 중입니다…</main>;
   }
 
+  const availableLanguages = captionLanguages(session.source_language, session.target_languages);
+  const showingTranslation = language !== session.source_language;
+
   if (displayMode) {
     const mode = new URLSearchParams(window.location.search).get("mode") ?? "projector";
     return (
@@ -87,7 +103,9 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
         <div className={`display-caption ${latest?.stage === "partial" ? "draft" : ""}`}>
           {displayCaption(latest, language)}
         </div>
-        {latest?.translations[language] && <div className="display-source">{latest.text}</div>}
+        {showingTranslation && latest?.translations[language] && (
+          <div className="display-source">{latest.text}</div>
+        )}
       </main>
     );
   }
@@ -106,8 +124,10 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
       <label className="audience-language">
         자막 언어
         <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-          {session.target_languages.map((code) => (
-            <option key={code} value={code}>{code.toUpperCase()}</option>
+          {availableLanguages.map((code) => (
+            <option key={code} value={code}>
+              {languageLabel(code)}{code === session.source_language ? " · 원문" : ""}
+            </option>
           ))}
         </select>
       </label>
@@ -115,7 +135,9 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
         <div className={`audience-caption ${latest?.stage === "partial" ? "draft" : ""}`}>
           {displayCaption(latest, language)}
         </div>
-        {latest?.translations[language] && <div className="audience-source">{latest.text}</div>}
+        {showingTranslation && latest?.translations[language] && (
+          <div className="audience-source">{latest.text}</div>
+        )}
       </section>
       <section className="audience-transcript">
         {segments.slice(-8).reverse().map((segment) => (
@@ -133,7 +155,8 @@ function OperatorApp() {
   const { connected, segments } = useCaptionSocket();
   const captureRef = useRef<AudioCaptureController | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("ko");
-  const [targetLanguage, setTargetLanguage] = useState("en");
+  const [targetLanguages, setTargetLanguages] = useState<string[]>(["en"]);
+  const [previewLanguage, setPreviewLanguage] = useState("en");
   const [title, setTitle] = useState("새 실시간 자막 세션");
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
@@ -153,8 +176,36 @@ function OperatorApp() {
   const running = session?.running ?? false;
   const latest = segments.at(-1);
   const recent = useMemo(() => segments.slice(-6).reverse(), [segments]);
+  const availablePreviewLanguages = useMemo(
+    () => captionLanguages(sourceLanguage, targetLanguages),
+    [sourceLanguage, targetLanguages],
+  );
   const historyRefreshToken = `${session?.session_id ?? "none"}:${running}`;
   const needsAudio = engine !== "mock";
+  const glossaryTargetLanguage = targetLanguages.includes(previewLanguage)
+    ? previewLanguage
+    : targetLanguages[0];
+
+  useEffect(() => {
+    if (!availablePreviewLanguages.includes(previewLanguage)) {
+      setPreviewLanguage(targetLanguages[0] || sourceLanguage);
+    }
+  }, [availablePreviewLanguages, previewLanguage, sourceLanguage, targetLanguages]);
+
+  function changeSourceLanguage(nextSource: string) {
+    const nextTargets = reconcileTargets(nextSource, targetLanguages);
+    setSourceLanguage(nextSource);
+    setTargetLanguages(nextTargets);
+    setPreviewLanguage(nextTargets[0]);
+  }
+
+  function changeTargetLanguages(nextTargets: string[]) {
+    const reconciled = reconcileTargets(sourceLanguage, nextTargets);
+    setTargetLanguages(reconciled);
+    if (!captionLanguages(sourceLanguage, reconciled).includes(previewLanguage)) {
+      setPreviewLanguage(reconciled[0]);
+    }
+  }
 
   function changeEngine(nextEngine: string) {
     setEngine(nextEngine);
@@ -227,7 +278,7 @@ function OperatorApp() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           source_language: sourceLanguage,
-          target_languages: [targetLanguage],
+          target_languages: targetLanguages,
           engine,
           translation_provider: translationProvider,
           translation_model: translationProvider === "ollama" ? translationModel : null,
@@ -287,13 +338,13 @@ function OperatorApp() {
         translationProvider={translationProvider}
         translationModel={translationModel}
         sourceLanguage={sourceLanguage}
-        targetLanguage={targetLanguage}
+        targetLanguages={targetLanguages}
         preset={preset}
         onEngineChange={changeEngine}
         onTranslationProviderChange={setTranslationProvider}
         onTranslationModelChange={setTranslationModel}
-        onSourceLanguageChange={setSourceLanguage}
-        onTargetLanguageChange={setTargetLanguage}
+        onSourceLanguageChange={changeSourceLanguage}
+        onTargetLanguagesChange={changeTargetLanguages}
         onPresetChange={setPreset}
         onApplyRecommendation={applyRecommendation}
         onComplete={completeOnboarding}
@@ -349,28 +400,25 @@ function OperatorApp() {
               {PRESETS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
             </select>
           </label>
-          <div className="language-grid">
-            <label>
-              입력 언어
-              <select
-                value={sourceLanguage}
-                onChange={(event) => setSourceLanguage(event.target.value)}
-                disabled={running}
-              >
-                {LANGUAGES.map(([code, label]) => <option value={code} key={code}>{label}</option>)}
-              </select>
-            </label>
-            <label>
-              자막 언어
-              <select
-                value={targetLanguage}
-                onChange={(event) => setTargetLanguage(event.target.value)}
-                disabled={running}
-              >
-                {LANGUAGES.map(([code, label]) => <option value={code} key={code}>{label}</option>)}
-              </select>
-            </label>
-          </div>
+          <label>
+            입력 언어
+            <select
+              value={sourceLanguage}
+              onChange={(event) => changeSourceLanguage(event.target.value)}
+              disabled={running}
+            >
+              {LANGUAGE_OPTIONS.map(([code, label]) => (
+                <option value={code} key={code}>{label}</option>
+              ))}
+            </select>
+            <small>입력 언어는 원문 자막으로 항상 제공됩니다.</small>
+          </label>
+          <TargetLanguageSelector
+            value={targetLanguages}
+            sourceLanguage={sourceLanguage}
+            disabled={running}
+            onChange={changeTargetLanguages}
+          />
           <label>
             중요 용어 / Hotwords
             <textarea
@@ -385,7 +433,7 @@ function OperatorApp() {
           <GlossaryManager
             apiUrl={API_URL}
             preset={preset}
-            targetLanguage={targetLanguage}
+            targetLanguage={glossaryTargetLanguage}
             disabled={running}
           />
 
@@ -494,19 +542,31 @@ function OperatorApp() {
 
         <section className="main-column">
           {session?.join_code && (
-            <AudienceAccess joinCode={session.join_code} targetLanguage={targetLanguage} />
+            <AudienceAccess joinCode={session.join_code} targetLanguage={previewLanguage} />
           )}
 
           <div className="preview panel">
             <div className="preview-toolbar">
               <span>Audience Preview</span>
-              <span>{targetLanguage.toUpperCase()} · 16:9</span>
+              <label>
+                표시 언어
+                <select
+                  value={previewLanguage}
+                  onChange={(event) => setPreviewLanguage(event.target.value)}
+                >
+                  {availablePreviewLanguages.map((code) => (
+                    <option key={code} value={code}>
+                      {languageLabel(code)}{code === sourceLanguage ? " · 원문" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
             <div className="stage-screen">
               <div className={`caption ${latest?.stage === "partial" ? "draft" : ""}`}>
-                {displayCaption(latest, targetLanguage)}
+                {displayCaption(latest, previewLanguage)}
               </div>
-              {latest?.translations[targetLanguage] && (
+              {previewLanguage !== sourceLanguage && latest?.translations[previewLanguage] && (
                 <div className="source-caption">{latest.text}</div>
               )}
             </div>
@@ -525,8 +585,8 @@ function OperatorApp() {
                     <span className={`stage-tag ${segment.stage}`}>{segment.stage}</span>
                     <span>v{segment.version}</span>
                   </div>
-                  <div className="segment-text">{displayCaption(segment, targetLanguage)}</div>
-                  {segment.translations[targetLanguage] && (
+                  <div className="segment-text">{displayCaption(segment, previewLanguage)}</div>
+                  {previewLanguage !== sourceLanguage && segment.translations[previewLanguage] && (
                     <div className="segment-source">{segment.text}</div>
                   )}
                 </article>
@@ -536,7 +596,7 @@ function OperatorApp() {
 
           <SessionHistory
             apiUrl={API_URL}
-            targetLanguage={targetLanguage}
+            targetLanguage={previewLanguage}
             activeSessionId={running ? session?.session_id ?? null : null}
             refreshToken={historyRefreshToken}
           />
