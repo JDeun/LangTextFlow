@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import re
-from collections.abc import Callable
+import sys
 from contextlib import suppress
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -31,10 +32,7 @@ class ModelSetupRequest(BaseModel):
     model: str = Field(min_length=1, max_length=200)
 
     def normalized_model(self) -> str:
-        value = self.model.strip()
-        if not _MODEL_NAME_RE.fullmatch(value):
-            raise ValueError("model name contains unsupported characters")
-        return value
+        return _normalize_model_name(self.model)
 
 
 class ModelSetupJob(BaseModel):
@@ -47,6 +45,7 @@ class ModelSetupJob(BaseModel):
     completed_bytes: int | None = None
     total_bytes: int | None = None
     progress_percent: float | None = None
+    details: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
     started_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -54,12 +53,7 @@ class ModelSetupJob(BaseModel):
 
 
 class ModelSetupManager:
-    """Owns explicit local model preparation jobs.
-
-    The manager intentionally does not install operating-system packages or drivers.
-    It only talks to already configured local providers and performs model preparation
-    that those providers expose through their normal local APIs.
-    """
+    """Own explicit model preparation without installing OS packages or drivers."""
 
     def __init__(
         self,
@@ -71,6 +65,7 @@ class ModelSetupManager:
         self._transport = transport
         self._jobs: dict[str, ModelSetupJob] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._active_keys: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
 
@@ -88,8 +83,35 @@ class ModelSetupManager:
             return job.model_copy(deep=True) if job is not None else None
 
     async def start_ollama_pull(self, model: str) -> ModelSetupJob:
+        return await self._start_job(
+            provider="ollama",
+            model=model,
+            runner=self._run_ollama_pull,
+            task_prefix="ollama-pull",
+        )
+
+    async def start_faster_whisper_prefetch(self, model: str) -> ModelSetupJob:
+        if importlib.util.find_spec("faster_whisper") is None:
+            raise RuntimeError(
+                "faster-whisper is not installed; install LangTextFlow with the 'whisper' extra"
+            )
+        return await self._start_job(
+            provider="faster-whisper",
+            model=model,
+            runner=self._run_faster_whisper_prefetch,
+            task_prefix="faster-whisper-prefetch",
+        )
+
+    async def _start_job(
+        self,
+        *,
+        provider: str,
+        model: str,
+        runner: Any,
+        task_prefix: str,
+    ) -> ModelSetupJob:
         normalized = _normalize_model_name(model)
-        key = ("ollama", normalized.casefold())
+        key = (provider, normalized.casefold())
         async with self._lock:
             existing_id = self._active_keys.get(key)
             if existing_id is not None:
@@ -97,15 +119,15 @@ class ModelSetupManager:
 
             job = ModelSetupJob(
                 job_id=uuid4().hex,
-                provider="ollama",
+                provider=provider,
                 model=normalized,
             )
             self._jobs[job.job_id] = job
             self._active_keys[key] = job.job_id
             self._trim_jobs_locked()
             task = asyncio.create_task(
-                self._run_ollama_pull(job.job_id),
-                name=f"ollama-pull-{job.job_id}",
+                runner(job.job_id),
+                name=f"{task_prefix}-{job.job_id}",
             )
             self._tasks[job.job_id] = task
             return job.model_copy(deep=True)
@@ -136,6 +158,9 @@ class ModelSetupManager:
                 await task
 
     async def _run_ollama_pull(self, job_id: str) -> None:
+        job = await self.get_job(job_id)
+        if job is None:
+            return
         await self._update_job(
             job_id,
             state=SetupJobState.RUNNING,
@@ -147,7 +172,7 @@ class ModelSetupManager:
                 async with client.stream(
                     "POST",
                     f"{self.settings.ollama_url.rstrip('/')}/api/pull",
-                    json={"model": self._jobs[job_id].model, "stream": True},
+                    json={"model": job.model, "stream": True},
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -166,22 +191,63 @@ class ModelSetupManager:
                 finished=True,
             )
         except asyncio.CancelledError:
-            await self._update_job(
-                job_id,
-                state=SetupJobState.CANCELLED,
-                status="다운로드 요청을 취소했습니다.",
-                finished=True,
-            )
+            await self._mark_cancelled(job_id)
             raise
         except Exception as exc:
+            await self._mark_error(job_id, "모델 다운로드에 실패했습니다.", exc)
+        finally:
+            await self._release_job(job_id)
+
+    async def _run_faster_whisper_prefetch(self, job_id: str) -> None:
+        job = await self.get_job(job_id)
+        if job is None:
+            return
+        await self._update_job(
+            job_id,
+            state=SetupJobState.RUNNING,
+            status="faster-whisper 모델 파일을 준비하는 중입니다.",
+        )
+        code = (
+            "import json,sys; "
+            "from faster_whisper.utils import download_model; "
+            "path=download_model(sys.argv[1]); "
+            "print(json.dumps({'path': path}))"
+        )
+        process: asyncio.subprocess.Process | None = None
+        try:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-c",
+                code,
+                job.model,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            async with self._lock:
+                self._processes[job_id] = process
+            stdout, stderr = await process.communicate()
+            if process.returncode != 0:
+                message = stderr.decode("utf-8", errors="replace").strip()
+                raise RuntimeError(message or f"download process exited with {process.returncode}")
+            details = _parse_last_json_line(stdout.decode("utf-8", errors="replace"))
             await self._update_job(
                 job_id,
-                state=SetupJobState.ERROR,
-                status="모델 다운로드에 실패했습니다.",
-                error=str(exc),
+                state=SetupJobState.COMPLETED,
+                status="faster-whisper 모델 준비가 완료되었습니다.",
+                progress_percent=100.0,
+                details=details or {},
                 finished=True,
             )
+        except asyncio.CancelledError:
+            if process is not None and process.returncode is None:
+                await _terminate_process(process)
+            await self._mark_cancelled(job_id)
+            raise
+        except Exception as exc:
+            await self._mark_error(job_id, "faster-whisper 모델 준비에 실패했습니다.", exc)
         finally:
+            async with self._lock:
+                self._processes.pop(job_id, None)
             await self._release_job(job_id)
 
     async def _apply_ollama_progress(self, job_id: str, payload: dict[str, Any]) -> None:
@@ -201,6 +267,23 @@ class ModelSetupManager:
             progress_percent=percent,
         )
 
+    async def _mark_cancelled(self, job_id: str) -> None:
+        await self._update_job(
+            job_id,
+            state=SetupJobState.CANCELLED,
+            status="다운로드 요청을 취소했습니다.",
+            finished=True,
+        )
+
+    async def _mark_error(self, job_id: str, status: str, exc: Exception) -> None:
+        await self._update_job(
+            job_id,
+            state=SetupJobState.ERROR,
+            status=status,
+            error=str(exc),
+            finished=True,
+        )
+
     async def _update_job(
         self,
         job_id: str,
@@ -211,6 +294,7 @@ class ModelSetupManager:
         completed_bytes: int | None = None,
         total_bytes: int | None = None,
         progress_percent: float | None = None,
+        details: dict[str, Any] | None = None,
         error: str | None = None,
         finished: bool = False,
     ) -> None:
@@ -230,6 +314,8 @@ class ModelSetupManager:
                 job.total_bytes = total_bytes
             if progress_percent is not None:
                 job.progress_percent = progress_percent
+            if details is not None:
+                job.details.update(details)
             if error is not None:
                 job.error = error
             now = datetime.now(UTC)
@@ -276,6 +362,14 @@ def _parse_progress_line(line: str) -> dict[str, Any] | None:
     return payload if isinstance(payload, dict) else None
 
 
+def _parse_last_json_line(output: str) -> dict[str, Any] | None:
+    for line in reversed(output.splitlines()):
+        parsed = _parse_progress_line(line)
+        if parsed is not None:
+            return parsed
+    return None
+
+
 def _optional_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -288,3 +382,14 @@ def _optional_int(value: Any) -> int | None:
 
 def _optional_string(value: Any) -> str | None:
     return value if isinstance(value, str) and value else None
+
+
+async def _terminate_process(process: asyncio.subprocess.Process) -> None:
+    with suppress(ProcessLookupError):
+        process.terminate()
+    try:
+        await asyncio.wait_for(process.wait(), timeout=3.0)
+    except TimeoutError:
+        with suppress(ProcessLookupError):
+            process.kill()
+        await process.wait()
