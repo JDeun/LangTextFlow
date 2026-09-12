@@ -15,6 +15,8 @@ from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEve
 
 logger = logging.getLogger(__name__)
 
+MAX_ASR_TEXT_CHARS = 20_000
+
 
 def vibevoice_ws_url(base_url: str) -> str:
     parsed = urlparse(base_url)
@@ -34,11 +36,13 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         base_url: str,
         queue_chunks: int = 32,
         max_frame_bytes: int = 1024 * 1024,
+        max_message_bytes: int = 1024 * 1024,
     ) -> None:
         super().__init__(publish)
         self.base_url = base_url.rstrip("/")
         self.queue_chunks = queue_chunks
         self.max_frame_bytes = max_frame_bytes
+        self.max_message_bytes = max(1024, max_message_bytes)
         self._sample_rate = 16000
         self._chunk_seconds = 2.0
         self._request: StartSessionRequest | None = None
@@ -86,7 +90,12 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                 config = response.json()
             self._sample_rate = int(config["sample_rate"])
             self._chunk_seconds = float(config.get("chunk_seconds", 2.0))
-            self._ws = await websockets.connect(vibevoice_ws_url(self.base_url), max_size=None)
+            if self._sample_rate <= 0 or not 0.05 <= self._chunk_seconds <= 60.0:
+                raise ValueError("VibeVoice returned an invalid streaming configuration")
+            self._ws = await websockets.connect(
+                vibevoice_ws_url(self.base_url),
+                max_size=self.max_message_bytes,
+            )
             await self._ws.send(
                 json.dumps(
                     {
@@ -173,7 +182,11 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         completed = False
         try:
             async for raw in self._ws:
+                if not isinstance(raw, str):
+                    raise AsrEngineError("VibeVoice returned an unexpected binary transcript frame")
                 message = json.loads(raw)
+                if not isinstance(message, dict):
+                    raise AsrEngineError("VibeVoice transcript message must be a JSON object")
                 if message.get("error"):
                     raise AsrEngineError(str(message["error"]))
                 if message.get("done"):
@@ -182,6 +195,8 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                 text = str(message.get("text", "")).strip()
                 if not text:
                     continue
+                if len(text) > MAX_ASR_TEXT_CHARS:
+                    raise AsrEngineError("VibeVoice transcript exceeded the safety length limit")
                 self._sequence += 1
                 start_ms = int((self._sequence - 1) * self._chunk_seconds * 1000)
                 await self.publish(
