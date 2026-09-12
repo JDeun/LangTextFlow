@@ -116,6 +116,10 @@ export interface SessionRecord {
   segment_count: number;
 }
 
+export interface SessionDetail extends SessionRecord {
+  context: SessionContext;
+}
+
 export interface AudienceSessionView {
   session_id: string;
   join_code: string;
