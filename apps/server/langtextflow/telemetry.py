@@ -21,6 +21,7 @@ class RealtimeMetrics(BaseModel):
     asr_failure: str | None = None
     asr_failover_count: int = 0
     asr_last_failover_reason: str | None = None
+    asr_last_failover_audio_ms: float | None = None
     asr_queue_depth: int = 0
     asr_queue_capacity: int = 0
     asr_queue_high_watermark: int = 0
@@ -61,23 +62,19 @@ class EnergyVad:
         if not samples:
             return -120.0, False
 
-        mean_square = sum(float(sample) * float(sample) for sample in samples) / len(samples)
+        mean_square = sum(sample * sample for sample in samples) / len(samples)
         rms = math.sqrt(mean_square)
-        dbfs = max(-120.0, 20.0 * math.log10(max(rms, 1e-6)))
-        if dbfs >= self.threshold_dbfs:
+        dbfs = 20.0 * math.log10(max(rms, 1e-6))
+        active_now = dbfs >= self.threshold_dbfs
+        if active_now:
             self._hangover = self.hangover_frames
-            active = True
-        elif self._hangover > 0:
+            return dbfs, True
+        if self._hangover > 0:
             self._hangover -= 1
-            active = True
-        else:
-            active = False
-        return round(dbfs, 2), active
+            return dbfs, True
+        return dbfs, False
 
 
-def now_utc() -> datetime:
-    return datetime.now(UTC)
-
-
-def latency_ms(start: datetime, end: datetime) -> float:
-    return round(max(0.0, (end - start).total_seconds() * 1000.0), 1)
+def latency_ms(start: datetime, end: datetime | None = None) -> float:
+    end = end or datetime.now(UTC)
+    return max(0.0, round((end - start).total_seconds() * 1000.0, 1))
