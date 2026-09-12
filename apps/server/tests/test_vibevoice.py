@@ -91,7 +91,7 @@ async def _start_engine(
 
     async def fake_connect(url: str, **kwargs: object) -> FakeWebSocket:
         assert url == "ws://127.0.0.1:8001/v1/stream"
-        assert kwargs["max_size"] is None
+        assert kwargs["max_size"] == 1024 * 1024
         return fake_ws
 
     monkeypatch.setattr("langtextflow.asr.vibevoice.httpx.AsyncClient", FakeHttpClient)
@@ -124,7 +124,7 @@ async def test_vibevoice_streaming_contract(monkeypatch: pytest.MonkeyPatch) -> 
 
     async def fake_connect(url: str, **kwargs: object) -> FakeWebSocket:
         assert url == "ws://127.0.0.1:8001/v1/stream"
-        assert kwargs["max_size"] is None
+        assert kwargs["max_size"] == 1024 * 1024
         return fake_ws
 
     monkeypatch.setattr("langtextflow.asr.vibevoice.httpx.AsyncClient", FakeHttpClient)
