@@ -63,9 +63,12 @@ export function SessionHistory({
   const [segments, setSegments] = useState<TranscriptEvent[]>([]);
   const [transcriptQuery, setTranscriptQuery] = useState("");
   const [detailLanguage, setDetailLanguage] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editNotes, setEditNotes] = useState("");
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
   const [detailBusy, setDetailBusy] = useState(false);
+  const [saveBusy, setSaveBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     const response = await fetch(`${apiUrl}/api/v1/history?limit=50`);
@@ -82,6 +85,7 @@ export function SessionHistory({
     if (!query) return sessions;
     return sessions.filter((session) => [
       session.title,
+      session.notes,
       session.presenter || "",
       session.engine,
       session.translation_provider,
@@ -97,6 +101,7 @@ export function SessionHistory({
   }, [segments, transcriptQuery]);
 
   const detailLanguages = selected ? sessionLanguages(selected) : [];
+  const selectedIsActive = selected?.session_id === activeSessionId;
 
   function exportSession(session: SessionRecord, format: string, language = targetLanguage) {
     const params = new URLSearchParams({ format });
@@ -128,6 +133,8 @@ export function SessionHistory({
       setSelected(detail);
       setSegments(transcript);
       setDetailLanguage(preferred);
+      setEditTitle(detail.title);
+      setEditNotes(detail.notes || "");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "세션 상세 기록을 불러오지 못했습니다.");
     } finally {
@@ -140,6 +147,43 @@ export function SessionHistory({
     setSegments([]);
     setTranscriptQuery("");
     setDetailLanguage("");
+    setEditTitle("");
+    setEditNotes("");
+  }
+
+  async function saveMetadata() {
+    if (!selected) return;
+    const title = editTitle.trim();
+    if (!title) {
+      setError("세션 제목은 비워둘 수 없습니다.");
+      return;
+    }
+    setSaveBusy(true);
+    setError("");
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/history/${encodeURIComponent(selected.session_id)}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, notes: editNotes }),
+        },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const updated = (await response.json()) as SessionDetail;
+      setSelected(updated);
+      setEditTitle(updated.title);
+      setEditNotes(updated.notes || "");
+      setSessions((current) => current.map((session) => (
+        session.session_id === updated.session_id
+          ? { ...session, title: updated.title, notes: updated.notes }
+          : session
+      )));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "세션 메타데이터를 저장하지 못했습니다.");
+    } finally {
+      setSaveBusy(false);
+    }
   }
 
   async function remove(session: SessionRecord) {
@@ -165,7 +209,7 @@ export function SessionHistory({
       <div className="section-heading history-heading">
         <div>
           <span>세션 기록</span>
-          <small>세션을 열어 전체 원문/번역 transcript를 검색하고 내보낼 수 있습니다.</small>
+          <small>세션을 열어 제목·메모를 정리하고 전체 원문/번역 transcript를 검색할 수 있습니다.</small>
         </div>
         <button className="secondary-button" onClick={() => refresh()}>
           새로고침
@@ -176,7 +220,7 @@ export function SessionHistory({
         <input
           value={sessionQuery}
           onChange={(event) => setSessionQuery(event.target.value)}
-          placeholder="세션 이름, 발표자, 엔진, 언어 검색"
+          placeholder="세션 제목, 메모, 발표자, 엔진, 언어 검색"
         />
         <span>{filteredSessions.length} / {sessions.length}</span>
       </div>
@@ -209,6 +253,7 @@ export function SessionHistory({
                     ? ` / ${session.translation_provider}`
                     : ""}
                 </small>
+                {session.notes && <small className="history-note-preview">{session.notes}</small>}
               </div>
               <div className="history-actions">
                 <button
@@ -269,11 +314,57 @@ export function SessionHistory({
             </span>
           </div>
 
-          {(selected.context.description || selected.context.hotwords.length > 0) && (
+          <div className="history-metadata-editor">
+            <label>
+              기록용 제목
+              <input
+                value={editTitle}
+                maxLength={120}
+                onChange={(event) => setEditTitle(event.target.value)}
+                disabled={selectedIsActive || saveBusy}
+              />
+            </label>
+            <label>
+              운영 메모
+              <textarea
+                value={editNotes}
+                maxLength={8000}
+                rows={4}
+                onChange={(event) => setEditNotes(event.target.value)}
+                disabled={selectedIsActive || saveBusy}
+                placeholder="후속 작업, 품질 이슈, 행사 정보 등을 기록하세요."
+              />
+            </label>
+            <div className="history-metadata-actions">
+              <small>
+                라이브 당시 모델 입력인 Session Context는 수정하지 않습니다.
+                {selectedIsActive ? " 현재 진행 중인 세션은 종료 후 편집할 수 있습니다." : ""}
+              </small>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={saveMetadata}
+                disabled={selectedIsActive || saveBusy || !editTitle.trim()}
+              >
+                {saveBusy ? "저장 중…" : "제목 / 메모 저장"}
+              </button>
+            </div>
+          </div>
+
+          {(selected.context.description
+            || selected.context.hotwords.length > 0
+            || selected.context.reference_documents.length > 0) && (
             <div className="history-context">
               {selected.context.description && <p>{selected.context.description}</p>}
               {selected.context.hotwords.length > 0 && (
                 <small>Hotwords: {selected.context.hotwords.join(", ")}</small>
+              )}
+              {selected.context.reference_documents.length > 0 && (
+                <small>
+                  Reference documents: {selected.context.reference_documents
+                    .map((document) => document.filename)
+                    .join(", ")}
+                </small>
               )}
             </div>
           )}
