@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -309,9 +310,8 @@ def list_glossary(request: Request) -> list[GlossaryRecord]:
 @app.get("/api/v1/glossary/export")
 def glossary_export(
     request: Request,
-    export_format: GlossaryTransferFormat = Query(
-        default=GlossaryTransferFormat.JSON,
-        alias="format",
+    export_format: Annotated[GlossaryTransferFormat, Query(alias="format")] = (
+        GlossaryTransferFormat.JSON
     ),
 ) -> Response:
     _require_operator(request)
