@@ -37,7 +37,7 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - Wi-Fi/Ethernet/Tailscale 계열 로컬 주소 후보 탐색
 - audience endpoint는 LAN에서 접근 가능하고 operator control API는 loopback-only
 
-### Real audio / VibeVoice
+### Real audio / ASR fallback
 
 - 브라우저 마이크/오디오 인터페이스 선택
 - AudioWorklet 기반 mono float32 PCM capture
@@ -45,8 +45,12 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - bounded provider queue / backpressure
 - Microsoft VibeVoice streaming sidecar adapter
 - session context/hotwords/glossary → VibeVoice `context_info`
+- faster-whisper local micro-batch adapter
+- faster-whisper에 source language / initial prompt / hotwords 전달
+- `Auto` 모드: 세션 시작 시 VibeVoice를 우선 시도하고 실패하면 faster-whisper 사용
+- 실제로 선택된 ASR provider를 session state/history에 기록
 
-> VibeVoice 실제 모델 추론은 별도 sidecar가 필요합니다. CI는 provider protocol contract까지 검증하며 실제 GPU 모델의 품질/RTF/장시간 안정성은 별도 benchmark 단계입니다.
+> `Auto`의 fallback은 현재 **세션 시작 시점**에만 동작합니다. 세션 도중 provider가 종료된 경우의 seamless failover는 audio replay와 duplicate suppression이 필요하므로 별도 reliability 단계입니다.
 
 ### Realtime observability
 
@@ -92,10 +96,23 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 
 ### Backend
 
+기본 개발 의존성만 설치할 경우:
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -e '.[dev]'
+```
+
+`Auto` / `faster-whisper` 엔진까지 실행하려면 선택 의존성을 함께 설치합니다.
+
+```bash
+pip install -e '.[dev,whisper]'
+```
+
+서버 실행:
+
+```bash
 uvicorn langtextflow.main:app --app-dir apps/server --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -111,8 +128,10 @@ npm run dev
 
 > 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 히스토리, telemetry, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
 
+- **Auto**: VibeVoice를 우선 사용하고 시작 실패 시 faster-whisper로 전환합니다.
+- **VibeVoice Streaming**: 로컬 VibeVoice sidecar만 사용합니다.
+- **faster-whisper**: 로컬 micro-batch Whisper adapter만 사용합니다.
 - **Demo engine**: 실제 모델 없이 전체 caption state pipeline을 확인합니다.
-- **VibeVoice Streaming**: 로컬 VibeVoice sidecar를 실행한 뒤 마이크/오디오 인터페이스를 선택해 실제 음성을 전송합니다.
 - **Ollama translation**: `translategemma:4b` 등 설치된 로컬 번역 모델을 선택합니다.
 
 로컬 사용자 데이터베이스 기본 경로는 `data/langtextflow.db`이며 Git에 포함되지 않습니다.
@@ -132,11 +151,12 @@ LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/VIBEVOICE.md`](docs/VIBEVOICE.md)
+- [`docs/FASTER_WHISPER.md`](docs/FASTER_WHISPER.md)
 - [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)
 
 ## 아직 필요한 주요 작업
 
-- faster-whisper fallback
+- 세션 도중 ASR reconnect / seamless failover
 - 한국어·영어 현장 benchmark + 30/60/90분 soak test
 - semantic VAD/gating 필요성 benchmark
 - constrained LLM correction + provenance/confidence
