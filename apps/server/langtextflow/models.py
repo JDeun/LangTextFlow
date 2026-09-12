@@ -7,6 +7,15 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .context_documents import MAX_DOCUMENT_BYTES, extract_context_document
 
+MAX_HOTWORDS = 256
+MAX_HOTWORD_CHARS = 160
+MAX_GLOSSARY_ENTRIES = 500
+MAX_GLOSSARY_ALIASES = 64
+MAX_GLOSSARY_TRANSLATIONS = 32
+MAX_TRANSLATION_TEXT_CHARS = 20_000
+MAX_TRANSCRIPT_TEXT_CHARS = 20_000
+MAX_TARGET_LANGUAGES = 10
+
 
 class CaptionStage(StrEnum):
     PARTIAL = "partial"
@@ -63,17 +72,52 @@ class CaptionDisplaySettings(BaseModel):
 
 class GlossaryEntry(BaseModel):
     term: str = Field(min_length=1, max_length=160)
-    aliases: list[str] = Field(default_factory=list)
-    translations: dict[str, str] = Field(default_factory=dict)
+    aliases: list[str] = Field(default_factory=list, max_length=MAX_GLOSSARY_ALIASES)
+    translations: dict[str, str] = Field(
+        default_factory=dict,
+        max_length=MAX_GLOSSARY_TRANSLATIONS,
+    )
     category: str = Field(default="general", max_length=80)
-    presets: list[ProductPreset] = Field(default_factory=list)
+    presets: list[ProductPreset] = Field(default_factory=list, max_length=4)
     boost: float = Field(default=1.0, ge=0.0, le=20.0)
     enabled: bool = True
+
+    @field_validator("term", "category")
+    @classmethod
+    def normalize_short_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("glossary text cannot be empty")
+        return normalized
 
     @field_validator("aliases")
     @classmethod
     def normalize_aliases(cls, values: list[str]) -> list[str]:
-        return list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        normalized: list[str] = []
+        for value in values:
+            item = value.strip()
+            if not item:
+                continue
+            if len(item) > 160:
+                raise ValueError("glossary alias exceeds 160 characters")
+            normalized.append(item)
+        return list(dict.fromkeys(normalized))
+
+    @field_validator("translations")
+    @classmethod
+    def normalize_translations(cls, values: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for raw_language, raw_text in values.items():
+            language = raw_language.strip().lower()
+            text = raw_text.strip()
+            if not 2 <= len(language) <= 16:
+                raise ValueError("translation language key must be 2-16 characters")
+            if not text:
+                continue
+            if len(text) > 2000:
+                raise ValueError("glossary translation exceeds 2000 characters")
+            normalized[language] = text
+        return normalized
 
     @field_validator("presets")
     @classmethod
@@ -133,20 +177,50 @@ class SessionContext(BaseModel):
     presenter: str | None = Field(default=None, max_length=120)
     preset: ProductPreset = ProductPreset.GENERAL
     description: str = Field(default="", max_length=4000)
-    hotwords: list[str] = Field(default_factory=list)
-    glossary: list[GlossaryEntry] = Field(default_factory=list)
+    hotwords: list[str] = Field(default_factory=list, max_length=MAX_HOTWORDS)
+    glossary: list[GlossaryEntry] = Field(default_factory=list, max_length=MAX_GLOSSARY_ENTRIES)
     reference_documents: list[ReferenceDocument] = Field(default_factory=list, max_length=4)
     reference_text: str = Field(default="", max_length=120_000)
     output_modes: list[OutputMode] = Field(
-        default_factory=lambda: [OutputMode.AUDIENCE, OutputMode.PROJECTOR, OutputMode.OBS]
+        default_factory=lambda: [OutputMode.AUDIENCE, OutputMode.PROJECTOR, OutputMode.OBS],
+        max_length=5,
     )
     audience_access: bool = True
     display_settings: CaptionDisplaySettings = Field(default_factory=CaptionDisplaySettings)
 
+    @field_validator("title")
+    @classmethod
+    def normalize_title(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("session title is required")
+        return normalized
+
+    @field_validator("presenter")
+    @classmethod
+    def normalize_presenter(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
     @field_validator("hotwords")
     @classmethod
     def normalize_hotwords(cls, values: list[str]) -> list[str]:
-        return list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        normalized: list[str] = []
+        for value in values:
+            item = value.strip()
+            if not item:
+                continue
+            if len(item) > MAX_HOTWORD_CHARS:
+                raise ValueError(f"hotword exceeds {MAX_HOTWORD_CHARS} characters")
+            normalized.append(item)
+        return list(dict.fromkeys(normalized))
+
+    @field_validator("output_modes")
+    @classmethod
+    def normalize_output_modes(cls, values: list[OutputMode]) -> list[OutputMode]:
+        return list(dict.fromkeys(values))
 
     @model_validator(mode="after")
     def compose_reference_text(self) -> SessionContext:
@@ -162,7 +236,7 @@ class SessionContext(BaseModel):
                 continue
             terms.append(entry.term)
             terms.extend(entry.aliases)
-        return list(dict.fromkeys(term for term in terms if term))
+        return list(dict.fromkeys(term for term in terms if term))[:1000]
 
     def reference_excerpt(self, max_chars: int = 4000) -> str:
         if max_chars <= 0:
@@ -172,8 +246,8 @@ class SessionContext(BaseModel):
 
 class CorrectionProvenance(BaseModel):
     method: str = Field(pattern="^(deterministic|llm|fallback)$")
-    provider: str | None = None
-    model: str | None = None
+    provider: str | None = Field(default=None, max_length=80)
+    model: str | None = Field(default=None, max_length=200)
     deterministic_changed: bool = False
     llm_attempted: bool = False
     llm_applied: bool = False
@@ -182,20 +256,39 @@ class CorrectionProvenance(BaseModel):
 
 
 class TranscriptEvent(BaseModel):
-    type: str = "transcript"
-    segment_id: str
+    type: str = Field(default="transcript", max_length=32)
+    segment_id: str = Field(min_length=1, max_length=128)
     version: int = Field(ge=1)
     stage: CaptionStage
     source_language: str = Field(min_length=2, max_length=16)
-    text: str
-    translations: dict[str, str] = Field(default_factory=dict)
+    text: str = Field(max_length=MAX_TRANSCRIPT_TEXT_CHARS)
+    translations: dict[str, str] = Field(default_factory=dict, max_length=MAX_TARGET_LANGUAGES)
     start_ms: int = Field(ge=0)
     end_ms: int | None = Field(default=None, ge=0)
-    speaker: str | None = None
+    speaker: str | None = Field(default=None, max_length=160)
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
     correction: CorrectionProvenance | None = None
     committed: bool = False
     emitted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @field_validator("source_language")
+    @classmethod
+    def normalize_source_language(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("translations")
+    @classmethod
+    def validate_translations(cls, values: dict[str, str]) -> dict[str, str]:
+        normalized: dict[str, str] = {}
+        for raw_language, raw_text in values.items():
+            language = raw_language.strip().lower()
+            text = raw_text.strip()
+            if not 2 <= len(language) <= 16:
+                raise ValueError("translation language key must be 2-16 characters")
+            if len(text) > MAX_TRANSLATION_TEXT_CHARS:
+                raise ValueError("translation text exceeds the safety length limit")
+            normalized[language] = text
+        return normalized
 
     @model_validator(mode="after")
     def validate_commit_state(self) -> TranscriptEvent:
@@ -208,10 +301,10 @@ class TranscriptEvent(BaseModel):
 
 class ProviderStatus(BaseModel):
     enabled: bool = False
-    provider: str = "none"
-    model: str | None = None
+    provider: str = Field(default="none", max_length=80)
+    model: str | None = Field(default=None, max_length=200)
     available: bool = False
-    error: str | None = None
+    error: str | None = Field(default=None, max_length=2000)
 
 
 class CorrectionStatus(ProviderStatus):
@@ -224,20 +317,33 @@ class TranslationStatus(ProviderStatus):
 
 class StartSessionRequest(BaseModel):
     source_language: str = Field(default="ko", min_length=2, max_length=16)
-    target_languages: list[str] = Field(default_factory=lambda: ["en"], min_length=1)
-    engine: str = "mock"
-    correction_provider: str = "none"
-    correction_model: str | None = None
-    translation_provider: str = "none"
-    translation_model: str | None = None
+    target_languages: list[str] = Field(
+        default_factory=lambda: ["en"],
+        min_length=1,
+        max_length=MAX_TARGET_LANGUAGES,
+    )
+    engine: str = Field(default="mock", max_length=40)
+    correction_provider: str = Field(default="none", max_length=80)
+    correction_model: str | None = Field(default=None, max_length=200)
+    translation_provider: str = Field(default="none", max_length=80)
+    translation_model: str | None = Field(default=None, max_length=200)
     context: SessionContext = Field(default_factory=SessionContext)
+
+    @field_validator("source_language")
+    @classmethod
+    def normalize_source(cls, value: str) -> str:
+        return value.strip().lower()
 
     @field_validator("target_languages")
     @classmethod
     def normalize_targets(cls, values: list[str]) -> list[str]:
-        normalized = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        normalized = list(
+            dict.fromkeys(value.strip().lower() for value in values if value.strip())
+        )
         if not normalized:
             raise ValueError("at least one target language is required")
+        if any(not 2 <= len(value) <= 16 for value in normalized):
+            raise ValueError("target language must be 2-16 characters")
         return normalized
 
     @model_validator(mode="after")
