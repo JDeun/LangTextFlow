@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { API_URL } from "./api";
 import { ModelSetupControl } from "./ModelSetupControl";
 import type { ProductPreset, RecommendedConfiguration, SystemPreflight } from "./types";
+import { VibeVoiceLifecycleControl } from "./VibeVoiceLifecycleControl";
 import "./onboarding.css";
 
 const LANGUAGES = [
@@ -85,7 +86,7 @@ export function OnboardingWizard({
     }
   }, [engine, translationModel, translationProvider]);
 
-  const handleModelCompleted = useCallback(() => {
+  const handleRepairCompleted = useCallback(() => {
     void loadPreflight();
   }, [loadPreflight]);
 
@@ -156,6 +157,7 @@ export function OnboardingWizard({
     && whisperPackageReady
     && whisperModelCheck?.status === "missing"
     && Boolean(whisperModel);
+  const vibevoiceRelevant = engine === "auto" || engine === "vibevoice";
   const steps = ["시작", "시스템", "마이크", "언어", "완료"];
 
   return (
@@ -224,6 +226,9 @@ export function OnboardingWizard({
                       </button>
                     </div>
                   )}
+                  {vibevoiceRelevant && (
+                    <VibeVoiceLifecycleControl enabled onReady={handleRepairCompleted} />
+                  )}
                   {canPrepareWhisperModel && (
                     <div className="onboarding-repair">
                       <div>
@@ -237,7 +242,7 @@ export function OnboardingWizard({
                         provider="faster-whisper"
                         model={whisperModel}
                         enabled
-                        onCompleted={handleModelCompleted}
+                        onCompleted={handleRepairCompleted}
                       />
                     </div>
                   )}
@@ -252,7 +257,7 @@ export function OnboardingWizard({
                         provider="ollama"
                         model={translationModel}
                         enabled
-                        onCompleted={handleModelCompleted}
+                        onCompleted={handleRepairCompleted}
                       />
                     </div>
                   )}
