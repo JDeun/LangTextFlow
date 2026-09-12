@@ -67,12 +67,15 @@
 - [x] translation provider abstraction
 - [x] Ollama local translation provider
 - [x] TranslateGemma 4B 기본 로컬 번역 모델 설정
+- [x] OpenAI-compatible `/v1` translation adapter (LM Studio / vLLM / compatible cloud)
+- [x] provider별 preflight + model readiness + operator/onboarding 선택 UI
+- [x] backend-only API key 설정으로 secret frontend 노출 방지
 - [x] 번역 장애 시 원문 자막 지속(degraded mode)
 - [x] 임의 source language → 복수 target language fan-out
 - [x] constrained LLM correction interface + Ollama adapter + safety gate/degraded fallback
 - [x] segment별 correction provenance + SQLite/JSON export 보존
 - [ ] correction confidence calibration / 품질 기준 정의
-- [ ] 추가 local/cloud translation adapters
+- [ ] provider별 번역 품질/latency benchmark
 
 ## P2B — Glossary persistence
 
