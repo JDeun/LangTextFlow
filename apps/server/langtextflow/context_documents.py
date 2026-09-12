@@ -8,8 +8,8 @@ import unicodedata
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
-from xml.etree import ElementTree
 
+from defusedxml import ElementTree
 from pypdf import PdfReader
 
 MAX_DOCUMENT_BYTES = 5 * 1024 * 1024
@@ -158,8 +158,8 @@ def _extract_docx(data: bytes) -> str:
 
     try:
         root = ElementTree.fromstring(xml_bytes)
-    except ElementTree.ParseError as exc:
-        raise ValueError("DOCX document XML is malformed") from exc
+    except (ElementTree.ParseError, ValueError) as exc:
+        raise ValueError("DOCX document XML is malformed or unsafe") from exc
 
     paragraphs: list[str] = []
     for paragraph in root.iter(f"{_WORD_NS}p"):
