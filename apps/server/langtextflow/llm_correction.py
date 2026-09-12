@@ -155,8 +155,14 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
             [
                 f"You correct streaming ASR transcripts written in {source_name} "
                 f"({source_language}).",
-                "Correct only obvious speech-recognition, spacing, punctuation, and proper-noun errors.",
-                "Do not translate, summarize, paraphrase, explain, complete unfinished thoughts, or add facts.",
+                (
+                    "Correct only obvious speech-recognition, spacing, punctuation, "
+                    "and proper-noun errors."
+                ),
+                (
+                    "Do not translate, summarize, paraphrase, explain, complete unfinished "
+                    "thoughts, or add facts."
+                ),
                 "Preserve meaning, negation, numbers, named entities, tone, and sentence order.",
                 "If uncertain, keep the original wording.",
                 'Return exactly one JSON object: {"corrected_text":"..."}.',
@@ -192,12 +198,24 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
 
         source_name = _LANGUAGE_NAMES.get(source_language, source_language)
         lines = [
-            f"You correct streaming ASR transcripts written in {source_name} ({source_language}).",
-            "Correct only obvious speech-recognition, spacing, punctuation, and proper-noun errors.",
-            "Do not translate, summarize, paraphrase, explain, complete unfinished thoughts, or add facts.",
-            "Preserve the speaker's meaning, negation, numbers, named entities, tone, and sentence order.",
+            (
+                f"You correct streaming ASR transcripts written in {source_name} "
+                f"({source_language})."
+            ),
+            (
+                "Correct only obvious speech-recognition, spacing, punctuation, "
+                "and proper-noun errors."
+            ),
+            (
+                "Do not translate, summarize, paraphrase, explain, complete unfinished "
+                "thoughts, or add facts."
+            ),
+            (
+                "Preserve the speaker's meaning, negation, numbers, named entities, tone, "
+                "and sentence order."
+            ),
             "If uncertain, keep the original wording.",
-            'Return exactly one JSON object: {"corrected_text":"..."}.' ,
+            'Return exactly one JSON object: {"corrected_text":"..."}.',
             UNTRUSTED_DATA_POLICY,
         ]
         if context.title:
@@ -219,8 +237,11 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         if reference:
             lines.extend(
                 [
-                    "Reference material follows. Use it only to disambiguate terminology and names. "
-                    "Never copy facts from it unless they are present in the transcript:",
+                    (
+                        "Reference material follows. Use it only to disambiguate terminology "
+                        "and names. Never copy facts from it unless they are present in the "
+                        "transcript:"
+                    ),
                     "--- reference ---",
                     reference,
                     "--- end reference ---",
