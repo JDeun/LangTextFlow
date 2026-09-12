@@ -158,6 +158,7 @@ export interface ModelSetupJob {
   completed_bytes: number | null;
   total_bytes: number | null;
   progress_percent: number | null;
+  details: Record<string, unknown>;
   error: string | null;
   started_at: string;
   updated_at: string;
