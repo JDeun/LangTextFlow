@@ -74,8 +74,10 @@
 - [x] 임의 source language → 복수 target language fan-out
 - [x] constrained LLM correction interface + Ollama adapter + safety gate/degraded fallback
 - [x] segment별 correction provenance + SQLite/JSON export 보존
+- [x] provider별 번역 품질/latency benchmark harness + JSONL fixture protocol
+- [x] success/latency/CER/WER/terminology metrics + 환경/fixture digest 기록
+- [ ] 실제 대상 장비/모델에서 번역 benchmark 실행 및 baseline 확정
 - [ ] correction confidence calibration / 품질 기준 정의
-- [ ] provider별 번역 품질/latency benchmark
 
 ## P2B — Glossary persistence
 
