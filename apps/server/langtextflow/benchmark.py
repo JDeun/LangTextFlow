@@ -370,7 +370,9 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
 
     chunk_frames = max(1, round(info.sample_rate * options.chunk_ms / 1000))
     requested_seconds = (
-        options.duration_minutes * 60.0 if options.duration_minutes is not None else info.duration_seconds
+        options.duration_minutes * 60.0
+        if options.duration_minutes is not None
+        else info.duration_seconds
     )
     requested_frames = max(1, round(requested_seconds * info.sample_rate))
     fed_frames = 0
@@ -454,7 +456,9 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
         "throughput_rtf": round(total_audio_phase_seconds / audio_duration_seconds, 4)
         if options.pace == "max"
         else None,
-        "first_stable_ms": collector.segments[0].received_elapsed_ms if collector.segments else None,
+        "first_stable_ms": (
+            collector.segments[0].received_elapsed_ms if collector.segments else None
+        ),
         "realtime_lag_p50_ms": percentile(lag_values, 0.50),
         "realtime_lag_p95_ms": percentile(lag_values, 0.95),
         "realtime_lag_max_ms": round(max(lag_values), 1) if lag_values else None,
