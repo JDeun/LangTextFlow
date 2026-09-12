@@ -1,0 +1,121 @@
+.target-language-selector {
+  display: grid;
+  gap: 8px;
+}
+
+.target-language-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.target-language-heading > span {
+  color: #aeb9c2;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.target-language-heading > small {
+  color: #6f7d88;
+  font-size: 9px;
+}
+
+.target-language-chips {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.target-language-chips button {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 6px 8px;
+  border: 1px solid #303a43;
+  border-radius: 8px;
+  background: #131a20;
+  color: #84919c;
+  cursor: pointer;
+  text-align: left;
+}
+
+.target-language-chips button.active {
+  border-color: #3e6e58;
+  background: #13251d;
+  color: #d9e7df;
+}
+
+.target-language-chips button:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.target-language-chips b {
+  min-width: 24px;
+  color: #d4dde4;
+  font-size: 9px;
+}
+
+.target-language-chips span {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.target-language-chips i {
+  padding: 2px 4px;
+  border-radius: 999px;
+  background: #26313a;
+  color: #8fa0ac;
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.target-language-chips button.active i {
+  background: #204331;
+  color: #8ed4ac;
+}
+
+.target-language-summary {
+  display: grid;
+  gap: 3px;
+}
+
+.target-language-summary span,
+.target-language-summary small {
+  color: #75838e;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.target-language-summary small {
+  color: #b09561;
+}
+
+.target-language-selector.compact .target-language-chips {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.target-language-selector.compact .target-language-chips button {
+  display: flex;
+  justify-content: center;
+  min-height: 34px;
+  padding: 5px;
+  text-align: center;
+}
+
+.target-language-selector.compact .target-language-chips span,
+.target-language-selector.compact .target-language-chips i {
+  display: none;
+}
+
+@media (max-width: 720px) {
+  .target-language-selector.compact .target-language-chips {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
