@@ -69,8 +69,17 @@ jobs:
             cat /tmp/langtextflow-uvicorn.log
             exit 1
           }
-      - name: Python dependency vulnerability audit
-        run: pip-audit
+      - name: Python vulnerability audit and CycloneDX SBOM
+        run: |
+          mkdir -p artifacts
+          pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json
+      - name: Upload Python SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-sbom
+          path: artifacts/python-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Python static security scan
         run: bandit -r apps/server/langtextflow -ll -s B615
 
@@ -92,3 +101,14 @@ jobs:
         run: npm audit --audit-level=high
       - name: Type-check and production build
         run: npm run build
+      - name: Generate frontend CycloneDX SBOM
+        run: |
+          mkdir -p ../../artifacts
+          npm sbom --sbom-format cyclonedx > ../../artifacts/frontend-sbom.cdx.json
+      - name: Upload frontend SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-sbom
+          path: artifacts/frontend-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 14
