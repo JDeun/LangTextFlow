@@ -5,7 +5,7 @@ import math
 import sys
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class RealtimeMetrics(BaseModel):
@@ -14,10 +14,15 @@ class RealtimeMetrics(BaseModel):
     audio_duration_ms: float = 0.0
     audio_rms_dbfs: float | None = None
     voice_active: bool = False
+    last_audio_enqueue_wait_ms: float | None = None
+    audio_backpressure_events: int = 0
     asr_queue_depth: int = 0
     asr_queue_capacity: int = 0
+    asr_queue_high_watermark: int = 0
     persistence_queue_depth: int = 0
+    persistence_queue_capacity: int = 0
     postprocess_queue_depth: int = 0
+    postprocess_queue_capacity: int = 0
     last_asr_lag_ms: float | None = None
     last_correction_latency_ms: float | None = None
     last_translation_latency_ms: float | None = None
