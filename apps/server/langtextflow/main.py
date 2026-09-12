@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,14 @@ from .asr import AsrEngineError
 from .config import get_settings
 from .exports import export_json, export_srt, export_txt, export_vtt
 from .glossary_repository import GlossaryRepository
+from .glossary_transfer import (
+    GlossaryImportRequest,
+    GlossaryImportResult,
+    GlossaryTransferFormat,
+    export_glossary,
+    glossary_export_media_type,
+    parse_glossary_import,
+)
 from .model_setup import ModelSetupJob, ModelSetupManager, ModelSetupRequest
 from .models import (
     AudienceSessionView,
@@ -39,10 +48,12 @@ vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
 async def lifespan(_: FastAPI):
     glossary_repository.initialize()
     await runtime.initialize()
-    yield
-    await runtime.shutdown()
-    await vibevoice_lifecycle.shutdown()
-    await model_setup_manager.shutdown()
+    try:
+        yield
+    finally:
+        await runtime.shutdown()
+        await vibevoice_lifecycle.shutdown()
+        await model_setup_manager.shutdown()
 
 
 app = FastAPI(
@@ -294,6 +305,42 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
 def list_glossary(request: Request) -> list[GlossaryRecord]:
     _require_operator(request)
     return glossary_repository.list()
+
+
+@app.get("/api/v1/glossary/export")
+def glossary_export(
+    request: Request,
+    export_format: Annotated[GlossaryTransferFormat, Query(alias="format")] = (
+        GlossaryTransferFormat.JSON
+    ),
+) -> Response:
+    _require_operator(request)
+    content = export_glossary(glossary_repository.list(), export_format)
+    filename = f"langtextflow-glossary.{export_format.value}"
+    return Response(
+        content=content,
+        media_type=glossary_export_media_type(export_format),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/v1/glossary/import", response_model=GlossaryImportResult)
+def glossary_import(request: Request, payload: GlossaryImportRequest) -> GlossaryImportResult:
+    _require_operator(request)
+    try:
+        entries = parse_glossary_import(payload)
+        created, updated, skipped = glossary_repository.import_entries(
+            entries,
+            conflict_policy=payload.conflict_policy.value,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return GlossaryImportResult(
+        total=len(entries),
+        created=created,
+        updated=updated,
+        skipped=skipped,
+    )
 
 
 @app.post("/api/v1/glossary", response_model=GlossaryRecord, status_code=201)
