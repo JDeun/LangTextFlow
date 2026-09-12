@@ -70,8 +70,9 @@
 - [x] 번역 장애 시 원문 자막 지속(degraded mode)
 - [x] 임의 source language → 복수 target language fan-out
 - [x] constrained LLM correction interface + Ollama adapter + safety gate/degraded fallback
+- [x] segment별 correction provenance + SQLite/JSON export 보존
+- [ ] correction confidence calibration / 품질 기준 정의
 - [ ] 추가 local/cloud translation adapters
-- [ ] segment별 correction provenance / confidence
 
 ## P2B — Glossary persistence
 
