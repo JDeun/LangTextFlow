@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -44,7 +45,7 @@ class FakeTranslator(Translator):
         self.closed = True
 
 
-def write_fixtures(tmp_path) -> object:
+def write_fixtures(tmp_path: Path) -> Path:
     path = tmp_path / "translation.jsonl"
     rows = [
         {
@@ -80,7 +81,7 @@ def write_fixtures(tmp_path) -> object:
     return path
 
 
-def test_load_fixtures_reads_context_and_terms(tmp_path) -> None:
+def test_load_fixtures_reads_context_and_terms(tmp_path: Path) -> None:
     path = write_fixtures(tmp_path)
     fixtures = load_fixtures(path)
 
@@ -91,7 +92,7 @@ def test_load_fixtures_reads_context_and_terms(tmp_path) -> None:
     assert fixtures[0].context.glossary[0].translations["en"] == "John"
 
 
-def test_load_fixtures_rejects_duplicate_ids(tmp_path) -> None:
+def test_load_fixtures_rejects_duplicate_ids(tmp_path: Path) -> None:
     path = tmp_path / "duplicate.jsonl"
     row = {
         "id": "duplicate",
@@ -121,7 +122,9 @@ def test_terminology_metrics_reports_missing_terms() -> None:
 
 
 @pytest.mark.asyncio
-async def test_translation_benchmark_aggregates_quality_latency_and_output(tmp_path) -> None:
+async def test_translation_benchmark_aggregates_quality_latency_and_output(
+    tmp_path: Path,
+) -> None:
     fixtures_path = write_fixtures(tmp_path)
     output_path = tmp_path / "result.json"
     translator = FakeTranslator(
@@ -157,7 +160,7 @@ async def test_translation_benchmark_aggregates_quality_latency_and_output(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_translation_benchmark_records_partial_failure(tmp_path) -> None:
+async def test_translation_benchmark_records_partial_failure(tmp_path: Path) -> None:
     fixtures_path = write_fixtures(tmp_path)
     translator = FakeTranslator(
         {
