@@ -68,6 +68,7 @@
 - [x] Ollama local translation provider
 - [x] TranslateGemma 4B 기본 로컬 번역 모델 설정
 - [x] 번역 장애 시 원문 자막 지속(degraded mode)
+- [x] 임의 source language → 복수 target language fan-out
 - [ ] constrained LLM correction interface
 - [ ] 추가 local/cloud translation adapters
 - [ ] segment별 correction provenance / confidence
@@ -130,11 +131,12 @@
 - [x] faster-whisper model prefetch/cache + cancellable setup job
 - [x] onboarding / preflight에서 누락 model repair action
 - [x] 준비된 VibeVoice sidecar start/status/stop lifecycle + external ownership 보호
+- [x] 임의 source → 복수 target 운영자 UX + 원문 track 상시 제공
+- [x] audience/projector/OBS에서 원문 또는 번역 언어 선택
 - [ ] VibeVoice runtime/repository/model 자동 설치·검증
 - [ ] faster-whisper runtime package 자동 설치/복구
 - [ ] Ollama application 자체 설치/실행
 - [ ] 실제 benchmark 기반 ASR model/device/compute 추천 preset
-- [ ] 다중 target language 운영자 UX
 - [ ] 글꼴/크기/행수/자막 유지시간 설정
 - [ ] glossary import/export 및 추천 UX
 
