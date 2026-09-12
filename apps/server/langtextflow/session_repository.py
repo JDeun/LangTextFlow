@@ -39,6 +39,8 @@ class SessionRepository:
                     source_language TEXT NOT NULL,
                     target_languages_json TEXT NOT NULL,
                     engine TEXT NOT NULL,
+                    correction_provider TEXT NOT NULL DEFAULT 'none',
+                    correction_model TEXT,
                     translation_provider TEXT NOT NULL,
                     translation_model TEXT,
                     context_json TEXT NOT NULL,
@@ -54,6 +56,15 @@ class SessionRepository:
             if "notes" not in session_columns:
                 connection.execute(
                     "ALTER TABLE sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''"
+                )
+            if "correction_provider" not in session_columns:
+                connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN correction_provider "
+                    "TEXT NOT NULL DEFAULT 'none'"
+                )
+            if "correction_model" not in session_columns:
+                connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN correction_model TEXT"
                 )
             connection.execute(
                 """
@@ -95,9 +106,10 @@ class SessionRepository:
                 INSERT INTO sessions (
                     session_id, join_code, title, presenter, preset,
                     source_language, target_languages_json, engine,
+                    correction_provider, correction_model,
                     translation_provider, translation_model, context_json,
                     started_at, ended_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
                 """,
                 (
                     state.session_id,
@@ -108,6 +120,8 @@ class SessionRepository:
                     request.source_language,
                     json.dumps(request.target_languages),
                     state.engine,
+                    request.correction_provider,
+                    request.correction_model,
                     request.translation_provider,
                     request.translation_model,
                     request.context.model_dump_json(),
@@ -254,6 +268,12 @@ class SessionRepository:
             source_language=str(row["source_language"]),
             target_languages=json.loads(str(row["target_languages_json"])),
             engine=str(row["engine"]),
+            correction_provider=str(row["correction_provider"]),
+            correction_model=(
+                str(row["correction_model"])
+                if row["correction_model"] is not None
+                else None
+            ),
             translation_provider=str(row["translation_provider"]),
             translation_model=(
                 str(row["translation_model"])
