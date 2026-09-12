@@ -12,7 +12,7 @@ from typing import Any
 
 from .benchmark import normalize_text, percentile, quality_metrics
 from .config import Settings, get_settings
-from .models import GlossaryEntry, ProductPreset, SessionContext
+from .models import SessionContext
 from .translation import (
     OllamaTranslator,
     OpenAICompatibleTranslator,
