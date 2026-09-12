@@ -112,3 +112,25 @@ export interface NetworkInfo {
   frontend_port: number;
   backend_port: number;
 }
+
+export interface RealtimeMetrics {
+  audio_frames_received: number;
+  audio_bytes_received: number;
+  audio_duration_ms: number;
+  audio_rms_dbfs: number | null;
+  voice_active: boolean;
+  last_audio_enqueue_wait_ms: number | null;
+  audio_backpressure_events: number;
+  asr_queue_depth: number;
+  asr_queue_capacity: number;
+  asr_queue_high_watermark: number;
+  persistence_queue_depth: number;
+  persistence_queue_capacity: number;
+  postprocess_queue_depth: number;
+  postprocess_queue_capacity: number;
+  last_asr_lag_ms: number | null;
+  last_correction_latency_ms: number | null;
+  last_translation_latency_ms: number | null;
+  last_commit_latency_ms: number | null;
+  last_event_at: string | null;
+}
