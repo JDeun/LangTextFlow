@@ -6,8 +6,11 @@ import {
   type AudioInputDevice,
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
+import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
+import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
+import { LiveCaption } from "./LiveCaption";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { PreflightPanel } from "./PreflightPanel";
 import { SessionHistory } from "./SessionHistory";
@@ -16,6 +19,7 @@ import { TelemetryPanel } from "./TelemetryPanel";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
+  CaptionDisplaySettings,
   ProductPreset,
   RecommendedConfiguration,
   SessionState,
@@ -31,6 +35,7 @@ const PRESETS: Array<[ProductPreset, string]> = [
 ];
 
 const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
+const DISPLAY_SETTINGS_STORAGE_KEY = "langtextflow:display:v1";
 
 function displayCaption(segment: TranscriptEvent | undefined, language: string) {
   if (!segment) return "말하기를 시작하면 자막이 이곳에 표시됩니다.";
@@ -94,18 +99,20 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
   }
 
   const availableLanguages = captionLanguages(session.source_language, session.target_languages);
-  const showingTranslation = language !== session.source_language;
+  const displaySettings = session.display_settings;
 
   if (displayMode) {
     const mode = new URLSearchParams(window.location.search).get("mode") ?? "projector";
     return (
       <main className={`display-shell ${mode}`}>
-        <div className={`display-caption ${latest?.stage === "partial" ? "draft" : ""}`}>
-          {displayCaption(latest, language)}
-        </div>
-        {showingTranslation && latest?.translations[language] && (
-          <div className="display-source">{latest.text}</div>
-        )}
+        <LiveCaption
+          segment={latest}
+          language={language}
+          settings={displaySettings}
+          surface="display"
+          primaryClassName="display-caption"
+          sourceClassName="display-source"
+        />
       </main>
     );
   }
@@ -132,12 +139,14 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
         </select>
       </label>
       <section className="audience-caption-card">
-        <div className={`audience-caption ${latest?.stage === "partial" ? "draft" : ""}`}>
-          {displayCaption(latest, language)}
-        </div>
-        {showingTranslation && latest?.translations[language] && (
-          <div className="audience-source">{latest.text}</div>
-        )}
+        <LiveCaption
+          segment={latest}
+          language={language}
+          settings={displaySettings}
+          surface="audience"
+          primaryClassName="audience-caption"
+          sourceClassName="audience-source"
+        />
       </section>
       <section className="audience-transcript">
         {segments.slice(-8).reverse().map((segment) => (
@@ -157,6 +166,9 @@ function OperatorApp() {
   const [sourceLanguage, setSourceLanguage] = useState("ko");
   const [targetLanguages, setTargetLanguages] = useState<string[]>(["en"]);
   const [previewLanguage, setPreviewLanguage] = useState("en");
+  const [displaySettings, setDisplaySettings] = useState<CaptionDisplaySettings>(
+    () => loadStoredDisplaySettings(DISPLAY_SETTINGS_STORAGE_KEY),
+  );
   const [title, setTitle] = useState("새 실시간 자막 세션");
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
@@ -184,7 +196,7 @@ function OperatorApp() {
   const needsAudio = engine !== "mock";
   const glossaryTargetLanguage = targetLanguages.includes(previewLanguage)
     ? previewLanguage
-    : targetLanguages[0];
+    : targetLanguages[0] || defaultTargetForSource(sourceLanguage);
 
   useEffect(() => {
     if (!availablePreviewLanguages.includes(previewLanguage)) {
@@ -192,18 +204,25 @@ function OperatorApp() {
     }
   }, [availablePreviewLanguages, previewLanguage, sourceLanguage, targetLanguages]);
 
+  useEffect(() => {
+    window.localStorage.setItem(
+      DISPLAY_SETTINGS_STORAGE_KEY,
+      JSON.stringify(displaySettings),
+    );
+  }, [displaySettings]);
+
   function changeSourceLanguage(nextSource: string) {
     const nextTargets = reconcileTargets(nextSource, targetLanguages);
     setSourceLanguage(nextSource);
     setTargetLanguages(nextTargets);
-    setPreviewLanguage(nextTargets[0]);
+    setPreviewLanguage(nextTargets[0] || defaultTargetForSource(nextSource));
   }
 
   function changeTargetLanguages(nextTargets: string[]) {
     const reconciled = reconcileTargets(sourceLanguage, nextTargets);
     setTargetLanguages(reconciled);
     if (!captionLanguages(sourceLanguage, reconciled).includes(previewLanguage)) {
-      setPreviewLanguage(reconciled[0]);
+      setPreviewLanguage(reconciled[0] || sourceLanguage);
     }
   }
 
@@ -291,6 +310,7 @@ function OperatorApp() {
             glossary: [],
             output_modes: ["audience", "projector", "obs"],
             audience_access: true,
+            display_settings: displaySettings,
           },
         }),
       });
@@ -418,6 +438,11 @@ function OperatorApp() {
             sourceLanguage={sourceLanguage}
             disabled={running}
             onChange={changeTargetLanguages}
+          />
+          <DisplaySettingsPanel
+            value={displaySettings}
+            disabled={running}
+            onChange={setDisplaySettings}
           />
           <label>
             중요 용어 / Hotwords
@@ -563,12 +588,15 @@ function OperatorApp() {
               </label>
             </div>
             <div className="stage-screen">
-              <div className={`caption ${latest?.stage === "partial" ? "draft" : ""}`}>
-                {displayCaption(latest, previewLanguage)}
-              </div>
-              {previewLanguage !== sourceLanguage && latest?.translations[previewLanguage] && (
-                <div className="source-caption">{latest.text}</div>
-              )}
+              <LiveCaption
+                segment={latest}
+                language={previewLanguage}
+                settings={displaySettings}
+                surface="preview"
+                primaryClassName="caption"
+                sourceClassName="source-caption"
+                emptyText="말하기를 시작하면 자막이 이곳에 표시됩니다."
+              />
             </div>
           </div>
 
