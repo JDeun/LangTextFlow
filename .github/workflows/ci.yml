@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -14,8 +17,22 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install --upgrade pip
       - run: pip install -e '.[dev]'
-      - run: ruff check apps/server
-      - run: pytest
+      - name: Verify installed dependency consistency
+        run: python -m pip check
+      - name: Repository hygiene scan
+        run: python scripts/repo_hygiene.py
+      - name: Python lint
+        run: ruff check apps/server scripts
+      - name: Backend tests and coverage gate
+        run: >-
+          pytest --strict-config --strict-markers
+          --cov=apps/server/langtextflow
+          --cov-report=term-missing
+          --cov-fail-under=60
+      - name: Python dependency vulnerability audit
+        run: pip-audit
+      - name: Python static security scan
+        run: bandit -r apps/server/langtextflow -ll
 
   frontend:
     runs-on: ubuntu-latest
@@ -27,5 +44,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: npm install
-      - run: npm run build
+      - name: Install frontend dependencies
+        run: npm install
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=high
+      - name: Build frontend
+        run: npm run build
+      - name: Upload generated lockfile for repository pinning
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-package-lock
+          path: apps/web/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
