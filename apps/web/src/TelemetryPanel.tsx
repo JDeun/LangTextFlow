@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import "./telemetry.css";
 import type { RealtimeMetrics } from "./types";
 
 interface TelemetryPanelProps {
