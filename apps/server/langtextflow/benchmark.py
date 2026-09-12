@@ -5,13 +5,12 @@ import asyncio
 import json
 import math
 import platform
-import statistics
 import sys
 import time
 import unicodedata
 import wave
 from array import array
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -165,6 +164,8 @@ def inspect_wav(path: Path) -> WavInfo:
         raise ValueError(
             "benchmark WAV must be mono 16-bit PCM; preprocess with ffmpeg to 16 kHz mono PCM16"
         )
+    if info.sample_rate <= 0 or info.frame_count <= 0:
+        raise ValueError("benchmark WAV must contain non-empty audio with a valid sample rate")
     return info
 
 
@@ -341,11 +342,6 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
     settings = get_settings()
     collector = SegmentCollector(pace=options.pace)
     engine = build_asr_engine(options.engine, collector.publish, settings)
-    if engine.sample_rate != info.sample_rate:
-        raise ValueError(
-            f"WAV sample rate {info.sample_rate} Hz does not match ASR input "
-            f"{engine.sample_rate} Hz"
-        )
 
     request = StartSessionRequest(
         source_language=options.source_language,
@@ -364,6 +360,12 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
     startup_started = time.perf_counter()
     await engine.start(request)
     startup_seconds = time.perf_counter() - startup_started
+    if engine.sample_rate != info.sample_rate:
+        await engine.stop()
+        raise ValueError(
+            f"WAV sample rate {info.sample_rate} Hz does not match ASR input "
+            f"{engine.sample_rate} Hz"
+        )
     memory.sample(force=True)
 
     chunk_frames = max(1, round(info.sample_rate * options.chunk_ms / 1000))
@@ -379,6 +381,10 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
     audio_started = collector.started_at
     assert audio_started is not None
 
+    feed_finished_at = audio_started
+    drain_seconds = 0.0
+    drained = False
+    provider_snapshot: dict[str, Any] = {}
     try:
         while fed_frames < requested_frames:
             source_loops += 1
@@ -410,9 +416,17 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
             timeout_seconds=options.drain_timeout_seconds,
             memory=memory,
         )
+        memory.sample(force=True)
+        provider_snapshot = {
+            "resolved_provider": getattr(engine, "active_provider", None) or options.engine,
+            "failure": engine.failure,
+            "failover_count": engine.failover_count,
+            "last_failover_reason": engine.last_failover_reason,
+            "queue_high_watermark": queue_high_watermark,
+            "queue_capacity": queue_capacity,
+        }
     finally:
         await engine.stop()
-        memory.sample(force=True)
 
     finished_at = time.perf_counter()
     audio_duration_seconds = fed_frames / info.sample_rate
@@ -429,7 +443,6 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
         if options.reference_path is not None
         else None
     )
-    resolved_provider = getattr(engine, "active_provider", None) or options.engine
 
     timing = {
         "startup_ms": round(startup_seconds * 1000.0, 1),
@@ -448,8 +461,13 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
         "drained_before_timeout": drained,
     }
 
+    status = "failed" if provider_snapshot["failure"] else "ok"
+    if not drained and status == "ok":
+        status = "drain-timeout"
+
     return {
         "schema_version": 1,
+        "status": status,
         "generated_at": datetime.now(UTC).isoformat(),
         "environment": {
             "python": platform.python_version(),
@@ -459,7 +477,7 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
         },
         "config": {
             "requested_engine": options.engine,
-            "resolved_provider": resolved_provider,
+            "resolved_provider": provider_snapshot["resolved_provider"],
             "source_language": options.source_language,
             "pace": options.pace,
             "chunk_ms": options.chunk_ms,
@@ -485,11 +503,11 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
             "reference_path": str(options.reference_path) if options.reference_path else None,
         },
         "provider": {
-            "failure": engine.failure,
-            "failover_count": engine.failover_count,
-            "last_failover_reason": engine.last_failover_reason,
-            "queue_high_watermark": queue_high_watermark,
-            "queue_capacity": queue_capacity,
+            "failure": provider_snapshot["failure"],
+            "failover_count": provider_snapshot["failover_count"],
+            "last_failover_reason": provider_snapshot["last_failover_reason"],
+            "queue_high_watermark": provider_snapshot["queue_high_watermark"],
+            "queue_capacity": provider_snapshot["queue_capacity"],
         },
         "timing": timing,
         "memory": memory.report(),
