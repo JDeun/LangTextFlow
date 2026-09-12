@@ -141,6 +141,21 @@ export function OnboardingWizard({
     && Boolean(translationModel.trim())
     && ollamaReady
     && translationModelMissing;
+
+  const whisperPackageReady = report?.checks.some(
+    (check) => check.id === "faster-whisper" && check.status === "ready",
+  ) ?? false;
+  const whisperModelCheck = report?.checks.find(
+    (check) => check.id === "faster-whisper-model",
+  );
+  const whisperModel = typeof whisperModelCheck?.details.model === "string"
+    ? whisperModelCheck.details.model
+    : "";
+  const canPrepareWhisperModel =
+    (engine === "auto" || engine === "faster-whisper")
+    && whisperPackageReady
+    && whisperModelCheck?.status === "missing"
+    && Boolean(whisperModel);
   const steps = ["시작", "시스템", "마이크", "언어", "완료"];
 
   return (
@@ -209,14 +224,32 @@ export function OnboardingWizard({
                       </button>
                     </div>
                   )}
+                  {canPrepareWhisperModel && (
+                    <div className="onboarding-repair">
+                      <div>
+                        <small>ASR fallback 준비</small>
+                        <strong>{whisperModel} 음성 인식 모델을 미리 받을 수 있습니다.</strong>
+                        <span>
+                          세션 도중 다운로드가 시작되지 않도록 지금 로컬 cache를 준비합니다.
+                        </span>
+                      </div>
+                      <ModelSetupControl
+                        provider="faster-whisper"
+                        model={whisperModel}
+                        enabled
+                        onCompleted={handleModelCompleted}
+                      />
+                    </div>
+                  )}
                   {canPrepareTranslationModel && (
                     <div className="onboarding-repair">
                       <div>
-                        <small>자동 해결 가능</small>
+                        <small>번역 모델 준비</small>
                         <strong>선택한 번역 모델을 준비할 수 있습니다.</strong>
                         <span>실행 중인 Ollama에 모델을 내려받고 완료 후 자동으로 다시 점검합니다.</span>
                       </div>
                       <ModelSetupControl
+                        provider="ollama"
                         model={translationModel}
                         enabled
                         onCompleted={handleModelCompleted}
