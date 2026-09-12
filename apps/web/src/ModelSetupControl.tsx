@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
 import type { ModelSetupJob } from "./types";
+import "./modelSetup.css";
 
 interface ModelSetupControlProps {
   model: string;
