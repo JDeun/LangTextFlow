@@ -33,6 +33,11 @@ class DeterministicCorrector:
             for alias in entry.aliases:
                 aliases[alias] = entry.term
 
-        for alias, canonical in sorted(aliases.items(), key=lambda item: len(item[0]), reverse=True):
+        ordered_aliases = sorted(
+            aliases.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        )
+        for alias, canonical in ordered_aliases:
             value = value.replace(alias, canonical)
         return value
