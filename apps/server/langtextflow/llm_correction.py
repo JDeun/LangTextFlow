@@ -8,6 +8,12 @@ from difflib import SequenceMatcher
 import httpx
 
 from .models import SessionContext
+from .prompt_safety import (
+    MAX_CORRECTION_RESPONSE_CHARS,
+    UNTRUSTED_DATA_POLICY,
+    bounded_model_text,
+    untrusted_json,
+)
 
 _LANGUAGE_NAMES = {
     "ko": "Korean",
@@ -76,6 +82,7 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         names = {
             str(item.get("name") or item.get("model") or "")
             for item in payload.get("models", [])
+            if isinstance(item, dict)
         }
         family = self.model.split(":", 1)[0]
         if not any(name == self.model or name.split(":", 1)[0] == family for name in names):
@@ -94,7 +101,7 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         if not text.strip():
             return text
 
-        prompt = self.build_prompt(
+        messages = self.build_messages(
             text,
             source_language=source_language,
             context=context,
@@ -105,7 +112,7 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
                     f"{self.base_url}/api/chat",
                     json={
                         "model": self.model,
-                        "messages": [{"role": "user", "content": prompt}],
+                        "messages": messages,
                         "stream": False,
                         "format": "json",
                         "options": {"temperature": 0},
@@ -116,16 +123,63 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         except Exception as exc:
             raise CorrectionError(f"Ollama correction failed: {exc}") from exc
 
-        content = str(payload.get("message", {}).get("content", "")).strip()
-        if not content:
-            raise CorrectionError("Ollama returned an empty correction response")
+        try:
+            content = bounded_model_text(
+                payload.get("message", {}).get("content", "")
+                if isinstance(payload, dict)
+                else "",
+                label="Ollama correction response",
+                max_chars=MAX_CORRECTION_RESPONSE_CHARS,
+            )
+        except ValueError as exc:
+            raise CorrectionError(str(exc)) from exc
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError as exc:
             raise CorrectionError("Ollama correction response is not valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise CorrectionError("Ollama correction response must be a JSON object")
 
         candidate = str(parsed.get("corrected_text", "")).strip()
         return validate_constrained_candidate(text, candidate)
+
+    @staticmethod
+    def build_messages(
+        text: str,
+        *,
+        source_language: str,
+        context: SessionContext,
+    ) -> list[dict[str, str]]:
+        source_name = _LANGUAGE_NAMES.get(source_language, source_language)
+        system = "\n".join(
+            [
+                f"You correct streaming ASR transcripts written in {source_name} "
+                f"({source_language}).",
+                "Correct only obvious speech-recognition, spacing, punctuation, and proper-noun errors.",
+                "Do not translate, summarize, paraphrase, explain, complete unfinished thoughts, or add facts.",
+                "Preserve meaning, negation, numbers, named entities, tone, and sentence order.",
+                "If uncertain, keep the original wording.",
+                'Return exactly one JSON object: {"corrected_text":"..."}.',
+                UNTRUSTED_DATA_POLICY,
+            ]
+        )
+        terminology: list[dict[str, object]] = []
+        for entry in context.glossary:
+            if entry.enabled:
+                terminology.append({"canonical": entry.term, "aliases": entry.aliases[:64]})
+        user = untrusted_json(
+            {
+                "session_title": context.title,
+                "presenter": context.presenter,
+                "terminology_hints": terminology[:80],
+                "reference_material": context.reference_excerpt(3000),
+                "transcript": text,
+            }
+        )
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
 
     @staticmethod
     def build_prompt(
@@ -134,25 +188,22 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         source_language: str,
         context: SessionContext,
     ) -> str:
+        """Human-readable debug representation retained for tests/documentation."""
+
         source_name = _LANGUAGE_NAMES.get(source_language, source_language)
         lines = [
-            f"You correct streaming ASR transcripts written in "
-            f"{source_name} ({source_language}).",
-            "Correct only obvious speech-recognition, spacing, punctuation, "
-            "and proper-noun errors.",
-            "Do not translate, summarize, paraphrase, explain, complete "
-            "unfinished thoughts, or add facts.",
-            "Preserve the speaker's meaning, negation, numbers, named entities, "
-            "tone, and sentence order.",
+            f"You correct streaming ASR transcripts written in {source_name} ({source_language}).",
+            "Correct only obvious speech-recognition, spacing, punctuation, and proper-noun errors.",
+            "Do not translate, summarize, paraphrase, explain, complete unfinished thoughts, or add facts.",
+            "Preserve the speaker's meaning, negation, numbers, named entities, tone, and sentence order.",
             "If uncertain, keep the original wording.",
-            'Return exactly one JSON object: {"corrected_text":"..."}.',
+            'Return exactly one JSON object: {"corrected_text":"..."}.' ,
+            UNTRUSTED_DATA_POLICY,
         ]
-
         if context.title:
             lines.append(f"Session title: {context.title}")
         if context.presenter:
             lines.append(f"Presenter: {context.presenter}")
-
         mappings: list[str] = []
         for entry in context.glossary:
             if not entry.enabled:
@@ -164,20 +215,17 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         if mappings:
             lines.append("Terminology hints; apply only when the spoken text supports them:")
             lines.extend(mappings[:80])
-
         reference = context.reference_excerpt(3000)
         if reference:
             lines.extend(
                 [
-                    "Reference material follows. Use it only to disambiguate "
-                    "terminology and names. Never copy facts from it unless "
-                    "they are present in the transcript:",
+                    "Reference material follows. Use it only to disambiguate terminology and names. "
+                    "Never copy facts from it unless they are present in the transcript:",
                     "--- reference ---",
                     reference,
                     "--- end reference ---",
                 ]
             )
-
         lines.extend(["Transcript to correct:", text])
         return "\n".join(lines)
 
@@ -189,6 +237,8 @@ def validate_constrained_candidate(original: str, candidate: str) -> str:
     candidate = candidate.strip()
     if not candidate:
         raise CorrectionError("correction candidate is empty")
+    if len(candidate) > 20_000:
+        raise CorrectionError("correction candidate exceeds the safety length limit")
     if candidate == original:
         return candidate
 
