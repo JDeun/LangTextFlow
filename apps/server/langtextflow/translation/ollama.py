@@ -106,5 +106,18 @@ class OllamaTranslator(Translator):
         if terms:
             lines.append("Use these terminology mappings when applicable:")
             lines.extend(terms)
+
+        reference = context.reference_excerpt(5000)
+        if reference:
+            lines.extend(
+                [
+                    "Reference material follows. Use it only to disambiguate names, terminology, "
+                    "and topic context. Never add information that was not spoken:",
+                    "--- reference ---",
+                    reference,
+                    "--- end reference ---",
+                ]
+            )
+
         lines.append(f"Please translate the following {source_name} text into {target_name}:")
         return "\n".join(lines) + f"\n\n\n{text}"

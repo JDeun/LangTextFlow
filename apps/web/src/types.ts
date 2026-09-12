@@ -44,6 +44,17 @@ export interface GlossaryRecord extends GlossaryEntry {
   updated_at: string;
 }
 
+export interface ReferenceDocument {
+  filename: string;
+  media_type: string;
+  size_bytes: number;
+  content_base64?: string | null;
+  text?: string;
+  character_count?: number;
+  truncated?: boolean;
+  sha256?: string;
+}
+
 export interface SessionContext {
   title: string;
   presenter: string | null;
@@ -51,6 +62,8 @@ export interface SessionContext {
   description: string;
   hotwords: string[];
   glossary: GlossaryEntry[];
+  reference_documents: ReferenceDocument[];
+  reference_text: string;
   output_modes: OutputMode[];
   audience_access: boolean;
   display_settings: CaptionDisplaySettings;

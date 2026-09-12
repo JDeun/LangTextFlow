@@ -159,6 +159,9 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             prompt_parts.append(context.presenter)
         if context.description:
             prompt_parts.append(context.description[:1000])
+        reference = context.reference_excerpt(1200)
+        if reference:
+            prompt_parts.append(reference)
         initial_prompt = " | ".join(part.strip() for part in prompt_parts if part.strip()) or None
         hotwords = ", ".join(context.asr_hotwords()) or None
 

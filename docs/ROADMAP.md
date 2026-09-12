@@ -23,7 +23,7 @@
 - [x] 운영자 UI에서 공유 링크 제공
 - [x] QR code 렌더링 + LAN audience URL
 - [x] SQLite 세션/transcript 영속화
-- [ ] Context 문서 업로드/추출
+- [x] Context 문서 업로드/추출 + ASR/번역 bounded reference context
 
 ## P1B — Real audio / ASR
 

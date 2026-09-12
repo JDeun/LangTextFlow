@@ -5,6 +5,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .context_documents import MAX_DOCUMENT_BYTES, extract_context_document
+
 
 class CaptionStage(StrEnum):
     PARTIAL = "partial"
@@ -88,6 +90,44 @@ class GlossaryRecord(GlossaryEntry):
     updated_at: datetime
 
 
+class ReferenceDocument(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    media_type: str = Field(default="application/octet-stream", max_length=120)
+    size_bytes: int = Field(default=0, ge=0, le=MAX_DOCUMENT_BYTES)
+    content_base64: str | None = Field(default=None, max_length=7_100_000, exclude=True, repr=False)
+    text: str = Field(default="", max_length=60_000)
+    character_count: int = Field(default=0, ge=0)
+    truncated: bool = False
+    sha256: str = Field(default="", max_length=64)
+
+    @field_validator("filename")
+    @classmethod
+    def normalize_filename(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("reference document filename is required")
+        return normalized
+
+    @model_validator(mode="after")
+    def extract_uploaded_content(self) -> ReferenceDocument:
+        if self.content_base64:
+            extracted = extract_context_document(
+                filename=self.filename,
+                content_base64=self.content_base64,
+            )
+            self.size_bytes = extracted.size_bytes
+            self.text = extracted.text
+            self.character_count = extracted.character_count
+            self.truncated = extracted.truncated
+            self.sha256 = extracted.sha256
+            self.content_base64 = None
+        elif not self.text.strip():
+            raise ValueError("reference document requires uploaded content or extracted text")
+        elif self.character_count == 0:
+            self.character_count = len(self.text)
+        return self
+
+
 class SessionContext(BaseModel):
     title: str = Field(default="Untitled session", min_length=1, max_length=120)
     presenter: str | None = Field(default=None, max_length=120)
@@ -95,6 +135,8 @@ class SessionContext(BaseModel):
     description: str = Field(default="", max_length=4000)
     hotwords: list[str] = Field(default_factory=list)
     glossary: list[GlossaryEntry] = Field(default_factory=list)
+    reference_documents: list[ReferenceDocument] = Field(default_factory=list, max_length=4)
+    reference_text: str = Field(default="", max_length=120_000)
     output_modes: list[OutputMode] = Field(
         default_factory=lambda: [OutputMode.AUDIENCE, OutputMode.PROJECTOR, OutputMode.OBS]
     )
@@ -106,6 +148,13 @@ class SessionContext(BaseModel):
     def normalize_hotwords(cls, values: list[str]) -> list[str]:
         return list(dict.fromkeys(value.strip() for value in values if value.strip()))
 
+    @model_validator(mode="after")
+    def compose_reference_text(self) -> SessionContext:
+        if self.reference_documents:
+            blocks = [f"[{item.filename}]\n{item.text}" for item in self.reference_documents]
+            self.reference_text = "\n\n".join(blocks)[:120_000].rstrip()
+        return self
+
     def asr_hotwords(self) -> list[str]:
         terms = list(self.hotwords)
         for entry in self.glossary:
@@ -114,6 +163,11 @@ class SessionContext(BaseModel):
             terms.append(entry.term)
             terms.extend(entry.aliases)
         return list(dict.fromkeys(term for term in terms if term))
+
+    def reference_excerpt(self, max_chars: int = 4000) -> str:
+        if max_chars <= 0:
+            return ""
+        return self.reference_text[:max_chars].rstrip()
 
 
 class TranscriptEvent(BaseModel):
