@@ -8,6 +8,7 @@ from .asr import AsrEngineError
 from .config import get_settings
 from .exports import export_json, export_srt, export_txt, export_vtt
 from .glossary_repository import GlossaryRepository
+from .model_setup import ModelSetupJob, ModelSetupManager, ModelSetupRequest
 from .models import (
     AudienceSessionView,
     AudioStreamInfo,
@@ -29,6 +30,7 @@ from .telemetry import RealtimeMetrics
 settings = get_settings()
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
+model_setup_manager = ModelSetupManager(settings)
 
 
 @asynccontextmanager
@@ -36,12 +38,13 @@ async def lifespan(_: FastAPI):
     glossary_repository.initialize()
     await runtime.initialize()
     yield
+    await model_setup_manager.shutdown()
     await runtime.shutdown()
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.10.0",
+    version="0.11.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -110,6 +113,39 @@ async def system_preflight(
         engine=engine,
         translation_provider=translation_provider,
     )
+
+
+@app.get("/api/v1/setup/jobs", response_model=list[ModelSetupJob])
+async def model_setup_jobs(request: Request) -> list[ModelSetupJob]:
+    _require_operator(request)
+    return await model_setup_manager.list_jobs()
+
+
+@app.get("/api/v1/setup/jobs/{job_id}", response_model=ModelSetupJob)
+async def model_setup_job(request: Request, job_id: str) -> ModelSetupJob:
+    _require_operator(request)
+    job = await model_setup_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="model setup job not found")
+    return job
+
+
+@app.post("/api/v1/setup/ollama/pull", response_model=ModelSetupJob, status_code=202)
+async def pull_ollama_model(request: Request, payload: ModelSetupRequest) -> ModelSetupJob:
+    _require_operator(request)
+    try:
+        return await model_setup_manager.start_ollama_pull(payload.normalized_model())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/setup/jobs/{job_id}/cancel", response_model=ModelSetupJob)
+async def cancel_model_setup_job(request: Request, job_id: str) -> ModelSetupJob:
+    _require_operator(request)
+    job = await model_setup_manager.cancel_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="model setup job not found")
+    return job
 
 
 @app.get("/api/v1/state", response_model=SessionState)
