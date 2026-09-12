@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .models import (
+    CorrectionProvenance,
     ProductPreset,
     SessionContext,
     SessionDetail,
@@ -80,6 +81,7 @@ class SessionRepository:
                     end_ms INTEGER,
                     speaker TEXT,
                     confidence REAL,
+                    correction_json TEXT,
                     committed INTEGER NOT NULL,
                     emitted_at TEXT NOT NULL,
                     PRIMARY KEY (session_id, segment_id),
@@ -87,6 +89,16 @@ class SessionRepository:
                 )
                 """
             )
+            segment_columns = {
+                str(row["name"])
+                for row in connection.execute(
+                    "PRAGMA table_info(transcript_segments)"
+                ).fetchall()
+            }
+            if "correction_json" not in segment_columns:
+                connection.execute(
+                    "ALTER TABLE transcript_segments ADD COLUMN correction_json TEXT"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at DESC)"
             )
@@ -153,14 +165,19 @@ class SessionRepository:
             )
 
     def upsert_segment(self, session_id: str, event: TranscriptEvent) -> None:
+        correction_json = (
+            json.dumps(event.correction.model_dump(mode="json"), ensure_ascii=False)
+            if event.correction is not None
+            else None
+        )
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO transcript_segments (
                     session_id, segment_id, version, stage, source_language,
                     text, translations_json, start_ms, end_ms, speaker,
-                    confidence, committed, emitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    confidence, correction_json, committed, emitted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, segment_id) DO UPDATE SET
                     version = excluded.version,
                     stage = excluded.stage,
@@ -171,6 +188,7 @@ class SessionRepository:
                     end_ms = excluded.end_ms,
                     speaker = excluded.speaker,
                     confidence = excluded.confidence,
+                    correction_json = excluded.correction_json,
                     committed = excluded.committed,
                     emitted_at = excluded.emitted_at
                 WHERE excluded.version > transcript_segments.version
@@ -187,6 +205,7 @@ class SessionRepository:
                     event.end_ms,
                     event.speaker,
                     event.confidence,
+                    correction_json,
                     int(event.committed),
                     event.emitted_at.isoformat(),
                 ),
@@ -287,6 +306,12 @@ class SessionRepository:
 
     @staticmethod
     def _segment(row: sqlite3.Row) -> TranscriptEvent:
+        correction_raw = row["correction_json"]
+        correction = (
+            CorrectionProvenance.model_validate(json.loads(str(correction_raw)))
+            if correction_raw is not None
+            else None
+        )
         return TranscriptEvent(
             segment_id=str(row["segment_id"]),
             version=int(row["version"]),
@@ -302,6 +327,7 @@ class SessionRepository:
                 if row["confidence"] is not None
                 else None
             ),
+            correction=correction,
             committed=bool(row["committed"]),
             emitted_at=datetime.fromisoformat(str(row["emitted_at"])),
         )

@@ -12,6 +12,7 @@ from .llm_correction import (
 )
 from .models import (
     CaptionStage,
+    CorrectionProvenance,
     CorrectionStatus,
     StartSessionRequest,
     TranscriptEvent,
@@ -129,40 +130,80 @@ class CaptionPipeline:
             finally:
                 self._queue.task_done()
 
-    async def _correct(self, text: str) -> str:
+    async def _correct(self, text: str) -> tuple[str, CorrectionProvenance]:
         assert self.request is not None
-        corrected = self.deterministic_corrector.correct(text, self.request.context)
-        if self.llm_corrector is None or not self.correction_status.available:
-            return corrected
+        deterministic = self.deterministic_corrector.correct(text, self.request.context)
+        deterministic_changed = deterministic != text
+        provider = self.request.correction_provider
+        model = getattr(self.llm_corrector, "model", None)
+
+        if self.llm_corrector is None:
+            return deterministic, CorrectionProvenance(
+                method="deterministic",
+                deterministic_changed=deterministic_changed,
+                changed=deterministic_changed,
+            )
+
+        if not self.correction_status.available:
+            return deterministic, CorrectionProvenance(
+                method="fallback",
+                provider=provider,
+                model=model,
+                deterministic_changed=deterministic_changed,
+                changed=deterministic_changed,
+                fallback_reason=self.correction_status.error or "correction provider unavailable",
+            )
 
         try:
             corrected = await asyncio.wait_for(
                 self.llm_corrector.correct(
-                    corrected,
+                    deterministic,
                     source_language=self.request.source_language,
                     context=self.request.context,
                 ),
                 timeout=max(self.settings.correction_timeout_seconds, 0.1),
             )
             self.correction_status.error = None
+            return corrected, CorrectionProvenance(
+                method="llm",
+                provider=provider,
+                model=model,
+                deterministic_changed=deterministic_changed,
+                llm_attempted=True,
+                llm_applied=True,
+                changed=corrected != text,
+            )
         except TimeoutError:
-            self.correction_status.error = (
+            reason = (
                 f"correction timed out after {self.settings.correction_timeout_seconds:.1f}s; "
                 "using deterministic result"
             )
+            self.correction_status.error = reason
         except CorrectionError as exc:
-            self.correction_status.error = f"{exc}; using deterministic result"
-        return corrected
+            reason = f"{exc}; using deterministic result"
+            self.correction_status.error = reason
+
+        return deterministic, CorrectionProvenance(
+            method="fallback",
+            provider=provider,
+            model=model,
+            deterministic_changed=deterministic_changed,
+            llm_attempted=True,
+            llm_applied=False,
+            changed=deterministic_changed,
+            fallback_reason=reason,
+        )
 
     async def _process_stable(self, event: TranscriptEvent) -> None:
         assert self.request is not None
         version = event.version + 1
-        corrected_text = await self._correct(event.text)
+        corrected_text, provenance = await self._correct(event.text)
         corrected = self._next_event(
             event,
             version=version,
             stage=CaptionStage.CORRECTED,
             text=corrected_text,
+            correction=provenance,
         )
         await self.publish(corrected)
 
@@ -211,6 +252,7 @@ class CaptionPipeline:
         stage: CaptionStage,
         text: str,
         translations: dict[str, str] | None = None,
+        correction: CorrectionProvenance | None = None,
         committed: bool = False,
     ) -> TranscriptEvent:
         return TranscriptEvent(
@@ -224,6 +266,7 @@ class CaptionPipeline:
             end_ms=previous.end_ms,
             speaker=previous.speaker,
             confidence=previous.confidence,
+            correction=correction if correction is not None else previous.correction,
             committed=committed,
             emitted_at=datetime.now(UTC),
         )

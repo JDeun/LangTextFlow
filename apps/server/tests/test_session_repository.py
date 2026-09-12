@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 
 from langtextflow.models import (
     CaptionStage,
+    CorrectionProvenance,
     SessionContext,
     SessionState,
     StartSessionRequest,
@@ -36,7 +37,9 @@ def _request() -> StartSessionRequest:
     )
 
 
-def test_session_history_keeps_latest_segment_version(tmp_path) -> None:
+def test_session_history_keeps_latest_segment_version_and_correction_provenance(
+    tmp_path,
+) -> None:
     repository = SessionRepository(str(tmp_path / "langtextflow.db"))
     repository.initialize()
     repository.create_session(_state(), _request())
@@ -53,6 +56,15 @@ def test_session_history_keeps_latest_segment_version(tmp_path) -> None:
             end_ms=4000,
         ),
     )
+    provenance = CorrectionProvenance(
+        method="llm",
+        provider="ollama",
+        model="qwen3.5:4b",
+        deterministic_changed=True,
+        llm_attempted=True,
+        llm_applied=True,
+        changed=True,
+    )
     repository.upsert_segment(
         "session-1",
         TranscriptEvent(
@@ -64,6 +76,7 @@ def test_session_history_keeps_latest_segment_version(tmp_path) -> None:
             translations={"en": "John chapter 3"},
             start_ms=1000,
             end_ms=4000,
+            correction=provenance,
             committed=True,
         ),
     )
@@ -86,6 +99,7 @@ def test_session_history_keeps_latest_segment_version(tmp_path) -> None:
     assert segments[0].version == 4
     assert segments[0].committed is True
     assert segments[0].translations["en"] == "John chapter 3"
+    assert segments[0].correction == provenance
 
     sessions = repository.list_sessions()
     assert sessions[0].segment_count == 1
@@ -149,15 +163,42 @@ def test_initialize_migrates_existing_sessions_table_with_history_fields(tmp_pat
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE transcript_segments (
+                session_id TEXT NOT NULL,
+                segment_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                stage TEXT NOT NULL,
+                source_language TEXT NOT NULL,
+                text TEXT NOT NULL,
+                translations_json TEXT NOT NULL,
+                start_ms INTEGER NOT NULL,
+                end_ms INTEGER,
+                speaker TEXT,
+                confidence REAL,
+                committed INTEGER NOT NULL,
+                emitted_at TEXT NOT NULL,
+                PRIMARY KEY (session_id, segment_id)
+            )
+            """
+        )
 
     repository = SessionRepository(str(database_path))
     repository.initialize()
 
     with sqlite3.connect(database_path) as connection:
-        columns = {row[1] for row in connection.execute("PRAGMA table_info(sessions)")}
-    assert "notes" in columns
-    assert "correction_provider" in columns
-    assert "correction_model" in columns
+        session_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(sessions)")
+        }
+        segment_columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(transcript_segments)")
+        }
+    assert "notes" in session_columns
+    assert "correction_provider" in session_columns
+    assert "correction_model" in session_columns
+    assert "correction_json" in segment_columns
 
 
 def test_session_end_and_delete_cascades_transcript(tmp_path) -> None:
