@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GlossaryEntry, GlossaryRecord, ProductPreset } from "./types";
 
 interface GlossaryManagerProps {
@@ -8,11 +8,27 @@ interface GlossaryManagerProps {
   disabled: boolean;
 }
 
+interface GlossaryImportResult {
+  total: number;
+  created: number;
+  updated: number;
+  skipped: number;
+}
+
+type ImportConflictPolicy = "upsert" | "skip";
+type TransferFormat = "json" | "csv";
+
 function splitAliases(value: string) {
   return value
     .split(/[,\n]/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function downloadFilename(response: Response, fallback: string) {
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
 }
 
 export function GlossaryManager({
@@ -21,14 +37,17 @@ export function GlossaryManager({
   targetLanguage,
   disabled,
 }: GlossaryManagerProps) {
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [entries, setEntries] = useState<GlossaryRecord[]>([]);
   const [term, setTerm] = useState("");
   const [aliases, setAliases] = useState("");
   const [translation, setTranslation] = useState("");
   const [category, setCategory] = useState("general");
   const [globalScope, setGlobalScope] = useState(false);
+  const [importPolicy, setImportPolicy] = useState<ImportConflictPolicy>("upsert");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   const refresh = useCallback(async () => {
     const response = await fetch(`${apiUrl}/api/v1/glossary`);
@@ -51,6 +70,7 @@ export function GlossaryManager({
     if (!term.trim()) return;
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const payload: GlossaryEntry = {
         term: term.trim(),
@@ -81,6 +101,7 @@ export function GlossaryManager({
   async function updateEntry(entry: GlossaryRecord, enabled: boolean) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const response = await fetch(`${apiUrl}/api/v1/glossary/${entry.id}`, {
         method: "PUT",
@@ -107,6 +128,7 @@ export function GlossaryManager({
   async function removeEntry(entry: GlossaryRecord) {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const response = await fetch(`${apiUrl}/api/v1/glossary/${entry.id}`, {
         method: "DELETE",
@@ -123,6 +145,7 @@ export function GlossaryManager({
   async function importChurchPreset() {
     setBusy(true);
     setError("");
+    setNotice("");
     try {
       const response = await fetch(`${apiUrl}/api/v1/glossary/presets/church`, {
         method: "POST",
@@ -131,6 +154,71 @@ export function GlossaryManager({
       await refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "교회 기본 용어를 가져오지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportGlossary(format: TransferFormat) {
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/glossary/export?format=${format}`);
+      if (!response.ok) throw new Error(await response.text());
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = downloadFilename(response, `langtextflow-glossary.${format}`);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+      setNotice(`${format.toUpperCase()} 용어집을 내보냈습니다.`);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "용어집을 내보내지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importGlossaryFile(file: File) {
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (extension !== "json" && extension !== "csv") {
+      throw new Error("JSON 또는 CSV 파일만 가져올 수 있습니다.");
+    }
+    const content = await file.text();
+    const response = await fetch(`${apiUrl}/api/v1/glossary/import`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        format: extension,
+        content,
+        conflict_policy: importPolicy,
+      }),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return (await response.json()) as GlossaryImportResult;
+  }
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file) return;
+
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await importGlossaryFile(file);
+      await refresh();
+      setNotice(
+        `가져오기 완료 · 생성 ${result.created} · 갱신 ${result.updated} · 건너뜀 ${result.skipped}`,
+      );
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "용어집을 가져오지 못했습니다.");
     } finally {
       setBusy(false);
     }
@@ -153,6 +241,55 @@ export function GlossaryManager({
             교회 기본 용어 가져오기
           </button>
         )}
+      </div>
+
+      <div className="glossary-transfer">
+        <div className="glossary-transfer-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => importInputRef.current?.click()}
+            disabled={disabled || busy}
+          >
+            JSON / CSV 가져오기
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => exportGlossary("json")}
+            disabled={busy}
+          >
+            JSON 내보내기
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => exportGlossary("csv")}
+            disabled={busy}
+          >
+            CSV 내보내기
+          </button>
+        </div>
+        <label className="glossary-transfer-policy">
+          중복 용어 처리
+          <select
+            value={importPolicy}
+            onChange={(event) => setImportPolicy(event.target.value as ImportConflictPolicy)}
+            disabled={disabled || busy}
+          >
+            <option value="upsert">기존 항목 업데이트</option>
+            <option value="skip">기존 항목 건너뛰기</option>
+          </select>
+        </label>
+        <input
+          ref={importInputRef}
+          className="glossary-file-input"
+          type="file"
+          accept=".json,.csv,application/json,text/csv"
+          onChange={handleImportFile}
+          disabled={disabled || busy}
+        />
+        <small>가져오기 전에 파일 전체를 검증합니다. 업데이트 시 기존 ID는 유지됩니다.</small>
       </div>
 
       <div className="glossary-form">
@@ -202,6 +339,7 @@ export function GlossaryManager({
       </div>
 
       {error && <div className="error-box">{error}</div>}
+      {notice && <div className="glossary-notice">{notice}</div>}
 
       <div className="glossary-list">
         {entries.length === 0 && <div className="glossary-empty">저장된 용어가 없습니다.</div>}
