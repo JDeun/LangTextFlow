@@ -48,6 +48,16 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 
 > VibeVoice 실제 모델 추론은 별도 sidecar가 필요합니다. CI는 provider protocol contract까지 검증하며 실제 GPU 모델의 품질/RTF/장시간 안정성은 별도 benchmark 단계입니다.
 
+### Realtime observability
+
+- RMS dBFS 기반 monitoring VAD / voice activity 표시
+- VAD는 PCM을 제거하지 않으며 모든 오디오를 ASR에 전달
+- ASR / correction·translation / persistence queue depth 관측
+- ASR queue high-watermark 및 audio enqueue backpressure 횟수
+- `audio end → STABLE`, `STABLE → CORRECTED`, `CORRECTED → TRANSLATED`, `STABLE → COMMITTED` 지연 계측
+- 운영자 화면에서 queue saturation과 latency를 warning/danger 단계로 표시
+- operator-only `/api/v1/metrics` endpoint
+
 ### Correction / Translation
 
 - STABLE 이후 비동기 post-processing
@@ -99,7 +109,7 @@ npm run dev
 
 운영자 PC에서는 `http://localhost:5173`을 엽니다. 세션을 시작하면 LangTextFlow가 사용할 수 있는 LAN 주소를 찾아 청중용 QR을 생성합니다. 청중은 같은 네트워크에서 QR을 스캔해 자막 페이지에 접속합니다.
 
-> 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 히스토리, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
+> 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 히스토리, telemetry, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
 
 - **Demo engine**: 실제 모델 없이 전체 caption state pipeline을 확인합니다.
 - **VibeVoice Streaming**: 로컬 VibeVoice sidecar를 실행한 뒤 마이크/오디오 인터페이스를 선택해 실제 음성을 전송합니다.
@@ -122,12 +132,13 @@ LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/VIBEVOICE.md`](docs/VIBEVOICE.md)
+- [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)
 
 ## 아직 필요한 주요 작업
 
 - faster-whisper fallback
-- VAD / latency telemetry / backpressure observability
 - 한국어·영어 현장 benchmark + 30/60/90분 soak test
+- semantic VAD/gating 필요성 benchmark
 - constrained LLM correction + provenance/confidence
 - QR join brute-force/rate-limit hardening
 - context 문서 업로드/추출
