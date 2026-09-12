@@ -36,6 +36,11 @@ class PreflightCheck(BaseModel):
 
 class SystemPreflight(BaseModel):
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    requested_engine: str
+    translation_provider: str
+    translation_model: str | None
+    ready: bool
+    blocking_checks: list[str] = Field(default_factory=list)
     platform: str
     architecture: str
     python_version: str
@@ -43,10 +48,6 @@ class SystemPreflight(BaseModel):
     memory_gb: float | None
     disk_free_gb: float | None
     checks: list[PreflightCheck]
-
-    @property
-    def ready(self) -> bool:
-        return not any(check.status in {CheckStatus.MISSING, CheckStatus.ERROR} for check in self.checks)
 
 
 def _memory_gb() -> float | None:
@@ -150,7 +151,8 @@ async def _vibevoice_check(settings: Settings) -> PreflightCheck:
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{settings.vibevoice_url.rstrip('/')}/v1/config")
             response.raise_for_status()
-            payload = response.json()
+            raw_payload = response.json()
+            payload = raw_payload if isinstance(raw_payload, dict) else {}
     except Exception as exc:
         return PreflightCheck(
             id="vibevoice",
@@ -178,7 +180,8 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
             response.raise_for_status()
-            payload = response.json()
+            raw_payload = response.json()
+            payload = raw_payload if isinstance(raw_payload, dict) else {}
     except Exception as exc:
         return [
             PreflightCheck(
@@ -197,7 +200,9 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
             ),
         ]
 
-    names = [str(item.get("name", "")) for item in payload.get("models", [])]
+    raw_models = payload.get("models", [])
+    models = raw_models if isinstance(raw_models, list) else []
+    names = [str(item.get("name", "")) for item in models if isinstance(item, dict)]
     normalized = model.casefold()
     available = any(
         name.casefold() == normalized
@@ -223,7 +228,48 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
     ]
 
 
-async def run_preflight(settings: Settings, translation_model: str | None = None) -> SystemPreflight:
+def _is_ready(check: PreflightCheck) -> bool:
+    return check.status is CheckStatus.READY
+
+
+def _blocking_checks(
+    checks: list[PreflightCheck],
+    *,
+    engine: str,
+    translation_provider: str,
+) -> list[str]:
+    indexed = {check.id: check for check in checks}
+    blocking: list[str] = []
+
+    if engine == "vibevoice" and not _is_ready(indexed["vibevoice"]):
+        blocking.append("vibevoice")
+    elif engine == "faster-whisper" and not _is_ready(indexed["faster-whisper"]):
+        blocking.append("faster-whisper")
+    elif engine == "auto" and not (
+        _is_ready(indexed["vibevoice"]) or _is_ready(indexed["faster-whisper"])
+    ):
+        blocking.extend(["vibevoice", "faster-whisper"])
+    elif engine not in {"auto", "vibevoice", "faster-whisper", "mock"}:
+        blocking.append("engine")
+
+    if translation_provider == "ollama":
+        if not _is_ready(indexed["ollama"]):
+            blocking.append("ollama")
+        if not _is_ready(indexed["translation-model"]):
+            blocking.append("translation-model")
+    elif translation_provider not in {"none", "demo"}:
+        blocking.append("translation-provider")
+
+    return list(dict.fromkeys(blocking))
+
+
+async def run_preflight(
+    settings: Settings,
+    *,
+    engine: str = "auto",
+    translation_provider: str = "ollama",
+    translation_model: str | None = None,
+) -> SystemPreflight:
     model = translation_model or settings.ollama_translation_model
     nvidia, vibevoice, ollama = await asyncio.gather(
         asyncio.to_thread(_nvidia_check),
@@ -257,7 +303,18 @@ async def run_preflight(settings: Settings, translation_model: str | None = None
                 recommendation=None if disk_free_gb >= 20 else "모델 설치 전 저장 공간을 확보하세요.",
             )
         )
+
+    blocking = _blocking_checks(
+        checks,
+        engine=engine,
+        translation_provider=translation_provider,
+    )
     return SystemPreflight(
+        requested_engine=engine,
+        translation_provider=translation_provider,
+        translation_model=model if translation_provider == "ollama" else None,
+        ready=not blocking,
+        blocking_checks=blocking,
         platform=platform.platform(),
         architecture=platform.machine() or "unknown",
         python_version=platform.python_version(),
