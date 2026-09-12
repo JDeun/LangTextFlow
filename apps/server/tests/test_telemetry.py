@@ -10,13 +10,14 @@ from langtextflow.telemetry import EnergyVad, latency_ms
 
 
 class DummyAudioEngine(AsrEngine):
-    def __init__(self, publish) -> None:
+    def __init__(self, publish, *, failure: str | None = None) -> None:
         super().__init__(publish)
         self.frames: list[bytes] = []
+        self._failure = failure
 
     @property
     def running(self) -> bool:
-        return True
+        return self._failure is None
 
     @property
     def accepts_audio(self) -> bool:
@@ -33,6 +34,10 @@ class DummyAudioEngine(AsrEngine):
     @property
     def queue_capacity(self) -> int:
         return 8
+
+    @property
+    def failure(self) -> str | None:
+        return self._failure
 
     async def start(self, request) -> None:
         del request
@@ -76,7 +81,7 @@ def test_latency_ms_never_returns_negative_values() -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_tracks_audio_activity_and_queue_depth() -> None:
+async def test_runtime_tracks_audio_activity_queue_and_provider_health() -> None:
     runtime = CaptionRuntime()
     engine = DummyAudioEngine(runtime.pipeline.ingest)
     runtime.engine = engine
@@ -97,10 +102,25 @@ async def test_runtime_tracks_audio_activity_and_queue_depth() -> None:
     assert metrics.audio_bytes_received == len(frame)
     assert metrics.audio_duration_ms == pytest.approx(100.0)
     assert metrics.voice_active is True
+    assert metrics.asr_provider == "dummy"
+    assert metrics.asr_running is True
+    assert metrics.asr_failure is None
     assert metrics.asr_queue_depth == 3
     assert metrics.asr_queue_capacity == 8
     assert metrics.asr_queue_high_watermark == 3
     assert metrics.last_audio_enqueue_wait_ms is not None
+
+
+def test_runtime_metrics_surface_provider_failure() -> None:
+    runtime = CaptionRuntime()
+    runtime.engine = DummyAudioEngine(runtime.pipeline.ingest, failure="GPU worker failed")
+    runtime.state = SessionState(running=True, engine="faster-whisper")
+
+    metrics = runtime.metrics_snapshot()
+
+    assert metrics.asr_provider == "faster-whisper"
+    assert metrics.asr_running is False
+    assert metrics.asr_failure == "GPU worker failed"
 
 
 @pytest.mark.asyncio
