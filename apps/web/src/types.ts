@@ -13,6 +13,7 @@ export interface GlossaryEntry {
   aliases: string[];
   translations: Record<string, string>;
   category: string;
+  presets: ProductPreset[];
   boost: number;
   enabled: boolean;
 }
