@@ -7,6 +7,7 @@ import {
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
 import { GlossaryManager } from "./GlossaryManager";
+import { SessionHistory } from "./SessionHistory";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
@@ -142,6 +143,7 @@ function OperatorApp() {
   const running = session?.running ?? false;
   const latest = segments.at(-1);
   const recent = useMemo(() => segments.slice(-6).reverse(), [segments]);
+  const historyRefreshToken = `${session?.session_id ?? "none"}:${running}`;
 
   function changeEngine(nextEngine: string) {
     setEngine(nextEngine);
@@ -245,7 +247,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P3A</span>
+            <span className="beta">P3B</span>
           </div>
 
           <label>
@@ -374,6 +376,9 @@ function OperatorApp() {
           )}
 
           {error && <div className="error-box">{error}</div>}
+          {session?.persistence_error && (
+            <div className="warning-box">기록 저장 경고: {session.persistence_error}</div>
+          )}
           <button
             className={running ? "stop-button" : "start-button"}
             onClick={running ? stop : start}
@@ -445,6 +450,13 @@ function OperatorApp() {
               ))}
             </div>
           </div>
+
+          <SessionHistory
+            apiUrl={API_URL}
+            targetLanguage={targetLanguage}
+            activeSessionId={running ? session?.session_id ?? null : null}
+            refreshToken={historyRefreshToken}
+          />
         </section>
       </div>
     </main>
