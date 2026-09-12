@@ -10,9 +10,10 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 
 - **Low latency, then stabilize**: 초저지연 draft를 먼저 보여주고 안정화 결과로 같은 segment를 갱신합니다.
 - **Engine-agnostic**: VibeVoice, faster-whisper 등 ASR 엔진을 provider로 교체할 수 있습니다.
-- **Domain-aware**: 성경·교회·기술 등 도메인 context/hotword/glossary를 ASR·교정·번역에서 공유합니다.
+- **Domain-aware**: context/hotword/glossary를 ASR·교정·번역에서 공유합니다.
 - **Local-first**: 가능한 처리는 로컬에서 수행하고, 클라우드 기능은 명시적으로 선택합니다.
 - **Audience-first UX**: 운영자는 복잡한 파이프라인 대신 세션, 언어, 입력 장치와 출력 화면만 다룹니다.
+- **Graceful degradation**: 번역이나 보조 provider가 실패해도 원문 자막은 계속 송출합니다.
 
 ## 현재 구현 상태
 
@@ -40,9 +41,29 @@ LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으
 - backend `/ws/audio` streaming endpoint
 - bounded provider queue / backpressure
 - Microsoft VibeVoice streaming sidecar adapter
-- session context/hotwords → VibeVoice `context_info`
+- session context/hotwords/glossary → VibeVoice `context_info`
 
-> VibeVoice 실제 모델 추론은 별도 sidecar가 필요합니다. 현재 CI는 provider protocol contract까지 검증하며 실제 GPU 모델의 품질/RTF/장시간 안정성은 별도 benchmark 단계입니다.
+> VibeVoice 실제 모델 추론은 별도 sidecar가 필요합니다. CI는 provider protocol contract까지 검증하며 실제 GPU 모델의 품질/RTF/장시간 안정성은 별도 benchmark 단계입니다.
+
+### Correction / Translation
+
+- STABLE 이후 비동기 post-processing
+- Unicode/whitespace deterministic normalization
+- Church preset의 명시적 STT alias correction
+- provider 기반 번역 계층
+- Ollama local translation provider
+- 기본 로컬 번역 모델 `translategemma:4b`
+- 번역 provider 장애 시 원문 자막 지속
+
+### Persistent glossary
+
+- SQLite 기반 용어집 CRUD
+- 용어별 alias / 번역 / category / boost / enabled 상태
+- General / Church / Conference / Lecture 적용 범위
+- 교회 기본 용어 preset import
+- 운영자 UI에서 추가·활성화·삭제
+- 세션 시작 시 현재 preset에 맞는 활성 용어를 immutable snapshot으로 주입
+- 동일 snapshot을 ASR hotword/context, correction, translation terminology에 공유
 
 ## 개발 실행
 
@@ -65,8 +86,11 @@ npm run dev
 
 브라우저에서 `http://localhost:5173`을 엽니다.
 
-- **Demo engine**: 실제 모델 없이 draft → stable → corrected → translated → committed 흐름을 확인합니다.
+- **Demo engine**: 실제 모델 없이 전체 caption state pipeline을 확인합니다.
 - **VibeVoice Streaming**: 로컬 VibeVoice sidecar를 실행한 뒤 마이크/오디오 인터페이스를 선택해 실제 음성을 전송합니다.
+- **Ollama translation**: `translategemma:4b` 등 설치된 로컬 번역 모델을 선택합니다.
+
+로컬 사용자 데이터베이스 기본 경로는 `data/langtextflow.db`이며 Git에 포함되지 않습니다.
 
 ## VibeVoice
 
@@ -89,10 +113,9 @@ LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
 - faster-whisper fallback
 - VAD / latency telemetry / backpressure observability
 - 한국어·영어 현장 benchmark + 30/60/90분 soak test
-- deterministic STT normalization
-- glossary correction + translation providers
+- constrained LLM correction + provenance/confidence
 - QR audience onboarding
-- 세션/용어집 SQLite persistence
+- 세션/transcript persistence + export
 - Tauri desktop shell, 모델/sidecar 자동 설치, hardware auto-detection
 - signed Windows/macOS installer
 
