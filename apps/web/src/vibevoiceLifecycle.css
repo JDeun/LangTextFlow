@@ -1,0 +1,150 @@
+.vibevoice-lifecycle {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #34404b;
+  border-radius: 10px;
+  background: #111820;
+}
+
+.vibevoice-lifecycle.managed,
+.vibevoice-lifecycle.external {
+  border-color: #28533b;
+  background: #101b16;
+}
+
+.vibevoice-lifecycle.starting {
+  border-color: #5d5130;
+  background: #211d11;
+}
+
+.vibevoice-lifecycle.error,
+.vibevoice-lifecycle.unconfigured {
+  border-color: #60343b;
+  background: #211517;
+}
+
+.vibevoice-lifecycle-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.vibevoice-lifecycle-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.vibevoice-lifecycle-heading small {
+  color: #72808d;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.vibevoice-lifecycle-heading strong {
+  color: #dce4eb;
+  font-size: 11px;
+}
+
+.vibevoice-lifecycle-heading > span {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #252f38;
+  color: #9cabb7;
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.vibevoice-lifecycle.managed .vibevoice-lifecycle-heading > span,
+.vibevoice-lifecycle.external .vibevoice-lifecycle-heading > span {
+  background: #173426;
+  color: #7ed69f;
+}
+
+.vibevoice-lifecycle.starting .vibevoice-lifecycle-heading > span {
+  background: #382f16;
+  color: #e0bd70;
+}
+
+.vibevoice-lifecycle.error .vibevoice-lifecycle-heading > span,
+.vibevoice-lifecycle.unconfigured .vibevoice-lifecycle-heading > span {
+  background: #3b1d23;
+  color: #f09aa4;
+}
+
+.vibevoice-lifecycle p {
+  margin: 0;
+  color: #86939e;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.vibevoice-lifecycle-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vibevoice-lifecycle-meta span {
+  padding: 3px 6px;
+  border-radius: 6px;
+  background: #182129;
+  color: #81909c;
+  font-size: 8px;
+}
+
+.vibevoice-lifecycle-error {
+  padding: 7px;
+  border: 1px solid #63343b;
+  border-radius: 7px;
+  background: #281619;
+  color: #ee9ba4;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.vibevoice-lifecycle-logs summary {
+  color: #7f8e9a;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.vibevoice-lifecycle-logs pre {
+  max-height: 130px;
+  overflow: auto;
+  margin: 7px 0 0;
+  padding: 7px;
+  border-radius: 6px;
+  background: #090d11;
+  color: #8998a3;
+  font-size: 8px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+}
+
+.vibevoice-lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.vibevoice-lifecycle-actions button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid #35434f;
+  border-radius: 7px;
+  background: #19232b;
+  color: #d7e0e7;
+  cursor: pointer;
+  font-size: 9px;
+}
+
+.vibevoice-lifecycle-actions button:disabled {
+  cursor: wait;
+  opacity: .55;
+}
