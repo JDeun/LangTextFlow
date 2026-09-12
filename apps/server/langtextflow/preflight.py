@@ -209,6 +209,11 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
         or name.casefold().removesuffix(":latest") == normalized.removesuffix(":latest")
         for name in names
     )
+    summary = (
+        f"{model} 모델이 준비되어 있습니다."
+        if available
+        else f"{model} 모델이 없습니다."
+    )
     return [
         PreflightCheck(
             id="ollama",
@@ -221,7 +226,7 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
             id="translation-model",
             label="번역 모델",
             status=CheckStatus.READY if available else CheckStatus.MISSING,
-            summary=(f"{model} 모델이 준비되어 있습니다." if available else f"{model} 모델이 없습니다."),
+            summary=summary,
             details={"model": model},
             recommendation=None if available else f"Ollama에서 {model} 모델을 내려받으세요.",
         ),
@@ -265,10 +270,9 @@ def _blocking_checks(
 
 async def run_preflight(
     settings: Settings,
-    *,
+    translation_model: str | None = None,
     engine: str = "auto",
     translation_provider: str = "ollama",
-    translation_model: str | None = None,
 ) -> SystemPreflight:
     model = translation_model or settings.ollama_translation_model
     nvidia, vibevoice, ollama = await asyncio.gather(
@@ -294,13 +298,16 @@ async def run_preflight(
             )
         )
     if disk_free_gb is not None:
+        recommendation = (
+            None if disk_free_gb >= 20 else "모델 설치 전 저장 공간을 확보하세요."
+        )
         checks.append(
             PreflightCheck(
                 id="disk",
                 label="여유 저장 공간",
                 status=CheckStatus.READY if disk_free_gb >= 20 else CheckStatus.WARNING,
                 summary=f"약 {disk_free_gb:.1f} GB 사용 가능",
-                recommendation=None if disk_free_gb >= 20 else "모델 설치 전 저장 공간을 확보하세요.",
+                recommendation=recommendation,
             )
         )
 
