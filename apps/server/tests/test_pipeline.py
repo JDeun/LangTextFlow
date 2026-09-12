@@ -87,7 +87,12 @@ async def test_stable_segment_flows_through_correction_translation_and_commit() 
         CaptionStage.COMMITTED,
     ]
     assert published[1].text == "오늘 우리가 볼 말씀은 요한복음 삼장입니다"
+    assert published[1].correction is not None
+    assert published[1].correction.method == "deterministic"
+    assert published[1].correction.deterministic_changed is True
+    assert published[1].correction.changed is True
     assert published[2].translations["en"] == "Today we will look at John chapter 3."
+    assert published[-1].correction == published[1].correction
     assert published[-1].committed is True
 
 
@@ -135,7 +140,7 @@ async def test_pipeline_fans_out_any_source_to_multiple_targets() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pipeline_applies_optional_llm_correction_after_deterministic_rules() -> None:
+async def test_pipeline_records_llm_correction_provenance() -> None:
     published: list[TranscriptEvent] = []
     committed = asyncio.Event()
 
@@ -176,12 +181,21 @@ async def test_pipeline_applies_optional_llm_correction_after_deterministic_rule
 
     corrected = next(event for event in published if event.stage is CaptionStage.CORRECTED)
     assert corrected.text == "오늘 요한복음 3장 말씀입니다."
-    assert published[-1].text == corrected.text
+    assert corrected.correction is not None
+    assert corrected.correction.method == "llm"
+    assert corrected.correction.provider == "fake"
+    assert corrected.correction.model == "fake-corrector"
+    assert corrected.correction.deterministic_changed is True
+    assert corrected.correction.llm_attempted is True
+    assert corrected.correction.llm_applied is True
+    assert corrected.correction.changed is True
+    assert corrected.correction.fallback_reason is None
+    assert published[-1].correction == corrected.correction
     assert pipeline.correction_status.error is None
 
 
 @pytest.mark.asyncio
-async def test_pipeline_degrades_to_deterministic_result_when_llm_correction_fails() -> None:
+async def test_pipeline_records_fallback_provenance_when_llm_correction_fails() -> None:
     published: list[TranscriptEvent] = []
     committed = asyncio.Event()
 
@@ -222,5 +236,13 @@ async def test_pipeline_degrades_to_deterministic_result_when_llm_correction_fai
 
     corrected = next(event for event in published if event.stage is CaptionStage.CORRECTED)
     assert corrected.text == "오늘 요한복음 3장 말씀입니다"
+    assert corrected.correction is not None
+    assert corrected.correction.method == "fallback"
+    assert corrected.correction.provider == "fake"
+    assert corrected.correction.llm_attempted is True
+    assert corrected.correction.llm_applied is False
+    assert corrected.correction.deterministic_changed is True
+    assert corrected.correction.fallback_reason is not None
+    assert "unsafe rewrite" in corrected.correction.fallback_reason
     assert pipeline.correction_status.error is not None
     assert "deterministic result" in pipeline.correction_status.error
