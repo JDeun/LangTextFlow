@@ -119,11 +119,13 @@
 ## P3C — Product UX
 
 - [ ] onboarding wizard
-- [ ] system preflight / hardware capability 진단
-- [ ] VibeVoice sidecar 자동 설치/실행/상태 진단
+- [x] system preflight / hardware capability 진단
+- [x] VibeVoice / faster-whisper / Ollama / translation model readiness 진단
+- [x] NVIDIA GPU / RAM / disk / microphone readiness UI
+- [ ] VibeVoice sidecar 자동 설치/실행
 - [ ] faster-whisper 모델 자동 다운로드/검증
-- [ ] 번역 모델 자동 설치/실행/상태 진단
-- [ ] GPU/CPU 자동 감지와 ASR model/device/compute preset
+- [ ] 번역 모델 자동 설치/실행
+- [ ] GPU/CPU 자동 감지 기반 ASR model/device/compute 추천 preset
 - [ ] 다중 target language 운영자 UX
 - [ ] 글꼴/크기/행수/자막 유지시간 설정
 - [ ] glossary import/export 및 추천 UX
