@@ -7,13 +7,17 @@ import {
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
 import { GlossaryManager } from "./GlossaryManager";
+import { OnboardingWizard } from "./OnboardingWizard";
+import { PreflightPanel } from "./PreflightPanel";
 import { SessionHistory } from "./SessionHistory";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
   ProductPreset,
+  RecommendedConfiguration,
   SessionState,
+  SystemPreflight,
   TranscriptEvent,
 } from "./types";
 
@@ -30,6 +34,8 @@ const PRESETS: Array<[ProductPreset, string]> = [
   ["conference", "컨퍼런스"],
   ["lecture", "강의"],
 ];
+
+const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 
 function displayCaption(segment: TranscriptEvent | undefined, targetLanguage: string) {
   if (!segment) return "말하기를 시작하면 자막이 이곳에 표시됩니다.";
@@ -140,6 +146,9 @@ function OperatorApp() {
   const [session, setSession] = useState<SessionState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [onboardingOpen, setOnboardingOpen] = useState(
+    () => window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "complete",
+  );
 
   const running = session?.running ?? false;
   const latest = segments.at(-1);
@@ -149,7 +158,23 @@ function OperatorApp() {
 
   function changeEngine(nextEngine: string) {
     setEngine(nextEngine);
-    setTranslationProvider(nextEngine === "mock" ? "demo" : "ollama");
+    setTranslationProvider((current) => {
+      if (nextEngine === "mock") return "demo";
+      return current === "demo" ? "ollama" : current;
+    });
+  }
+
+  function applyRecommendation(configuration: RecommendedConfiguration) {
+    if (configuration.engine) setEngine(configuration.engine);
+    setTranslationProvider(configuration.translation_provider);
+    if (configuration.translation_model) {
+      setTranslationModel(configuration.translation_model);
+    }
+  }
+
+  function completeOnboarding() {
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, "complete");
+    setOnboardingOpen(false);
   }
 
   async function refreshDevices() {
@@ -163,10 +188,31 @@ function OperatorApp() {
     }
   }
 
+  async function assertPreflightReady() {
+    const query = new URLSearchParams({
+      engine,
+      translation_provider: translationProvider,
+    });
+    if (translationProvider === "ollama" && translationModel.trim()) {
+      query.set("translation_model", translationModel.trim());
+    }
+    const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
+    if (!response.ok) return;
+    const report = (await response.json()) as SystemPreflight;
+    if (!report.ready) {
+      const labels = report.blocking_checks
+        .map((checkId) => report.checks.find((check) => check.id === checkId)?.label || checkId)
+        .join(", ");
+      throw new Error(`시작 전 준비가 필요합니다: ${labels || "시스템 사전점검을 확인하세요."}`);
+    }
+  }
+
   async function start() {
     setBusy(true);
     setError("");
     try {
+      await assertPreflightReady();
+
       let selectedDevice = deviceId;
       if (needsAudio && !selectedDevice) {
         const result = await requestAudioInputs();
@@ -235,13 +281,41 @@ function OperatorApp() {
 
   return (
     <main className="app-shell">
+      <OnboardingWizard
+        open={onboardingOpen && !running}
+        engine={engine}
+        translationProvider={translationProvider}
+        translationModel={translationModel}
+        sourceLanguage={sourceLanguage}
+        targetLanguage={targetLanguage}
+        preset={preset}
+        onEngineChange={changeEngine}
+        onTranslationProviderChange={setTranslationProvider}
+        onTranslationModelChange={setTranslationModel}
+        onSourceLanguageChange={setSourceLanguage}
+        onTargetLanguageChange={setTargetLanguage}
+        onPresetChange={setPreset}
+        onApplyRecommendation={applyRecommendation}
+        onComplete={completeOnboarding}
+        onClose={() => setOnboardingOpen(false)}
+      />
+
       <header className="topbar">
         <div>
           <div className="brand">LangTextFlow</div>
           <div className="subtitle">Local-first realtime multilingual captioning</div>
         </div>
-        <div className={`connection ${connected ? "online" : "offline"}`}>
-          <span className="dot" /> {connected ? "서버 연결됨" : "서버 연결 중"}
+        <div className="topbar-actions">
+          <button
+            className="secondary-button setup-button"
+            onClick={() => setOnboardingOpen(true)}
+            disabled={running}
+          >
+            초기 설정
+          </button>
+          <div className={`connection ${connected ? "online" : "offline"}`}>
+            <span className="dot" /> {connected ? "서버 연결됨" : "서버 연결 중"}
+          </div>
         </div>
       </header>
 
@@ -249,7 +323,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P1D</span>
+            <span className="beta">P3C</span>
           </div>
 
           <label>
@@ -468,6 +542,15 @@ function OperatorApp() {
           />
         </section>
       </div>
+
+      {!running && (
+        <PreflightPanel
+          engine={engine}
+          translationProvider={translationProvider}
+          translationModel={translationModel}
+          onApplyRecommendation={applyRecommendation}
+        />
+      )}
     </main>
   );
 }
