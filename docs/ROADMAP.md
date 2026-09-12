@@ -22,8 +22,8 @@
 - [x] OBS Browser Source용 transparent view
 - [x] 운영자 UI에서 공유 링크 제공
 - [x] QR code 렌더링 + LAN audience URL
+- [x] SQLite 세션/transcript 영속화
 - [ ] Context 문서 업로드/추출
-- [ ] SQLite 세션/transcript 영속화
 
 ## P1B — Real audio / ASR
 
@@ -78,7 +78,24 @@
 - [ ] join code rate limit / brute-force hardening
 - [ ] mDNS 기반 사람이 읽기 쉬운 local hostname
 
-## P3B — Product UX
+## P3B — Session history / export
+
+- [x] session metadata SQLite persistence
+- [x] realtime path와 분리된 sequential persistence queue
+- [x] segment latest-version upsert guard
+- [x] 세션 종료 시점 기록
+- [x] 최근 세션 history UI
+- [x] 활성 세션 삭제 방지
+- [x] SRT export
+- [x] WebVTT export
+- [x] TXT export
+- [x] JSON export
+- [x] target language export + source fallback
+- [x] persistence failure degraded mode / UI warning
+- [ ] session detail/transcript 검색 UI
+- [ ] session 제목/메모 사후 편집
+
+## P3C — Product UX
 
 - [ ] onboarding wizard
 - [ ] VibeVoice sidecar 자동 설치/실행/상태 진단
@@ -87,7 +104,6 @@
 - [ ] GPU/CPU 자동 감지와 권장 preset
 - [ ] 다중 target language 운영자 UX
 - [ ] 글꼴/크기/행수/자막 유지시간 설정
-- [ ] 세션 기록/검색/내보내기 (TXT/SRT/VTT/JSON)
 - [ ] glossary import/export 및 추천 UX
 
 ## P4 — Distribution / Reliability
