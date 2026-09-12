@@ -22,7 +22,12 @@ def untrusted_json(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
-def bounded_model_text(value: object, *, label: str, max_chars: int = MAX_MODEL_OUTPUT_CHARS) -> str:
+def bounded_model_text(
+    value: object,
+    *,
+    label: str,
+    max_chars: int = MAX_MODEL_OUTPUT_CHARS,
+) -> str:
     text = str(value or "").strip()
     if not text:
         raise ValueError(f"{label} is empty")
