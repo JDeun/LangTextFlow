@@ -121,6 +121,9 @@ export interface RealtimeMetrics {
   voice_active: boolean;
   last_audio_enqueue_wait_ms: number | null;
   audio_backpressure_events: number;
+  asr_provider: string | null;
+  asr_running: boolean;
+  asr_failure: string | null;
   asr_queue_depth: number;
   asr_queue_capacity: number;
   asr_queue_high_watermark: number;

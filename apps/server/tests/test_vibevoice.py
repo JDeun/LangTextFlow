@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from langtextflow.asr.base import AsrEngineError
 from langtextflow.asr.vibevoice import VibeVoiceStreamingAsrEngine, vibevoice_ws_url
 from langtextflow.models import CaptionStage, GlossaryEntry, SessionContext, StartSessionRequest
 
@@ -81,6 +82,36 @@ class FakeWebSocket:
         await self.incoming.put(None)
 
 
+async def _start_engine(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_ws: FakeWebSocket,
+) -> VibeVoiceStreamingAsrEngine:
+    async def publish(event) -> None:
+        del event
+
+    async def fake_connect(url: str, **kwargs: object) -> FakeWebSocket:
+        assert url == "ws://127.0.0.1:8001/v1/stream"
+        assert kwargs["max_size"] is None
+        return fake_ws
+
+    monkeypatch.setattr("langtextflow.asr.vibevoice.httpx.AsyncClient", FakeHttpClient)
+    monkeypatch.setattr("langtextflow.asr.vibevoice.websockets.connect", fake_connect)
+
+    engine = VibeVoiceStreamingAsrEngine(
+        publish,
+        base_url="http://127.0.0.1:8001",
+        queue_chunks=2,
+    )
+    await engine.start(
+        StartSessionRequest(
+            source_language="ko",
+            engine="vibevoice",
+            context=SessionContext(title="Mission Conference", hotwords=["요한복음"]),
+        )
+    )
+    return engine
+
+
 @pytest.mark.asyncio
 async def test_vibevoice_streaming_contract(monkeypatch: pytest.MonkeyPatch) -> None:
     published = []
@@ -113,6 +144,7 @@ async def test_vibevoice_streaming_contract(monkeypatch: pytest.MonkeyPatch) -> 
     await engine.start(request)
     assert engine.sample_rate == 16000
     assert engine.accepts_audio is True
+    assert engine.failure is None
 
     init_message = json.loads(str(fake_ws.sent[0]))
     assert "Mission Conference" in init_message["context_info"]
@@ -125,6 +157,30 @@ async def test_vibevoice_streaming_contract(monkeypatch: pytest.MonkeyPatch) -> 
     assert published[0].stage is CaptionStage.STABLE
     assert published[0].text == "오늘 말씀을 시작하겠습니다"
     assert published[0].source_language == "ko"
+
+    await engine.stop()
+    assert fake_ws.closed is True
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_records_unexpected_receiver_close_and_rejects_audio(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_ws = FakeWebSocket()
+    engine = await _start_engine(monkeypatch, fake_ws)
+
+    # Remote socket ends without the protocol-level `done` message.
+    await fake_ws.incoming.put(None)
+    for _ in range(20):
+        if engine.failure is not None:
+            break
+        await asyncio.sleep(0)
+
+    assert engine.running is False
+    assert engine.failure is not None
+    assert "stream closed unexpectedly" in engine.failure
+    with pytest.raises(AsrEngineError, match="stream closed unexpectedly"):
+        await engine.feed_audio(b"\x00\x00\x00\x00")
 
     await engine.stop()
     assert fake_ws.closed is True

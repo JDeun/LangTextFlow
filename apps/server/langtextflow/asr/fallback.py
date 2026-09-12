@@ -55,6 +55,10 @@ class StartupFallbackAsrEngine(AsrEngine):
     def queue_capacity(self) -> int:
         return self._active.queue_capacity if self._active is not None else 0
 
+    @property
+    def failure(self) -> str | None:
+        return self._active.failure if self._active is not None else None
+
     async def start(self, request: StartSessionRequest) -> None:
         if self._active is not None and self._active.running:
             return

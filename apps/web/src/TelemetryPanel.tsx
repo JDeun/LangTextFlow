@@ -68,19 +68,35 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
     () => (metrics ? metrics.audio_duration_ms / 1000 : 0),
     [metrics],
   );
+  const providerFailed = Boolean(metrics?.asr_failure);
+  const providerHealthy = Boolean(running && metrics?.asr_running && !providerFailed);
+  const statusLabel = providerFailed ? "FAILED" : providerHealthy ? "LIVE" : running ? "STARTING" : "IDLE";
+  const statusClass = providerFailed
+    ? "telemetry-failed"
+    : providerHealthy
+      ? "telemetry-live"
+      : "telemetry-idle";
 
   return (
     <section className="telemetry-card">
       <div className="telemetry-heading">
         <span>Realtime telemetry</span>
-        <span className={running ? "telemetry-live" : "telemetry-idle"}>
-          {running ? "LIVE" : "IDLE"}
-        </span>
+        <span className={statusClass}>{statusLabel}</span>
       </div>
 
       {error && !metrics && <div className="telemetry-empty">{error}</div>}
       {metrics && (
         <>
+          <div className={`provider-health ${providerFailed ? "failed" : providerHealthy ? "healthy" : "idle"}`}>
+            <div>
+              <span>ASR provider</span>
+              <strong>{metrics.asr_provider || "—"}</strong>
+            </div>
+            <small>
+              {metrics.asr_failure || (metrics.asr_running ? "provider healthy" : running ? "provider not running" : "session idle")}
+            </small>
+          </div>
+
           <div className="telemetry-input">
             <span className={`voice-indicator ${metrics.voice_active ? "active" : ""}`} />
             <div>
