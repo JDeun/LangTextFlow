@@ -45,6 +45,16 @@ app.add_middleware(
 )
 
 
+def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
+    saved = glossary_repository.active_for(request.context.preset)
+    merged: dict[str, GlossaryEntry] = {entry.term: entry for entry in saved}
+    for entry in request.context.glossary:
+        if entry.enabled and entry.applies_to(request.context.preset):
+            merged[entry.term] = entry
+    context = request.context.model_copy(update={"glossary": list(merged.values())})
+    return request.model_copy(update={"context": context})
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -93,7 +103,7 @@ def seed_church_glossary() -> list[GlossaryRecord]:
 @app.post("/api/v1/session/start", response_model=SessionState)
 async def start_session(request: StartSessionRequest) -> SessionState:
     try:
-        return await runtime.start(request)
+        return await runtime.start(_with_saved_glossary(request))
     except AsrEngineError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
