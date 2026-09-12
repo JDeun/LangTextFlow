@@ -43,6 +43,7 @@ class GlossaryEntry(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     translations: dict[str, str] = Field(default_factory=dict)
     category: str = Field(default="general", max_length=80)
+    presets: list[ProductPreset] = Field(default_factory=list)
     boost: float = Field(default=1.0, ge=0.0, le=20.0)
     enabled: bool = True
 
@@ -50,6 +51,20 @@ class GlossaryEntry(BaseModel):
     @classmethod
     def normalize_aliases(cls, values: list[str]) -> list[str]:
         return list(dict.fromkeys(value.strip() for value in values if value.strip()))
+
+    @field_validator("presets")
+    @classmethod
+    def normalize_presets(cls, values: list[ProductPreset]) -> list[ProductPreset]:
+        return list(dict.fromkeys(values))
+
+    def applies_to(self, preset: ProductPreset) -> bool:
+        return not self.presets or preset in self.presets
+
+
+class GlossaryRecord(GlossaryEntry):
+    id: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class SessionContext(BaseModel):

@@ -4,6 +4,7 @@ import {
   requestAudioInputs,
   type AudioInputDevice,
 } from "./audioCapture";
+import { GlossaryManager } from "./GlossaryManager";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
@@ -253,7 +254,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P2A</span>
+            <span className="beta">P2B</span>
           </div>
 
           <label>
@@ -287,8 +288,16 @@ function OperatorApp() {
           <label>
             중요 용어 / Hotwords
             <textarea rows={4} value={hotwords} onChange={(event) => setHotwords(event.target.value)} disabled={running} />
-            <small>ASR context와 교정/번역 용어집이 공유할 세션 힌트입니다.</small>
+            <small>일회성 세션 힌트입니다. 반복 사용할 용어는 아래 용어집에 저장하세요.</small>
           </label>
+
+          <GlossaryManager
+            apiUrl={API_URL}
+            preset={preset}
+            targetLanguage={targetLanguage}
+            disabled={running}
+          />
+
           <label>
             음성 인식 엔진
             <select value={engine} onChange={(event) => changeEngine(event.target.value)} disabled={running}>

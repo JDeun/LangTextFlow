@@ -45,6 +45,30 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .stage-track i { height: 4px; border-radius: 99px; background: #2b323a; }
 .stage-track i.active { background: #7da7d1; box-shadow: 0 0 8px rgba(125, 167, 209, .5); }
 
+.glossary-manager { margin: 18px 0; padding: 14px; border: 1px solid #29313a; border-radius: 14px; background: #101419; }
+.glossary-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.glossary-heading > div { display: grid; gap: 3px; }
+.glossary-heading strong { font-size: 13px; }
+.glossary-heading small { color: #6f7b87; font-size: 11px; }
+.glossary-form { display: grid; gap: 8px; margin-top: 12px; }
+.glossary-form-row { display: grid; grid-template-columns: 1.3fr .7fr; gap: 8px; }
+.glossary-form input { padding: 9px 10px; font-size: 12px; }
+.scope-toggle { display: flex; align-items: center; gap: 8px; margin: 2px 0; font-size: 11px; }
+.scope-toggle input { width: auto; }
+.glossary-add { width: 100%; }
+.glossary-list { display: grid; gap: 8px; max-height: 300px; margin-top: 12px; overflow: auto; }
+.glossary-item { display: flex; justify-content: space-between; gap: 10px; padding: 10px; border: 1px solid #252d35; border-radius: 10px; background: #0c1014; }
+.glossary-item.disabled { opacity: .48; }
+.glossary-copy { min-width: 0; display: grid; gap: 4px; }
+.glossary-copy > div { display: flex; align-items: baseline; gap: 7px; }
+.glossary-copy strong { font-size: 12px; }
+.glossary-copy span { color: #75818d; font-size: 10px; text-transform: uppercase; }
+.glossary-copy small { color: #65717d; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.glossary-actions { display: grid; align-content: start; gap: 5px; }
+.glossary-actions .secondary-button, .danger-quiet { min-width: 48px; padding: 6px 8px; font-size: 10px; }
+.danger-quiet { width: auto; margin: 0; background: transparent; color: #d58a92; border: 1px solid #4a2a30; }
+.glossary-empty { padding: 12px; color: #68737f; font-size: 11px; text-align: center; }
+
 .main-column { display: grid; gap: 18px; min-width: 0; }
 .share-panel { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; }
 .eyebrow { display: block; color: #65717d; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }

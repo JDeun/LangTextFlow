@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     environment: str = "development"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
     max_segments: int = 100
+    database_path: str = "data/langtextflow.db"
     vibevoice_url: str = "http://127.0.0.1:8001"
     audio_queue_chunks: int = 32
     max_audio_frame_bytes: int = 1024 * 1024
