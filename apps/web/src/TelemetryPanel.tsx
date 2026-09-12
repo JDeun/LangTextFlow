@@ -70,7 +70,14 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
   );
   const providerFailed = Boolean(metrics?.asr_failure);
   const providerHealthy = Boolean(running && metrics?.asr_running && !providerFailed);
-  const statusLabel = providerFailed ? "FAILED" : providerHealthy ? "LIVE" : running ? "STARTING" : "IDLE";
+  const providerRecovered = Boolean(providerHealthy && (metrics?.asr_failover_count ?? 0) > 0);
+  const statusLabel = providerFailed
+    ? "FAILED"
+    : providerHealthy
+      ? "LIVE"
+      : running
+        ? "STARTING"
+        : "IDLE";
   const statusClass = providerFailed
     ? "telemetry-failed"
     : providerHealthy
@@ -87,13 +94,24 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
       {error && !metrics && <div className="telemetry-empty">{error}</div>}
       {metrics && (
         <>
-          <div className={`provider-health ${providerFailed ? "failed" : providerHealthy ? "healthy" : "idle"}`}>
+          <div
+            className={`provider-health ${
+              providerFailed ? "failed" : providerRecovered ? "recovered" : providerHealthy ? "healthy" : "idle"
+            }`}
+          >
             <div>
               <span>ASR provider</span>
               <strong>{metrics.asr_provider || "—"}</strong>
             </div>
             <small>
-              {metrics.asr_failure || (metrics.asr_running ? "provider healthy" : running ? "provider not running" : "session idle")}
+              {metrics.asr_failure ||
+                (providerRecovered
+                  ? `recovered · ${metrics.asr_failover_count} failover · ${metrics.asr_last_failover_reason || "provider handoff"}`
+                  : metrics.asr_running
+                    ? "provider healthy"
+                    : running
+                      ? "provider not running"
+                      : "session idle")}
             </small>
           </div>
 
@@ -113,6 +131,11 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
               <span>ASR queue</span>
               <strong>{queueValue(metrics.asr_queue_depth, metrics.asr_queue_capacity)}</strong>
               <small>peak {metrics.asr_queue_high_watermark}</small>
+            </div>
+            <div className={`telemetry-metric ${metrics.asr_failover_count > 0 ? "warning" : "normal"}`}>
+              <span>ASR failovers</span>
+              <strong>{metrics.asr_failover_count}</strong>
+              <small>{metrics.asr_failover_count > 0 ? "recovered handoff" : "none"}</small>
             </div>
             <div className={`telemetry-metric ${queueLevel(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}`}>
               <span>Postprocess</span>
