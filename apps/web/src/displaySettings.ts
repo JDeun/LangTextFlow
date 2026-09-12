@@ -1,5 +1,9 @@
 import type { CSSProperties } from "react";
-import type { CaptionDisplaySettings, CaptionFontFamily } from "./types";
+import type {
+  CaptionDisplaySettings,
+  CaptionFontFamily,
+  CaptionTextAlign,
+} from "./types";
 
 export const DEFAULT_DISPLAY_SETTINGS: CaptionDisplaySettings = {
   font_family: "system",
@@ -23,7 +27,15 @@ const BASE_REM = {
   display: 4.5,
 } as const;
 
+const FONT_VALUES = new Set<CaptionFontFamily>(["system", "sans", "serif", "mono"]);
+const ALIGN_VALUES = new Set<CaptionTextAlign>(["left", "center"]);
+
 export type CaptionSurface = keyof typeof BASE_REM;
+
+function boundedNumber(value: unknown, fallback: number, min: number, max: number) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.min(max, Math.max(min, number)) : fallback;
+}
 
 export function captionTextStyle(
   settings: CaptionDisplaySettings,
@@ -52,16 +64,36 @@ export function sourceTextStyle(settings: CaptionDisplaySettings): CSSProperties
 export function loadStoredDisplaySettings(storageKey: string): CaptionDisplaySettings {
   try {
     const raw = window.localStorage.getItem(storageKey);
-    if (!raw) return DEFAULT_DISPLAY_SETTINGS;
+    if (!raw) return { ...DEFAULT_DISPLAY_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<CaptionDisplaySettings>;
+    const font = FONT_VALUES.has(parsed.font_family as CaptionFontFamily)
+      ? parsed.font_family as CaptionFontFamily
+      : DEFAULT_DISPLAY_SETTINGS.font_family;
+    const align = ALIGN_VALUES.has(parsed.text_align as CaptionTextAlign)
+      ? parsed.text_align as CaptionTextAlign
+      : DEFAULT_DISPLAY_SETTINGS.text_align;
     return {
-      ...DEFAULT_DISPLAY_SETTINGS,
-      ...parsed,
-      font_scale_percent: Math.min(180, Math.max(70, Number(parsed.font_scale_percent) || 100)),
-      max_lines: Math.min(4, Math.max(1, Number(parsed.max_lines) || 2)),
-      hold_seconds: Math.min(30, Math.max(0, Number(parsed.hold_seconds) || 0)),
+      font_family: font,
+      font_scale_percent: boundedNumber(
+        parsed.font_scale_percent,
+        DEFAULT_DISPLAY_SETTINGS.font_scale_percent,
+        70,
+        180,
+      ),
+      max_lines: boundedNumber(parsed.max_lines, DEFAULT_DISPLAY_SETTINGS.max_lines, 1, 4),
+      hold_seconds: boundedNumber(
+        parsed.hold_seconds,
+        DEFAULT_DISPLAY_SETTINGS.hold_seconds,
+        0,
+        30,
+      ),
+      show_source_when_translated:
+        typeof parsed.show_source_when_translated === "boolean"
+          ? parsed.show_source_when_translated
+          : DEFAULT_DISPLAY_SETTINGS.show_source_when_translated,
+      text_align: align,
     };
   } catch {
-    return DEFAULT_DISPLAY_SETTINGS;
+    return { ...DEFAULT_DISPLAY_SETTINGS };
   }
 }
