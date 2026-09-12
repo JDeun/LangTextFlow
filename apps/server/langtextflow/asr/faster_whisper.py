@@ -17,12 +17,7 @@ class DecodedSegment:
 
 
 class FasterWhisperStreamingAsrEngine(AsrEngine):
-    """Micro-batched streaming adapter around faster-whisper.
-
-    The browser still sends continuous mono float32 PCM. This adapter groups PCM
-    into short fixed-duration windows and runs blocking CTranslate2 inference in
-    a worker thread so the FastAPI event loop remains responsive.
-    """
+    """Micro-batched streaming adapter around faster-whisper."""
 
     def __init__(
         self,
@@ -52,10 +47,15 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self._ended = False
         self._sequence = 0
         self._audio_cursor_ms = 0.0
+        self._failure: str | None = None
 
     @property
     def running(self) -> bool:
-        return self._worker_task is not None and not self._worker_task.done()
+        return (
+            self._worker_task is not None
+            and not self._worker_task.done()
+            and self._failure is None
+        )
 
     @property
     def accepts_audio(self) -> bool:
@@ -73,16 +73,23 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
     def queue_capacity(self) -> int:
         return self.queue_chunks
 
+    @property
+    def failure(self) -> str | None:
+        return self._failure
+
     async def start(self, request: StartSessionRequest) -> None:
         if self.running:
             return
+        self._failure = None
         self._request = request
         try:
             self._model = await asyncio.to_thread(self._load_model_sync)
-        except AsrEngineError:
+        except AsrEngineError as exc:
+            self._failure = str(exc)
             raise
         except Exception as exc:
-            raise AsrEngineError(f"faster-whisper model failed to load: {exc}") from exc
+            self._failure = f"faster-whisper model failed to load: {exc}"
+            raise AsrEngineError(self._failure) from exc
 
         self._queue = asyncio.Queue(maxsize=self.queue_chunks)
         self._ended = False
@@ -94,6 +101,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         )
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
+        if self._failure is not None:
+            raise AsrEngineError(self._failure)
         if not self.running or self._queue is None or self._ended:
             raise AsrEngineError("faster-whisper audio stream is not active")
         if not pcm_f32le or len(pcm_f32le) % 4:
@@ -103,7 +112,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         await self._queue.put(pcm_f32le)
 
     async def end_audio(self) -> None:
-        if self._queue is None or self._ended:
+        if self._queue is None or self._ended or self._failure is not None:
             return
         self._ended = True
         await self._queue.put(None)
@@ -184,20 +193,25 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         chunk_bytes = max(4, int(self.chunk_seconds * bytes_per_second))
         chunk_bytes -= chunk_bytes % 4
 
-        while True:
-            frame = await self._queue.get()
-            try:
-                if frame is None:
-                    if buffer:
-                        await self._process_chunk(bytes(buffer))
-                    return
-                buffer.extend(frame)
-                while len(buffer) >= chunk_bytes:
-                    chunk = bytes(buffer[:chunk_bytes])
-                    del buffer[:chunk_bytes]
-                    await self._process_chunk(chunk)
-            finally:
-                self._queue.task_done()
+        try:
+            while True:
+                frame = await self._queue.get()
+                try:
+                    if frame is None:
+                        if buffer:
+                            await self._process_chunk(bytes(buffer))
+                        return
+                    buffer.extend(frame)
+                    while len(buffer) >= chunk_bytes:
+                        chunk = bytes(buffer[:chunk_bytes])
+                        del buffer[:chunk_bytes]
+                        await self._process_chunk(chunk)
+                finally:
+                    self._queue.task_done()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._failure = f"faster-whisper inference worker failed: {exc}"
 
     async def _process_chunk(self, pcm_f32le: bytes) -> None:
         assert self._request is not None
