@@ -48,10 +48,11 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         self._receiver_task: asyncio.Task[None] | None = None
         self._ended = False
         self._sequence = 0
+        self._failure: str | None = None
 
     @property
     def running(self) -> bool:
-        return self._ws is not None
+        return self._ws is not None and self._failure is None
 
     @property
     def accepts_audio(self) -> bool:
@@ -69,9 +70,14 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
     def queue_capacity(self) -> int:
         return self.queue_chunks
 
+    @property
+    def failure(self) -> str | None:
+        return self._failure
+
     async def start(self, request: StartSessionRequest) -> None:
         if self.running:
             return
+        self._failure = None
         self._request = request
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
@@ -92,6 +98,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                 )
             )
         except Exception as exc:
+            self._record_failure("startup", exc)
             await self._close_socket()
             raise AsrEngineError(f"VibeVoice server is unavailable: {exc}") from exc
 
@@ -104,6 +111,8 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         )
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
+        if self._failure is not None:
+            raise AsrEngineError(self._failure)
         if not self.running or self._queue is None or self._ended:
             raise AsrEngineError("VibeVoice audio stream is not active")
         if not pcm_f32le or len(pcm_f32le) % 4:
@@ -113,7 +122,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         await self._queue.put(pcm_f32le)
 
     async def end_audio(self) -> None:
-        if self._queue is None or self._ended:
+        if self._queue is None or self._ended or self._failure is not None:
             return
         self._ended = True
         await self._queue.put(None)
@@ -136,25 +145,34 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
     async def _send_loop(self) -> None:
         assert self._queue is not None
         assert self._ws is not None
-        while True:
-            frame = await self._queue.get()
-            try:
-                if frame is None:
-                    await self._ws.send("end")
-                    return
-                await self._ws.send(frame)
-            finally:
-                self._queue.task_done()
+        try:
+            while True:
+                frame = await self._queue.get()
+                try:
+                    if frame is None:
+                        await self._ws.send("end")
+                        return
+                    await self._ws.send(frame)
+                finally:
+                    self._queue.task_done()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self._record_failure("audio sender", exc)
+            logger.exception("VibeVoice audio sender stopped unexpectedly")
+            await self._close_socket()
 
     async def _receive_loop(self) -> None:
         assert self._ws is not None
         assert self._request is not None
+        completed = False
         try:
             async for raw in self._ws:
                 message = json.loads(raw)
                 if message.get("error"):
                     raise AsrEngineError(str(message["error"]))
                 if message.get("done"):
+                    completed = True
                     return
                 text = str(message.get("text", "")).strip()
                 if not text:
@@ -174,8 +192,18 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                 )
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            self._record_failure("transcript receiver", exc)
             logger.exception("VibeVoice streaming receiver stopped unexpectedly")
+            await self._close_socket()
+        finally:
+            if not completed and not self._ended and self._failure is None:
+                self._record_failure("transcript receiver", "stream closed unexpectedly")
+                await self._close_socket()
+
+    def _record_failure(self, stage: str, error: object) -> None:
+        if self._failure is None:
+            self._failure = f"VibeVoice {stage} failed: {error}"
 
     async def _close_socket(self) -> None:
         if self._ws is not None:
