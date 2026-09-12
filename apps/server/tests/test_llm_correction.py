@@ -94,7 +94,9 @@ class FakeClient:
 
 
 @pytest.mark.asyncio
-async def test_ollama_corrector_parses_json_and_applies_guard(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ollama_corrector_parses_json_and_applies_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr("langtextflow.llm_correction.httpx.AsyncClient", FakeClient)
     corrector = OllamaConstrainedCorrector(
         base_url="http://127.0.0.1:11434",
