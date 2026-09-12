@@ -24,6 +24,8 @@ def base_checks(
     whisper_model: CheckStatus = CheckStatus.MISSING,
     ollama: CheckStatus = CheckStatus.MISSING,
     model: CheckStatus = CheckStatus.MISSING,
+    openai_compatible: CheckStatus = CheckStatus.MISSING,
+    openai_model: CheckStatus = CheckStatus.MISSING,
 ) -> list[PreflightCheck]:
     return [
         check("vibevoice", vibevoice),
@@ -31,6 +33,8 @@ def base_checks(
         check("faster-whisper-model", whisper_model),
         check("ollama", ollama),
         check("translation-model", model),
+        check("openai-compatible", openai_compatible),
+        check("openai-compatible-model", openai_model),
     ]
 
 
@@ -142,6 +146,38 @@ def test_ollama_translation_requires_service_and_model() -> None:
     assert blocking == ["translation-model"]
 
 
+def test_openai_compatible_translation_requires_service_and_model() -> None:
+    checks = base_checks(
+        vibevoice=CheckStatus.READY,
+        openai_compatible=CheckStatus.READY,
+        openai_model=CheckStatus.MISSING,
+    )
+
+    blocking = _blocking_checks(
+        checks,
+        engine="auto",
+        translation_provider="openai-compatible",
+    )
+
+    assert blocking == ["openai-compatible-model"]
+
+
+def test_openai_compatible_translation_is_ready_when_both_checks_pass() -> None:
+    checks = base_checks(
+        vibevoice=CheckStatus.READY,
+        openai_compatible=CheckStatus.READY,
+        openai_model=CheckStatus.READY,
+    )
+
+    blocking = _blocking_checks(
+        checks,
+        engine="auto",
+        translation_provider="openai-compatible",
+    )
+
+    assert blocking == []
+
+
 def test_recommendation_prefers_auto_when_both_asr_providers_are_ready() -> None:
     recommendation = _recommended_configuration(
         base_checks(
@@ -194,3 +230,18 @@ def test_recommendation_does_not_suggest_demo_when_no_real_asr_exists() -> None:
 
     assert recommendation.engine is None
     assert recommendation.translation_provider == "ollama"
+
+
+def test_recommendation_uses_openai_compatible_when_ollama_is_unavailable() -> None:
+    recommendation = _recommended_configuration(
+        base_checks(
+            vibevoice=CheckStatus.READY,
+            openai_compatible=CheckStatus.READY,
+            openai_model=CheckStatus.READY,
+        ),
+        model="translategemma:4b",
+        openai_model="local-translator",
+    )
+
+    assert recommendation.translation_provider == "openai-compatible"
+    assert recommendation.translation_model == "local-translator"
