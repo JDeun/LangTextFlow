@@ -21,6 +21,7 @@ from .models import (
     TranscriptEvent,
 )
 from .network import is_loopback_client, local_ipv4_addresses
+from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
 from .telemetry import RealtimeMetrics
@@ -40,7 +41,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.8.0",
+    version="0.9.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -93,6 +94,15 @@ async def network_info(request: Request) -> NetworkInfo:
         frontend_port=settings.frontend_port,
         backend_port=settings.backend_port,
     )
+
+
+@app.get("/api/v1/preflight", response_model=SystemPreflight)
+async def system_preflight(
+    request: Request,
+    translation_model: str | None = None,
+) -> SystemPreflight:
+    _require_operator(request)
+    return await run_preflight(settings, translation_model)
 
 
 @app.get("/api/v1/state", response_model=SessionState)
