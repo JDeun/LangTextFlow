@@ -25,3 +25,7 @@ cache/
 logs/
 data/*.db
 data/*.db-*
+
+# Local benchmark output
+benchmark-results/
+benchmarks/results/

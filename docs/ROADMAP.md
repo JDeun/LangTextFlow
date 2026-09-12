@@ -50,11 +50,14 @@
 - [x] replay 구간 timestamp/text overlap duplicate suppression
 - [x] provider health monitor + feed-path failover trigger
 - [x] failover count/reason telemetry + recovered operator state
+- [x] ASR micro-benchmark harness (RTF / realtime lag / CER / WER / queue / RSS)
+- [x] full runtime benchmark harness (ASR → correction → translation → persistence)
+- [x] realtime/max pacing + 반복 fixture 기반 30/60/90분 soak 입력
 - [ ] 실패 provider 재시도 / controlled failback 정책
 - [ ] fuzzy duplicate suppression 필요성 benchmark
 - [ ] semantic VAD/gating benchmark 및 필요 시 적용
-- [ ] 한국어·영어 실제 집회 샘플 failover benchmark
-- [ ] 30/60/90분 장시간 soak test
+- [ ] 한국어·영어 실제 집회 샘플 failover benchmark 실행
+- [ ] 실제 대상 장비에서 30/60/90분 장시간 soak test 실행
 
 ## P2A — Correction / Translation
 
@@ -116,6 +119,7 @@
 ## P3C — Product UX
 
 - [ ] onboarding wizard
+- [ ] system preflight / hardware capability 진단
 - [ ] VibeVoice sidecar 자동 설치/실행/상태 진단
 - [ ] faster-whisper 모델 자동 다운로드/검증
 - [ ] 번역 모델 자동 설치/실행/상태 진단
