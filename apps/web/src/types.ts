@@ -49,6 +49,14 @@ export interface SnapshotEvent {
   segments: TranscriptEvent[];
 }
 
+export interface TranslationStatus {
+  enabled: boolean;
+  provider: string;
+  model: string | null;
+  available: boolean;
+  error: string | null;
+}
+
 export interface SessionState {
   session_id: string | null;
   join_code: string | null;
@@ -59,6 +67,7 @@ export interface SessionState {
   context: SessionContext | null;
   audio_required: boolean;
   audio_sample_rate: number | null;
+  translation_status: TranslationStatus;
   started_at: string | null;
 }
 

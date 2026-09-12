@@ -40,17 +40,24 @@
 
 ## P2 — Correction / Translation
 
-- [ ] deterministic normalization
+- [x] STABLE 이후 순차 post-processing pipeline
+- [x] deterministic normalization / explicit alias correction
+- [x] Church preset의 보수적 STT alias rules
+- [x] translation provider abstraction
+- [x] Ollama local translation provider
+- [x] TranslateGemma 4B 기본 로컬 번역 모델 설정
+- [x] 번역 장애 시 원문 자막 지속(degraded mode)
 - [ ] glossary manager UI (성경/교회 preset 포함)
 - [ ] constrained LLM correction interface
-- [ ] local/cloud translation adapters
-- [ ] 용어집의 ASR hotword + correction + translation 동시 반영
+- [ ] 추가 local/cloud translation adapters
+- [ ] 용어집의 ASR hotword + correction + translation 동시 반영 UI
 - [ ] segment별 correction provenance / confidence
 
 ## P3 — Product UX
 
 - [ ] onboarding wizard
 - [ ] VibeVoice sidecar 자동 설치/실행/상태 진단
+- [ ] 번역 모델 자동 설치/실행/상태 진단
 - [ ] 모델 자동 다운로드/검증
 - [ ] GPU/CPU 자동 감지와 권장 preset
 - [ ] QR audience page + 다중 target language UX

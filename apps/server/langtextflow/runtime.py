@@ -12,6 +12,7 @@ from .models import (
     StartSessionRequest,
     TranscriptEvent,
 )
+from .pipeline import CaptionPipeline
 from .store import CaptionStore
 
 _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -23,18 +24,19 @@ class CaptionRuntime:
         self.store = CaptionStore(max_segments=self.settings.max_segments)
         self.hub = WebSocketHub()
         self.state = SessionState()
+        self.pipeline = CaptionPipeline(self._publish, self.settings)
         self.engine: AsrEngine | None = None
 
-    async def publish(self, event: TranscriptEvent) -> None:
+    async def _publish(self, event: TranscriptEvent) -> None:
         self.store.apply(event)
         await self.hub.broadcast(event)
 
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
         if request.engine == "mock":
-            return MockStreamingAsrEngine(self.publish)
+            return MockStreamingAsrEngine(self.pipeline.ingest)
         if request.engine == "vibevoice":
             return VibeVoiceStreamingAsrEngine(
-                self.publish,
+                self.pipeline.ingest,
                 base_url=self.settings.vibevoice_url,
                 queue_chunks=self.settings.audio_queue_chunks,
                 max_frame_bytes=self.settings.max_audio_frame_bytes,
@@ -49,8 +51,13 @@ class CaptionRuntime:
         if self.state.running:
             await self.stop()
         self.store.clear()
+        await self.pipeline.start(request)
         engine = self._build_engine(request)
-        await engine.start(request)
+        try:
+            await engine.start(request)
+        except Exception:
+            await self.pipeline.stop()
+            raise
         self.engine = engine
         self.state = SessionState(
             session_id=str(uuid4()),
@@ -62,6 +69,7 @@ class CaptionRuntime:
             context=request.context,
             audio_required=engine.accepts_audio,
             audio_sample_rate=engine.sample_rate,
+            translation_status=self.pipeline.status,
             started_at=datetime.now(UTC),
         )
         return self.state
@@ -70,6 +78,7 @@ class CaptionRuntime:
         if self.engine is not None:
             await self.engine.stop()
             self.engine = None
+        await self.pipeline.stop()
         self.state.running = False
         return self.state
 

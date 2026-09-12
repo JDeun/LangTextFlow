@@ -128,6 +128,8 @@ function OperatorApp() {
   const [preset, setPreset] = useState<ProductPreset>("church");
   const [hotwords, setHotwords] = useState("요한복음, 로마서, 복음, 은혜, 칭의, 성화");
   const [engine, setEngine] = useState("mock");
+  const [translationProvider, setTranslationProvider] = useState("demo");
+  const [translationModel, setTranslationModel] = useState("translategemma:4b");
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [deviceId, setDeviceId] = useState("");
   const [session, setSession] = useState<SessionState | null>(null);
@@ -144,6 +146,11 @@ function OperatorApp() {
   const obsUrl = session?.join_code
     ? `${window.location.origin}/display/${session.join_code}?mode=obs&lang=${targetLanguage}`
     : "";
+
+  function changeEngine(nextEngine: string) {
+    setEngine(nextEngine);
+    setTranslationProvider(nextEngine === "mock" ? "demo" : "ollama");
+  }
 
   async function refreshDevices() {
     setError("");
@@ -176,6 +183,8 @@ function OperatorApp() {
           source_language: sourceLanguage,
           target_languages: [targetLanguage],
           engine,
+          translation_provider: translationProvider,
+          translation_model: translationProvider === "ollama" ? translationModel : null,
           context: {
             title,
             presenter: presenter || null,
@@ -244,7 +253,7 @@ function OperatorApp() {
         <aside className="control-panel panel">
           <div className="section-heading">
             <span>세션 설정</span>
-            <span className="beta">P1B</span>
+            <span className="beta">P2A</span>
           </div>
 
           <label>
@@ -278,15 +287,30 @@ function OperatorApp() {
           <label>
             중요 용어 / Hotwords
             <textarea rows={4} value={hotwords} onChange={(event) => setHotwords(event.target.value)} disabled={running} />
-            <small>VibeVoice context와 이후 교정/번역 용어집에 공통으로 사용합니다.</small>
+            <small>ASR context와 교정/번역 용어집이 공유할 세션 힌트입니다.</small>
           </label>
           <label>
             음성 인식 엔진
-            <select value={engine} onChange={(event) => setEngine(event.target.value)} disabled={running}>
+            <select value={engine} onChange={(event) => changeEngine(event.target.value)} disabled={running}>
               <option value="mock">Demo engine</option>
               <option value="vibevoice">VibeVoice Streaming (local sidecar)</option>
             </select>
           </label>
+          <label>
+            번역 엔진
+            <select value={translationProvider} onChange={(event) => setTranslationProvider(event.target.value)} disabled={running}>
+              {engine === "mock" && <option value="demo">Demo translator</option>}
+              <option value="ollama">Ollama (local)</option>
+              <option value="none">번역 사용 안 함</option>
+            </select>
+          </label>
+          {translationProvider === "ollama" && (
+            <label>
+              Ollama 번역 모델
+              <input value={translationModel} onChange={(event) => setTranslationModel(event.target.value)} disabled={running} />
+              <small>권장 시작점: translategemma:4b</small>
+            </label>
+          )}
 
           {engine === "vibevoice" && (
             <div className="device-block">
@@ -317,6 +341,12 @@ function OperatorApp() {
               ))}
             </div>
             {session?.audio_sample_rate && <small>{session.engine} · {session.audio_sample_rate} Hz</small>}
+            {session?.translation_status.enabled && (
+              <small>
+                번역: {session.translation_status.provider} / {session.translation_status.model || "default"}
+                {session.translation_status.available ? " · ready" : ` · unavailable: ${session.translation_status.error || "unknown"}`}
+              </small>
+            )}
           </div>
         </aside>
 

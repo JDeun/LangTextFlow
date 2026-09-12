@@ -103,10 +103,20 @@ class TranscriptEvent(BaseModel):
         return self
 
 
+class TranslationStatus(BaseModel):
+    enabled: bool = False
+    provider: str = "none"
+    model: str | None = None
+    available: bool = False
+    error: str | None = None
+
+
 class StartSessionRequest(BaseModel):
     source_language: str = Field(default="ko", min_length=2, max_length=16)
     target_languages: list[str] = Field(default_factory=lambda: ["en"], min_length=1)
     engine: str = "mock"
+    translation_provider: str = "none"
+    translation_model: str | None = None
     context: SessionContext = Field(default_factory=SessionContext)
 
     @field_validator("target_languages")
@@ -128,6 +138,7 @@ class SessionState(BaseModel):
     context: SessionContext | None = None
     audio_required: bool = False
     audio_sample_rate: int | None = None
+    translation_status: TranslationStatus = Field(default_factory=TranslationStatus)
     started_at: datetime | None = None
 
 
