@@ -33,6 +33,7 @@ class SessionRepository:
                     session_id TEXT PRIMARY KEY,
                     join_code TEXT NOT NULL,
                     title TEXT NOT NULL,
+                    notes TEXT NOT NULL DEFAULT '',
                     presenter TEXT,
                     preset TEXT NOT NULL,
                     source_language TEXT NOT NULL,
@@ -46,6 +47,14 @@ class SessionRepository:
                 )
                 """
             )
+            session_columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "notes" not in session_columns:
+                connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN notes TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS transcript_segments (
@@ -112,6 +121,14 @@ class SessionRepository:
                 "UPDATE sessions SET engine = ? WHERE session_id = ?",
                 (engine, session_id),
             )
+
+    def update_metadata(self, session_id: str, *, title: str, notes: str) -> bool:
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE sessions SET title = ?, notes = ? WHERE session_id = ?",
+                (title, notes, session_id),
+            )
+        return cursor.rowcount > 0
 
     def mark_ended(self, session_id: str, ended_at: datetime | None = None) -> None:
         timestamp = (ended_at or datetime.now(UTC)).isoformat()
@@ -231,6 +248,7 @@ class SessionRepository:
             session_id=str(row["session_id"]),
             join_code=str(row["join_code"]),
             title=str(row["title"]),
+            notes=str(row["notes"]),
             presenter=str(row["presenter"]) if row["presenter"] is not None else None,
             preset=ProductPreset(str(row["preset"])),
             source_language=str(row["source_language"]),
