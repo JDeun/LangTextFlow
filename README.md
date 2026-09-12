@@ -1,124 +1,174 @@
-# LangTextFlow
+<h1 align="center">LangTextFlow</h1>
 
-> Real-time multilingual captions with streaming ASR, transcript stabilization, domain-aware correction, and translation.
+<p align="center">
+  <strong>말하는 순간 자막이 되고, 안정화되고, 필요한 언어로 전달됩니다.</strong><br>
+  Local-first realtime multilingual captions for talks, worship services, conferences, and classrooms.
+</p>
 
-LangTextFlow는 강연·집회·컨퍼런스 환경에서 음성을 실시간으로 전사하고, 안정화·교정·번역한 뒤 웹/프로젝터/OBS에 자막으로 전달하는 **local-first, self-hostable 실시간 자막 플랫폼**을 목표로 합니다.
+<p align="center">
+  <a href="https://github.com/JDeun/LangTextFlow/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/JDeun/LangTextFlow/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/JDeun/LangTextFlow/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/JDeun/LangTextFlow/actions/workflows/codeql.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3.11%2B-informational.svg">
+  <img alt="Node" src="https://img.shields.io/badge/Node.js-22-informational.svg">
+</p>
 
-첫 번째 vertical preset은 교회/선교 집회지만, 핵심 엔진은 일반 강연·컨퍼런스·교육 환경에서도 사용할 수 있도록 설계합니다.
+> [!IMPORTANT]
+> **현재 배포 상태:** 핵심 실시간 자막 파이프라인과 웹 UI, 로컬 provider 연동, 보안/복구 경계, benchmark harness는 구현되어 있습니다. 다만 일반 사용자를 위한 signed Windows/macOS 설치 프로그램과 실제 대상 장비의 장시간 field acceptance는 아직 완료 전입니다. 현재는 **source-first alpha**로 간주하십시오.
 
-## 제품 원칙
+> [!NOTE]
+> LangTextFlow는 가능한 처리를 로컬에서 수행합니다. Operator 제어 API와 오디오 WebSocket은 loopback-only이며, LAN에는 join code 기반 audience read-only 경로만 노출합니다. 클라우드/OpenAI-compatible provider는 명시적으로 선택할 때만 사용합니다.
 
-- **Low latency, then stabilize**: 초저지연 draft를 먼저 보여주고 안정화 결과로 같은 segment를 갱신합니다.
-- **Engine-agnostic**: VibeVoice, faster-whisper 등 ASR 엔진을 provider로 교체할 수 있습니다.
-- **Domain-aware**: context/hotword/glossary를 ASR·교정·번역에서 공유합니다.
-- **Local-first**: 가능한 처리는 로컬에서 수행하고, 클라우드 기능은 명시적으로 선택합니다.
-- **Audience-first UX**: 운영자는 복잡한 파이프라인 대신 세션, 언어, 입력 장치와 출력 화면만 다룹니다.
-- **Graceful degradation**: 번역이나 기록 provider가 실패해도 라이브 원문 자막은 계속 송출합니다.
+LangTextFlow는 음성을 단순히 한 번 전사하는 도구가 아니라, **낮은 지연의 임시 자막을 먼저 표시하고 같은 segment를 안정화·교정·번역·commit하는 실시간 자막 플랫폼**을 목표로 합니다. 첫 vertical preset은 교회/선교 집회이지만, General / Conference / Lecture preset을 포함해 일반 강연과 교육 환경에서도 사용할 수 있도록 설계합니다.
 
-## 현재 구현 상태
+## 한눈에 보기
 
-### Realtime core
+| 영역 | 현재 경로 | 핵심 특성 |
+|---|---|---|
+| Audio | Browser AudioWorklet → `/ws/audio` | mono float32 PCM, bounded queue/backpressure |
+| Primary ASR | Microsoft VibeVoice streaming sidecar | context/hotword 전달, streaming transcript |
+| Fallback ASR | faster-whisper | local micro-batch, prompt/hotword/language 지원 |
+| Failover | `Auto`: VibeVoice → faster-whisper | replay ring buffer, timestamp rebase, duplicate suppression |
+| Correction | deterministic + optional constrained LLM | provenance 보존, unsafe change fallback |
+| Translation | Ollama / OpenAI-compatible | 다중 target language fan-out, degraded mode |
+| Context | hotwords / glossary / TXT·MD·PDF·DOCX | bounded extraction, session snapshot |
+| Delivery | Operator / Audience / Projector / OBS | WebSocket patch, QR/LAN join |
+| Persistence | SQLite | session history, latest-version guard, export |
+| Export | SRT / WebVTT / TXT / JSON | target language 선택 + source fallback |
 
-- FastAPI + WebSocket 실시간 이벤트 서버
-- `PARTIAL → STABLE → CORRECTED → TRANSLATED → COMMITTED` 상태 모델
-- `segment_id + version` 기반 자막 patch
-- ASR provider abstraction
-- Mock streaming engine
+## 처리 구조
 
-### Product / delivery
+```mermaid
+flowchart LR
+    A[Microphone / Audio Interface] --> B[AudioWorklet]
+    B --> C[Bounded Audio WebSocket]
+    C --> D{ASR Router}
+    D -->|Primary| E[VibeVoice Streaming]
+    D -->|Fallback| F[faster-whisper]
+    E --> G[Transcript Stabilizer]
+    F --> G
+    G --> H[Deterministic / LLM Correction]
+    H --> I[Translation Fan-out]
+    I --> J[Caption State]
+    J --> K[Operator]
+    J --> L[Audience]
+    J --> M[Projector]
+    J --> N[OBS]
+    J --> O[(SQLite History)]
+```
 
-- Session Context + hotwords/glossary 도메인
-- General / Church / Conference / Lecture preset
-- 공개 audience join code
-- Audience web view
-- Projector full-screen view
-- OBS Browser Source용 transparent view
-- 같은 LAN의 청중을 위한 QR join UX
-- Wi-Fi/Ethernet/Tailscale 계열 로컬 주소 후보 탐색
-- audience endpoint는 LAN에서 접근 가능하고 operator control API는 loopback-only
+자막 lifecycle은 다음 상태를 중심으로 동작합니다.
 
-### Real audio / ASR fallback
+```text
+PARTIAL → STABLE → CORRECTED → TRANSLATED → COMMITTED
+```
 
-- 브라우저 마이크/오디오 인터페이스 선택
-- AudioWorklet 기반 mono float32 PCM capture
-- backend `/ws/audio` streaming endpoint
-- bounded provider queue / backpressure
-- Microsoft VibeVoice streaming sidecar adapter
-- session context/hotwords/glossary → VibeVoice `context_info`
-- faster-whisper local micro-batch adapter
-- faster-whisper에 source language / initial prompt / hotwords 전달
-- `Auto` 모드 시작 시 VibeVoice 우선, 시작 실패 시 faster-whisper 사용
-- `Auto` 모드 세션 도중 VibeVoice fatal failure 감지 시 faster-whisper로 one-way handoff
-- 최근 PCM ring buffer replay + provider-local timestamp를 session global timeline으로 rebase
-- replay 구간의 완전 중복 timestamp event 제거 + exact suffix/prefix text overlap 제거
-- 실제 active ASR provider를 session state/history에 반영
-- failover count/reason을 telemetry와 운영자 UI에 유지
+각 segment는 `segment_id + version`으로 갱신되므로 낮은 지연의 draft를 먼저 보여주면서 같은 자막을 점진적으로 안정화할 수 있습니다.
 
-> Mid-session failover는 현재 `Auto`에서 **VibeVoice → faster-whisper 한 방향**으로 동작합니다. 실패 provider 자동 재시도/failback은 중복 자막과 provider oscillation 위험 때문에 아직 적용하지 않습니다.
+## 핵심 기능
 
-### Realtime observability
+### 실시간 ASR과 장애 복구
 
-- RMS dBFS 기반 monitoring VAD / voice activity 표시
-- VAD는 PCM을 제거하지 않으며 모든 오디오를 ASR에 전달
-- ASR / correction·translation / persistence queue depth 관측
-- ASR queue high-watermark 및 audio enqueue backpressure 횟수
-- ASR provider `LIVE / STARTING / FAILED / IDLE` health 표시
-- 성공적으로 복구된 provider handoff 횟수와 직전 failover 원인 표시
-- `audio end → STABLE`, `STABLE → CORRECTED`, `CORRECTED → TRANSLATED`, `STABLE → COMMITTED` 지연 계측
-- 운영자 화면에서 queue saturation과 latency를 warning/danger 단계로 표시
-- operator-only `/api/v1/metrics` endpoint
+- VibeVoice streaming sidecar와 faster-whisper local adapter
+- `Auto` 시작 시 VibeVoice 우선, 시작 실패 시 faster-whisper fallback
+- 세션 도중 VibeVoice fatal failure 시 faster-whisper로 one-way handoff
+- 최근 PCM replay ring buffer와 provider-local timestamp의 session timeline rebase
+- replay 구간 timestamp/text overlap duplicate suppression
+- ASR queue/backpressure, provider health, failover count/reason telemetry
+- RMS dBFS 기반 voice activity monitoring — audio를 삭제하는 gating이 아니라 관측용
 
-### Correction / Translation
+의도적으로 자동 failback은 하지 않습니다. 실패한 provider가 반복 복귀하면 duplicate caption과 provider oscillation을 만들 수 있기 때문입니다. 자세한 내용은 [Failover 설계](docs/FAILOVER.md)를 참조하십시오.
 
-- STABLE 이후 비동기 post-processing
+### 교정·번역·도메인 context
+
 - Unicode/whitespace deterministic normalization
-- Church preset의 명시적 STT alias correction
-- provider 기반 번역 계층
-- Ollama local translation provider
-- 기본 로컬 번역 모델 `translategemma:4b`
-- 번역 provider 장애 시 원문 자막 지속
+- Church preset의 보수적 STT alias correction
+- constrained LLM correction + provenance
+- Ollama local translation 및 OpenAI-compatible `/v1` provider
+- 하나의 source에서 복수 target language로 fan-out
+- 번역 provider 장애 시에도 원문 자막 지속
+- persistent glossary: alias / 번역 / category / boost / preset scope
+- JSON/CSV glossary import/export
+- TXT / Markdown / PDF / DOCX reference document extraction
+- session 시작 시 glossary/context를 immutable snapshot으로 고정해 ASR·교정·번역에 공유
 
-### Persistent glossary
+### 운영자·청중 UX
 
-- SQLite 기반 용어집 CRUD
-- 용어별 alias / 번역 / category / boost / enabled 상태
-- General / Church / Conference / Lecture 적용 범위
-- 교회 기본 용어 preset import
-- 운영자 UI에서 추가·활성화·삭제
-- 세션 시작 시 현재 preset에 맞는 활성 용어를 immutable snapshot으로 주입
-- 동일 snapshot을 ASR hotword/context, correction, translation terminology에 공유
+- first-run onboarding wizard
+- system preflight: OS/CPU/RAM/disk/NVIDIA/Apple Silicon/microphone/provider readiness
+- 선택한 ASR/번역 구성 기준 blocking preflight
+- Ollama model pull/status/cancel
+- faster-whisper model cache prefetch
+- 준비된 VibeVoice sidecar start/status/stop lifecycle
+- source + 복수 target language 선택
+- Audience / Projector / OBS별 표시 언어 선택
+- Display Profile: font, size, max lines, hold time, source 병기, 정렬
+- QR 기반 LAN audience join
 
-### Session history / export
+### 세션 기록과 export
 
-- 세션 메타데이터와 최신 transcript segment를 SQLite에 영속화
-- 라이브 WebSocket 송출과 DB 저장을 별도 persistence queue로 분리
-- 오래된 segment version이 최종 committed 자막을 덮어쓰지 못하도록 DB upsert guard 적용
-- 운영자 UI에서 최근 세션 기록, segment 수, 엔진 정보를 확인
-- SRT / WebVTT / TXT / JSON 내보내기
-- 번역 언어가 존재하면 해당 번역문을 자막 파일로 export하고, 없으면 원문으로 fallback
-- 활성 세션 삭제 방지 및 기록 저장 장애를 UI에 별도 표시
+SQLite를 세션 기록의 canonical store로 사용합니다. 라이브 WebSocket 송출과 persistence는 분리되어 있어 DB 쓰기 실패가 실시간 원문 자막 자체를 멈추지 않도록 설계합니다.
 
-### Benchmark / reliability harness
+- 최근 session history
+- 제목/메모 사후 편집
+- original Session Context 보존
+- latest segment version upsert guard
+- SRT / WebVTT / TXT / JSON export
+- target language export와 source fallback
 
-- ASR 단독 micro-benchmark: realtime lag, RTF, CER/WER, queue, RSS, failover/duplicate 후보
-- full runtime benchmark: ASR → correction → translation → persistence 전체 지연/queue 측정
+## 보안·안정화 원칙
+
+LangTextFlow는 happy-path 테스트 통과만으로 release-ready라고 간주하지 않습니다.
+
+현재 자동 gate는 다음을 포함합니다.
+
+- malformed/oversized float32 PCM, NaN/Inf 및 비정상 amplitude 방어
+- VibeVoice inbound message/transcript size 제한
+- slow/broken WebSocket client 격리, send timeout, connection cap
+- server-push-only caption socket과 strict audio control message
+- browser WebSocket Origin 검증
+- audience join-code rate limiting / brute-force hardening
+- DOCX ZIP bomb, oversized archive/XML, DTD/entity, unsafe XML parser 방어
+- bounded Pydantic schema cardinality/length
+- LLM system policy와 transcript/reference/glossary 데이터 경계 분리
+- model response size 제한
+- SQLite disk-full failure injection 및 degraded-mode 회귀 검증
+- repository hygiene scan
+- `pip check`, `pip-audit`, `npm audit`, Bandit, Ruff, coverage gate
+- CodeQL Python + JavaScript/TypeScript
+- Dependabot
+
+상세 공격 표면과 trust boundary는 [Security Model](docs/SECURITY_MODEL.md), 공개 취약점 제보 정책은 [SECURITY.md](SECURITY.md), release acceptance는 [Release Checklist](docs/RELEASE_CHECKLIST.md)를 참조하십시오.
+
+## Benchmark와 품질 검증
+
+ASR 단일 성능뿐 아니라 **전체 realtime path가 실제 시간보다 뒤처지는지**, provider failure에서 자막이 얼마나 회복되는지, correction이 원문을 해치지 않는지를 별도로 측정합니다.
+
+- ASR micro-benchmark: RTF, realtime lag, CER/WER, queue, RSS, failover/duplicate 후보
+- full runtime benchmark: ASR → correction → translation → persistence
+- translation benchmark: success, latency, terminology metrics
+- correction quality gate: harmful/wrong/missed change, critical-token/numeric safety
 - `realtime` / `max` pacing
-- 동일 WAV fixture 반복을 통한 30/60/90분 soak 입력
-- 실제 사용자 DB를 오염시키지 않는 임시 benchmark DB
+- 동일 WAV 반복을 통한 30/60/90분 soak 입력 harness
 
-## 개발 실행
+> [!WARNING]
+> Benchmark **harness 구현**과 실제 release acceptance 결과는 구분합니다. 실제 한국어·영어 집회 음원과 대상 Windows/macOS 장비에서의 30/60/90분 soak 및 field baseline은 아직 수행해야 합니다.
+
+자세한 protocol은 [Benchmark](docs/BENCHMARK.md), [Translation Benchmark](docs/TRANSLATION_BENCHMARK.md), [Correction Quality](docs/CORRECTION_QUALITY.md)를 참조하십시오.
+
+## 시작하기
 
 ### Backend
 
-기본 개발 의존성만 설치할 경우:
+Python 3.11+ 환경에서 개발 의존성을 설치합니다.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e '.[dev]'
 ```
 
-`Auto` / `faster-whisper` 엔진까지 실행하려면 선택 의존성을 함께 설치합니다.
+`Auto` / `faster-whisper`까지 실행하려면:
 
 ```bash
 pip install -e '.[dev,whisper]'
@@ -132,83 +182,77 @@ uvicorn langtextflow.main:app --app-dir apps/server --reload --host 0.0.0.0 --po
 
 ### Frontend
 
+Node.js 22 계열을 권장합니다.
+
 ```bash
 cd apps/web
-npm install
+npm ci
 npm run dev
 ```
 
-운영자 PC에서는 `http://localhost:5173`을 엽니다. 세션을 시작하면 LangTextFlow가 사용할 수 있는 LAN 주소를 찾아 청중용 QR을 생성합니다. 청중은 같은 네트워크에서 QR을 스캔해 자막 페이지에 접속합니다.
+운영자 화면은 로컬 PC에서 `http://localhost:5173`으로 엽니다.
 
-> 운영자 화면은 반드시 로컬 PC에서 `localhost`로 사용하세요. 세션 제어, 용어집, 히스토리, telemetry, 오디오 입력 WebSocket은 loopback client만 허용하고, join code 기반 audience read-only endpoint만 LAN에서 열립니다.
+> [!CAUTION]
+> Operator 화면을 LAN 주소로 직접 운영하지 마십시오. 세션 제어, 용어집, history, telemetry, setup, audio input은 loopback client만 허용하는 것이 보안 계약입니다. LAN에는 audience read-only 경로만 노출합니다.
 
-- **Auto**: VibeVoice를 우선 사용하고 시작/실행 failure 시 faster-whisper로 전환합니다.
-- **VibeVoice Streaming**: 로컬 VibeVoice sidecar만 사용합니다.
-- **faster-whisper**: 로컬 micro-batch Whisper adapter만 사용합니다.
-- **Demo engine**: 실제 모델 없이 전체 caption state pipeline을 확인합니다.
-- **Ollama translation**: `translategemma:4b` 등 설치된 로컬 번역 모델을 선택합니다.
+### Provider 준비
 
-로컬 사용자 데이터베이스 기본 경로는 `data/langtextflow.db`이며 Git에 포함되지 않습니다.
+- **Auto** — VibeVoice를 우선 사용하고 failure 시 faster-whisper로 전환
+- **VibeVoice Streaming** — 로컬 VibeVoice sidecar
+- **faster-whisper** — 로컬 micro-batch adapter
+- **Demo** — 실제 ASR 모델 없이 caption state pipeline 확인
+- **Ollama translation** — 기본 로컬 번역 모델 설정은 `translategemma:4b`
+- **OpenAI-compatible** — LM Studio / vLLM / compatible cloud endpoint
 
-## Benchmark
+세부 설치/설정은 [VibeVoice](docs/VIBEVOICE.md), [faster-whisper](docs/FASTER_WHISPER.md), [Model Setup](docs/MODEL_SETUP.md), [Preflight](docs/PREFLIGHT.md)를 참조하십시오.
 
-메모리 측정과 faster-whisper benchmark를 포함하려면:
+로컬 사용자 DB 기본 경로는 `data/langtextflow.db`이며 Git에 포함되지 않습니다.
 
-```bash
-pip install -e '.[dev,whisper,benchmark]'
+## 프로젝트 구조
+
+```text
+LangTextFlow/
+├─ apps/
+│  ├─ server/               # FastAPI, realtime runtime, ASR/translation, SQLite
+│  └─ web/                  # React/Vite operator + audience/projector/OBS UI
+├─ benchmarks/              # correction/translation policy & sample fixtures
+├─ docs/                    # architecture, provider, security, benchmark docs
+├─ scripts/                 # repository/security policy gates
+├─ .github/workflows/       # CI + CodeQL
+├─ SECURITY.md
+└─ LICENSE
 ```
-
-ASR provider만 비교:
-
-```bash
-langtextflow-benchmark fixture.wav --engine auto --pace realtime
-```
-
-실제 correction/translation/persistence까지 포함한 전체 runtime 비교:
-
-```bash
-langtextflow-runtime-benchmark fixture.wav \
-  --engine auto \
-  --source-language ko \
-  --target-language en \
-  --translation-provider ollama \
-  --preset church \
-  --pace realtime
-```
-
-장시간 검증은 `--duration-minutes 30`, `60`, `90`으로 동일 fixture를 반복합니다. 실제 field 결과는 장비와 녹음 샘플이 필요하므로 harness 구현과 별도로 검증합니다.
-
-## VibeVoice
-
-기본 sidecar 주소는 `http://127.0.0.1:8001`입니다.
-
-```env
-LANGTEXTFLOW_VIBEVOICE_URL=http://127.0.0.1:8001
-```
-
-설치 및 실행 방법은 [`docs/VIBEVOICE.md`](docs/VIBEVOICE.md)를 참고하세요.
 
 ## 문서
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/ROADMAP.md`](docs/ROADMAP.md)
-- [`docs/VIBEVOICE.md`](docs/VIBEVOICE.md)
-- [`docs/FASTER_WHISPER.md`](docs/FASTER_WHISPER.md)
-- [`docs/OBSERVABILITY.md`](docs/OBSERVABILITY.md)
-- [`docs/FAILOVER.md`](docs/FAILOVER.md)
-- [`docs/BENCHMARK.md`](docs/BENCHMARK.md)
+전체 문서 인덱스는 **[docs/README.md](docs/README.md)**에서 목적별로 정리합니다.
 
-## 아직 필요한 주요 작업
+빠르게 볼 문서:
 
-- 실제 한국어·영어 현장 failover benchmark + 대상 장비 30/60/90분 soak test
-- 실패 provider retry/failback 정책 검증
-- semantic VAD/gating 필요성 benchmark
-- constrained LLM correction + provenance/confidence
-- QR join brute-force/rate-limit hardening
-- context 문서 업로드/추출
-- onboarding/system preflight, 모델/sidecar 자동 설치, hardware auto-detection
-- Tauri desktop shell + signed Windows/macOS installer
+- [Architecture](docs/ARCHITECTURE.md)
+- [Roadmap](docs/ROADMAP.md)
+- [Onboarding](docs/ONBOARDING.md)
+- [Preflight](docs/PREFLIGHT.md)
+- [Failover](docs/FAILOVER.md)
+- [Observability](docs/OBSERVABILITY.md)
+- [Security Model](docs/SECURITY_MODEL.md)
+- [Release Checklist](docs/RELEASE_CHECKLIST.md)
+
+## 현재 남은 핵심 과제
+
+코드가 구현됐다는 것과 일반 사용자용 상용 배포가 완료됐다는 것은 구분합니다. 현재 큰 미완료 축은 다음과 같습니다.
+
+1. 실제 한국어·영어 집회 음원에서 ASR/failover/translation/correction baseline 확정
+2. 대상 장비에서 30/60/90분 soak 및 memory/latency acceptance
+3. VibeVoice runtime/model, faster-whisper runtime, Ollama app까지 포함하는 app-managed installation lifecycle
+4. Tauri 또는 동등한 desktop shell과 signed Windows/macOS installer
+5. crash diagnostics, update channel, offline-first model cache
+6. desktop/e2e/load/accessibility/i18n acceptance
+
+세부 진행 상태는 [Roadmap](docs/ROADMAP.md)에 체크박스로 유지합니다.
 
 ## 라이선스
 
-첫 공개 릴리스 전에 라이선스 정책을 확정할 예정입니다. 외부 GPL 프로젝트의 코드는 포함하지 않으며, CaptionFlow 등은 아키텍처 reference로만 사용합니다.
+LangTextFlow 자체 코드는 **Apache License 2.0**으로 배포합니다. 자세한 내용은 [LICENSE](LICENSE)를 참조하십시오.
+
+외부 모델·runtime·데이터셋의 라이선스는 각각 별도로 적용됩니다. CaptionFlow 등 GPL 프로젝트는 아키텍처 reference로만 사용하며, 해당 프로젝트의 코드를 LangTextFlow에 복사해 포함하는 것을 전제로 하지 않습니다.
