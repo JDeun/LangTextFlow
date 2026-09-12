@@ -11,6 +11,8 @@ class Settings(BaseSettings):
     vibevoice_url: str = "http://127.0.0.1:8001"
     audio_queue_chunks: int = 32
     max_audio_frame_bytes: int = 1024 * 1024
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_translation_model: str = "translategemma:4b"
 
     model_config = SettingsConfigDict(
         env_prefix="LANGTEXTFLOW_",
