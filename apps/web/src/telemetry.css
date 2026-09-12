@@ -77,6 +77,19 @@
   color: #82d9a4;
 }
 
+.provider-health.recovered {
+  border-color: #5b492d;
+  background: #19150f;
+}
+
+.provider-health.recovered strong {
+  color: #edc17d;
+}
+
+.provider-health.recovered small {
+  color: #b89a6f;
+}
+
 .provider-health.failed {
   border-color: #62313a;
   background: #211317;
