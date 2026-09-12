@@ -8,7 +8,14 @@ from langtextflow.models import StartSessionRequest
 
 
 class FakeEngine(AsrEngine):
-    def __init__(self, publish, *, fail: bool = False, queue_depth: int = 0) -> None:
+    def __init__(
+        self,
+        publish,
+        *,
+        fail: bool = False,
+        queue_depth: int = 0,
+        failure: str | None = None,
+    ) -> None:
         super().__init__(publish)
         self.fail = fail
         self.started = False
@@ -16,10 +23,11 @@ class FakeEngine(AsrEngine):
         self.frames: list[bytes] = []
         self.ended = False
         self._queue_depth = queue_depth
+        self._failure = failure
 
     @property
     def running(self) -> bool:
-        return self.started and not self.stopped
+        return self.started and not self.stopped and self._failure is None
 
     @property
     def accepts_audio(self) -> bool:
@@ -36,6 +44,10 @@ class FakeEngine(AsrEngine):
     @property
     def queue_capacity(self) -> int:
         return 8
+
+    @property
+    def failure(self) -> str | None:
+        return self._failure
 
     async def start(self, request: StartSessionRequest) -> None:
         del request
@@ -69,6 +81,7 @@ async def test_startup_fallback_uses_second_provider_after_first_failure() -> No
     await engine.start(StartSessionRequest(engine="auto"))
     assert engine.active_provider == "fallback"
     assert engine.running is True
+    assert engine.failure is None
     assert engine.queue_depth == 3
     assert engine.queue_capacity == 8
     assert primary.stopped is True
@@ -76,6 +89,10 @@ async def test_startup_fallback_uses_second_provider_after_first_failure() -> No
     frame = b"\x00\x00\x00\x00"
     await engine.feed_audio(frame)
     assert fallback.frames == [frame]
+
+    fallback._failure = "provider disconnected"
+    assert engine.running is False
+    assert engine.failure == "provider disconnected"
 
     await engine.end_audio()
     assert fallback.ended is True
