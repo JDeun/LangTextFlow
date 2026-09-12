@@ -17,6 +17,12 @@ export interface GlossaryEntry {
   enabled: boolean;
 }
 
+export interface GlossaryRecord extends GlossaryEntry {
+  id: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SessionContext {
   title: string;
   presenter: string | null;

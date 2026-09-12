@@ -23,3 +23,5 @@ dist/
 models/
 cache/
 logs/
+data/*.db
+data/*.db-*

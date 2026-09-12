@@ -52,6 +52,12 @@ class GlossaryEntry(BaseModel):
         return list(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
+class GlossaryRecord(GlossaryEntry):
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+
 class SessionContext(BaseModel):
     title: str = Field(default="Untitled session", min_length=1, max_length=120)
     presenter: str | None = Field(default=None, max_length=120)

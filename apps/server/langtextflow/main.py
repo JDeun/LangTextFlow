@@ -1,32 +1,38 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .asr import AsrEngineError
 from .config import get_settings
+from .glossary_repository import GlossaryRepository
 from .models import (
     AudienceSessionView,
     AudioStreamInfo,
+    GlossaryEntry,
+    GlossaryRecord,
     SessionState,
     StartSessionRequest,
     TranscriptEvent,
 )
+from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
 
 settings = get_settings()
 runtime = CaptionRuntime()
+glossary_repository = GlossaryRepository(settings.database_path)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    glossary_repository.initialize()
     yield
     await runtime.stop()
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.4.0",
+    version="0.5.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -52,6 +58,36 @@ async def get_state() -> SessionState:
 @app.get("/api/v1/captions", response_model=list[TranscriptEvent])
 async def get_captions() -> list[TranscriptEvent]:
     return runtime.store.snapshot()
+
+
+@app.get("/api/v1/glossary", response_model=list[GlossaryRecord])
+def list_glossary() -> list[GlossaryRecord]:
+    return glossary_repository.list()
+
+
+@app.post("/api/v1/glossary", response_model=GlossaryRecord, status_code=201)
+def create_glossary(entry: GlossaryEntry) -> GlossaryRecord:
+    return glossary_repository.create(entry)
+
+
+@app.put("/api/v1/glossary/{record_id}", response_model=GlossaryRecord)
+def update_glossary(record_id: str, entry: GlossaryEntry) -> GlossaryRecord:
+    record = glossary_repository.update(record_id, entry)
+    if record is None:
+        raise HTTPException(status_code=404, detail="glossary entry not found")
+    return record
+
+
+@app.delete("/api/v1/glossary/{record_id}", status_code=204)
+def delete_glossary(record_id: str) -> Response:
+    if not glossary_repository.delete(record_id):
+        raise HTTPException(status_code=404, detail="glossary entry not found")
+    return Response(status_code=204)
+
+
+@app.post("/api/v1/glossary/presets/church", response_model=list[GlossaryRecord])
+def seed_church_glossary() -> list[GlossaryRecord]:
+    return glossary_repository.seed(CHURCH_GLOSSARY)
 
 
 @app.post("/api/v1/session/start", response_model=SessionState)
