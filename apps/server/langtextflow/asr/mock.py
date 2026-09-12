@@ -6,7 +6,6 @@ from contextlib import suppress
 from langtextflow.asr.base import AsrEngine, PublishEvent
 from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
 
-
 SAMPLES = [
     (
         "오늘 우리가 볼 말씀은 요한 보금 삼장입니다",
