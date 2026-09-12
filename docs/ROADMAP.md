@@ -76,8 +76,11 @@
 - [x] segment별 correction provenance + SQLite/JSON export 보존
 - [x] provider별 번역 품질/latency benchmark harness + JSONL fixture protocol
 - [x] success/latency/CER/WER/terminology metrics + 환경/fixture digest 기록
+- [x] correction 품질 benchmark harness (change detection / harmful / missed / wrong change / critical token / numeric safety)
+- [x] report 기반 correction quality gate evaluator + 초기 release-candidate policy
+- [x] human-reviewed corpus / holdout / confidence calibration protocol 정의
 - [ ] 실제 대상 장비/모델에서 번역 benchmark 실행 및 baseline 확정
-- [ ] correction confidence calibration / 품질 기준 정의
+- [ ] 실제 human-reviewed field corpus로 correction baseline 실행 및 calibrated confidence artifact fit
 
 ## P2B — Glossary persistence
 
