@@ -1,4 +1,4 @@
-from .models import GlossaryEntry
+from .models import GlossaryEntry, ProductPreset
 
 CHURCH_GLOSSARY: list[GlossaryEntry] = [
     GlossaryEntry(
@@ -6,6 +6,7 @@ CHURCH_GLOSSARY: list[GlossaryEntry] = [
         aliases=["요한 보금", "요한 복음"],
         translations={"en": "Gospel of John"},
         category="bible-book",
+        presets=[ProductPreset.CHURCH],
         boost=2.0,
     ),
     GlossaryEntry(
@@ -13,6 +14,7 @@ CHURCH_GLOSSARY: list[GlossaryEntry] = [
         aliases=["로마 써"],
         translations={"en": "Romans"},
         category="bible-book",
+        presets=[ProductPreset.CHURCH],
         boost=2.0,
     ),
     GlossaryEntry(
@@ -20,6 +22,7 @@ CHURCH_GLOSSARY: list[GlossaryEntry] = [
         aliases=["성녕", "성영"],
         translations={"en": "Holy Spirit"},
         category="theology",
+        presets=[ProductPreset.CHURCH],
         boost=1.5,
     ),
     GlossaryEntry(
@@ -27,12 +30,14 @@ CHURCH_GLOSSARY: list[GlossaryEntry] = [
         aliases=["칭이", "칭위"],
         translations={"en": "justification"},
         category="theology",
+        presets=[ProductPreset.CHURCH],
         boost=1.5,
     ),
     GlossaryEntry(
         term="성화",
         translations={"en": "sanctification"},
         category="theology",
+        presets=[ProductPreset.CHURCH],
         boost=1.5,
     ),
     GlossaryEntry(
@@ -40,6 +45,7 @@ CHURCH_GLOSSARY: list[GlossaryEntry] = [
         aliases=["속재", "속제"],
         translations={"en": "atonement"},
         category="theology",
+        presets=[ProductPreset.CHURCH],
         boost=1.5,
     ),
     GlossaryEntry(
@@ -47,12 +53,14 @@ CHURCH_GLOSSARY: list[GlossaryEntry] = [
         aliases=["십자 가"],
         translations={"en": "cross"},
         category="theology",
+        presets=[ProductPreset.CHURCH],
         boost=1.5,
     ),
     GlossaryEntry(
         term="복음",
         translations={"en": "gospel"},
         category="theology",
+        presets=[ProductPreset.CHURCH],
         boost=1.5,
     ),
 ]
