@@ -1,16 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { API_URL } from "./api";
+import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { ModelSetupControl } from "./ModelSetupControl";
+import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import type { ProductPreset, RecommendedConfiguration, SystemPreflight } from "./types";
 import { VibeVoiceLifecycleControl } from "./VibeVoiceLifecycleControl";
 import "./onboarding.css";
-
-const LANGUAGES = [
-  ["ko", "한국어"],
-  ["en", "English"],
-  ["ja", "日本語"],
-  ["zh", "中文"],
-] as const;
 
 const PRESETS: Array<[ProductPreset, string]> = [
   ["general", "일반"],
@@ -25,13 +20,13 @@ interface OnboardingWizardProps {
   translationProvider: string;
   translationModel: string;
   sourceLanguage: string;
-  targetLanguage: string;
+  targetLanguages: string[];
   preset: ProductPreset;
   onEngineChange: (value: string) => void;
   onTranslationProviderChange: (value: string) => void;
   onTranslationModelChange: (value: string) => void;
   onSourceLanguageChange: (value: string) => void;
-  onTargetLanguageChange: (value: string) => void;
+  onTargetLanguagesChange: (value: string[]) => void;
   onPresetChange: (value: ProductPreset) => void;
   onApplyRecommendation: (configuration: RecommendedConfiguration) => void;
   onComplete: () => void;
@@ -46,13 +41,13 @@ export function OnboardingWizard({
   translationProvider,
   translationModel,
   sourceLanguage,
-  targetLanguage,
+  targetLanguages,
   preset,
   onEngineChange,
   onTranslationProviderChange,
   onTranslationModelChange,
   onSourceLanguageChange,
-  onTargetLanguageChange,
+  onTargetLanguagesChange,
   onPresetChange,
   onApplyRecommendation,
   onComplete,
@@ -308,13 +303,7 @@ export function OnboardingWizard({
                 <label>
                   입력 언어
                   <select value={sourceLanguage} onChange={(event) => onSourceLanguageChange(event.target.value)}>
-                    {LANGUAGES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
-                  </select>
-                </label>
-                <label>
-                  자막 언어
-                  <select value={targetLanguage} onChange={(event) => onTargetLanguageChange(event.target.value)}>
-                    {LANGUAGES.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
+                    {LANGUAGE_OPTIONS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
                   </select>
                 </label>
                 <label>
@@ -353,6 +342,14 @@ export function OnboardingWizard({
                   </label>
                 )}
               </div>
+              <div className="onboarding-target-languages">
+                <TargetLanguageSelector
+                  value={targetLanguages}
+                  sourceLanguage={sourceLanguage}
+                  onChange={onTargetLanguagesChange}
+                  compact
+                />
+              </div>
             </div>
           )}
 
@@ -367,7 +364,10 @@ export function OnboardingWizard({
               <dl>
                 <div><dt>음성 인식</dt><dd>{engine}</dd></div>
                 <div><dt>번역</dt><dd>{translationProvider}</dd></div>
-                <div><dt>언어</dt><dd>{sourceLanguage.toUpperCase()} → {targetLanguage.toUpperCase()}</dd></div>
+                <div>
+                  <dt>언어</dt>
+                  <dd>{languageLabel(sourceLanguage)} → {targetLanguages.map(languageLabel).join(", ")}</dd>
+                </div>
               </dl>
             </div>
           )}
