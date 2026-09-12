@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from langtextflow.preflight import CheckStatus, PreflightCheck, _blocking_checks
+from langtextflow.preflight import (
+    CheckStatus,
+    PreflightCheck,
+    _blocking_checks,
+    _recommended_configuration,
+)
 
 
 def check(check_id: str, status: CheckStatus) -> PreflightCheck:
@@ -100,3 +105,40 @@ def test_ollama_translation_requires_service_and_model() -> None:
     )
 
     assert blocking == ["translation-model"]
+
+
+def test_recommendation_prefers_auto_when_both_asr_providers_are_ready() -> None:
+    recommendation = _recommended_configuration(
+        base_checks(
+            vibevoice=CheckStatus.READY,
+            faster_whisper=CheckStatus.READY,
+            ollama=CheckStatus.READY,
+            model=CheckStatus.READY,
+        ),
+        model="translategemma:4b",
+    )
+
+    assert recommendation.engine == "auto"
+    assert recommendation.translation_provider == "ollama"
+    assert recommendation.translation_model == "translategemma:4b"
+
+
+def test_recommendation_uses_whisper_without_vibevoice() -> None:
+    recommendation = _recommended_configuration(
+        base_checks(faster_whisper=CheckStatus.READY),
+        model="translategemma:4b",
+    )
+
+    assert recommendation.engine == "faster-whisper"
+    assert recommendation.translation_provider == "none"
+    assert recommendation.translation_model is None
+
+
+def test_recommendation_does_not_suggest_demo_when_no_real_asr_exists() -> None:
+    recommendation = _recommended_configuration(
+        base_checks(ollama=CheckStatus.READY, model=CheckStatus.READY),
+        model="translategemma:4b",
+    )
+
+    assert recommendation.engine is None
+    assert recommendation.translation_provider == "ollama"

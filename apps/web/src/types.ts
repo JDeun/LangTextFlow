@@ -123,6 +123,13 @@ export interface PreflightCheck {
   recommendation: string | null;
 }
 
+export interface RecommendedConfiguration {
+  engine: string | null;
+  translation_provider: string;
+  translation_model: string | null;
+  reasons: string[];
+}
+
 export interface SystemPreflight {
   generated_at: string;
   requested_engine: string;
@@ -137,6 +144,7 @@ export interface SystemPreflight {
   memory_gb: number | null;
   disk_free_gb: number | null;
   checks: PreflightCheck[];
+  recommended: RecommendedConfiguration;
 }
 
 export interface RealtimeMetrics {

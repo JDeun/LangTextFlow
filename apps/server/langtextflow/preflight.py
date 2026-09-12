@@ -34,6 +34,13 @@ class PreflightCheck(BaseModel):
     recommendation: str | None = None
 
 
+class RecommendedConfiguration(BaseModel):
+    engine: str | None
+    translation_provider: str
+    translation_model: str | None = None
+    reasons: list[str] = Field(default_factory=list)
+
+
 class SystemPreflight(BaseModel):
     generated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     requested_engine: str
@@ -48,9 +55,41 @@ class SystemPreflight(BaseModel):
     memory_gb: float | None
     disk_free_gb: float | None
     checks: list[PreflightCheck]
+    recommended: RecommendedConfiguration
+
+
+def _windows_memory_gb() -> float | None:
+    if platform.system() != "Windows":
+        return None
+    try:
+        import ctypes
+
+        class MemoryStatusEx(ctypes.Structure):
+            _fields_ = [
+                ("dwLength", ctypes.c_ulong),
+                ("dwMemoryLoad", ctypes.c_ulong),
+                ("ullTotalPhys", ctypes.c_ulonglong),
+                ("ullAvailPhys", ctypes.c_ulonglong),
+                ("ullTotalPageFile", ctypes.c_ulonglong),
+                ("ullAvailPageFile", ctypes.c_ulonglong),
+                ("ullTotalVirtual", ctypes.c_ulonglong),
+                ("ullAvailVirtual", ctypes.c_ulonglong),
+                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+            ]
+
+        status = MemoryStatusEx()
+        status.dwLength = ctypes.sizeof(status)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return None
+        return round(status.ullTotalPhys / (1024**3), 1)
+    except (AttributeError, OSError, ValueError):
+        return None
 
 
 def _memory_gb() -> float | None:
+    windows_value = _windows_memory_gb()
+    if windows_value is not None:
+        return windows_value
     try:
         page_size = os.sysconf("SC_PAGE_SIZE")
         pages = os.sysconf("SC_PHYS_PAGES")
@@ -70,15 +109,44 @@ def _disk_free_gb(database_path: str) -> float | None:
         return None
 
 
-def _nvidia_check() -> PreflightCheck:
+def _nvidia_smi_path() -> str | None:
     executable = shutil.which("nvidia-smi")
+    if executable is not None:
+        return executable
+    if platform.system() != "Windows":
+        return None
+    candidates = [
+        Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
+        Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
+        / "NVIDIA Corporation"
+        / "NVSMI"
+        / "nvidia-smi.exe",
+    ]
+    return next((str(candidate) for candidate in candidates if candidate.is_file()), None)
+
+
+def _nvidia_check() -> PreflightCheck:
+    executable = _nvidia_smi_path()
     if executable is None:
+        apple_silicon = platform.system() == "Darwin" and platform.machine().lower() in {
+            "arm64",
+            "aarch64",
+        }
         return PreflightCheck(
             id="nvidia",
-            label="NVIDIA GPU",
+            label="GPU",
             status=CheckStatus.INFO,
-            summary="NVIDIA GPU를 확인하지 못했습니다.",
-            recommendation="Apple Silicon 또는 CPU 실행도 가능하며, NVIDIA 가속은 선택 사항입니다.",
+            summary=(
+                "Apple Silicon unified GPU 환경입니다."
+                if apple_silicon
+                else "NVIDIA GPU를 확인하지 못했습니다."
+            ),
+            recommendation=(
+                "실제 모델 benchmark 결과를 기준으로 로컬 provider를 선택하세요."
+                if apple_silicon
+                else "CPU 또는 다른 가속기 실행도 가능하며 NVIDIA는 필수 조건이 아닙니다."
+            ),
+            details={"apple_silicon": apple_silicon},
         )
     try:
         result = subprocess.run(
@@ -123,7 +191,7 @@ def _nvidia_check() -> PreflightCheck:
             if devices
             else "nvidia-smi는 있지만 GPU 정보를 읽지 못했습니다."
         ),
-        details={"devices": devices},
+        details={"devices": devices, "executable": executable},
     )
 
 
@@ -268,6 +336,54 @@ def _blocking_checks(
     return list(dict.fromkeys(blocking))
 
 
+def _recommended_configuration(
+    checks: list[PreflightCheck],
+    *,
+    model: str,
+) -> RecommendedConfiguration:
+    indexed = {check.id: check for check in checks}
+    vibevoice_ready = _is_ready(indexed["vibevoice"])
+    whisper_ready = _is_ready(indexed["faster-whisper"])
+    reasons: list[str] = []
+
+    if vibevoice_ready and whisper_ready:
+        engine: str | None = "auto"
+        reasons.append(
+            "VibeVoice와 faster-whisper가 모두 준비되어 있어 "
+            "Auto 복구 경로를 사용할 수 있습니다."
+        )
+    elif vibevoice_ready:
+        engine = "vibevoice"
+        reasons.append("VibeVoice가 준비되어 있고 faster-whisper fallback은 사용할 수 없습니다.")
+    elif whisper_ready:
+        engine = "faster-whisper"
+        reasons.append("VibeVoice가 준비되지 않아 사용 가능한 로컬 faster-whisper를 권장합니다.")
+    else:
+        engine = None
+        reasons.append(
+            "사용 가능한 실제 ASR provider가 없습니다. "
+            "설치 또는 sidecar 실행이 필요합니다."
+        )
+
+    ollama_ready = _is_ready(indexed["ollama"])
+    translation_model_ready = _is_ready(indexed["translation-model"])
+    if ollama_ready and translation_model_ready:
+        translation_provider = "ollama"
+        translation_model: str | None = model
+        reasons.append(f"Ollama와 {model}이 준비되어 있어 로컬 번역을 사용할 수 있습니다.")
+    else:
+        translation_provider = "none"
+        translation_model = None
+        reasons.append("로컬 번역 환경이 완전하지 않아 원문 자막 우선 구성을 권장합니다.")
+
+    return RecommendedConfiguration(
+        engine=engine,
+        translation_provider=translation_provider,
+        translation_model=translation_model,
+        reasons=reasons,
+    )
+
+
 async def run_preflight(
     settings: Settings,
     translation_model: str | None = None,
@@ -329,4 +445,5 @@ async def run_preflight(
         memory_gb=memory_gb,
         disk_free_gb=disk_free_gb,
         checks=checks,
+        recommended=_recommended_configuration(checks, model=model),
     )

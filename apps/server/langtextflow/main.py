@@ -41,7 +41,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.9.0",
+    version="0.10.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -99,10 +99,17 @@ async def network_info(request: Request) -> NetworkInfo:
 @app.get("/api/v1/preflight", response_model=SystemPreflight)
 async def system_preflight(
     request: Request,
+    engine: str = "auto",
+    translation_provider: str = "ollama",
     translation_model: str | None = None,
 ) -> SystemPreflight:
     _require_operator(request)
-    return await run_preflight(settings, translation_model)
+    return await run_preflight(
+        settings,
+        translation_model,
+        engine=engine,
+        translation_provider=translation_provider,
+    )
 
 
 @app.get("/api/v1/state", response_model=SessionState)

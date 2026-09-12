@@ -88,6 +88,53 @@
   font-size: 9px;
 }
 
+.preflight-recommendation {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  border: 1px solid #35526a;
+  border-radius: 10px;
+  background: #101b24;
+}
+
+.preflight-recommendation > div {
+  display: grid;
+  gap: 2px;
+}
+
+.preflight-recommendation small {
+  color: #7595af;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.preflight-recommendation strong {
+  color: #b9d9ef;
+  font-size: 11px;
+}
+
+.preflight-recommendation ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding-left: 16px;
+  color: #8ca4b6;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.preflight-recommendation button {
+  min-height: 32px;
+  border: 1px solid #426783;
+  border-radius: 7px;
+  background: #183148;
+  color: #c9e7fa;
+  cursor: pointer;
+}
+
 .preflight-checks {
   display: grid;
   gap: 6px;
