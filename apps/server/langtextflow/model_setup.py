@@ -140,12 +140,19 @@ class ModelSetupManager:
                 return None
             if job.state.value in _TERMINAL_STATES:
                 return job.model_copy(deep=True)
+
+            now = datetime.now(UTC)
+            job.state = SetupJobState.CANCELLED
+            job.status = "다운로드 요청을 취소했습니다."
+            job.updated_at = now
+            job.finished_at = now
             if task is not None:
                 task.cancel()
 
         if task is not None:
             with suppress(asyncio.CancelledError):
                 await task
+        await self._release_job(job_id)
         return await self.get_job(job_id)
 
     async def shutdown(self) -> None:
