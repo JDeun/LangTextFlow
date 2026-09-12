@@ -26,7 +26,7 @@ SAMPLES = [
 
 
 class MockStreamingAsrEngine(AsrEngine):
-    """Deterministic engine used to develop UI/state semantics before GPU ASR lands."""
+    """Deterministic engine used to develop UI/state semantics without a model."""
 
     def __init__(self, publish: PublishEvent) -> None:
         super().__init__(publish)
@@ -37,11 +37,25 @@ class MockStreamingAsrEngine(AsrEngine):
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
 
+    @property
+    def accepts_audio(self) -> bool:
+        return False
+
+    @property
+    def sample_rate(self) -> int:
+        return 16000
+
     async def start(self, request: StartSessionRequest) -> None:
         if self.running:
             return
         self._request = request
         self._task = asyncio.create_task(self._run(), name="mock-streaming-asr")
+
+    async def feed_audio(self, pcm_f32le: bytes) -> None:
+        del pcm_f32le
+
+    async def end_audio(self) -> None:
+        return
 
     async def stop(self) -> None:
         if self._task is None:

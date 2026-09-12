@@ -3,8 +3,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .asr import AsrEngineError
 from .config import get_settings
-from .models import AudienceSessionView, SessionState, StartSessionRequest, TranscriptEvent
+from .models import (
+    AudienceSessionView,
+    AudioStreamInfo,
+    SessionState,
+    StartSessionRequest,
+    TranscriptEvent,
+)
 from .runtime import CaptionRuntime
 
 settings = get_settings()
@@ -19,7 +26,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.2.0",
+    version="0.3.0",
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -51,6 +58,8 @@ async def get_captions() -> list[TranscriptEvent]:
 async def start_session(request: StartSessionRequest) -> SessionState:
     try:
         return await runtime.start(request)
+    except AsrEngineError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -58,6 +67,14 @@ async def start_session(request: StartSessionRequest) -> SessionState:
 @app.post("/api/v1/session/stop", response_model=SessionState)
 async def stop_session() -> SessionState:
     return await runtime.stop()
+
+
+@app.get("/api/v1/audio/config", response_model=AudioStreamInfo)
+async def audio_config() -> AudioStreamInfo:
+    try:
+        return runtime.audio_info()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/audience/{join_code}", response_model=AudienceSessionView)
@@ -108,3 +125,34 @@ async def audience_caption_socket(websocket: WebSocket, join_code: str) -> None:
         await websocket.close(code=4404, reason="audience session not found")
         return
     await _caption_socket(websocket)
+
+
+@app.websocket("/ws/audio")
+async def audio_socket(websocket: WebSocket) -> None:
+    try:
+        info = runtime.audio_info()
+    except RuntimeError:
+        await websocket.close(code=4409, reason="no active audio session")
+        return
+    if not info.required:
+        await websocket.close(code=4400, reason="active engine does not accept audio")
+        return
+
+    await websocket.accept()
+    await websocket.send_json({"type": "audio_config", **info.model_dump(mode="json")})
+    try:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            frame = message.get("bytes")
+            text = message.get("text")
+            if frame is not None:
+                await runtime.feed_audio(frame)
+            elif text == "end":
+                await runtime.end_audio()
+                break
+    except WebSocketDisconnect:
+        pass
+    except (AsrEngineError, ValueError) as exc:
+        await websocket.close(code=1011, reason=str(exc)[:120])
