@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
+import { ModelSetupControl } from "./ModelSetupControl";
 import type {
   PreflightCheck,
   RecommendedConfiguration,
@@ -57,6 +58,10 @@ export function PreflightPanel({
     }
   }, [engine, translationModel, translationProvider]);
 
+  const handleModelCompleted = useCallback(() => {
+    void load();
+  }, [load]);
+
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
     return () => window.clearTimeout(timer);
@@ -108,6 +113,18 @@ export function PreflightPanel({
     }
     return false;
   }, [engine, report, translationModel, translationProvider]);
+
+  const ollamaReady = report?.checks.some(
+    (check) => check.id === "ollama" && check.status === "ready",
+  ) ?? false;
+  const translationModelMissing = report?.checks.some(
+    (check) => check.id === "translation-model" && check.status === "missing",
+  ) ?? false;
+  const canPrepareTranslationModel =
+    translationProvider === "ollama"
+    && Boolean(translationModel.trim())
+    && ollamaReady
+    && translationModelMissing;
 
   if (!open) {
     return (
@@ -162,6 +179,21 @@ export function PreflightPanel({
               <button onClick={() => onApplyRecommendation(report.recommended)}>
                 권장 구성 적용
               </button>
+            </div>
+          )}
+
+          {canPrepareTranslationModel && (
+            <div className="preflight-repair">
+              <div>
+                <small>자동 해결 가능</small>
+                <strong>번역 모델이 아직 없습니다.</strong>
+                <span>실행 중인 Ollama를 통해 선택한 모델을 내려받을 수 있습니다.</span>
+              </div>
+              <ModelSetupControl
+                model={translationModel}
+                enabled
+                onCompleted={handleModelCompleted}
+              />
             </div>
           )}
 
