@@ -117,7 +117,7 @@ def _nvidia_smi_path() -> str | None:
         return None
     candidates = [
         Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "nvidia-smi.exe",
-        Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
+        Path(os.environ.get("PROGRAMFILES", r"C:\Program Files"))
         / "NVIDIA Corporation"
         / "NVSMI"
         / "nvidia-smi.exe",
@@ -348,7 +348,10 @@ def _recommended_configuration(
 
     if vibevoice_ready and whisper_ready:
         engine: str | None = "auto"
-        reasons.append("VibeVoice와 faster-whisper가 모두 준비되어 있어 Auto 복구 경로를 사용할 수 있습니다.")
+        reasons.append(
+            "VibeVoice와 faster-whisper가 모두 준비되어 있어 "
+            "Auto 복구 경로를 사용할 수 있습니다."
+        )
     elif vibevoice_ready:
         engine = "vibevoice"
         reasons.append("VibeVoice가 준비되어 있고 faster-whisper fallback은 사용할 수 없습니다.")
@@ -357,7 +360,10 @@ def _recommended_configuration(
         reasons.append("VibeVoice가 준비되지 않아 사용 가능한 로컬 faster-whisper를 권장합니다.")
     else:
         engine = None
-        reasons.append("사용 가능한 실제 ASR provider가 없습니다. 설치 또는 sidecar 실행이 필요합니다.")
+        reasons.append(
+            "사용 가능한 실제 ASR provider가 없습니다. "
+            "설치 또는 sidecar 실행이 필요합니다."
+        )
 
     ollama_ready = _is_ready(indexed["ollama"])
     translation_model_ready = _is_ready(indexed["translation-model"])
