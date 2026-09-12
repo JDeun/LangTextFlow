@@ -31,6 +31,7 @@ dev = [
 
 [project.scripts]
 langtextflow-benchmark = "langtextflow.benchmark:main"
+langtextflow-runtime-benchmark = "langtextflow.runtime_benchmark:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["apps/server/langtextflow"]
