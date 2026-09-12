@@ -1,11 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
-import type { PreflightCheck, SystemPreflight } from "./types";
+import type {
+  PreflightCheck,
+  RecommendedConfiguration,
+  SystemPreflight,
+} from "./types";
 import "./preflight.css";
 
-const DEFAULT_TRANSLATION_MODEL = "translategemma:4b";
-
 type MicrophoneState = "unchecked" | "checking" | "ready" | "error";
+
+interface PreflightPanelProps {
+  engine: string;
+  translationProvider: string;
+  translationModel: string;
+  onApplyRecommendation: (configuration: RecommendedConfiguration) => void;
+}
 
 function checkSymbol(check: PreflightCheck) {
   if (check.status === "ready") return "✓";
@@ -14,7 +23,12 @@ function checkSymbol(check: PreflightCheck) {
   return "×";
 }
 
-export function PreflightPanel() {
+export function PreflightPanel({
+  engine,
+  translationProvider,
+  translationModel,
+  onApplyRecommendation,
+}: PreflightPanelProps) {
   const [open, setOpen] = useState(true);
   const [report, setReport] = useState<SystemPreflight | null>(null);
   const [loading, setLoading] = useState(false);
@@ -26,7 +40,13 @@ export function PreflightPanel() {
     setLoading(true);
     setError("");
     try {
-      const query = new URLSearchParams({ translation_model: DEFAULT_TRANSLATION_MODEL });
+      const query = new URLSearchParams({
+        engine,
+        translation_provider: translationProvider,
+      });
+      if (translationProvider === "ollama" && translationModel.trim()) {
+        query.set("translation_model", translationModel.trim());
+      }
       const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
       if (!response.ok) throw new Error(`시스템 점검 HTTP ${response.status}`);
       setReport((await response.json()) as SystemPreflight);
@@ -35,10 +55,11 @@ export function PreflightPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [engine, translationModel, translationProvider]);
 
   useEffect(() => {
-    void load();
+    const timer = window.setTimeout(() => void load(), 180);
+    return () => window.clearTimeout(timer);
   }, [load]);
 
   async function checkMicrophone() {
@@ -67,16 +88,33 @@ export function PreflightPanel() {
   }
 
   const backendReady = report?.ready ?? false;
-  const fullyReady = backendReady && microphone === "ready";
+  const microphoneRequired = engine !== "mock";
+  const fullyReady = backendReady && (!microphoneRequired || microphone === "ready");
   const headline = fullyReady
     ? "사용 준비 완료"
-    : backendReady
+    : backendReady && microphoneRequired
       ? "엔진 준비됨 · 마이크 확인 필요"
-      : "설정 확인 필요";
+      : backendReady
+        ? "현재 구성 준비 완료"
+        : "설정 확인 필요";
+
+  const recommendationDiffers = useMemo(() => {
+    const recommendation = report?.recommended;
+    if (!recommendation?.engine) return false;
+    if (recommendation.engine !== engine) return true;
+    if (recommendation.translation_provider !== translationProvider) return true;
+    if (recommendation.translation_provider === "ollama") {
+      return recommendation.translation_model !== translationModel.trim();
+    }
+    return false;
+  }, [engine, report, translationModel, translationProvider]);
 
   if (!open) {
     return (
-      <button className={`preflight-pill ${backendReady ? "ready" : "attention"}`} onClick={() => setOpen(true)}>
+      <button
+        className={`preflight-pill ${backendReady ? "ready" : "attention"}`}
+        onClick={() => setOpen(true)}
+      >
         시스템 점검 · {backendReady ? "엔진 준비" : "확인 필요"}
       </button>
     );
@@ -89,7 +127,13 @@ export function PreflightPanel() {
           <small>시작 전 점검</small>
           <strong>{headline}</strong>
         </div>
-        <button className="preflight-close" onClick={() => setOpen(false)} aria-label="점검 패널 접기">−</button>
+        <button
+          className="preflight-close"
+          onClick={() => setOpen(false)}
+          aria-label="점검 패널 접기"
+        >
+          −
+        </button>
       </div>
 
       {error && <div className="preflight-error">{error}</div>}
@@ -100,6 +144,27 @@ export function PreflightPanel() {
             {report.memory_gb !== null && <span>{report.memory_gb.toFixed(1)} GB RAM</span>}
             {report.disk_free_gb !== null && <span>{report.disk_free_gb.toFixed(1)} GB free</span>}
           </div>
+
+          {recommendationDiffers && report.recommended.engine && (
+            <div className="preflight-recommendation">
+              <div>
+                <small>현재 환경 권장 구성</small>
+                <strong>
+                  {report.recommended.engine} · {report.recommended.translation_provider}
+                  {report.recommended.translation_model
+                    ? ` / ${report.recommended.translation_model}`
+                    : ""}
+                </strong>
+              </div>
+              <ul>
+                {report.recommended.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+              </ul>
+              <button onClick={() => onApplyRecommendation(report.recommended)}>
+                권장 구성 적용
+              </button>
+            </div>
+          )}
+
           <div className="preflight-checks">
             {report.checks.map((check) => (
               <div className={`preflight-check ${check.status}`} key={check.id}>
@@ -111,13 +176,19 @@ export function PreflightPanel() {
                 </div>
               </div>
             ))}
-            <div className={`preflight-check ${microphone === "ready" ? "ready" : microphone === "error" ? "error" : "info"}`}>
-              <i>{microphone === "ready" ? "✓" : microphone === "error" ? "×" : "i"}</i>
-              <div>
-                <strong>마이크 / 오디오 입력</strong>
-                <span>{microphoneDetail}</span>
+            {microphoneRequired && (
+              <div
+                className={`preflight-check ${
+                  microphone === "ready" ? "ready" : microphone === "error" ? "error" : "info"
+                }`}
+              >
+                <i>{microphone === "ready" ? "✓" : microphone === "error" ? "×" : "i"}</i>
+                <div>
+                  <strong>마이크 / 오디오 입력</strong>
+                  <span>{microphoneDetail}</span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </>
       )}
@@ -126,9 +197,11 @@ export function PreflightPanel() {
         <button onClick={() => void load()} disabled={loading}>
           {loading ? "점검 중…" : "시스템 다시 점검"}
         </button>
-        <button onClick={checkMicrophone} disabled={microphone === "checking"}>
-          {microphone === "checking" ? "확인 중…" : "마이크 점검"}
-        </button>
+        {microphoneRequired && (
+          <button onClick={checkMicrophone} disabled={microphone === "checking"}>
+            {microphone === "checking" ? "확인 중…" : "마이크 점검"}
+          </button>
+        )}
       </div>
     </aside>
   );
