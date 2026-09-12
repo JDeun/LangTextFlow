@@ -53,7 +53,13 @@ class ConstrainedCorrector(ABC):
 class OllamaConstrainedCorrector(ConstrainedCorrector):
     provider = "ollama"
 
-    def __init__(self, *, base_url: str, model: str, request_timeout_seconds: float = 8.0) -> None:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        request_timeout_seconds: float = 8.0,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.request_timeout_seconds = request_timeout_seconds
@@ -130,10 +136,14 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
     ) -> str:
         source_name = _LANGUAGE_NAMES.get(source_language, source_language)
         lines = [
-            f"You correct streaming ASR transcripts written in {source_name} ({source_language}).",
-            "Correct only obvious speech-recognition, spacing, punctuation, and proper-noun errors.",
-            "Do not translate, summarize, paraphrase, explain, complete unfinished thoughts, or add facts.",
-            "Preserve the speaker's meaning, negation, numbers, named entities, tone, and sentence order.",
+            f"You correct streaming ASR transcripts written in "
+            f"{source_name} ({source_language}).",
+            "Correct only obvious speech-recognition, spacing, punctuation, "
+            "and proper-noun errors.",
+            "Do not translate, summarize, paraphrase, explain, complete "
+            "unfinished thoughts, or add facts.",
+            "Preserve the speaker's meaning, negation, numbers, named entities, "
+            "tone, and sentence order.",
             "If uncertain, keep the original wording.",
             'Return exactly one JSON object: {"corrected_text":"..."}.',
         ]
@@ -159,8 +169,9 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         if reference:
             lines.extend(
                 [
-                    "Reference material follows. Use it only to disambiguate terminology and names. "
-                    "Never copy facts from it unless they are present in the transcript:",
+                    "Reference material follows. Use it only to disambiguate "
+                    "terminology and names. Never copy facts from it unless "
+                    "they are present in the transcript:",
                     "--- reference ---",
                     reference,
                     "--- end reference ---",
