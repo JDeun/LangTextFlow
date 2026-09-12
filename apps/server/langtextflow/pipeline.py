@@ -5,8 +5,14 @@ from datetime import UTC, datetime
 
 from .config import Settings
 from .correction import DeterministicCorrector
+from .llm_correction import (
+    ConstrainedCorrector,
+    CorrectionError,
+    OllamaConstrainedCorrector,
+)
 from .models import (
     CaptionStage,
+    CorrectionStatus,
     StartSessionRequest,
     TranscriptEvent,
     TranslationStatus,
@@ -20,9 +26,11 @@ class CaptionPipeline:
     def __init__(self, publish, settings: Settings) -> None:
         self.publish = publish
         self.settings = settings
-        self.corrector = DeterministicCorrector()
+        self.deterministic_corrector = DeterministicCorrector()
         self.request: StartSessionRequest | None = None
+        self.llm_corrector: ConstrainedCorrector | None = None
         self.translator: Translator | None = None
+        self.correction_status = CorrectionStatus()
         self.status = TranslationStatus()
         self._queue: asyncio.Queue[TranscriptEvent | None] = asyncio.Queue(maxsize=128)
         self._worker_task: asyncio.Task[None] | None = None
@@ -39,13 +47,26 @@ class CaptionPipeline:
         await self.stop()
         self.request = request
         self._queue = asyncio.Queue(maxsize=128)
+        self.llm_corrector = self._build_corrector(request)
         self.translator = self._build_translator(request)
+        self.correction_status = CorrectionStatus(
+            enabled=self.llm_corrector is not None,
+            provider=request.correction_provider,
+            model=getattr(self.llm_corrector, "model", None),
+            available=self.llm_corrector is not None,
+        )
         self.status = TranslationStatus(
             enabled=self.translator is not None,
             provider=request.translation_provider,
             model=getattr(self.translator, "model", None),
             available=self.translator is not None,
         )
+        if self.llm_corrector is not None:
+            try:
+                await self.llm_corrector.prepare()
+            except CorrectionError as exc:
+                self.correction_status.available = False
+                self.correction_status.error = str(exc)
         if self.translator is not None:
             try:
                 await self.translator.prepare()
@@ -64,10 +85,25 @@ class CaptionPipeline:
             await self._queue.put(None)
             await self._worker_task
             self._worker_task = None
+        if self.llm_corrector is not None:
+            await self.llm_corrector.close()
         if self.translator is not None:
             await self.translator.close()
+        self.llm_corrector = None
         self.translator = None
         self.request = None
+
+    def _build_corrector(self, request: StartSessionRequest) -> ConstrainedCorrector | None:
+        provider = request.correction_provider
+        if provider == "none":
+            return None
+        if provider == "ollama":
+            return OllamaConstrainedCorrector(
+                base_url=self.settings.ollama_url,
+                model=request.correction_model or self.settings.ollama_correction_model,
+                request_timeout_seconds=max(self.settings.correction_timeout_seconds, 0.1),
+            )
+        raise ValueError(f"unsupported correction provider: {provider}")
 
     def _build_translator(self, request: StartSessionRequest) -> Translator | None:
         provider = request.translation_provider
@@ -93,10 +129,35 @@ class CaptionPipeline:
             finally:
                 self._queue.task_done()
 
+    async def _correct(self, text: str) -> str:
+        assert self.request is not None
+        corrected = self.deterministic_corrector.correct(text, self.request.context)
+        if self.llm_corrector is None or not self.correction_status.available:
+            return corrected
+
+        try:
+            corrected = await asyncio.wait_for(
+                self.llm_corrector.correct(
+                    corrected,
+                    source_language=self.request.source_language,
+                    context=self.request.context,
+                ),
+                timeout=max(self.settings.correction_timeout_seconds, 0.1),
+            )
+            self.correction_status.error = None
+        except TimeoutError:
+            self.correction_status.error = (
+                f"correction timed out after {self.settings.correction_timeout_seconds:.1f}s; "
+                "using deterministic result"
+            )
+        except CorrectionError as exc:
+            self.correction_status.error = f"{exc}; using deterministic result"
+        return corrected
+
     async def _process_stable(self, event: TranscriptEvent) -> None:
         assert self.request is not None
         version = event.version + 1
-        corrected_text = self.corrector.correct(event.text, self.request.context)
+        corrected_text = await self._correct(event.text)
         corrected = self._next_event(
             event,
             version=version,
