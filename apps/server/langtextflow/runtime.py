@@ -182,6 +182,9 @@ class CaptionRuntime:
 
     def _refresh_queue_metrics(self) -> None:
         if self.engine is not None:
+            self.metrics.asr_provider = self.state.engine
+            self.metrics.asr_running = self.engine.running
+            self.metrics.asr_failure = self.engine.failure
             self.metrics.asr_queue_depth = self.engine.queue_depth
             self.metrics.asr_queue_capacity = self.engine.queue_capacity
             self.metrics.asr_queue_high_watermark = max(
@@ -189,6 +192,9 @@ class CaptionRuntime:
                 self.engine.queue_depth,
             )
         else:
+            self.metrics.asr_provider = None
+            self.metrics.asr_running = False
+            self.metrics.asr_failure = None
             self.metrics.asr_queue_depth = 0
             self.metrics.asr_queue_capacity = 0
         self.metrics.persistence_queue_depth = self._persistence_queue.qsize()
@@ -286,12 +292,14 @@ class CaptionRuntime:
         self.metrics.voice_active = voice_active
 
         started = time.perf_counter()
-        await self.engine.feed_audio(pcm_f32le)
+        try:
+            await self.engine.feed_audio(pcm_f32le)
+        finally:
+            self._refresh_queue_metrics()
         enqueue_wait_ms = round((time.perf_counter() - started) * 1000.0, 1)
         self.metrics.last_audio_enqueue_wait_ms = enqueue_wait_ms
         if enqueue_wait_ms >= self.settings.audio_backpressure_warn_ms:
             self.metrics.audio_backpressure_events += 1
-        self._refresh_queue_metrics()
 
     async def end_audio(self) -> None:
         if self.engine is not None and self.engine.accepts_audio:
