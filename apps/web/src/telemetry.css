@@ -20,7 +20,8 @@
 }
 
 .telemetry-live,
-.telemetry-idle {
+.telemetry-idle,
+.telemetry-failed {
   padding: 3px 6px;
   border-radius: 5px;
   background: #1d252d;
@@ -31,6 +32,59 @@
 .telemetry-live {
   background: #173127;
   color: #77d59a;
+}
+
+.telemetry-failed {
+  background: #421c23;
+  color: #ff9da7;
+}
+
+.provider-health {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 9px;
+  padding: 10px;
+  border: 1px solid #29313a;
+  border-radius: 9px;
+  background: #10151a;
+}
+
+.provider-health > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.provider-health span,
+.provider-health small {
+  color: #687581;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.provider-health strong {
+  color: #dce3e9;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.provider-health.healthy {
+  border-color: #244434;
+}
+
+.provider-health.healthy strong {
+  color: #82d9a4;
+}
+
+.provider-health.failed {
+  border-color: #62313a;
+  background: #211317;
+}
+
+.provider-health.failed strong,
+.provider-health.failed small {
+  color: #f2a0a9;
 }
 
 .telemetry-input {
