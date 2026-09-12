@@ -16,6 +16,9 @@ class RealtimeMetrics(BaseModel):
     voice_active: bool = False
     last_audio_enqueue_wait_ms: float | None = None
     audio_backpressure_events: int = 0
+    asr_provider: str | None = None
+    asr_running: bool = False
+    asr_failure: str | None = None
     asr_queue_depth: int = 0
     asr_queue_capacity: int = 0
     asr_queue_high_watermark: int = 0
