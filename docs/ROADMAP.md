@@ -133,11 +133,11 @@
 - [x] 준비된 VibeVoice sidecar start/status/stop lifecycle + external ownership 보호
 - [x] 임의 source → 복수 target 운영자 UX + 원문 track 상시 제공
 - [x] audience/projector/OBS에서 원문 또는 번역 언어 선택
+- [x] 세션 Display Profile: 글꼴/크기/행수/유지시간/원문 병기/정렬 + 출력 화면 공통 적용
 - [ ] VibeVoice runtime/repository/model 자동 설치·검증
 - [ ] faster-whisper runtime package 자동 설치/복구
 - [ ] Ollama application 자체 설치/실행
 - [ ] 실제 benchmark 기반 ASR model/device/compute 추천 preset
-- [ ] 글꼴/크기/행수/자막 유지시간 설정
 - [ ] glossary import/export 및 추천 UX
 
 ## P4 — Distribution / Reliability
