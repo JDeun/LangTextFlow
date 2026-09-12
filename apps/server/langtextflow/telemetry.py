@@ -39,7 +39,11 @@ class RealtimeMetrics(BaseModel):
     last_event_at: datetime | None = None
 
 
-def decode_pcm_f32le(pcm_f32le: bytes, *, max_frame_bytes: int = MAX_PCM_FRAME_BYTES) -> array.array:
+def decode_pcm_f32le(
+    pcm_f32le: bytes,
+    *,
+    max_frame_bytes: int = MAX_PCM_FRAME_BYTES,
+) -> array.array:
     """Validate and decode one little-endian float32 PCM frame.
 
     Browser audio should stay close to [-1, 1]. A wider absolute limit allows
