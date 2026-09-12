@@ -7,6 +7,7 @@ export type CaptionStage =
 
 export type ProductPreset = "general" | "church" | "conference" | "lecture";
 export type OutputMode = "operator" | "audience" | "projector" | "obs" | "overlay";
+export type PreflightStatus = "ready" | "warning" | "missing" | "error" | "info";
 
 export interface GlossaryEntry {
   term: string;
@@ -111,6 +112,31 @@ export interface NetworkInfo {
   addresses: string[];
   frontend_port: number;
   backend_port: number;
+}
+
+export interface PreflightCheck {
+  id: string;
+  label: string;
+  status: PreflightStatus;
+  summary: string;
+  details: Record<string, unknown>;
+  recommendation: string | null;
+}
+
+export interface SystemPreflight {
+  generated_at: string;
+  requested_engine: string;
+  translation_provider: string;
+  translation_model: string | null;
+  ready: boolean;
+  blocking_checks: string[];
+  platform: string;
+  architecture: string;
+  python_version: string;
+  cpu_count: number | null;
+  memory_gb: number | null;
+  disk_free_gb: number | null;
+  checks: PreflightCheck[];
 }
 
 export interface RealtimeMetrics {
