@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { getWebSocketUrl } from "./api";
 import type { SnapshotEvent, TranscriptEvent } from "./types";
-
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
 export function useCaptionSocket(path = "/ws/captions") {
   const [connected, setConnected] = useState(false);
@@ -11,7 +10,7 @@ export function useCaptionSocket(path = "/ws/captions") {
     let socket: WebSocket | undefined;
     let retryTimer: number | undefined;
     let disposed = false;
-    const wsUrl = API_URL.replace(/^http/, "ws") + path;
+    const wsUrl = getWebSocketUrl(path);
 
     const connect = () => {
       socket = new WebSocket(wsUrl);
