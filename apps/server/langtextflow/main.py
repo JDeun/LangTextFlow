@@ -139,6 +139,26 @@ async def pull_ollama_model(request: Request, payload: ModelSetupRequest) -> Mod
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@app.post(
+    "/api/v1/setup/faster-whisper/prefetch",
+    response_model=ModelSetupJob,
+    status_code=202,
+)
+async def prefetch_faster_whisper_model(
+    request: Request,
+    payload: ModelSetupRequest,
+) -> ModelSetupJob:
+    _require_operator(request)
+    try:
+        return await model_setup_manager.start_faster_whisper_prefetch(
+            payload.normalized_model()
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.post("/api/v1/setup/jobs/{job_id}/cancel", response_model=ModelSetupJob)
 async def cancel_model_setup_job(request: Request, job_id: str) -> ModelSetupJob:
     _require_operator(request)
