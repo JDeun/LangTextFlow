@@ -69,6 +69,17 @@ export interface SessionContext {
   display_settings: CaptionDisplaySettings;
 }
 
+export interface CorrectionProvenance {
+  method: "deterministic" | "llm" | "fallback";
+  provider: string | null;
+  model: string | null;
+  deterministic_changed: boolean;
+  llm_attempted: boolean;
+  llm_applied: boolean;
+  changed: boolean;
+  fallback_reason: string | null;
+}
+
 export interface TranscriptEvent {
   type: "transcript";
   segment_id: string;
@@ -81,6 +92,7 @@ export interface TranscriptEvent {
   end_ms: number | null;
   speaker: string | null;
   confidence: number | null;
+  correction: CorrectionProvenance | null;
   committed: boolean;
   emitted_at: string;
 }
