@@ -82,9 +82,27 @@ class FakeWebSocket:
         await self.incoming.put(None)
 
 
+class BlockingAudioWebSocket(FakeWebSocket):
+    def __init__(self) -> None:
+        super().__init__()
+        self.audio_send_started = asyncio.Event()
+        self.release_audio_send = asyncio.Event()
+
+    async def send(self, payload: str | bytes) -> None:
+        self.sent.append(payload)
+        if isinstance(payload, bytes):
+            self.audio_send_started.set()
+            await self.release_audio_send.wait()
+            return
+        if payload == "end":
+            await self.incoming.put(json.dumps({"done": True, "total_chunks": 1}))
+            await self.incoming.put(None)
+
+
 async def _start_engine(
     monkeypatch: pytest.MonkeyPatch,
     fake_ws: FakeWebSocket,
+    **engine_kwargs: object,
 ) -> VibeVoiceStreamingAsrEngine:
     async def publish(event) -> None:
         del event
@@ -101,6 +119,7 @@ async def _start_engine(
         publish,
         base_url="http://127.0.0.1:8001",
         queue_chunks=2,
+        **engine_kwargs,
     )
     await engine.start(
         StartSessionRequest(
@@ -183,4 +202,31 @@ async def test_vibevoice_records_unexpected_receiver_close_and_rejects_audio(
         await engine.feed_audio(b"\x00\x00\x00\x00")
 
     await engine.stop()
+    assert fake_ws.closed is True
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_stalled_sender_times_out_and_stop_recovers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_ws = BlockingAudioWebSocket()
+    engine = await _start_engine(
+        monkeypatch,
+        fake_ws,
+        queue_chunks=1,
+        enqueue_timeout_seconds=0.1,
+        shutdown_timeout_seconds=0.1,
+    )
+    frame = b"\x00\x00\x00\x00" * 100
+
+    await engine.feed_audio(frame)
+    await asyncio.wait_for(fake_ws.audio_send_started.wait(), timeout=1.0)
+    await engine.feed_audio(frame)
+
+    with pytest.raises(AsrEngineError, match="audio queue failed"):
+        await engine.feed_audio(frame)
+
+    assert engine.failure is not None
+    assert engine.running is False
+    await asyncio.wait_for(engine.stop(), timeout=1.0)
     assert fake_ws.closed is True
