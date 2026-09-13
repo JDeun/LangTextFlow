@@ -55,6 +55,11 @@ class FailingFasterWhisperEngine(FakeFasterWhisperEngine):
         raise RuntimeError("GPU lost")
 
 
+class StalledFasterWhisperEngine(FakeFasterWhisperEngine):
+    async def _worker(self) -> None:
+        await asyncio.Event().wait()
+
+
 @pytest.mark.asyncio
 async def test_faster_whisper_micro_batches_and_flushes_residual_audio() -> None:
     published = []
@@ -110,6 +115,29 @@ async def test_faster_whisper_records_worker_failure_and_rejects_more_audio() ->
     with pytest.raises(AsrEngineError, match="GPU lost"):
         await engine.feed_audio(pcm(0.01))
     await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_stalled_queue_times_out_and_stop_recovers() -> None:
+    async def publish(event) -> None:
+        del event
+
+    engine = StalledFasterWhisperEngine(
+        publish,
+        queue_chunks=1,
+        enqueue_timeout_seconds=0.1,
+        shutdown_timeout_seconds=0.1,
+    )
+    await engine.start(StartSessionRequest(engine="faster-whisper"))
+    await engine.feed_audio(pcm(0.01))
+
+    with pytest.raises(AsrEngineError, match="audio queue stalled"):
+        await engine.feed_audio(pcm(0.01))
+
+    assert engine.failure is not None
+    assert engine.running is False
+    await asyncio.wait_for(engine.stop(), timeout=1.0)
+    assert engine._worker_task is None
 
 
 def test_faster_whisper_rejects_invalid_chunk_duration() -> None:
