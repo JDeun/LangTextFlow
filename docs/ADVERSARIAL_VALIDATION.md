@@ -13,17 +13,28 @@ The backend rejects malformed float32 PCM before expensive VAD/ASR work, includi
 - NaN and positive/negative infinity;
 - implausible sample amplitude.
 
-### WebSocket boundary
+### Operator HTTP/WebSocket boundary
 
 Tests and runtime guards cover:
 
-- operator sockets restricted to loopback clients;
-- browser `Origin` validation to mitigate cross-site WebSocket hijacking;
-- caption sockets remaining server-push-only;
-- invalid audio control messages;
+- operator REST/WebSocket access restricted to actual loopback socket clients;
+- forwarding headers such as `X-Forwarded-For` cannot turn a remote client into a local operator;
+- browser `Origin` validation on operator REST and WebSocket requests;
+- `Sec-Fetch-Site: cross-site` rejection for operator HTTP requests, including simple cross-origin POSTs that CORS alone would not prevent from executing;
+- native/CLI local clients without browser Origin/Fetch-Metadata headers remain supported;
+- caption sockets remain server-push-only;
+- invalid audio control messages are rejected.
+
+### Audience/WebSocket boundary
+
+Tests and runtime guards cover:
+
 - audience join-code brute-force blocking;
+- the rate limiter uses the observed socket client rather than forwarded-address headers;
+- invalid browser origins are rejected before consuming a join attempt;
 - bounded audience connection counts;
-- slow/broken audience clients isolated by concurrent sends and per-client timeouts.
+- 128-client fanout regression coverage;
+- slow/broken audience clients are isolated by concurrent sends and per-client timeouts rather than blocking healthy clients.
 
 ### Document boundary
 
@@ -36,7 +47,8 @@ Context-document extraction enforces:
 - rejection of encrypted DOCX archives;
 - DTD/entity rejection;
 - `defusedxml` parsing for Office XML;
-- bounded extracted text.
+- bounded extracted text;
+- malformed base64/ZIP corpus rejection.
 
 Image-only/scanned PDFs do not silently invoke OCR.
 
@@ -53,16 +65,18 @@ Failure-injection tests verify that SQLite write failures such as `disk full` ar
 CI runs:
 
 - `pip check`;
-- `pip-audit`;
-- `npm audit --audit-level=high`;
+- `pip-audit` and a Python CycloneDX SBOM artifact;
+- `npm audit --audit-level=high` and a frontend CycloneDX SBOM artifact;
 - Ruff;
 - Bandit medium/high findings gate;
 - CodeQL for Python and JavaScript/TypeScript;
 - repository secret/dangerous-frontend-pattern hygiene scanning;
 - Hugging Face `snapshot_download()` local-cache policy scanning;
 - local Markdown link validation;
-- backend tests with a coverage floor;
-- deterministic frontend install (`npm ci`) and production build.
+- an explicit adversarial boundary/fanout regression suite;
+- full backend tests with a 70% coverage floor;
+- real Uvicorn startup/lifespan `/health` smoke;
+- deterministic frontend install (`npm ci`), TypeScript check, and production build.
 
 ## What automated adversarial tests do not prove
 
