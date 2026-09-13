@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getWebSocketUrl } from "./api";
 import { parseCaptionPayload } from "./captionPayload";
 import {
+  CLIENT_PROTOCOL_ERROR_CODE,
   MAX_RETRY_MS,
   isTerminalCloseCode,
   retryAfterMs,
@@ -57,7 +58,7 @@ export function useCaptionSocket(path = "/ws/captions") {
         try {
           payload = parseCaptionPayload(message.data);
         } catch {
-          socket?.close(1003, "invalid caption payload");
+          socket?.close(CLIENT_PROTOCOL_ERROR_CODE, "invalid caption payload");
           return;
         }
 
