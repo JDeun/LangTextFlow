@@ -2,7 +2,12 @@ import pytest
 from fastapi import HTTPException, Request
 
 from langtextflow import main
-from langtextflow.network import _allowed, is_loopback_client, websocket_origin_allowed
+from langtextflow.network import (
+    _allowed,
+    is_loopback_client,
+    operator_origin_allowed,
+    websocket_origin_allowed,
+)
 
 
 def _request(host: str) -> Request:
@@ -35,6 +40,25 @@ def test_operator_api_rejects_non_loopback_clients() -> None:
     with pytest.raises(HTTPException) as error:
         main._require_operator(_request("192.168.1.20"))
     assert error.value.status_code == 403
+
+
+def test_operator_origin_policy_is_exact_and_does_not_inherit_audience_hosts() -> None:
+    allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+    assert operator_origin_allowed(None, allowed_origins=allowed_origins)
+    assert operator_origin_allowed(
+        "http://localhost:5173",
+        allowed_origins=allowed_origins,
+    )
+    assert not operator_origin_allowed(
+        "http://192.168.1.50:5173",
+        allowed_origins=allowed_origins,
+    )
+    assert not operator_origin_allowed(
+        "http://malicious.local:5173",
+        allowed_origins=allowed_origins,
+    )
+    assert not operator_origin_allowed("", allowed_origins=allowed_origins)
 
 
 def test_websocket_origin_policy_accepts_local_private_and_native_clients() -> None:
