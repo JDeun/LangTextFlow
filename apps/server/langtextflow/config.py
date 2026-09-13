@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     )
     frontend_port: int = Field(default=5173, ge=1, le=65535)
     backend_port: int = Field(default=8000, ge=1, le=65535)
+    public_web_root: str = ""
     max_segments: int = Field(default=100, ge=1, le=10_000)
     database_path: str = "data/langtextflow.db"
     model_cache_dir: str = "data/model-cache"
