@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     vibevoice_startup_timeout_seconds: float = Field(default=600.0, gt=0)
     audio_queue_chunks: int = Field(default=32, ge=1, le=4096)
     max_audio_frame_bytes: int = Field(default=1024 * 1024, ge=4, le=8 * 1024 * 1024)
-    asr_replay_seconds: float = Field(default=8.0, ge=0, le=120)
+    asr_replay_seconds: float = Field(default=8.0, gt=0, le=120)
     asr_health_check_seconds: float = Field(default=0.25, gt=0, le=60)
     faster_whisper_model: str = "small"
     faster_whisper_device: str = "auto"
