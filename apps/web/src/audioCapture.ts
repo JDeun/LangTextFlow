@@ -103,16 +103,17 @@ export class AudioCaptureController {
   private worklet: AudioWorkletNode | null = null;
   private sink: GainNode | null = null;
   private failed = false;
+  private stopping = false;
 
   constructor(private readonly onFatalError?: (message: string) => void) {}
 
   private fail(message: string): void {
-    if (this.failed) return;
+    if (this.failed || this.stopping) return;
     this.failed = true;
     if (this.worklet) this.worklet.port.onmessage = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     if (this.socket && this.socket.readyState < WebSocket.CLOSING) {
-      this.socket.close(1013, "audio backpressure");
+      this.socket.close(1013, "audio stream unavailable");
     }
     this.onFatalError?.(message);
   }
@@ -120,6 +121,7 @@ export class AudioCaptureController {
   async start(deviceId?: string): Promise<number> {
     if (this.context) return this.context.sampleRate;
     this.failed = false;
+    this.stopping = false;
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -135,6 +137,15 @@ export class AudioCaptureController {
       this.socket = new WebSocket(getWebSocketUrl("/ws/audio"));
       this.socket.binaryType = "arraybuffer";
       const config = await waitForAudioConfig(this.socket);
+
+      this.socket.onerror = () => {
+        this.fail("오디오 스트림 서버와의 연결에 오류가 발생해 세션을 중지합니다.");
+      };
+      this.socket.onclose = (event) => {
+        if (!this.stopping && event.code !== 1000) {
+          this.fail(event.reason || "오디오 스트림 연결이 종료되어 세션을 중지합니다.");
+        }
+      };
 
       this.context = new AudioContext({ sampleRate: config.sample_rate });
       await this.context.audioWorklet.addModule("/audio-worklet.js");
@@ -169,6 +180,7 @@ export class AudioCaptureController {
   }
 
   async stop(): Promise<void> {
+    this.stopping = true;
     if (this.worklet) this.worklet.port.onmessage = null;
     if (this.socket?.readyState === WebSocket.OPEN && !this.failed) this.socket.send("end");
     this.worklet?.disconnect();
@@ -184,5 +196,6 @@ export class AudioCaptureController {
     this.worklet = null;
     this.sink = null;
     this.failed = false;
+    this.stopping = false;
   }
 }
