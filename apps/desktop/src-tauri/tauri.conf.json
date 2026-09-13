@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": ["icons/icon.png"],
     "externalBin": ["binaries/langtextflow-server"],
     "createUpdaterArtifacts": false
   }
