@@ -7,7 +7,7 @@ import {
   MAX_AUDIO_SOCKET_BUFFERED_BYTES,
   canQueueAudioFrame,
   parseAudioSocketConfig,
-} from "../src/audioCapture.ts";
+} from "../src/audioCapturePolicy.ts";
 
 test("audio buffering stays within the configured browser-side ceiling", () => {
   assert.equal(canQueueAudioFrame(0, 4096), true);
