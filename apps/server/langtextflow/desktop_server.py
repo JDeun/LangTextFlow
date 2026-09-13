@@ -5,10 +5,12 @@ import sys
 from pathlib import Path
 
 
-def _bundle_root() -> Path:
+def _web_root() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
-    return Path(__file__).resolve().parents[3]
+        bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent)).resolve()
+        return bundle_root / "web-dist"
+    repository_root = Path(__file__).resolve().parents[3]
+    return repository_root / "apps" / "web" / "dist"
 
 
 def _prepare_desktop_environment() -> Path:
@@ -28,10 +30,9 @@ def _prepare_desktop_environment() -> Path:
         os.environ.setdefault("LANGTEXTFLOW_MANAGED_RUNTIME_DIR", str(runtime_dir))
         os.environ.setdefault("HF_HOME", str(model_cache_dir / "huggingface"))
 
-    web_root = _bundle_root() / "web-dist"
     os.environ.setdefault("LANGTEXTFLOW_FRONTEND_PORT", os.environ.get("LANGTEXTFLOW_BACKEND_PORT", "8000"))
     os.environ.setdefault("LANGTEXTFLOW_ENVIRONMENT", "desktop")
-    return web_root
+    return _web_root()
 
 
 def _install_public_routes(web_root: Path) -> None:
