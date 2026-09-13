@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     backend_port: int = 8000
     max_segments: int = 100
     database_path: str = "data/langtextflow.db"
+    mdns_enabled: bool = True
+    mdns_hostname: str = ""
+    mdns_service_name: str = "LangTextFlow"
     audience_join_max_failures: int = 8
     audience_join_window_seconds: float = 60.0
     audience_join_block_seconds: float = 300.0
