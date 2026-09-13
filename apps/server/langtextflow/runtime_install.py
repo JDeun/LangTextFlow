@@ -4,19 +4,19 @@ import asyncio
 import importlib.util
 import os
 import shutil
-import subprocess
 import sys
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Awaitable, Callable
 from uuid import uuid4
 
 import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+
 
 class RuntimeKind(StrEnum):
     FASTER_WHISPER = "faster-whisper"
@@ -87,7 +87,9 @@ class RuntimeProvisionManager:
                 available=available,
                 managed=bool(getattr(sys, "frozen", False)),
                 path=sys.executable if available else None,
-                detail="bundled with desktop" if available and getattr(sys, "frozen", False) else "",
+                detail="bundled with desktop"
+                if available and getattr(sys, "frozen", False)
+                else "",
             )
         if kind is RuntimeKind.OLLAMA:
             executable = shutil.which("ollama")
@@ -95,7 +97,9 @@ class RuntimeProvisionManager:
             if executable:
                 try:
                     async with httpx.AsyncClient(timeout=1.5) as client:
-                        response = await client.get(f"{self.settings.ollama_url.rstrip('/')}/api/tags")
+                        response = await client.get(
+                            f"{self.settings.ollama_url.rstrip('/')}/api/tags"
+                        )
                         healthy = response.is_success
                 except Exception:
                     healthy = False
@@ -104,7 +108,9 @@ class RuntimeProvisionManager:
                 available=bool(executable),
                 managed=False,
                 path=executable,
-                detail="running" if healthy else ("installed, not running" if executable else "not installed"),
+                detail="running"
+                if healthy
+                else ("installed, not running" if executable else "not installed"),
             )
 
         repo = self._vibevoice_repo()
@@ -129,7 +135,10 @@ class RuntimeProvisionManager:
 
         async with self._lock:
             for job in self._jobs.values():
-                if job.kind is kind and job.state in {ProvisionState.QUEUED, ProvisionState.RUNNING}:
+                if job.kind is kind and job.state in {
+                    ProvisionState.QUEUED,
+                    ProvisionState.RUNNING,
+                }:
                     return job.model_copy(deep=True)
             job = RuntimeProvisionJob(job_id=uuid4().hex, kind=kind)
             self._jobs[job.job_id] = job
@@ -152,7 +161,11 @@ class RuntimeProvisionManager:
             task = self._tasks.get(job_id)
             if job is None:
                 return None
-            if job.state in {ProvisionState.COMPLETED, ProvisionState.CANCELLED, ProvisionState.ERROR}:
+            if job.state in {
+                ProvisionState.COMPLETED,
+                ProvisionState.CANCELLED,
+                ProvisionState.ERROR,
+            }:
                 return job.model_copy(deep=True)
             job.state = ProvisionState.CANCELLED
             job.status = "cancelled"
@@ -183,7 +196,14 @@ class RuntimeProvisionManager:
             return
         await self._run_fixed(
             job_id,
-            [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "faster-whisper>=1.2.1,<2"],
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--disable-pip-version-check",
+                "faster-whisper>=1.2.1,<2",
+            ],
             "installing faster-whisper runtime",
         )
 
@@ -193,13 +213,21 @@ class RuntimeProvisionManager:
             return
         if sys.platform == "win32" and shutil.which("winget"):
             command = [
-                "winget", "install", "--id", "Ollama.Ollama", "--exact", "--silent",
-                "--accept-package-agreements", "--accept-source-agreements",
+                "winget",
+                "install",
+                "--id",
+                "Ollama.Ollama",
+                "--exact",
+                "--silent",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
             ]
         elif sys.platform == "darwin" and shutil.which("brew"):
             command = ["brew", "install", "ollama"]
         else:
-            await self._error(job_id, "automatic Ollama install requires winget on Windows or Homebrew on macOS")
+            await self._error(
+                job_id, "automatic Ollama install requires winget on Windows or Homebrew on macOS"
+            )
             return
         await self._run_fixed(job_id, command, "installing Ollama")
 
@@ -218,13 +246,45 @@ class RuntimeProvisionManager:
         await self._running(job_id, "preparing pinned VibeVoice source")
         try:
             if not (repo / ".git").exists():
-                await _run(["git", "clone", "--filter=blob:none", "--no-checkout", self.settings.vibevoice_repo_url, str(repo)])
-            await _run(["git", "-C", str(repo), "fetch", "--depth", "1", "origin", self.settings.vibevoice_repo_ref])
-            await _run(["git", "-C", str(repo), "checkout", "--force", self.settings.vibevoice_repo_ref])
+                await _run(
+                    [
+                        "git",
+                        "clone",
+                        "--filter=blob:none",
+                        "--no-checkout",
+                        self.settings.vibevoice_repo_url,
+                        str(repo),
+                    ]
+                )
+            await _run(
+                [
+                    "git",
+                    "-C",
+                    str(repo),
+                    "fetch",
+                    "--depth",
+                    "1",
+                    "origin",
+                    self.settings.vibevoice_repo_ref,
+                ]
+            )
+            await _run(
+                ["git", "-C", str(repo), "checkout", "--force", self.settings.vibevoice_repo_ref]
+            )
             if not python.exists():
                 await _run([sys.executable, "-m", "venv", str(repo / ".venv")])
             await self._running(job_id, "installing pinned VibeVoice runtime")
-            await _run([str(python), "-m", "pip", "install", "--disable-pip-version-check", "-e", str(repo)])
+            await _run(
+                [
+                    str(python),
+                    "-m",
+                    "pip",
+                    "install",
+                    "--disable-pip-version-check",
+                    "-e",
+                    str(repo),
+                ]
+            )
             model_dir = self.cache_root / "vibevoice" / self.settings.vibevoice_model_revision
             model_dir.parent.mkdir(parents=True, exist_ok=True)
             code = (
@@ -232,7 +292,16 @@ class RuntimeProvisionManager:
                 "print(snapshot_download(sys.argv[1], revision=sys.argv[2], local_dir=sys.argv[3]))"
             )
             await self._running(job_id, "downloading pinned VibeVoice model snapshot")
-            await _run([str(python), "-c", code, self.settings.vibevoice_model_id, self.settings.vibevoice_model_revision, str(model_dir)])
+            await _run(
+                [
+                    str(python),
+                    "-c",
+                    code,
+                    self.settings.vibevoice_model_id,
+                    self.settings.vibevoice_model_revision,
+                    str(model_dir),
+                ]
+            )
             await self._complete(
                 job_id,
                 "VibeVoice runtime and model are ready",
@@ -267,11 +336,21 @@ class RuntimeProvisionManager:
     async def _running(self, job_id: str, status: str) -> None:
         await self._update(job_id, state=ProvisionState.RUNNING, status=status)
 
-    async def _complete(self, job_id: str, status: str, details: dict[str, str] | None = None) -> None:
-        await self._update(job_id, state=ProvisionState.COMPLETED, status=status, details=details, finished=True)
+    async def _complete(
+        self, job_id: str, status: str, details: dict[str, str] | None = None
+    ) -> None:
+        await self._update(
+            job_id, state=ProvisionState.COMPLETED, status=status, details=details, finished=True
+        )
 
     async def _error(self, job_id: str, error: str) -> None:
-        await self._update(job_id, state=ProvisionState.ERROR, status="runtime provisioning failed", error=error[:2000], finished=True)
+        await self._update(
+            job_id,
+            state=ProvisionState.ERROR,
+            status="runtime provisioning failed",
+            error=error[:2000],
+            finished=True,
+        )
 
     async def _update(
         self,

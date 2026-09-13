@@ -6,10 +6,10 @@ import json
 import os
 import re
 import sys
-from pathlib import Path
 from contextlib import suppress
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -177,11 +177,14 @@ class ModelSetupManager:
         )
         try:
             timeout = httpx.Timeout(connect=5.0, read=None, write=30.0, pool=5.0)
-            async with self._client(timeout=timeout) as client, client.stream(
-                "POST",
-                f"{self.settings.ollama_url.rstrip('/')}/api/pull",
-                json={"model": job.model, "stream": True},
-            ) as response:
+            async with (
+                self._client(timeout=timeout) as client,
+                client.stream(
+                    "POST",
+                    f"{self.settings.ollama_url.rstrip('/')}/api/pull",
+                    json={"model": job.model, "stream": True},
+                ) as response,
+            ):
                 response.raise_for_status()
                 async for line in response.aiter_lines():
                     if not line.strip():
@@ -215,7 +218,7 @@ class ModelSetupManager:
             state=SetupJobState.RUNNING,
             status="faster-whisper 모델 파일을 준비하는 중입니다.",
         )
-        cache_dir = (Path(self.settings.model_cache_dir).expanduser().resolve() / "huggingface")
+        cache_dir = Path(self.settings.model_cache_dir).expanduser().resolve() / "huggingface"
         cache_dir.mkdir(parents=True, exist_ok=True)
         code = (
             "import json,sys; "
@@ -348,11 +351,7 @@ class ModelSetupManager:
         if len(self._jobs) <= maximum:
             return
         finished = sorted(
-            (
-                job
-                for job in self._jobs.values()
-                if job.state.value in _TERMINAL_STATES
-            ),
+            (job for job in self._jobs.values() if job.state.value in _TERMINAL_STATES),
             key=lambda item: item.updated_at,
         )
         for job in finished[: max(0, len(self._jobs) - maximum)]:

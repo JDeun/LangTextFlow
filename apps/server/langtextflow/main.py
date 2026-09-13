@@ -1,8 +1,8 @@
 import asyncio
 import os
 from contextlib import asynccontextmanager, suppress
-from pathlib import Path
 from datetime import UTC, datetime
+from pathlib import Path
 from threading import Lock
 from typing import Annotated
 
@@ -401,9 +401,7 @@ async def prefetch_faster_whisper_model(
 ) -> ModelSetupJob:
     _require_operator(request)
     try:
-        return await model_setup_manager.start_faster_whisper_prefetch(
-            payload.normalized_model()
-        )
+        return await model_setup_manager.start_faster_whisper_prefetch(payload.normalized_model())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -429,7 +427,9 @@ async def runtime_statuses(request: Request) -> list[RuntimeStatus]:
 async def provision_runtime(request: Request, kind: RuntimeKind) -> RuntimeProvisionJob:
     _require_operator(request)
     if runtime.state.running:
-        raise HTTPException(status_code=409, detail="stop the active caption session before changing runtimes")
+        raise HTTPException(
+            status_code=409, detail="stop the active caption session before changing runtimes"
+        )
     return await runtime_provision_manager.start(kind)
 
 
@@ -467,7 +467,9 @@ async def model_cache_inventory(request: Request) -> CacheInventory:
 async def clear_model_cache(request: Request, area: str) -> CacheInventory:
     _require_operator(request)
     if runtime.state.running:
-        raise HTTPException(status_code=409, detail="stop the active caption session before clearing model cache")
+        raise HTTPException(
+            status_code=409, detail="stop the active caption session before clearing model cache"
+        )
     try:
         return await model_cache_manager.clear(area)
     except ValueError as exc:
@@ -553,9 +555,7 @@ async def history_export(
     session = await asyncio.to_thread(runtime.history.get_session, session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="session not found")
-    segments = _best_export_segments(
-        await asyncio.to_thread(runtime.history.segments, session_id)
-    )
+    segments = _best_export_segments(await asyncio.to_thread(runtime.history.segments, session_id))
     normalized = export_format.lower()
     if normalized == "srt":
         content = export_srt(segments, lang)
@@ -605,8 +605,12 @@ async def glossary_recommendations(
 ) -> list[GlossaryRecommendation]:
     _require_operator(request)
     return await asyncio.to_thread(
-        recommend_glossary_terms, runtime.history, glossary_repository,
-        session_limit=session_limit, limit=limit, min_occurrences=min_occurrences,
+        recommend_glossary_terms,
+        runtime.history,
+        glossary_repository,
+        session_limit=session_limit,
+        limit=limit,
+        min_occurrences=min_occurrences,
     )
 
 

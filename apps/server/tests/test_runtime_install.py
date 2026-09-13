@@ -34,7 +34,9 @@ async def test_faster_whisper_existing_runtime_completes_without_install(
         lambda name: object() if name == "faster_whisper" else real_find_spec(name),
     )
     manager = RuntimeProvisionManager(
-        Settings(managed_runtime_dir=str(tmp_path / "runtime"), model_cache_dir=str(tmp_path / "cache"))
+        Settings(
+            managed_runtime_dir=str(tmp_path / "runtime"), model_cache_dir=str(tmp_path / "cache")
+        )
     )
     job = await manager.start(RuntimeKind.FASTER_WHISPER)
     settled = await _wait(manager, job.job_id)
@@ -48,7 +50,9 @@ async def test_ollama_install_fails_closed_without_supported_package_manager(
     monkeypatch.setattr("langtextflow.runtime_install.shutil.which", lambda _name: None)
     monkeypatch.setattr(sys, "platform", "linux")
     manager = RuntimeProvisionManager(
-        Settings(managed_runtime_dir=str(tmp_path / "runtime"), model_cache_dir=str(tmp_path / "cache"))
+        Settings(
+            managed_runtime_dir=str(tmp_path / "runtime"), model_cache_dir=str(tmp_path / "cache")
+        )
     )
     job = await manager.start(RuntimeKind.OLLAMA)
     settled = await _wait(manager, job.job_id)
