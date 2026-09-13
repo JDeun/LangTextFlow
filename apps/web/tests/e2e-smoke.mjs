@@ -71,6 +71,10 @@ await waitFor(
   () => evaluate(`document.readyState === "complete" && document.body.innerText.includes("세션 시작")`),
   "operator UI",
 );
+await waitFor(
+  () => evaluate(`document.body.innerText.includes("서버 연결됨")`),
+  "operator caption socket connection",
+);
 
 const engineChanged = await evaluate(`(() => {
   const select = [...document.querySelectorAll("select")].find((node) =>
@@ -82,6 +86,19 @@ const engineChanged = await evaluate(`(() => {
   return true;
 })()`);
 if (!engineChanged) throw new Error("ASR engine selector not found");
+
+await waitFor(
+  () => evaluate(`(() => {
+    const select = [...document.querySelectorAll("select")].find((node) =>
+      node.closest("label")?.innerText.includes("음성 인식 엔진")
+    );
+    const button = [...document.querySelectorAll("button")].find((node) =>
+      node.innerText.includes("세션 시작")
+    );
+    return select?.value === "mock" && Boolean(button) && !button.disabled;
+  })()`),
+  "mock engine state and enabled session start",
+);
 
 const startClicked = await evaluate(`(() => {
   const button = [...document.querySelectorAll("button")].find((node) => node.innerText.includes("세션 시작"));
