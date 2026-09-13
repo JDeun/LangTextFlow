@@ -44,7 +44,10 @@ class FakeHistory:
 
 
 def local_request():
-    return SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"))
+    return SimpleNamespace(
+        client=SimpleNamespace(host="127.0.0.1"),
+        headers={},
+    )
 
 
 @pytest.mark.asyncio
