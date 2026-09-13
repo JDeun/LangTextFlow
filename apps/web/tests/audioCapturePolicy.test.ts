@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  AUDIO_BACKPRESSURE_CLOSE_CODE,
+  AUDIO_PROTOCOL_ERROR_CODE,
   MAX_AUDIO_SOCKET_BUFFERED_BYTES,
   canQueueAudioFrame,
   parseAudioSocketConfig,
@@ -18,6 +20,12 @@ test("audio buffering stays within the configured browser-side ceiling", () => {
     false,
   );
   assert.equal(canQueueAudioFrame(Number.NaN, 4), false);
+});
+
+test("client-selected websocket close codes are browser-valid application codes", () => {
+  for (const code of [AUDIO_PROTOCOL_ERROR_CODE, AUDIO_BACKPRESSURE_CLOSE_CODE]) {
+    assert.equal(code >= 3000 && code <= 4999, true);
+  }
 });
 
 test("audio socket config parser accepts only supported mono f32le settings", () => {
