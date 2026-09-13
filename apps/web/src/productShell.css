@@ -1,0 +1,20 @@
+/* Final product-shell ergonomics layered after the legacy stylesheet. */
+@media (min-width: 861px) {
+  .control-panel {
+    padding-bottom: 96px;
+  }
+}
+
+.control-panel .start-button,
+.control-panel .stop-button {
+  z-index: 6;
+}
+
+.settings-group > summary span {
+  min-width: 0;
+}
+
+.settings-group > summary small {
+  display: block;
+  margin-top: 2px;
+}

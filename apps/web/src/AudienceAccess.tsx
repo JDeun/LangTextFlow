@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { API_URL } from "./api";
+import { useI18n } from "./i18n";
+import { PANEL_COPY } from "./panelCopy";
 import type { NetworkInfo } from "./types";
 
 interface AudienceAccessProps {
@@ -19,6 +21,8 @@ function isLoopback(hostname: string) {
 }
 
 export function AudienceAccess({ joinCode, targetLanguage }: AudienceAccessProps) {
+  const { locale } = useI18n();
+  const copy = PANEL_COPY[locale].share;
   const [network, setNetwork] = useState<NetworkInfo | null>(null);
   const [mdns, setMdns] = useState<MdnsStatus | null>(null);
   const [selectedHost, setSelectedHost] = useState("");
@@ -27,7 +31,7 @@ export function AudienceAccess({ joinCode, targetLanguage }: AudienceAccessProps
 
   useEffect(() => {
     const networkRequest = fetch(`${API_URL}/api/v1/network`).then(async (response) => {
-      if (!response.ok) throw new Error("LAN 주소를 확인하지 못했습니다.");
+      if (!response.ok) throw new Error(copy.networkError);
       return (await response.json()) as NetworkInfo;
     });
     const mdnsRequest = fetch(`${API_URL}/api/v1/network/mdns`)
@@ -50,7 +54,7 @@ export function AudienceAccess({ joinCode, targetLanguage }: AudienceAccessProps
         setSelectedHost(preferred);
       })
       .catch((reason: Error) => setError(reason.message));
-  }, []);
+  }, [copy.networkError]);
 
   const frontendPort = network?.frontend_port ?? Number(window.location.port || 80);
   const protocol = window.location.protocol === "https:" ? "https:" : "http:";
@@ -87,26 +91,26 @@ export function AudienceAccess({ joinCode, targetLanguage }: AudienceAccessProps
       errorCorrectionLevel: "M",
     })
       .then(setQrDataUrl)
-      .catch(() => setError("QR 코드를 생성하지 못했습니다."));
-  }, [audienceUrl]);
+      .catch(() => setError(copy.qrError));
+  }, [audienceUrl, copy.qrError]);
 
-  async function copy(value: string) {
+  async function copyValue(value: string) {
     if (value) await navigator.clipboard.writeText(value);
   }
 
   return (
     <div className="share-panel panel audience-access">
       <div className="audience-access-info">
-        <span className="eyebrow">Audience access</span>
+        <span className="eyebrow">{copy.eyebrow}</span>
         <strong className="join-code">{joinCode}</strong>
-        <span className="share-note">청중은 같은 Wi-Fi에서 QR을 스캔하면 됩니다.</span>
+        <span className="share-note">{copy.wifiHint}</span>
         {mdns?.ready && mdns.hostname && (
-          <span className="share-note">사람이 읽기 쉬운 주소: {mdns.hostname}</span>
+          <span className="share-note">{copy.readableAddress}: {mdns.hostname}</span>
         )}
 
         {hosts.length > 1 && (
           <label className="audience-host-select">
-            접속 네트워크
+            {copy.network}
             <select value={selectedHost} onChange={(event) => setSelectedHost(event.target.value)}>
               {hosts.map((host) => (
                 <option value={host} key={host}>
@@ -117,36 +121,30 @@ export function AudienceAccess({ joinCode, targetLanguage }: AudienceAccessProps
           </label>
         )}
 
-        {!selectedHost && (
-          <div className="network-warning">
-            사용 가능한 LAN 주소를 찾지 못했습니다. Wi-Fi/Ethernet 연결을 확인하세요.
-          </div>
-        )}
-        {mdns?.error && (
-          <div className="network-warning">mDNS를 사용할 수 없어 IP 주소로 공유합니다.</div>
-        )}
+        {!selectedHost && <div className="network-warning">{copy.noLan}</div>}
+        {mdns?.error && <div className="network-warning">{copy.mdnsFallback}</div>}
         {error && <div className="network-warning">{error}</div>}
 
         <div className="share-links">
-          <button className="secondary-button" onClick={() => copy(audienceUrl)} disabled={!audienceUrl}>
-            청중 링크 복사
+          <button className="secondary-button" onClick={() => copyValue(audienceUrl)} disabled={!audienceUrl}>
+            {copy.copyAudience}
           </button>
           <button
             className="secondary-button"
             onClick={() => projectorUrl && window.open(projectorUrl, "_blank")}
             disabled={!projectorUrl}
           >
-            프로젝터 열기
+            {copy.openProjector}
           </button>
-          <button className="secondary-button" onClick={() => copy(obsUrl)} disabled={!obsUrl}>
-            OBS URL 복사
+          <button className="secondary-button" onClick={() => copyValue(obsUrl)} disabled={!obsUrl}>
+            {copy.copyObs}
           </button>
         </div>
       </div>
 
       <div className="qr-card">
-        {qrDataUrl ? <img src={qrDataUrl} alt="Audience join QR code" /> : <div className="qr-placeholder" />}
-        <small>{audienceUrl || "LAN 주소 확인 중"}</small>
+        {qrDataUrl ? <img src={qrDataUrl} alt={copy.qrAlt} /> : <div className="qr-placeholder" />}
+        <small>{audienceUrl || copy.checkingLan}</small>
       </div>
     </div>
   );

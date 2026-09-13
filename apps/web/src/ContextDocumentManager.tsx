@@ -1,7 +1,9 @@
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import "./contextDocuments.css";
+import { useI18n } from "./i18n";
 import type { ReferenceDocument } from "./types";
+import { UTILITY_COPY } from "./utilityCopy";
 
 const MAX_DOCUMENTS = 4;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
@@ -35,31 +37,31 @@ function arrayBufferToBase64(buffer: ArrayBuffer) {
   return window.btoa(binary);
 }
 
-async function toReferenceDocument(file: File): Promise<ReferenceDocument> {
-  if (!ALLOWED_EXTENSIONS.has(extension(file.name))) {
-    throw new Error(`${file.name}: TXT, Markdown, PDF, DOCX 파일만 사용할 수 있습니다.`);
-  }
-  if (file.size <= 0) throw new Error(`${file.name}: 빈 파일은 사용할 수 없습니다.`);
-  if (file.size > MAX_FILE_BYTES) {
-    throw new Error(`${file.name}: 파일당 최대 크기는 5 MB입니다.`);
-  }
-
-  return {
-    filename: file.name,
-    media_type: file.type || "application/octet-stream",
-    size_bytes: file.size,
-    content_base64: arrayBufferToBase64(await file.arrayBuffer()),
-  };
-}
-
 export function ContextDocumentManager({
   value,
   disabled = false,
   onChange,
 }: ContextDocumentManagerProps) {
+  const { locale } = useI18n();
+  const copy = UTILITY_COPY[locale].context;
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  async function toReferenceDocument(file: File): Promise<ReferenceDocument> {
+    if (!ALLOWED_EXTENSIONS.has(extension(file.name))) {
+      throw new Error(`${file.name}: ${copy.badType}`);
+    }
+    if (file.size <= 0) throw new Error(`${file.name}: ${copy.empty}`);
+    if (file.size > MAX_FILE_BYTES) throw new Error(`${file.name}: ${copy.tooLarge}`);
+
+    return {
+      filename: file.name,
+      media_type: file.type || "application/octet-stream",
+      size_bytes: file.size,
+      content_base64: arrayBufferToBase64(await file.arrayBuffer()),
+    };
+  }
 
   async function addFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
@@ -77,11 +79,11 @@ export function ContextDocumentManager({
         else next.push(document);
       }
       if (next.length > MAX_DOCUMENTS) {
-        throw new Error(`참고 문서는 최대 ${MAX_DOCUMENTS}개까지 사용할 수 있습니다.`);
+        throw new Error(`${copy.maxDocs} ${MAX_DOCUMENTS}.`);
       }
       onChange(next);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "참고 문서를 읽지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.readFailed);
     } finally {
       setBusy(false);
     }
@@ -95,8 +97,8 @@ export function ContextDocumentManager({
     <section className="context-documents">
       <div className="context-documents-heading">
         <div>
-          <strong>참고 문서</strong>
-          <small>설교문·발표자료의 용어와 문맥을 ASR 및 번역 힌트로 사용합니다.</small>
+          <strong>{copy.title}</strong>
+          <small>{copy.help}</small>
         </div>
         <button
           className="secondary-button"
@@ -104,7 +106,7 @@ export function ContextDocumentManager({
           onClick={() => inputRef.current?.click()}
           disabled={disabled || busy || value.length >= MAX_DOCUMENTS}
         >
-          {busy ? "읽는 중…" : "파일 추가"}
+          {busy ? copy.reading : copy.add}
         </button>
       </div>
       <input
@@ -116,9 +118,7 @@ export function ContextDocumentManager({
         onChange={addFiles}
         disabled={disabled || busy}
       />
-      <small className="context-document-note">
-        TXT/MD/PDF/DOCX · 파일당 5 MB · 최대 4개. 스캔 PDF OCR은 아직 지원하지 않습니다.
-      </small>
+      <small className="context-document-note">{copy.note}</small>
       {error && <div className="error-box">{error}</div>}
       {value.length > 0 && (
         <div className="context-document-list">
@@ -129,8 +129,8 @@ export function ContextDocumentManager({
                 <small>
                   {sizeLabel(document.size_bytes)}
                   {typeof document.character_count === "number" && document.character_count > 0
-                    ? ` · ${document.character_count.toLocaleString()}자 추출${document.truncated ? " · 60,000자까지 사용" : ""}`
-                    : " · 세션 시작 시 로컬 추출"}
+                    ? ` · ${document.character_count.toLocaleString()} ${copy.extracted}${document.truncated ? ` · ${copy.truncated}` : ""}`
+                    : ` · ${copy.localExtract}`}
                 </small>
               </div>
               <button
@@ -139,7 +139,7 @@ export function ContextDocumentManager({
                 onClick={() => remove(document.filename)}
                 disabled={disabled}
               >
-                제거
+                {copy.remove}
               </button>
             </article>
           ))}

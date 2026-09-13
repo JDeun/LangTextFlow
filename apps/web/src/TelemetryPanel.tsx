@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import "./telemetry.css";
+import { useI18n } from "./i18n";
 import type { RealtimeMetrics } from "./types";
+import { UTILITY_COPY } from "./utilityCopy";
 
 interface TelemetryPanelProps {
   apiUrl: string;
@@ -38,6 +40,8 @@ function diagnosticsFilename(disposition: string | null) {
 }
 
 export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
+  const { locale } = useI18n();
+  const copy = UTILITY_COPY[locale].telemetry;
   const [metrics, setMetrics] = useState<RealtimeMetrics | null>(null);
   const [error, setError] = useState("");
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
@@ -56,9 +60,7 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
           setError("");
         }
       } catch (reason) {
-        if (!disposed) {
-          setError(reason instanceof Error ? reason.message : "telemetry unavailable");
-        }
+        if (!disposed) setError(reason instanceof Error ? reason.message : copy.unavailable);
       }
     };
 
@@ -68,7 +70,7 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
       disposed = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [apiUrl, running]);
+  }, [apiUrl, copy.unavailable, running]);
 
   async function downloadDiagnostics() {
     setDiagnosticsBusy(true);
@@ -86,7 +88,7 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
       anchor.remove();
       URL.revokeObjectURL(href);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "진단 번들을 만들지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.diagnosticsFailed);
     } finally {
       setDiagnosticsBusy(false);
     }
@@ -115,7 +117,7 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
   return (
     <section className="telemetry-card">
       <div className="telemetry-heading">
-        <span>Realtime telemetry</span>
+        <span>{copy.title}</span>
         <div className="telemetry-actions">
           <button
             type="button"
@@ -123,14 +125,13 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
             onClick={downloadDiagnostics}
             disabled={diagnosticsBusy}
           >
-            {diagnosticsBusy ? "진단 수집 중…" : "진단 번들"}
+            {diagnosticsBusy ? copy.collecting : copy.diagnostics}
           </button>
           <span className={statusClass}>{statusLabel}</span>
         </div>
       </div>
 
-      {error && !metrics && <div className="telemetry-empty">{error}</div>}
-      {error && metrics && <div className="telemetry-empty">{error}</div>}
+      {error && <div className="telemetry-empty">{error}</div>}
       {metrics && (
         <>
           <div
@@ -139,77 +140,77 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
             }`}
           >
             <div>
-              <span>ASR provider</span>
+              <span>{copy.provider}</span>
               <strong>{metrics.asr_provider || "—"}</strong>
             </div>
             <small>
               {metrics.asr_failure ||
                 (providerRecovered
-                  ? `recovered · ${metrics.asr_failover_count} failover · ${metrics.asr_last_failover_reason || "provider handoff"}`
+                  ? `${copy.recovered} · ${metrics.asr_failover_count} ${copy.failover} · ${metrics.asr_last_failover_reason || copy.handoff}`
                   : metrics.asr_running
-                    ? "provider healthy"
+                    ? copy.healthy
                     : running
-                      ? "provider not running"
-                      : "session idle")}
+                      ? copy.notRunning
+                      : copy.idle)}
             </small>
           </div>
 
           <div className="telemetry-input">
             <span className={`voice-indicator ${metrics.voice_active ? "active" : ""}`} />
             <div>
-              <strong>{metrics.voice_active ? "Voice detected" : "No voice"}</strong>
+              <strong>{metrics.voice_active ? copy.voice : copy.noVoice}</strong>
               <small>
                 {metrics.audio_rms_dbfs === null ? "—" : `${metrics.audio_rms_dbfs.toFixed(1)} dBFS`}
-                {metrics.audio_frames_received > 0 ? ` · ${audioSeconds.toFixed(1)} s audio` : ""}
+                {metrics.audio_frames_received > 0 ? ` · ${audioSeconds.toFixed(1)} s ${copy.audio}` : ""}
               </small>
             </div>
           </div>
 
           <div className="telemetry-grid">
             <div className={`telemetry-metric ${queueLevel(metrics.asr_queue_depth, metrics.asr_queue_capacity)}`}>
-              <span>ASR queue</span>
+              <span>{copy.asrQueue}</span>
               <strong>{queueValue(metrics.asr_queue_depth, metrics.asr_queue_capacity)}</strong>
-              <small>peak {metrics.asr_queue_high_watermark}</small>
+              <small>{copy.peak} {metrics.asr_queue_high_watermark}</small>
             </div>
             <div className={`telemetry-metric ${metrics.asr_failover_count > 0 ? "warning" : "normal"}`}>
-              <span>ASR failovers</span>
+              <span>{copy.failovers}</span>
               <strong>{metrics.asr_failover_count}</strong>
-              <small>{metrics.asr_failover_count > 0 ? "recovered handoff" : "none"}</small>
+              <small>{metrics.asr_failover_count > 0 ? copy.recoveredHandoff : copy.none}</small>
             </div>
             <div className={`telemetry-metric ${queueLevel(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}`}>
-              <span>Postprocess</span>
+              <span>{copy.postprocess}</span>
               <strong>{queueValue(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}</strong>
-              <small>correction + translation</small>
+              <small>{copy.correctionTranslation}</small>
             </div>
             <div className={`telemetry-metric ${queueLevel(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}`}>
-              <span>Storage queue</span>
+              <span>{copy.storage}</span>
               <strong>{queueValue(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}</strong>
-              <small>SQLite writer</small>
+              <small>{copy.writer}</small>
             </div>
             <div className={`telemetry-metric ${latencyLevel(metrics.last_audio_enqueue_wait_ms, 50, 200)}`}>
-              <span>Audio enqueue</span>
+              <span>{copy.enqueue}</span>
               <strong>{milliseconds(metrics.last_audio_enqueue_wait_ms)}</strong>
-              <small>{metrics.audio_backpressure_events} backpressure</small>
+              <small>{metrics.audio_backpressure_events} {copy.backpressure}</small>
             </div>
             <div className={`telemetry-metric ${latencyLevel(metrics.last_asr_lag_ms, 1500, 3000)}`}>
-              <span>ASR lag</span>
+              <span>{copy.lag}</span>
               <strong>{milliseconds(metrics.last_asr_lag_ms)}</strong>
-              <small>audio end → stable</small>
+              <small>{copy.lagHelp}</small>
             </div>
             <div className={`telemetry-metric ${latencyLevel(metrics.last_correction_latency_ms, 250, 800)}`}>
-              <span>Correction</span>
+              <span>{copy.correction}</span>
               <strong>{milliseconds(metrics.last_correction_latency_ms)}</strong>
-              <small>stable → corrected</small>
+              <small>{copy.correctionHelp}</small>
             </div>
             <div className={`telemetry-metric ${latencyLevel(metrics.last_translation_latency_ms, 1000, 2500)}`}>
-              <span>Translation</span>
+              <span>{copy.translation}</span>
               <strong>{milliseconds(metrics.last_translation_latency_ms)}</strong>
-              <small>corrected → translated</small>
+              <small>{copy.translationHelp}</small>
             </div>
             <div className={`telemetry-metric ${latencyLevel(metrics.last_commit_latency_ms, 1500, 3000)}`}>
-              <span>Commit</span>
+              <span>{copy.commit}</span>
               <strong>{milliseconds(metrics.last_commit_latency_ms)}</strong>
-              <small>stable → committed</small>
+              <small>{copy.commitHelp}</small>
             </div>
           </div>
         </>

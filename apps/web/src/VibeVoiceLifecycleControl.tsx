@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_URL } from "./api";
+import { useI18n } from "./i18n";
 import type { VibeVoiceLifecycleState } from "./types";
+import { UTILITY_COPY } from "./utilityCopy";
 import "./vibevoiceLifecycle.css";
 
 interface VibeVoiceLifecycleControlProps {
@@ -12,6 +14,8 @@ export function VibeVoiceLifecycleControl({
   enabled,
   onReady,
 }: VibeVoiceLifecycleControlProps) {
+  const { locale } = useI18n();
+  const copy = UTILITY_COPY[locale].vibe;
   const [state, setState] = useState<VibeVoiceLifecycleState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -21,7 +25,7 @@ export function VibeVoiceLifecycleControl({
     if (!enabled) return;
     try {
       const response = await fetch(`${API_URL}/api/v1/setup/vibevoice`);
-      if (!response.ok) throw new Error(`VibeVoice 상태 HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`${copy.statusHttp} ${response.status}`);
       const next = (await response.json()) as VibeVoiceLifecycleState;
       setState(next);
       if (next.healthy && !readyNotified.current) {
@@ -30,9 +34,9 @@ export function VibeVoiceLifecycleControl({
       }
       if (!next.healthy) readyNotified.current = false;
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "VibeVoice 상태를 확인하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.statusFailed);
     }
-  }, [enabled, onReady]);
+  }, [copy.statusFailed, copy.statusHttp, enabled, onReady]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -65,7 +69,7 @@ export function VibeVoiceLifecycleControl({
         readyNotified.current = false;
       }
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : `VibeVoice ${action}에 실패했습니다.`);
+      setError(reason instanceof Error ? reason.message : `VibeVoice ${action} ${copy.actionFailed}`);
     } finally {
       setBusy(false);
     }
@@ -73,26 +77,26 @@ export function VibeVoiceLifecycleControl({
 
   if (!enabled) return null;
 
+  const stateTitle = state?.mode === "external"
+    ? copy.external
+    : state?.mode === "managed"
+      ? copy.managed
+      : state?.mode === "starting"
+        ? copy.starting
+        : state?.mode === "stopped"
+          ? copy.stopped
+          : state?.mode === "unconfigured"
+            ? copy.unconfigured
+            : state?.mode === "error"
+              ? copy.error
+              : copy.checking;
+
   return (
     <div className={`vibevoice-lifecycle ${state?.mode ?? "loading"}`}>
       <div className="vibevoice-lifecycle-heading">
         <div>
           <small>VibeVoice lifecycle</small>
-          <strong>
-            {state?.mode === "external"
-              ? "외부 sidecar 연결됨"
-              : state?.mode === "managed"
-                ? "관리형 sidecar READY"
-                : state?.mode === "starting"
-                  ? "sidecar 시작 중"
-                  : state?.mode === "stopped"
-                    ? "sidecar 시작 가능"
-                    : state?.mode === "unconfigured"
-                      ? "관리형 실행 미구성"
-                      : state?.mode === "error"
-                        ? "sidecar 오류"
-                        : "상태 확인 중"}
-          </strong>
+          <strong>{stateTitle}</strong>
         </div>
         <span>{state?.mode ?? "loading"}</span>
       </div>
@@ -109,7 +113,7 @@ export function VibeVoiceLifecycleControl({
 
       {state?.log_tail.length ? (
         <details className="vibevoice-lifecycle-logs">
-          <summary>최근 실행 로그</summary>
+          <summary>{copy.logs}</summary>
           <pre>{state.log_tail.slice(-12).join("\n")}</pre>
         </details>
       ) : null}
@@ -117,16 +121,16 @@ export function VibeVoiceLifecycleControl({
       <div className="vibevoice-lifecycle-actions">
         {(state?.mode === "stopped" || state?.mode === "error") && state.configured && (
           <button onClick={() => void mutate("start")} disabled={busy}>
-            {busy ? "시작 요청 중…" : "VibeVoice 시작"}
+            {busy ? copy.startRequest : copy.start}
           </button>
         )}
         {(state?.mode === "starting" || state?.mode === "managed") && (
           <button onClick={() => void mutate("stop")} disabled={busy}>
-            {busy ? "중지 요청 중…" : state.mode === "starting" ? "시작 취소" : "VibeVoice 종료"}
+            {busy ? copy.stopRequest : state.mode === "starting" ? copy.cancelStart : copy.stop}
           </button>
         )}
         <button onClick={() => void load()} disabled={busy}>
-          상태 새로고침
+          {copy.refresh}
         </button>
       </div>
     </div>

@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { API_URL } from "./api";
+import { useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
+import { PANEL_COPY } from "./panelCopy";
 import { ModelSetupControl } from "./ModelSetupControl";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import type { ProductPreset, RecommendedConfiguration, SystemPreflight } from "./types";
 import { VibeVoiceLifecycleControl } from "./VibeVoiceLifecycleControl";
 import "./onboarding.css";
 
-const PRESETS: Array<[ProductPreset, string]> = [
-  ["general", "일반"],
-  ["church", "교회 / 선교 집회"],
-  ["conference", "컨퍼런스"],
-  ["lecture", "강의"],
-];
+const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lecture"];
 
 function providerUsesModel(provider: string) {
   return provider === "ollama" || provider === "openai-compatible";
@@ -57,12 +54,14 @@ export function OnboardingWizard({
   onComplete,
   onClose,
 }: OnboardingWizardProps) {
+  const { locale, t } = useI18n();
+  const copy = PANEL_COPY[locale].onboarding;
   const [step, setStep] = useState(0);
   const [report, setReport] = useState<SystemPreflight | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [microphone, setMicrophone] = useState<MicrophoneState>("unchecked");
-  const [microphoneDetail, setMicrophoneDetail] = useState("아직 확인하지 않았습니다.");
+  const [microphoneDetail, setMicrophoneDetail] = useState(copy.micInitialDetail);
 
   const loadPreflight = useCallback(async () => {
     setLoading(true);
@@ -76,10 +75,10 @@ export function OnboardingWizard({
         query.set("translation_model", translationModel.trim());
       }
       const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
-      if (!response.ok) throw new Error(`시스템 점검 HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`${copy.systemHttp} ${response.status}`);
       setReport((await response.json()) as SystemPreflight);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "시스템 점검에 실패했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.systemFailed);
     } finally {
       setLoading(false);
     }
@@ -98,29 +97,33 @@ export function OnboardingWizard({
     if (open) setStep(0);
   }, [open]);
 
+  useEffect(() => {
+    if (microphone === "unchecked") setMicrophoneDetail(copy.micInitialDetail);
+  }, [copy.micInitialDetail, microphone]);
+
   if (!open) return null;
 
   async function checkMicrophone() {
     setMicrophone("checking");
-    setMicrophoneDetail("마이크 권한과 입력 장치를 확인하는 중입니다…");
+    setMicrophoneDetail(copy.micCheckingDetail);
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("이 브라우저는 오디오 입력 API를 지원하지 않습니다.");
+        throw new Error(copy.micUnsupported);
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter((device) => device.kind === "audioinput");
-        if (inputs.length === 0) throw new Error("사용 가능한 오디오 입력 장치가 없습니다.");
+        if (inputs.length === 0) throw new Error(copy.micNoDevice);
         setMicrophone("ready");
-        setMicrophoneDetail(`오디오 입력 ${inputs.length}개를 확인했습니다.`);
+        setMicrophoneDetail(`${copy.micFoundPrefix}: ${inputs.length}`);
       } finally {
         stream.getTracks().forEach((track) => track.stop());
       }
     } catch (reason) {
       setMicrophone("error");
       setMicrophoneDetail(
-        reason instanceof Error ? reason.message : "마이크를 확인하지 못했습니다.",
+        reason instanceof Error ? reason.message : copy.micGenericFailed,
       );
     }
   }
@@ -157,20 +160,20 @@ export function OnboardingWizard({
     && whisperModelCheck?.status === "missing"
     && Boolean(whisperModel);
   const vibevoiceRelevant = engine === "auto" || engine === "vibevoice";
-  const steps = ["시작", "시스템", "마이크", "언어", "완료"];
+  const steps = copy.steps;
 
   return (
     <div className="onboarding-backdrop" role="presentation">
-      <section className="onboarding-dialog" role="dialog" aria-modal="true" aria-label="초기 설정">
+      <section className="onboarding-dialog" role="dialog" aria-modal="true" aria-label={copy.aria}>
         <header className="onboarding-header">
           <div>
-            <small>LangTextFlow 초기 설정</small>
+            <small>{copy.title}</small>
             <strong>{steps[step]}</strong>
           </div>
-          <button onClick={onClose} aria-label="초기 설정 닫기">×</button>
+          <button onClick={onClose} aria-label={copy.close}>×</button>
         </header>
 
-        <div className="onboarding-progress" aria-label="초기 설정 진행률">
+        <div className="onboarding-progress" aria-label={copy.progress}>
           {steps.map((label, index) => (
             <i
               key={label}
@@ -183,26 +186,21 @@ export function OnboardingWizard({
         <div className="onboarding-body">
           {step === 0 && (
             <div className="onboarding-copy">
-              <h2>실시간 자막을 시작하기 전에 필요한 항목을 확인합니다.</h2>
-              <p>
-                음성 인식, 번역, 마이크와 기본 언어를 순서대로 점검합니다.
-                설치되어 있는 구성요소를 기준으로 안전한 기본 설정도 제안합니다.
-              </p>
-              <div className="onboarding-note">
-                운영체제 패키지나 드라이버는 사용자 동의 없이 변경하지 않습니다.
-              </div>
+              <h2>{copy.introTitle}</h2>
+              <p>{copy.introBody}</p>
+              <div className="onboarding-note">{copy.introNote}</div>
             </div>
           )}
 
           {step === 1 && (
             <div className="onboarding-copy">
-              <h2>시스템 구성</h2>
-              {loading && <p>ASR/번역 환경을 확인하는 중입니다…</p>}
+              <h2>{copy.systemTitle}</h2>
+              {loading && <p>{copy.systemChecking}</p>}
               {error && <div className="onboarding-error">{error}</div>}
               {report && (
                 <>
                   <div className={`onboarding-status ${report.ready ? "ready" : "attention"}`}>
-                    <strong>{report.ready ? "현재 설정으로 실행 가능" : "현재 설정에 준비되지 않은 항목이 있습니다."}</strong>
+                    <strong>{report.ready ? copy.ready : copy.attention}</strong>
                     <span>
                       {report.architecture}
                       {report.memory_gb !== null ? ` · ${report.memory_gb.toFixed(1)} GB RAM` : ""}
@@ -210,7 +208,7 @@ export function OnboardingWizard({
                   </div>
                   {report.recommended.engine && (
                     <div className="onboarding-recommendation">
-                      <small>권장 구성</small>
+                      <small>{copy.recommended}</small>
                       <strong>
                         {report.recommended.engine} · {report.recommended.translation_provider}
                         {report.recommended.translation_model
@@ -221,7 +219,7 @@ export function OnboardingWizard({
                         {report.recommended.reasons.map((reason) => <li key={reason}>{reason}</li>)}
                       </ul>
                       <button onClick={() => onApplyRecommendation(report.recommended)}>
-                        권장 구성 적용
+                        {copy.applyRecommended}
                       </button>
                     </div>
                   )}
@@ -231,11 +229,9 @@ export function OnboardingWizard({
                   {canPrepareWhisperModel && (
                     <div className="onboarding-repair">
                       <div>
-                        <small>ASR fallback 준비</small>
-                        <strong>{whisperModel} 음성 인식 모델을 미리 받을 수 있습니다.</strong>
-                        <span>
-                          세션 도중 다운로드가 시작되지 않도록 지금 로컬 cache를 준비합니다.
-                        </span>
+                        <small>{copy.fallbackPrep}</small>
+                        <strong>{whisperModel} {copy.fallbackModel}</strong>
+                        <span>{copy.fallbackDetail}</span>
                       </div>
                       <ModelSetupControl
                         provider="faster-whisper"
@@ -248,9 +244,9 @@ export function OnboardingWizard({
                   {canPrepareTranslationModel && (
                     <div className="onboarding-repair">
                       <div>
-                        <small>번역 모델 준비</small>
-                        <strong>선택한 번역 모델을 준비할 수 있습니다.</strong>
-                        <span>실행 중인 Ollama에 모델을 내려받고 완료 후 자동으로 다시 점검합니다.</span>
+                        <small>{copy.translationPrep}</small>
+                        <strong>{copy.translationPrepTitle}</strong>
+                        <span>{copy.translationPrepDetail}</span>
                       </div>
                       <ModelSetupControl
                         provider="ollama"
@@ -278,46 +274,46 @@ export function OnboardingWizard({
 
           {step === 2 && (
             <div className="onboarding-copy">
-              <h2>마이크 / 오디오 입력</h2>
-              <p>
-                브라우저가 실제 입력 장치를 사용할 수 있는지 확인합니다. 권한 확인 후 테스트 스트림은 즉시 종료합니다.
-              </p>
+              <h2>{copy.micTitle}</h2>
+              <p>{copy.micBody}</p>
               <div className={`onboarding-status ${microphone === "ready" ? "ready" : microphone === "error" ? "attention" : ""}`}>
                 <strong>
                   {microphone === "ready"
-                    ? "마이크 준비 완료"
+                    ? copy.micReady
                     : microphone === "checking"
-                      ? "확인 중"
+                      ? copy.micChecking
                       : microphone === "error"
-                        ? "마이크 확인 실패"
-                        : "마이크 확인 필요"}
+                        ? copy.micFailed
+                        : copy.micUnchecked}
                 </strong>
                 <span>{microphoneDetail}</span>
               </div>
               <button className="onboarding-primary" onClick={checkMicrophone} disabled={microphone === "checking"}>
-                {microphone === "checking" ? "확인 중…" : "마이크 점검"}
+                {microphone === "checking" ? `${copy.micChecking}…` : copy.micAction}
               </button>
             </div>
           )}
 
           {step === 3 && (
             <div className="onboarding-copy">
-              <h2>기본 사용 설정</h2>
+              <h2>{copy.basicsTitle}</h2>
               <div className="onboarding-grid">
                 <label>
-                  입력 언어
+                  {copy.sourceLanguage}
                   <select value={sourceLanguage} onChange={(event) => onSourceLanguageChange(event.target.value)}>
                     {LANGUAGE_OPTIONS.map(([code, label]) => <option key={code} value={code}>{label}</option>)}
                   </select>
                 </label>
                 <label>
-                  사용 목적
+                  {copy.useCase}
                   <select value={preset} onChange={(event) => onPresetChange(event.target.value as ProductPreset)}>
-                    {PRESETS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                    {PRESET_VALUES.map((value) => (
+                    <option key={value} value={value}>{t(`preset.${value}` as TranslationKey)}</option>
+                  ))}
                   </select>
                 </label>
                 <label>
-                  음성 인식
+                  {copy.speechRecognition}
                   <select value={engine} onChange={(event) => onEngineChange(event.target.value)}>
                     <option value="auto">Auto</option>
                     <option value="vibevoice">VibeVoice Streaming</option>
@@ -326,26 +322,26 @@ export function OnboardingWizard({
                   </select>
                 </label>
                 <label>
-                  번역
+                  {copy.translation}
                   <select
                     value={translationProvider}
                     onChange={(event) => onTranslationProviderChange(event.target.value)}
                   >
                     <option value="ollama">Ollama</option>
                     <option value="openai-compatible">OpenAI-compatible API</option>
-                    <option value="none">번역 사용 안 함</option>
+                    <option value="none">{copy.noTranslation}</option>
                     {engine === "mock" && <option value="demo">Demo translator</option>}
                   </select>
                 </label>
                 {providerUsesModel(translationProvider) && (
                   <label>
-                    번역 모델
+                    {copy.translationModel}
                     <input
                       value={translationModel}
                       onChange={(event) => onTranslationModelChange(event.target.value)}
                     />
                     {translationProvider === "openai-compatible" && (
-                      <small>/v1/models가 반환하는 정확한 model id를 입력하세요.</small>
+                      <small>{copy.exactModelId}</small>
                     )}
                   </label>
                 )}
@@ -364,16 +360,13 @@ export function OnboardingWizard({
           {step === 4 && (
             <div className="onboarding-copy onboarding-finish">
               <div className="onboarding-finish-mark">✓</div>
-              <h2>초기 설정이 완료되었습니다.</h2>
-              <p>
-                세션 이름과 발표자, 필요 용어를 입력한 뒤 자막을 시작할 수 있습니다.
-                시스템 상태는 운영자 화면의 사전점검 패널에서 언제든 다시 확인할 수 있습니다.
-              </p>
+              <h2>{copy.finishedTitle}</h2>
+              <p>{copy.finishedBody}</p>
               <dl>
-                <div><dt>음성 인식</dt><dd>{engine}</dd></div>
-                <div><dt>번역</dt><dd>{translationProvider}</dd></div>
+                <div><dt>{copy.speechRecognition}</dt><dd>{engine}</dd></div>
+                <div><dt>{copy.translation}</dt><dd>{translationProvider}</dd></div>
                 <div>
-                  <dt>언어</dt>
+                  <dt>{copy.language}</dt>
                   <dd>{languageLabel(sourceLanguage)} → {targetLanguages.map(languageLabel).join(", ")}</dd>
                 </div>
               </dl>
@@ -383,14 +376,14 @@ export function OnboardingWizard({
 
         <footer className="onboarding-footer">
           <button onClick={step === 0 ? onClose : () => setStep((value) => Math.max(0, value - 1))}>
-            {step === 0 ? "나중에" : "이전"}
+            {step === 0 ? copy.later : copy.previous}
           </button>
           {step < 4 ? (
             <button className="onboarding-primary" onClick={() => setStep((value) => Math.min(4, value + 1))}>
-              다음
+              {copy.next}
             </button>
           ) : (
-            <button className="onboarding-primary" onClick={finish}>시작하기</button>
+            <button className="onboarding-primary" onClick={finish}>{copy.begin}</button>
           )}
         </footer>
       </section>

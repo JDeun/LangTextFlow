@@ -107,6 +107,8 @@ jobs:
         run: npm ci
       - name: Audit frontend dependencies
         run: npm audit --audit-level=high
+      - name: UI localization hygiene
+        run: node scripts/check-i18n-literals.mjs
       - name: Frontend policy tests
         run: npm test
       - name: Type-check and production build
@@ -150,6 +152,14 @@ jobs:
         env:
           LANGTEXTFLOW_DATABASE_PATH: /tmp/langtextflow-e2e.db
         run: bash scripts/run_browser_e2e.sh
+      - name: Upload UI smoke screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: ui-smoke-screenshots
+          path: artifacts/*.png
+          if-no-files-found: warn
+          retention-days: 14
 
   platform-smoke:
     name: Platform smoke (${{ matrix.os }})
