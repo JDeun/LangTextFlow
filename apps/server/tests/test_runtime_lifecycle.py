@@ -1,5 +1,6 @@
 import asyncio
 import sqlite3
+import struct
 from datetime import UTC, datetime
 
 import pytest
@@ -146,3 +147,112 @@ async def test_concurrent_session_starts_are_serialized(
     finally:
         await runtime.stop()
         await runtime.shutdown()
+
+
+class _BlockingAudioEngine:
+    accepts_audio = True
+    sample_rate = 16_000
+    running = True
+    failure = None
+    queue_depth = 0
+    queue_capacity = 8
+
+    def __init__(self) -> None:
+        self.feed_started = asyncio.Event()
+        self.allow_feed_to_finish = asyncio.Event()
+        self.feed_finished = asyncio.Event()
+        self.stop_started = asyncio.Event()
+        self.stopped = False
+
+    async def feed_audio(self, _: bytes) -> None:
+        self.feed_started.set()
+        await self.allow_feed_to_finish.wait()
+        self.feed_finished.set()
+
+    async def end_audio(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        self.stop_started.set()
+        self.stopped = True
+        self.running = False
+
+
+@pytest.mark.asyncio
+async def test_audio_stream_claim_is_single_producer_and_session_scoped(tmp_path) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "runtime.db")))
+    engine = _BlockingAudioEngine()
+    runtime.engine = engine
+    runtime.state = SessionState(
+        session_id="session-one",
+        running=True,
+        engine="fake",
+        audio_required=True,
+        audio_sample_rate=engine.sample_rate,
+    )
+
+    assert await runtime.claim_audio_stream() == "session-one"
+    assert await runtime.claim_audio_stream() is None
+
+    runtime.state.session_id = "session-two"
+    assert await runtime.claim_audio_stream() == "session-two"
+
+    # A stale socket closing must not release the replacement session's lease.
+    await runtime.release_audio_stream("session-one")
+    assert await runtime.claim_audio_stream() is None
+
+    await runtime.release_audio_stream("session-two")
+    assert await runtime.claim_audio_stream() == "session-two"
+
+
+@pytest.mark.asyncio
+async def test_stale_audio_stream_cannot_feed_replacement_session(tmp_path) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "runtime.db")))
+    engine = _BlockingAudioEngine()
+    engine.allow_feed_to_finish.set()
+    runtime.engine = engine
+    runtime.state = SessionState(
+        session_id="new-session",
+        running=True,
+        engine="fake",
+        audio_required=True,
+        audio_sample_rate=engine.sample_rate,
+    )
+    frame = struct.pack("<f", 0.1) * 32
+
+    with pytest.raises(RuntimeError, match="different session"):
+        await runtime.feed_audio(frame, session_id="old-session")
+    assert runtime.metrics.audio_frames_received == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_waits_for_inflight_audio_feed(tmp_path) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "runtime.db")))
+    engine = _BlockingAudioEngine()
+    runtime.engine = engine
+    runtime.state = SessionState(
+        session_id="audio-race",
+        running=True,
+        engine="fake",
+        audio_required=True,
+        audio_sample_rate=engine.sample_rate,
+    )
+    frame = struct.pack("<f", 0.1) * 32
+
+    feed_task = asyncio.create_task(
+        runtime.feed_audio(frame, session_id="audio-race")
+    )
+    await asyncio.wait_for(engine.feed_started.wait(), timeout=1.0)
+
+    stop_task = asyncio.create_task(runtime.stop())
+    await asyncio.sleep(0)
+    assert not engine.stop_started.is_set()
+
+    engine.allow_feed_to_finish.set()
+    await asyncio.wait_for(feed_task, timeout=1.0)
+    await asyncio.wait_for(stop_task, timeout=1.0)
+
+    assert engine.feed_finished.is_set()
+    assert engine.stop_started.is_set()
+    assert engine.stopped is True
+    assert runtime.state.running is False
