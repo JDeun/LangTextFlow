@@ -127,3 +127,83 @@ button:disabled { opacity: .45; cursor: not-allowed; }
   .share-links { justify-content: flex-start; }
   .qr-card { width: 100%; flex-basis: auto; }
 }
+
+
+/* Product UI refresh */
+:root {
+  --surface-0: #090b0f;
+  --surface-1: rgba(17, 20, 25, .94);
+  --surface-2: #151a21;
+  --line: #29313a;
+  --line-strong: #394654;
+  --text: #f3f6f9;
+  --muted: #8a96a3;
+  --accent: #8fb4d9;
+  --accent-soft: rgba(143, 180, 217, .12);
+  --success: #72d49a;
+  --danger: #ef7e87;
+  --radius-lg: 20px;
+  --radius-md: 12px;
+}
+body {
+  background:
+    radial-gradient(circle at 15% -10%, rgba(86, 118, 153, .18), transparent 34%),
+    radial-gradient(circle at 90% 0%, rgba(81, 101, 130, .12), transparent 28%),
+    var(--surface-0);
+}
+.app-shell { max-width: 1560px; padding: 22px 28px 48px; }
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  min-height: 72px; margin: 0 -8px 22px; padding: 12px 8px;
+  gap: 22px; backdrop-filter: blur(18px);
+  background: linear-gradient(180deg, rgba(9,11,15,.96), rgba(9,11,15,.78) 78%, transparent);
+}
+.topbar > div:first-child { min-width: 220px; }
+.brand { font-size: 20px; letter-spacing: -.025em; }
+.product-nav { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.product-nav button {
+  width: auto; margin: 0; padding: 8px 11px; border-radius: 9px;
+  color: var(--muted); background: transparent; font-size: 12px; font-weight: 650;
+}
+.product-nav button:hover { color: var(--text); background: var(--accent-soft); }
+.topbar-actions { display: flex; align-items: center; gap: 10px; }
+.locale-switcher { margin: 0; display: flex; align-items: center; gap: 8px; }
+.locale-switcher span { color: var(--muted); font-size: 12px; }
+.locale-switcher select { width: auto; min-width: 108px; padding: 8px 30px 8px 10px; background: #12171d; }
+.locale-switcher.compact { display: block; }
+.workspace { grid-template-columns: minmax(320px, 370px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.panel { border-color: var(--line); background: var(--surface-1); border-radius: var(--radius-lg); box-shadow: 0 18px 54px rgba(0,0,0,.2); }
+.control-panel { position: sticky; top: 88px; max-height: calc(100vh - 110px); overflow: auto; scrollbar-width: thin; padding: 18px; }
+.control-panel > label, .control-panel > .device-block, .control-panel > .glossary-manager { border-top: 1px solid rgba(57,70,84,.42); padding-top: 15px; }
+.section-heading { font-size: 14px; letter-spacing: -.01em; }
+.preview { border-color: var(--line-strong); }
+.preview-toolbar { background: rgba(12,15,20,.72); }
+.stage-screen { min-height: 390px; background: radial-gradient(circle at 50% 120%, #1b2836 0, #0a0e13 45%, #07090d 100%); }
+.start-button { position: sticky; bottom: 0; z-index: 4; box-shadow: 0 -12px 24px rgba(9,11,15,.85); }
+.history-anchor { scroll-margin-top: 92px; }
+#setup-workspace, #live-workspace { scroll-margin-top: 92px; }
+.audience-shell { max-width: 920px; padding: 28px clamp(18px, 4vw, 38px); }
+.audience-header { position: sticky; top: 0; z-index: 5; padding: 14px 0; backdrop-filter: blur(14px); background: rgba(9,11,15,.78); }
+.audience-caption-card { min-height: 360px; border-color: var(--line-strong); box-shadow: 0 28px 80px rgba(0,0,0,.28); }
+@media (max-width: 1080px) {
+  .product-nav { display: none; }
+  .workspace { grid-template-columns: 330px minmax(0, 1fr); }
+}
+@media (max-width: 860px) {
+  .topbar { align-items: flex-start; flex-wrap: wrap; }
+  .topbar-actions { margin-left: auto; }
+  .workspace { grid-template-columns: 1fr; }
+  .control-panel { position: static; max-height: none; order: 2; }
+  .main-column { order: 1; }
+  .stage-screen { min-height: 280px; }
+}
+@media (max-width: 560px) {
+  .app-shell { padding: 14px 12px 32px; }
+  .topbar { margin-bottom: 14px; }
+  .subtitle { display: none; }
+  .setup-button { display: none; }
+  .connection { font-size: 11px; }
+  .locale-switcher select { min-width: 92px; }
+  .audience-caption-card { padding: 26px 22px; min-height: 300px; }
+}
+\n\n/* Progressive disclosure for operator setup */\n.settings-group {\n  margin: 14px 0;\n  border: 1px solid var(--line);\n  border-radius: 14px;\n  background: rgba(12, 16, 21, .7);\n  overflow: clip;\n}\n.settings-group > summary {\n  list-style: none;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  padding: 14px;\n  cursor: pointer;\n  user-select: none;\n}\n.settings-group > summary::-webkit-details-marker { display: none; }\n.settings-group > summary::after {\n  content: "+";\n  color: var(--muted);\n  font-size: 18px;\n  font-weight: 400;\n}\n.settings-group[open] > summary::after { content: "−"; }\n.settings-group > summary span { display: grid; gap: 3px; min-width: 0; }\n.settings-group > summary strong { color: var(--text); font-size: 13px; }\n.settings-group > summary small { color: var(--muted); line-height: 1.35; font-size: 10px; }\n.settings-group-body { padding: 0 14px 14px; border-top: 1px solid rgba(57, 70, 84, .42); }\n.settings-group-body > :first-child { margin-top: 14px; }\n.settings-group-body .context-documents,\n.settings-group-body .glossary-manager { margin-left: 0; margin-right: 0; }\nbutton:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {\n  outline: 2px solid var(--accent);\n  outline-offset: 2px;\n}\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }\n}\n

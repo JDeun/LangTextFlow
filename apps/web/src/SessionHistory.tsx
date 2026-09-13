@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./history.css";
+import { HISTORY_COPY } from "./historyCopy";
+import { useI18n } from "./i18n";
 import type { SessionDetail, SessionRecord, TranscriptEvent } from "./types";
 
 interface SessionHistoryProps {
@@ -57,6 +59,8 @@ export function SessionHistory({
   activeSessionId,
   refreshToken,
 }: SessionHistoryProps) {
+  const { locale } = useI18n();
+  const copy = HISTORY_COPY[locale];
   const [sessions, setSessions] = useState<SessionRecord[]>([]);
   const [sessionQuery, setSessionQuery] = useState("");
   const [selected, setSelected] = useState<SessionDetail | null>(null);
@@ -72,9 +76,9 @@ export function SessionHistory({
 
   const refresh = useCallback(async () => {
     const response = await fetch(`${apiUrl}/api/v1/history?limit=50`);
-    if (!response.ok) throw new Error("세션 기록을 불러오지 못했습니다.");
+    if (!response.ok) throw new Error(copy.loadFailed);
     setSessions((await response.json()) as SessionRecord[]);
-  }, [apiUrl]);
+  }, [apiUrl, copy.loadFailed]);
 
   useEffect(() => {
     refresh().catch((reason: Error) => setError(reason.message));
@@ -91,10 +95,10 @@ export function SessionHistory({
       session.translation_provider,
       session.preset,
       session.source_language,
-      session.interrupted ? "interrupted 비정상 종료 복구" : "",
+      session.interrupted ? `interrupted ${copy.recovered}` : "",
       ...session.target_languages,
     ].join("\n").toLocaleLowerCase().includes(query));
-  }, [sessionQuery, sessions]);
+  }, [copy.recovered, sessionQuery, sessions]);
 
   const filteredSegments = useMemo(() => {
     const query = transcriptQuery.trim();
@@ -137,7 +141,7 @@ export function SessionHistory({
       setEditTitle(detail.title);
       setEditNotes(detail.notes || "");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "세션 상세 기록을 불러오지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.detailFailed);
     } finally {
       setDetailBusy(false);
     }
@@ -156,7 +160,7 @@ export function SessionHistory({
     if (!selected) return;
     const title = editTitle.trim();
     if (!title) {
-      setError("세션 제목은 비워둘 수 없습니다.");
+      setError(copy.titleRequired);
       return;
     }
     setSaveBusy(true);
@@ -181,7 +185,7 @@ export function SessionHistory({
           : session
       )));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "세션 메타데이터를 저장하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.saveFailed);
     } finally {
       setSaveBusy(false);
     }
@@ -199,7 +203,7 @@ export function SessionHistory({
       if (selected?.session_id === session.session_id) closeDetail();
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "세션 기록을 삭제하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.deleteFailed);
     } finally {
       setBusyId("");
     }
@@ -209,11 +213,11 @@ export function SessionHistory({
     <section className="history panel">
       <div className="section-heading history-heading">
         <div>
-          <span>세션 기록</span>
-          <small>세션을 열어 제목·메모를 정리하고 전체 원문/번역 transcript를 검색할 수 있습니다.</small>
+          <span>{copy.heading}</span>
+          <small>{copy.headingHelp}</small>
         </div>
         <button className="secondary-button" onClick={() => refresh()}>
-          새로고침
+          {copy.refresh}
         </button>
       </div>
 
@@ -221,7 +225,7 @@ export function SessionHistory({
         <input
           value={sessionQuery}
           onChange={(event) => setSessionQuery(event.target.value)}
-          placeholder="세션 제목, 메모, 발표자, 엔진, 언어 검색"
+          placeholder={copy.searchPlaceholder}
         />
         <span>{filteredSessions.length} / {sessions.length}</span>
       </div>
@@ -229,9 +233,7 @@ export function SessionHistory({
       {error && <div className="error-box">{error}</div>}
       <div className="history-list">
         {filteredSessions.length === 0 && (
-          <div className="empty">
-            {sessions.length ? "검색 조건과 일치하는 세션이 없습니다." : "저장된 세션이 없습니다."}
-          </div>
+          <div className="empty">{sessions.length ? copy.noMatch : copy.noSessions}</div>
         )}
         {filteredSessions.map((session) => {
           const active = activeSessionId === session.session_id;
@@ -242,9 +244,7 @@ export function SessionHistory({
                 <div className="history-title-row">
                   <strong>{session.title}</strong>
                   {active && <span className="history-live">LIVE</span>}
-                  {session.interrupted && (
-                    <span className="history-interrupted">INTERRUPTED</span>
-                  )}
+                  {session.interrupted && <span className="history-interrupted">INTERRUPTED</span>}
                 </div>
                 <small>
                   {dateLabel(session.started_at)} · {session.source_language.toUpperCase()}
@@ -252,40 +252,23 @@ export function SessionHistory({
                   {" · "}{session.segment_count} segments
                 </small>
                 <small>
-                  {session.presenter || "발표자 미지정"} · {session.engine}
-                  {session.translation_provider !== "none"
-                    ? ` / ${session.translation_provider}`
-                    : ""}
-                  {session.interrupted ? " · 비정상 종료 후 복구됨" : ""}
+                  {session.presenter || copy.presenterMissing} · {session.engine}
+                  {session.translation_provider !== "none" ? ` / ${session.translation_provider}` : ""}
+                  {session.interrupted ? ` · ${copy.recovered}` : ""}
                 </small>
                 {session.notes && <small className="history-note-preview">{session.notes}</small>}
               </div>
               <div className="history-actions">
-                <button
-                  className="secondary-button history-open"
-                  type="button"
-                  onClick={() => openDetail(session)}
-                  disabled={detailBusy}
-                >
-                  {opened ? "다시 열기" : "상세 / 검색"}
+                <button className="secondary-button history-open" type="button" onClick={() => openDetail(session)} disabled={detailBusy}>
+                  {opened ? copy.reopen : copy.details}
                 </button>
                 {["srt", "vtt", "txt", "json"].map((format) => (
-                  <button
-                    className="secondary-button"
-                    type="button"
-                    key={format}
-                    onClick={() => exportSession(session, format)}
-                  >
+                  <button className="secondary-button" type="button" key={format} onClick={() => exportSession(session, format)}>
                     {format.toUpperCase()}
                   </button>
                 ))}
-                <button
-                  className="danger-quiet"
-                  type="button"
-                  onClick={() => remove(session)}
-                  disabled={active || busyId === session.session_id}
-                >
-                  삭제
+                <button className="danger-quiet" type="button" onClick={() => remove(session)} disabled={active || busyId === session.session_id}>
+                  {copy.delete}
                 </button>
               </div>
             </article>
@@ -297,133 +280,81 @@ export function SessionHistory({
         <section className="history-detail">
           <div className="history-detail-header">
             <div>
-              <span className="eyebrow">Session Detail</span>
+              <span className="eyebrow">{copy.detail}</span>
               <h3>{selected.title}</h3>
               <small>
                 {dateLabel(selected.started_at)}
-                {selected.ended_at ? ` → ${dateLabel(selected.ended_at)}` : " · 진행 중"}
-                {selected.interrupted ? " · 비정상 종료 복구" : ""}
+                {selected.ended_at ? ` → ${dateLabel(selected.ended_at)}` : ` · ${copy.running}`}
+                {selected.interrupted ? ` · ${copy.recoveredShort}` : ""}
                 {" · "}{selected.segment_count} segments
               </small>
             </div>
-            <button className="secondary-button" type="button" onClick={closeDetail}>
-              닫기
-            </button>
+            <button className="secondary-button" type="button" onClick={closeDetail}>{copy.close}</button>
           </div>
 
           <div className="history-detail-meta">
-            <span>발표자 <strong>{selected.presenter || "미지정"}</strong></span>
+            <span>{copy.presenter} <strong>{selected.presenter || copy.unspecified}</strong></span>
             <span>Preset <strong>{selected.preset}</strong></span>
             <span>ASR <strong>{selected.engine}</strong></span>
-            <span>
-              번역 <strong>{selected.translation_provider === "none" ? "사용 안 함" : selected.translation_provider}</strong>
-            </span>
-            {selected.interrupted && (
-              <span>종료 상태 <strong>비정상 종료 후 자동 복구</strong></span>
-            )}
+            <span>{copy.translation} <strong>{selected.translation_provider === "none" ? copy.disabled : selected.translation_provider}</strong></span>
+            {selected.interrupted && <span>{copy.endStatus} <strong>{copy.autoRecovered}</strong></span>}
           </div>
 
           <div className="history-metadata-editor">
             <label>
-              기록용 제목
-              <input
-                value={editTitle}
-                maxLength={120}
-                onChange={(event) => setEditTitle(event.target.value)}
-                disabled={selectedIsActive || saveBusy}
-              />
+              {copy.recordTitle}
+              <input value={editTitle} maxLength={120} onChange={(event) => setEditTitle(event.target.value)} disabled={selectedIsActive || saveBusy} />
             </label>
             <label>
-              운영 메모
-              <textarea
-                value={editNotes}
-                maxLength={8000}
-                rows={4}
-                onChange={(event) => setEditNotes(event.target.value)}
-                disabled={selectedIsActive || saveBusy}
-                placeholder="후속 작업, 품질 이슈, 행사 정보 등을 기록하세요."
-              />
+              {copy.notes}
+              <textarea value={editNotes} maxLength={8000} rows={4} onChange={(event) => setEditNotes(event.target.value)} disabled={selectedIsActive || saveBusy} placeholder={copy.notesPlaceholder} />
             </label>
             <div className="history-metadata-actions">
-              <small>
-                라이브 당시 모델 입력인 Session Context는 수정하지 않습니다.
-                {selectedIsActive ? " 현재 진행 중인 세션은 종료 후 편집할 수 있습니다." : ""}
-              </small>
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={saveMetadata}
-                disabled={selectedIsActive || saveBusy || !editTitle.trim()}
-              >
-                {saveBusy ? "저장 중…" : "제목 / 메모 저장"}
+              <small>{copy.contextImmutable}{selectedIsActive ? copy.activeEditHint : ""}</small>
+              <button className="secondary-button" type="button" onClick={saveMetadata} disabled={selectedIsActive || saveBusy || !editTitle.trim()}>
+                {saveBusy ? copy.saving : copy.saveMetadata}
               </button>
             </div>
           </div>
 
-          {(selected.context.description
-            || selected.context.hotwords.length > 0
-            || selected.context.reference_documents.length > 0) && (
+          {(selected.context.description || selected.context.hotwords.length > 0 || selected.context.reference_documents.length > 0) && (
             <div className="history-context">
               {selected.context.description && <p>{selected.context.description}</p>}
-              {selected.context.hotwords.length > 0 && (
-                <small>Hotwords: {selected.context.hotwords.join(", ")}</small>
-              )}
+              {selected.context.hotwords.length > 0 && <small>Hotwords: {selected.context.hotwords.join(", ")}</small>}
               {selected.context.reference_documents.length > 0 && (
-                <small>
-                  Reference documents: {selected.context.reference_documents
-                    .map((document) => document.filename)
-                    .join(", ")}
-                </small>
+                <small>Reference documents: {selected.context.reference_documents.map((document) => document.filename).join(", ")}</small>
               )}
             </div>
           )}
 
           <div className="history-detail-controls">
             <label>
-              표시 언어
-              <select
-                value={detailLanguage}
-                onChange={(event) => setDetailLanguage(event.target.value)}
-              >
+              {copy.displayLanguage}
+              <select value={detailLanguage} onChange={(event) => setDetailLanguage(event.target.value)}>
                 {detailLanguages.map((language) => (
                   <option value={language} key={language}>
-                    {language.toUpperCase()}{language === selected.source_language ? " · 원문" : ""}
+                    {language.toUpperCase()}{language === selected.source_language ? ` · ${copy.source}` : ""}
                   </option>
                 ))}
               </select>
             </label>
             <label className="history-transcript-search">
-              Transcript 검색
-              <input
-                value={transcriptQuery}
-                onChange={(event) => setTranscriptQuery(event.target.value)}
-                placeholder="원문·모든 번역·speaker에서 검색"
-              />
+              {copy.transcriptSearch}
+              <input value={transcriptQuery} onChange={(event) => setTranscriptQuery(event.target.value)} placeholder={copy.transcriptPlaceholder} />
             </label>
-            <div className="history-match-count">
-              {filteredSegments.length} / {segments.length} segments
-            </div>
+            <div className="history-match-count">{filteredSegments.length} / {segments.length} segments</div>
           </div>
 
           <div className="history-detail-export">
             {["srt", "vtt", "txt", "json"].map((format) => (
-              <button
-                className="secondary-button"
-                type="button"
-                key={format}
-                onClick={() => exportSession(selected, format, detailLanguage)}
-              >
-                {format === "json" ? "전체 JSON" : `${detailLanguage.toUpperCase()} ${format.toUpperCase()}`}
+              <button className="secondary-button" type="button" key={format} onClick={() => exportSession(selected, format, detailLanguage)}>
+                {format === "json" ? copy.allJson : `${detailLanguage.toUpperCase()} ${format.toUpperCase()}`}
               </button>
             ))}
           </div>
 
           <div className="history-transcript-list">
-            {filteredSegments.length === 0 && (
-              <div className="empty">
-                {segments.length ? "검색어와 일치하는 자막이 없습니다." : "저장된 자막이 없습니다."}
-              </div>
-            )}
+            {filteredSegments.length === 0 && <div className="empty">{segments.length ? copy.noCaptionMatch : copy.noCaptions}</div>}
             {filteredSegments.map((segment) => (
               <article className="history-transcript-segment" key={segment.segment_id}>
                 <div className="history-transcript-time">
@@ -433,9 +364,7 @@ export function SessionHistory({
                 <div className="history-transcript-copy">
                   {segment.speaker && <small className="history-speaker">{segment.speaker}</small>}
                   <div>{segmentText(segment, detailLanguage)}</div>
-                  {detailLanguage !== segment.source_language && segment.translations[detailLanguage] && (
-                    <small className="history-source-text">{segment.text}</small>
-                  )}
+                  {detailLanguage !== segment.source_language && segment.translations[detailLanguage] && <small className="history-source-text">{segment.text}</small>}
                 </div>
                 <div className="history-transcript-state">
                   <span>{segment.stage}</span>

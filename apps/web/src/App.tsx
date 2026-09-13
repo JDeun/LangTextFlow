@@ -10,11 +10,14 @@ import { ContextDocumentManager } from "./ContextDocumentManager";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
+import { LanguageSwitcher, useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { LiveCaption } from "./LiveCaption";
 import { OnboardingWizard } from "./OnboardingWizard";
+import { OPERATOR_COPY } from "./operatorCopy";
 import { PreflightPanel } from "./PreflightPanel";
 import { SessionHistory } from "./SessionHistory";
+import { DEFAULT_KOREAN_HOTWORDS } from "./sessionDefaults";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { useCaptionSocket } from "./useCaptionSocket";
@@ -29,18 +32,13 @@ import type {
   TranscriptEvent,
 } from "./types";
 
-const PRESETS: Array<[ProductPreset, string]> = [
-  ["general", "일반"],
-  ["church", "교회 / 선교 집회"],
-  ["conference", "컨퍼런스"],
-  ["lecture", "강의"],
-];
+const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lecture"];
 
 const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 const DISPLAY_SETTINGS_STORAGE_KEY = "langtextflow:display:v1";
 
-function displayCaption(segment: TranscriptEvent | undefined, language: string) {
-  if (!segment) return "말하기를 시작하면 자막이 이곳에 표시됩니다.";
+function displayCaption(segment: TranscriptEvent | undefined, language: string, emptyText = "") {
+  if (!segment) return emptyText;
   if (language === segment.source_language) return segment.text;
   return segment.translations[language] || segment.text;
 }
@@ -75,6 +73,7 @@ function translationProviderUsesModel(provider: string) {
 }
 
 function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode: boolean }) {
+  const { t } = useI18n();
   const { connected, segments, terminalError } = useCaptionSocket(
     `/ws/audience/${encodeURIComponent(joinCode)}`,
   );
@@ -87,7 +86,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
   useEffect(() => {
     fetch(`${API_URL}/api/v1/audience/${encodeURIComponent(joinCode)}`)
       .then(async (response) => {
-        if (!response.ok) throw new Error("유효하지 않거나 종료된 세션입니다.");
+        if (!response.ok) throw new Error(t("audience.invalidSession"));
         return (await response.json()) as AudienceSessionView;
       })
       .then((data) => {
@@ -105,7 +104,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
     return <main className="audience-error">{error || terminalError}</main>;
   }
   if (!session || !language) {
-    return <main className="audience-error">세션을 불러오는 중입니다…</main>;
+    return <main className="audience-error">{t("audience.loading")}</main>;
   }
 
   const availableLanguages = captionLanguages(session.source_language, session.target_languages);
@@ -135,15 +134,15 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
           <div className="subtitle">{session.presenter || "LangTextFlow Live"}</div>
         </div>
         <div className={`connection ${connected ? "online" : "offline"}`}>
-          <span className="dot" /> {connected ? "LIVE" : "연결 중"}
+          <span className="dot" /> {connected ? "LIVE" : t("audience.connecting")}
         </div>
       </header>
       <label className="audience-language">
-        자막 언어
+        {t("audience.captionLanguage")}
         <select value={language} onChange={(event) => setLanguage(event.target.value)}>
           {availableLanguages.map((code) => (
             <option key={code} value={code}>
-              {languageLabel(code)}{code === session.source_language ? " · 원문" : ""}
+              {languageLabel(code)}{code === session.source_language ? ` · ${t("audience.source")}` : ""}
             </option>
           ))}
         </select>
@@ -161,7 +160,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
       <section className="audience-transcript">
         {segments.slice(-8).reverse().map((segment) => (
           <article key={segment.segment_id}>
-            <span>{displayCaption(segment, language)}</span>
+            <span>{displayCaption(segment, language, t("live.emptyCaption"))}</span>
             {segment.stage === "partial" && <small>draft</small>}
           </article>
         ))}
@@ -171,6 +170,8 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
 }
 
 function OperatorApp() {
+  const { locale, t } = useI18n();
+  const operatorCopy = OPERATOR_COPY[locale];
   const { connected, segments, terminalError } = useCaptionSocket();
   const captureRef = useRef<AudioCaptureController | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("ko");
@@ -179,10 +180,10 @@ function OperatorApp() {
   const [displaySettings, setDisplaySettings] = useState<CaptionDisplaySettings>(
     () => loadStoredDisplaySettings(DISPLAY_SETTINGS_STORAGE_KEY),
   );
-  const [title, setTitle] = useState("새 실시간 자막 세션");
+  const [title, setTitle] = useState(() => t("session.newTitle"));
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
-  const [hotwords, setHotwords] = useState("요한복음, 로마서, 복음, 은혜, 칭의, 성화");
+  const [hotwords, setHotwords] = useState(DEFAULT_KOREAN_HOTWORDS);
   const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);
   const [engine, setEngine] = useState("auto");
   const [correctionProvider, setCorrectionProvider] = useState("none");
@@ -267,7 +268,7 @@ function OperatorApp() {
       setDevices(result);
       setDeviceId((current) => current || result[0]?.deviceId || "");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "오디오 장치를 찾지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : t("audio.deviceError"));
     }
   }
 
@@ -282,14 +283,14 @@ function OperatorApp() {
     const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
     if (!response.ok) {
       const detail = await response.text();
-      throw new Error(detail || `사전점검 요청에 실패했습니다. (${response.status})`);
+      throw new Error(detail || `${t("preflight.requestFailed")} (${response.status})`);
     }
     const report = (await response.json()) as SystemPreflight;
     if (!report.ready) {
       const labels = report.blocking_checks
         .map((checkId) => report.checks.find((check) => check.id === checkId)?.label || checkId)
         .join(", ");
-      throw new Error(`시작 전 준비가 필요합니다: ${labels || "시스템 사전점검을 확인하세요."}`);
+      throw new Error(`${t("preflight.needsSetup")}: ${labels || t("preflight.checkSystem")}`);
     }
   }
 
@@ -305,7 +306,7 @@ function OperatorApp() {
         setDevices(result);
         selectedDevice = result[0]?.deviceId || "";
         setDeviceId(selectedDevice);
-        if (!selectedDevice) throw new Error("사용 가능한 오디오 입력 장치가 없습니다.");
+        if (!selectedDevice) throw new Error(t("audio.noDevice"));
       }
 
       const response = await fetch(`${API_URL}/api/v1/session/start`, {
@@ -365,7 +366,7 @@ function OperatorApp() {
       captureRef.current = null;
       await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" }).catch(() => undefined);
       setSession(null);
-      setError(reason instanceof Error ? reason.message : "세션을 시작하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : t("error.startFailed"));
     } finally {
       setBusy(false);
     }
@@ -381,7 +382,7 @@ function OperatorApp() {
       if (!response.ok) throw new Error(await response.text());
       setSession((await response.json()) as SessionState);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "세션을 중지하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : t("error.stopFailed"));
     } finally {
       setBusy(false);
     }
@@ -411,54 +412,62 @@ function OperatorApp() {
       <header className="topbar">
         <div>
           <div className="brand">LangTextFlow</div>
-          <div className="subtitle">Local-first realtime multilingual captioning</div>
+          <div className="subtitle">{t("app.tagline")}</div>
         </div>
+        <nav className="product-nav" aria-label="Workspace">
+          <button type="button" onClick={() => document.getElementById("live-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.live")}</button>
+          <button type="button" onClick={() => document.getElementById("setup-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.setup")}</button>
+          <button type="button" onClick={() => document.getElementById("history-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.history")}</button>
+        </nav>
         <div className="topbar-actions">
+          <LanguageSwitcher compact />
           <button
             className="secondary-button setup-button"
             onClick={() => setOnboardingOpen(true)}
             disabled={running}
           >
-            초기 설정
+            {t("app.setup")}
           </button>
-          <div className={`connection ${connected ? "online" : "offline"}`}>
-            <span className="dot" /> {connected ? "서버 연결됨" : "서버 연결 중"}
+          <div data-testid="connection-status" className={`connection ${connected ? "online" : "offline"}`}>
+            <span className="dot" /> {connected ? t("app.serverConnected") : t("app.serverConnecting")}
           </div>
         </div>
       </header>
 
       <div className="workspace">
-        <aside className="control-panel panel">
+        <aside id="setup-workspace" className="control-panel panel">
           <div className="section-heading">
-            <span>세션 설정</span>
+            <span>{t("session.settings")}</span>
             <span className="beta">P3C</span>
           </div>
 
           <label>
-            세션 이름
+            {t("session.title")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
           </label>
           <label>
-            발표자 / 강사
+            {t("session.presenter")}
             <input
               value={presenter}
               onChange={(event) => setPresenter(event.target.value)}
               disabled={running}
-              placeholder="선택 사항"
+              placeholder={t("session.optional")}
             />
           </label>
           <label>
-            사용 목적
+            {t("session.preset")}
             <select
               value={preset}
               onChange={(event) => setPreset(event.target.value as ProductPreset)}
               disabled={running}
             >
-              {PRESETS.map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+              {PRESET_VALUES.map((value) => (
+                <option value={value} key={value}>{t(`preset.${value}` as TranslationKey)}</option>
+              ))}
             </select>
           </label>
           <label>
-            입력 언어
+            {t("session.sourceLanguage")}
             <select
               value={sourceLanguage}
               onChange={(event) => changeSourceLanguage(event.target.value)}
@@ -468,7 +477,7 @@ function OperatorApp() {
                 <option value={code} key={code}>{label}</option>
               ))}
             </select>
-            <small>입력 언어는 원문 자막으로 항상 제공됩니다.</small>
+            <small>{t("session.sourceHelp")}</small>
           </label>
           <TargetLanguageSelector
             value={targetLanguages}
@@ -481,15 +490,20 @@ function OperatorApp() {
             disabled={running}
             onChange={setDisplaySettings}
           />
+          <details className="settings-group">
+            <summary>
+              <span><strong>{operatorCopy.contextGroup}</strong><small>{operatorCopy.contextGroupHelp}</small></span>
+            </summary>
+            <div className="settings-group-body">
           <label>
-            중요 용어 / Hotwords
+            {t("session.hotwords")}
             <textarea
               rows={4}
               value={hotwords}
               onChange={(event) => setHotwords(event.target.value)}
               disabled={running}
             />
-            <small>일회성 세션 힌트입니다. 반복 사용할 용어는 아래 용어집에 저장하세요.</small>
+            <small>{t("session.hotwordsHelp")}</small>
           </label>
 
           <ContextDocumentManager
@@ -504,10 +518,18 @@ function OperatorApp() {
             targetLanguage={glossaryTargetLanguage}
             disabled={running}
           />
+            </div>
+          </details>
 
+          <details className="settings-group">
+            <summary>
+              <span><strong>{operatorCopy.advancedGroup}</strong><small>{operatorCopy.advancedGroupHelp}</small></span>
+            </summary>
+            <div className="settings-group-body">
           <label>
-            음성 인식 엔진
+            {t("engines.asr")}
             <select
+              data-testid="engine-select"
               value={engine}
               onChange={(event) => changeEngine(event.target.value)}
               disabled={running}
@@ -518,34 +540,34 @@ function OperatorApp() {
               <option value="mock">Demo engine</option>
             </select>
             {engine === "auto" && (
-              <small>VibeVoice 시작 실패 시 로컬 faster-whisper로 자동 전환합니다.</small>
+              <small>{t("engines.autoHelp")}</small>
             )}
           </label>
           <label>
-            문맥 기반 LLM 보정
+            {t("engines.correction")}
             <select
               value={correctionProvider}
               onChange={(event) => setCorrectionProvider(event.target.value)}
               disabled={running}
             >
-              <option value="none">규칙 기반 보정만</option>
+              <option value="none">{operatorCopy.rulesOnly}</option>
               <option value="ollama">Ollama constrained correction (local)</option>
             </select>
-            <small>LLM 실패·timeout·과도한 수정은 자동 거부하고 규칙 기반 결과를 사용합니다.</small>
+            <small>{t("engines.correctionHelp")}</small>
           </label>
           {correctionProvider === "ollama" && (
             <label>
-              Ollama 보정 모델
+              {t("engines.correctionModel")}
               <input
                 value={correctionModel}
                 onChange={(event) => setCorrectionModel(event.target.value)}
                 disabled={running}
               />
-              <small>기본값: qwen3.5:4b · 다른 로컬 instruction model로 교체 가능합니다.</small>
+              <small>{operatorCopy.correctionDefaultHelp}</small>
             </label>
           )}
           <label>
-            번역 엔진
+            {t("engines.translation")}
             <select
               value={translationProvider}
               onChange={(event) => setTranslationProvider(event.target.value)}
@@ -554,12 +576,12 @@ function OperatorApp() {
               {engine === "mock" && <option value="demo">Demo translator</option>}
               <option value="ollama">Ollama (local)</option>
               <option value="openai-compatible">OpenAI-compatible API</option>
-              <option value="none">번역 사용 안 함</option>
+              <option value="none">{operatorCopy.noTranslation}</option>
             </select>
           </label>
           {translationProviderUsesModel(translationProvider) && (
             <label>
-              {translationProvider === "ollama" ? "Ollama 번역 모델" : "API 번역 모델 ID"}
+              {translationProvider === "ollama" ? t("engines.translationModel") : t("engines.apiModel")}
               <input
                 value={translationModel}
                 onChange={(event) => setTranslationModel(event.target.value)}
@@ -567,23 +589,25 @@ function OperatorApp() {
               />
               <small>
                 {translationProvider === "ollama"
-                  ? "권장 시작점: translategemma:4b"
-                  : "서버의 /v1/models가 반환하는 정확한 model id를 입력하세요."}
+                  ? operatorCopy.translationRecommended
+                  : operatorCopy.exactModelId}
               </small>
             </label>
           )}
+            </div>
+          </details>
 
           {needsAudio && (
             <div className="device-block">
               <label>
-                오디오 입력
+                {t("audio.input")}
                 <select
                   value={deviceId}
                   onChange={(event) => setDeviceId(event.target.value)}
                   disabled={running}
                 >
                   <option value="">
-                    {devices.length ? "기본 입력 장치" : "장치를 먼저 찾으세요"}
+                    {devices.length ? t("audio.defaultDevice") : t("audio.findDevice")}
                   </option>
                   {devices.map((device) => (
                     <option value={device.deviceId} key={device.deviceId}>{device.label}</option>
@@ -595,7 +619,7 @@ function OperatorApp() {
                 onClick={refreshDevices}
                 disabled={running || busy}
               >
-                마이크 권한 / 장치 새로고침
+                {t("audio.refresh")}
               </button>
             </div>
           )}
@@ -604,18 +628,19 @@ function OperatorApp() {
             <div className="error-box">{error || terminalError}</div>
           )}
           {session?.persistence_error && (
-            <div className="warning-box">기록 저장 경고: {session.persistence_error}</div>
+            <div className="warning-box">{t("live.persistenceWarning")}: {session.persistence_error}</div>
           )}
           <button
             className={running ? "stop-button" : "start-button"}
+            data-testid="session-toggle"
             onClick={running ? stop : start}
             disabled={busy || !connected}
           >
-            {busy ? "처리 중…" : running ? "자막 중지" : "세션 시작"}
+            {busy ? t("session.busy") : running ? t("session.stop") : t("session.start")}
           </button>
 
           <div className="pipeline-card">
-            <span>실시간 상태</span>
+            <span>{t("live.status")}</span>
             <strong>{latest?.stage ?? "idle"}</strong>
             <div className="stage-track">
               {["partial", "stable", "corrected", "translated", "committed"].map((stage) => (
@@ -627,18 +652,18 @@ function OperatorApp() {
             )}
             {session?.correction_status.enabled && (
               <small>
-                보정: {session.correction_status.provider} / {session.correction_status.model || "default"}
+                {operatorCopy.correctionStatus}: {session.correction_status.provider} / {session.correction_status.model || "default"}
                 {session.correction_status.available
-                  ? " · ready"
-                  : ` · deterministic fallback: ${session.correction_status.error || "unavailable"}`}
+                  ? ` · ${operatorCopy.ready}`
+                  : ` · ${operatorCopy.deterministicFallback}: ${session.correction_status.error || operatorCopy.unavailable}`}
               </small>
             )}
             {session?.translation_status.enabled && (
               <small>
-                번역: {session.translation_status.provider} / {session.translation_status.model || "default"}
+                {operatorCopy.translationStatus}: {session.translation_status.provider} / {session.translation_status.model || "default"}
                 {session.translation_status.available
-                  ? " · ready"
-                  : ` · unavailable: ${session.translation_status.error || "unknown"}`}
+                  ? ` · ${operatorCopy.ready}`
+                  : ` · ${operatorCopy.unavailable}: ${session.translation_status.error || operatorCopy.unknown}`}
               </small>
             )}
           </div>
@@ -646,23 +671,23 @@ function OperatorApp() {
           <TelemetryPanel apiUrl={API_URL} running={running} />
         </aside>
 
-        <section className="main-column">
+        <section id="live-workspace" className="main-column">
           {session?.join_code && (
             <AudienceAccess joinCode={session.join_code} targetLanguage={previewLanguage} />
           )}
 
           <div className="preview panel">
             <div className="preview-toolbar">
-              <span>Audience Preview</span>
+              <span>{t("live.preview")}</span>
               <label>
-                표시 언어
+                {t("live.displayLanguage")}
                 <select
                   value={previewLanguage}
                   onChange={(event) => setPreviewLanguage(event.target.value)}
                 >
                   {availablePreviewLanguages.map((code) => (
                     <option key={code} value={code}>
-                      {languageLabel(code)}{code === sourceLanguage ? " · 원문" : ""}
+                      {languageLabel(code)}{code === sourceLanguage ? ` · ${t("audience.source")}` : ""}
                     </option>
                   ))}
                 </select>
@@ -676,16 +701,16 @@ function OperatorApp() {
                 surface="preview"
                 primaryClassName="caption"
                 sourceClassName="source-caption"
-                emptyText="말하기를 시작하면 자막이 이곳에 표시됩니다."
+                emptyText={t("live.emptyCaption")}
               />
             </div>
           </div>
 
           <div className="transcript panel">
-            <div className="section-heading">실시간 세그먼트</div>
+            <div className="section-heading">{t("live.segments")}</div>
             <div className="transcript-list">
               {recent.length === 0 && (
-                <div className="empty">아직 수신된 세그먼트가 없습니다.</div>
+                <div className="empty">{t("live.emptySegments")}</div>
               )}
               {recent.map((segment) => (
                 <article className="segment" key={segment.segment_id}>
@@ -694,7 +719,7 @@ function OperatorApp() {
                     <span className={`stage-tag ${segment.stage}`}>{segment.stage}</span>
                     <span>v{segment.version}</span>
                   </div>
-                  <div className="segment-text">{displayCaption(segment, previewLanguage)}</div>
+                  <div className="segment-text">{displayCaption(segment, previewLanguage, t("live.emptyCaption"))}</div>
                   {previewLanguage !== sourceLanguage && segment.translations[previewLanguage] && (
                     <div className="segment-source">{segment.text}</div>
                   )}
@@ -703,12 +728,14 @@ function OperatorApp() {
             </div>
           </div>
 
+          <div id="history-workspace" className="history-anchor">
           <SessionHistory
             apiUrl={API_URL}
             targetLanguage={previewLanguage}
             activeSessionId={running ? session?.session_id ?? null : null}
             refreshToken={historyRefreshToken}
           />
+          </div>
         </section>
       </div>
 

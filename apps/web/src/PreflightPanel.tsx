@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
+import { useI18n } from "./i18n";
 import { ModelSetupControl } from "./ModelSetupControl";
+import { PREFLIGHT_COPY } from "./preflightCopy";
 import type {
   PreflightCheck,
   RecommendedConfiguration,
@@ -35,12 +37,16 @@ export function PreflightPanel({
   translationModel,
   onApplyRecommendation,
 }: PreflightPanelProps) {
-  const [open, setOpen] = useState(true);
+  const { locale } = useI18n();
+  const copy = PREFLIGHT_COPY[locale];
+  const [open, setOpen] = useState(
+    () => typeof window === "undefined" || window.matchMedia("(min-width: 861px)").matches,
+  );
   const [report, setReport] = useState<SystemPreflight | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [microphone, setMicrophone] = useState<MicrophoneState>("unchecked");
-  const [microphoneDetail, setMicrophoneDetail] = useState("아직 확인하지 않았습니다.");
+  const [microphoneDetail, setMicrophoneDetail] = useState(copy.initial);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -54,14 +60,14 @@ export function PreflightPanel({
         query.set("translation_model", translationModel.trim());
       }
       const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
-      if (!response.ok) throw new Error(`시스템 점검 HTTP ${response.status}`);
+      if (!response.ok) throw new Error(`${copy.http} ${response.status}`);
       setReport((await response.json()) as SystemPreflight);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "시스템 점검에 실패했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.failed);
     } finally {
       setLoading(false);
     }
-  }, [engine, translationModel, translationProvider]);
+  }, [copy.failed, copy.http, engine, translationModel, translationProvider]);
 
   const handleRepairCompleted = useCallback(() => {
     void load();
@@ -72,27 +78,31 @@ export function PreflightPanel({
     return () => window.clearTimeout(timer);
   }, [load]);
 
+  useEffect(() => {
+    if (microphone === "unchecked") setMicrophoneDetail(copy.initial);
+  }, [copy.initial, microphone]);
+
   async function checkMicrophone() {
     setMicrophone("checking");
-    setMicrophoneDetail("마이크 권한을 확인하는 중입니다…");
+    setMicrophoneDetail(copy.checkingMic);
     try {
       if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("이 브라우저는 오디오 입력 API를 지원하지 않습니다.");
+        throw new Error(copy.unsupported);
       }
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const inputs = devices.filter((device) => device.kind === "audioinput");
-        if (inputs.length === 0) throw new Error("사용 가능한 오디오 입력 장치가 없습니다.");
+        if (inputs.length === 0) throw new Error(copy.noDevice);
         setMicrophone("ready");
-        setMicrophoneDetail(`오디오 입력 ${inputs.length}개를 확인했습니다.`);
+        setMicrophoneDetail(`${copy.found}: ${inputs.length}`);
       } finally {
         stream.getTracks().forEach((track) => track.stop());
       }
     } catch (reason) {
       setMicrophone("error");
       setMicrophoneDetail(
-        reason instanceof Error ? reason.message : "마이크 권한 또는 장치를 확인하지 못했습니다.",
+        reason instanceof Error ? reason.message : copy.micFailed,
       );
     }
   }
@@ -101,12 +111,12 @@ export function PreflightPanel({
   const microphoneRequired = engine !== "mock";
   const fullyReady = backendReady && (!microphoneRequired || microphone === "ready");
   const headline = fullyReady
-    ? "사용 준비 완료"
+    ? copy.ready
     : backendReady && microphoneRequired
-      ? "엔진 준비됨 · 마이크 확인 필요"
+      ? copy.engineMic
       : backendReady
-        ? "현재 구성 준비 완료"
-        : "설정 확인 필요";
+        ? copy.configReady
+        : copy.needsCheck;
 
   const recommendationDiffers = useMemo(() => {
     const recommendation = report?.recommended;
@@ -153,22 +163,22 @@ export function PreflightPanel({
         className={`preflight-pill ${backendReady ? "ready" : "attention"}`}
         onClick={() => setOpen(true)}
       >
-        시스템 점검 · {backendReady ? "엔진 준비" : "확인 필요"}
+        {copy.pill} · {backendReady ? copy.engineReady : copy.checkNeeded}
       </button>
     );
   }
 
   return (
-    <aside className="preflight-panel" aria-label="시스템 사전점검">
+    <aside className="preflight-panel" aria-label={copy.aria}>
       <div className="preflight-titlebar">
         <div>
-          <small>시작 전 점검</small>
+          <small>{copy.beforeStart}</small>
           <strong>{headline}</strong>
         </div>
         <button
           className="preflight-close"
           onClick={() => setOpen(false)}
-          aria-label="점검 패널 접기"
+          aria-label={copy.collapse}
         >
           −
         </button>
@@ -186,7 +196,7 @@ export function PreflightPanel({
           {recommendationDiffers && report.recommended.engine && (
             <div className="preflight-recommendation">
               <div>
-                <small>현재 환경 권장 구성</small>
+                <small>{copy.recommendation}</small>
                 <strong>
                   {report.recommended.engine} · {report.recommended.translation_provider}
                   {report.recommended.translation_model
@@ -198,7 +208,7 @@ export function PreflightPanel({
                 {report.recommended.reasons.map((reason) => <li key={reason}>{reason}</li>)}
               </ul>
               <button onClick={() => onApplyRecommendation(report.recommended)}>
-                권장 구성 적용
+                {copy.apply}
               </button>
             </div>
           )}
@@ -210,9 +220,9 @@ export function PreflightPanel({
           {canPrepareWhisperModel && (
             <div className="preflight-repair">
               <div>
-                <small>Auto fallback 준비</small>
-                <strong>{whisperModel} ASR 모델 cache가 없습니다.</strong>
-                <span>세션 전에 다운로드하면 failover 시 다운로드 지연 없이 전환할 수 있습니다.</span>
+                <small>{copy.fallbackPrep}</small>
+                <strong>{whisperModel} · {copy.missingCache}</strong>
+                <span>{copy.fallbackHelp}</span>
               </div>
               <ModelSetupControl
                 provider="faster-whisper"
@@ -226,9 +236,9 @@ export function PreflightPanel({
           {canPrepareTranslationModel && (
             <div className="preflight-repair">
               <div>
-                <small>자동 해결 가능</small>
-                <strong>번역 모델이 아직 없습니다.</strong>
-                <span>실행 중인 Ollama를 통해 선택한 모델을 내려받을 수 있습니다.</span>
+                <small>{copy.autoRepair}</small>
+                <strong>{copy.missingTranslation}</strong>
+                <span>{copy.translationHelp}</span>
               </div>
               <ModelSetupControl
                 provider="ollama"
@@ -258,7 +268,7 @@ export function PreflightPanel({
               >
                 <i>{microphone === "ready" ? "✓" : microphone === "error" ? "×" : "i"}</i>
                 <div>
-                  <strong>마이크 / 오디오 입력</strong>
+                  <strong>{copy.microphone}</strong>
                   <span>{microphoneDetail}</span>
                 </div>
               </div>
@@ -269,11 +279,11 @@ export function PreflightPanel({
 
       <div className="preflight-actions">
         <button onClick={() => void load()} disabled={loading}>
-          {loading ? "점검 중…" : "시스템 다시 점검"}
+          {loading ? copy.checking : copy.rerun}
         </button>
         {microphoneRequired && (
           <button onClick={checkMicrophone} disabled={microphone === "checking"}>
-            {microphone === "checking" ? "확인 중…" : "마이크 점검"}
+            {microphone === "checking" ? copy.checking : copy.checkMic}
           </button>
         )}
       </div>

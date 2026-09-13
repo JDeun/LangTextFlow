@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
+import { useI18n } from "./i18n";
 import type { ModelSetupJob } from "./types";
+import { UTILITY_COPY } from "./utilityCopy";
 import "./modelSetup.css";
 
 type SetupProvider = "ollama" | "faster-whisper";
@@ -28,20 +30,20 @@ function setupEndpoint(provider: SetupProvider) {
     : "/api/v1/setup/faster-whisper/prefetch";
 }
 
-function actionLabel(provider: SetupProvider, model: string) {
-  if (provider === "faster-whisper") return `${model || "ASR 모델"} 미리 다운로드`;
-  return `${model || "번역 모델"} 다운로드`;
-}
-
 export function ModelSetupControl({
   provider = "ollama",
   model,
   enabled,
   onCompleted,
 }: ModelSetupControlProps) {
+  const { locale } = useI18n();
+  const copy = UTILITY_COPY[locale].model;
   const [job, setJob] = useState<ModelSetupJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const actionLabel = provider === "faster-whisper"
+    ? `${model || copy.asrModel} ${copy.predownload}`
+    : `${model || copy.translationModel} ${copy.download}`;
 
   const active = job !== null && !TERMINAL.has(job.state);
   const progressLabel = useMemo(() => {
@@ -59,22 +61,20 @@ export function ModelSetupControl({
     const timer = window.setInterval(async () => {
       try {
         const response = await fetch(`${API_URL}/api/v1/setup/jobs/${encodeURIComponent(job.job_id)}`);
-        if (!response.ok) throw new Error(`모델 준비 상태 HTTP ${response.status}`);
+        if (!response.ok) throw new Error(`${copy.stateHttp} ${response.status}`);
         const next = (await response.json()) as ModelSetupJob;
         if (cancelled) return;
         setJob(next);
         if (next.state === "completed") onCompleted?.();
       } catch (reason) {
-        if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : "모델 준비 상태를 확인하지 못했습니다.");
-        }
+        if (!cancelled) setError(reason instanceof Error ? reason.message : copy.stateFailed);
       }
     }, 650);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [active, job, onCompleted]);
+  }, [active, copy.stateFailed, copy.stateHttp, job, onCompleted]);
 
   useEffect(() => {
     if (job && (job.model !== model.trim() || job.provider !== provider)) {
@@ -96,7 +96,7 @@ export function ModelSetupControl({
       if (!response.ok) throw new Error(await response.text());
       setJob((await response.json()) as ModelSetupJob);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "모델 다운로드를 시작하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.startFailed);
     } finally {
       setBusy(false);
     }
@@ -114,7 +114,7 @@ export function ModelSetupControl({
       if (!response.ok) throw new Error(await response.text());
       setJob((await response.json()) as ModelSetupJob);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "다운로드 요청을 취소하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.cancelFailed);
     } finally {
       setBusy(false);
     }
@@ -126,7 +126,7 @@ export function ModelSetupControl({
     <div className="model-setup-control">
       {!job && (
         <button onClick={start} disabled={busy || !enabled || !model.trim()}>
-          {busy ? "준비 중…" : actionLabel(provider, model)}
+          {busy ? copy.preparing : actionLabel}
         </button>
       )}
 
@@ -149,11 +149,11 @@ export function ModelSetupControl({
           {job.error && <div className="model-setup-error">{job.error}</div>}
           {active && (
             <button onClick={cancel} disabled={busy}>
-              {busy ? "취소 중…" : "다운로드 요청 취소"}
+              {busy ? copy.cancelling : copy.cancel}
             </button>
           )}
           {TERMINAL.has(job.state) && job.state !== "completed" && (
-            <button onClick={() => setJob(null)}>다시 시도</button>
+            <button onClick={() => setJob(null)}>{copy.retry}</button>
           )}
         </div>
       )}

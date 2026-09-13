@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GLOSSARY_COPY } from "./glossaryCopy";
+import { useI18n } from "./i18n";
 import type { GlossaryEntry, GlossaryRecord, ProductPreset } from "./types";
 
 interface GlossaryManagerProps {
@@ -37,6 +39,8 @@ export function GlossaryManager({
   targetLanguage,
   disabled,
 }: GlossaryManagerProps) {
+  const { locale } = useI18n();
+  const copy = GLOSSARY_COPY[locale];
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [entries, setEntries] = useState<GlossaryRecord[]>([]);
   const [term, setTerm] = useState("");
@@ -51,7 +55,7 @@ export function GlossaryManager({
 
   const refresh = useCallback(async () => {
     const response = await fetch(`${apiUrl}/api/v1/glossary`);
-    if (!response.ok) throw new Error("용어집을 불러오지 못했습니다.");
+    if (!response.ok) throw new Error(copy.loadFailed);
     setEntries((await response.json()) as GlossaryRecord[]);
   }, [apiUrl]);
 
@@ -92,7 +96,7 @@ export function GlossaryManager({
       setTranslation("");
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "용어를 저장하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.saveFailed);
     } finally {
       setBusy(false);
     }
@@ -119,7 +123,7 @@ export function GlossaryManager({
       if (!response.ok) throw new Error(await response.text());
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "용어 상태를 변경하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.updateFailed);
     } finally {
       setBusy(false);
     }
@@ -136,7 +140,7 @@ export function GlossaryManager({
       if (!response.ok) throw new Error(await response.text());
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "용어를 삭제하지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.deleteFailed);
     } finally {
       setBusy(false);
     }
@@ -153,7 +157,7 @@ export function GlossaryManager({
       if (!response.ok) throw new Error(await response.text());
       await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "교회 기본 용어를 가져오지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.churchFailed);
     } finally {
       setBusy(false);
     }
@@ -175,9 +179,9 @@ export function GlossaryManager({
       anchor.click();
       anchor.remove();
       URL.revokeObjectURL(url);
-      setNotice(`${format.toUpperCase()} 용어집을 내보냈습니다.`);
+      setNotice(`${format.toUpperCase()} ${copy.exported}`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "용어집을 내보내지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.exportFailed);
     } finally {
       setBusy(false);
     }
@@ -186,7 +190,7 @@ export function GlossaryManager({
   async function importGlossaryFile(file: File) {
     const extension = file.name.split(".").pop()?.toLowerCase();
     if (extension !== "json" && extension !== "csv") {
-      throw new Error("JSON 또는 CSV 파일만 가져올 수 있습니다.");
+      throw new Error(copy.importType);
     }
     const content = await file.text();
     const response = await fetch(`${apiUrl}/api/v1/glossary/import`, {
@@ -215,10 +219,10 @@ export function GlossaryManager({
       const result = await importGlossaryFile(file);
       await refresh();
       setNotice(
-        `가져오기 완료 · 생성 ${result.created} · 갱신 ${result.updated} · 건너뜀 ${result.skipped}`,
+        `${copy.importDone} · ${copy.created} ${result.created} · ${copy.updated} ${result.updated} · ${copy.skipped} ${result.skipped}`,
       );
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "용어집을 가져오지 못했습니다.");
+      setError(reason instanceof Error ? reason.message : copy.importFailed);
     } finally {
       setBusy(false);
     }
@@ -228,8 +232,8 @@ export function GlossaryManager({
     <section className="glossary-manager">
       <div className="glossary-heading">
         <div>
-          <strong>용어집</strong>
-          <small>현재 {preset} 세션에 {applicableCount}개 적용</small>
+          <strong>{copy.title}</strong>
+          <small>{copy.currentPrefix} {preset} · {applicableCount}{copy.currentSuffix}</small>
         </div>
         {preset === "church" && (
           <button
@@ -238,7 +242,7 @@ export function GlossaryManager({
             onClick={importChurchPreset}
             disabled={disabled || busy}
           >
-            교회 기본 용어 가져오기
+            {copy.importChurch}
           </button>
         )}
       </div>
@@ -251,7 +255,7 @@ export function GlossaryManager({
             onClick={() => importInputRef.current?.click()}
             disabled={disabled || busy}
           >
-            JSON / CSV 가져오기
+            {copy.importJsonCsv}
           </button>
           <button
             type="button"
@@ -259,7 +263,7 @@ export function GlossaryManager({
             onClick={() => exportGlossary("json")}
             disabled={busy}
           >
-            JSON 내보내기
+            {copy.exportJson}
           </button>
           <button
             type="button"
@@ -267,18 +271,18 @@ export function GlossaryManager({
             onClick={() => exportGlossary("csv")}
             disabled={busy}
           >
-            CSV 내보내기
+            {copy.exportCsv}
           </button>
         </div>
         <label className="glossary-transfer-policy">
-          중복 용어 처리
+          {copy.conflict}
           <select
             value={importPolicy}
             onChange={(event) => setImportPolicy(event.target.value as ImportConflictPolicy)}
             disabled={disabled || busy}
           >
-            <option value="upsert">기존 항목 업데이트</option>
-            <option value="skip">기존 항목 건너뛰기</option>
+            <option value="upsert">{copy.upsert}</option>
+            <option value="skip">{copy.skip}</option>
           </select>
         </label>
         <input
@@ -289,33 +293,33 @@ export function GlossaryManager({
           onChange={handleImportFile}
           disabled={disabled || busy}
         />
-        <small>가져오기 전에 파일 전체를 검증합니다. 업데이트 시 기존 ID는 유지됩니다.</small>
+        <small>{copy.validationHelp}</small>
       </div>
 
       <div className="glossary-form">
         <input
           value={term}
           onChange={(event) => setTerm(event.target.value)}
-          placeholder="표준 용어 · 예: 요한복음"
+          placeholder={copy.termPlaceholder}
           disabled={disabled || busy}
         />
         <input
           value={aliases}
           onChange={(event) => setAliases(event.target.value)}
-          placeholder="오인식/별칭 · 쉼표로 구분"
+          placeholder={copy.aliasesPlaceholder}
           disabled={disabled || busy}
         />
         <div className="glossary-form-row">
           <input
             value={translation}
             onChange={(event) => setTranslation(event.target.value)}
-            placeholder={`${targetLanguage.toUpperCase()} 번역 · 선택 사항`}
+            placeholder={`${targetLanguage.toUpperCase()} ${copy.translationOptional}`}
             disabled={disabled || busy}
           />
           <input
             value={category}
             onChange={(event) => setCategory(event.target.value)}
-            placeholder="카테고리"
+            placeholder={copy.categoryPlaceholder}
             disabled={disabled || busy}
           />
         </div>
@@ -326,7 +330,7 @@ export function GlossaryManager({
             onChange={(event) => setGlobalScope(event.target.checked)}
             disabled={disabled || busy}
           />
-          모든 preset에서 사용
+          {copy.globalScope}
         </label>
         <button
           type="button"
@@ -334,7 +338,7 @@ export function GlossaryManager({
           onClick={addEntry}
           disabled={disabled || busy || !term.trim()}
         >
-          용어 추가
+          {copy.add}
         </button>
       </div>
 
@@ -342,7 +346,7 @@ export function GlossaryManager({
       {notice && <div className="glossary-notice">{notice}</div>}
 
       <div className="glossary-list">
-        {entries.length === 0 && <div className="glossary-empty">저장된 용어가 없습니다.</div>}
+        {entries.length === 0 && <div className="glossary-empty">{copy.empty}</div>}
         {entries.map((entry) => (
           <article className={`glossary-item ${entry.enabled ? "" : "disabled"}`} key={entry.id}>
             <div className="glossary-copy">
@@ -351,13 +355,13 @@ export function GlossaryManager({
                 <span>{entry.category}</span>
               </div>
               <small>
-                {entry.aliases.length ? `별칭: ${entry.aliases.join(", ")}` : "별칭 없음"}
+                {entry.aliases.length ? `${copy.aliases}: ${entry.aliases.join(", ")}` : copy.noAliases}
                 {entry.translations[targetLanguage]
                   ? ` · ${targetLanguage.toUpperCase()}: ${entry.translations[targetLanguage]}`
                   : ""}
               </small>
               <small>
-                적용: {entry.presets.length ? entry.presets.join(", ") : "전체 preset"}
+                {copy.applies}: {entry.presets.length ? entry.presets.join(", ") : copy.allPresets}
               </small>
             </div>
             <div className="glossary-actions">
@@ -367,7 +371,7 @@ export function GlossaryManager({
                 onClick={() => updateEntry(entry, !entry.enabled)}
                 disabled={disabled || busy}
               >
-                {entry.enabled ? "끄기" : "켜기"}
+                {entry.enabled ? copy.disable : copy.enable}
               </button>
               <button
                 type="button"
@@ -375,7 +379,7 @@ export function GlossaryManager({
                 onClick={() => removeEntry(entry)}
                 disabled={disabled || busy}
               >
-                삭제
+                {copy.delete}
               </button>
             </div>
           </article>
