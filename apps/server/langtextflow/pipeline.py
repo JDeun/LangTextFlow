@@ -88,17 +88,35 @@ class CaptionPipeline:
             await self._queue.put(event)
 
     async def stop(self) -> None:
-        if self._worker_task is not None:
-            await self._queue.put(None)
-            await self._worker_task
-            self._worker_task = None
-        if self.llm_corrector is not None:
-            await self.llm_corrector.close()
-        if self.translator is not None:
-            await self.translator.close()
+        first_error: Exception | None = None
+        task = self._worker_task
+        self._worker_task = None
+        if task is not None:
+            if not task.done():
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                first_error = exc
+        self._queue = asyncio.Queue(maxsize=128)
+
+        corrector = self.llm_corrector
+        translator = self.translator
         self.llm_corrector = None
         self.translator = None
         self.request = None
+        for provider in (corrector, translator):
+            if provider is None:
+                continue
+            try:
+                await provider.close()
+            except Exception as exc:
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            raise first_error
 
     def _build_corrector(self, request: StartSessionRequest) -> ConstrainedCorrector | None:
         provider = request.correction_provider

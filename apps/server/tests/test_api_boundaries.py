@@ -8,7 +8,13 @@ from starlette.websockets import WebSocketDisconnect
 
 from langtextflow import main as main_module
 from langtextflow.audience_security import AudienceJoinRateLimiter
-from langtextflow.models import AudioStreamInfo, SessionContext, SessionState
+from langtextflow.models import (
+    AudioStreamInfo,
+    CaptionStage,
+    SessionContext,
+    SessionState,
+    TranscriptEvent,
+)
 
 
 def _local_client() -> TestClient:
@@ -236,3 +242,30 @@ def test_only_one_audio_websocket_can_own_active_session(
             pass
         assert exc_info.value.code == 4409
         first.send_text("end")
+
+
+def test_export_selection_keeps_uncommitted_tail_segment() -> None:
+    committed = TranscriptEvent(
+        segment_id="one",
+        version=2,
+        stage=CaptionStage.COMMITTED,
+        source_language="ko",
+        text="first",
+        start_ms=0,
+        end_ms=100,
+        committed=True,
+    )
+    stable_tail = TranscriptEvent(
+        segment_id="two",
+        version=1,
+        stage=CaptionStage.STABLE,
+        source_language="ko",
+        text="tail",
+        start_ms=100,
+        end_ms=200,
+    )
+
+    assert main_module._best_export_segments([committed, stable_tail]) == [
+        committed,
+        stable_tail,
+    ]

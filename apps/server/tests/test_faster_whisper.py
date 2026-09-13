@@ -118,3 +118,16 @@ def test_faster_whisper_rejects_invalid_chunk_duration() -> None:
 
     with pytest.raises(ValueError, match="chunk_seconds"):
         FasterWhisperStreamingAsrEngine(publish, chunk_seconds=0)
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_end_audio_does_not_block_on_full_queue() -> None:
+    async def publish(event) -> None:
+        del event
+
+    engine = FasterWhisperStreamingAsrEngine(publish, queue_chunks=1)
+    engine._queue = asyncio.Queue(maxsize=1)
+    engine._queue.put_nowait(b"\x00\x00\x00\x00")
+
+    await asyncio.wait_for(engine.end_audio(), timeout=0.1)
+    assert engine._ended is True

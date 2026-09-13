@@ -118,6 +118,7 @@ async def lifespan(_: FastAPI):
         await vibevoice_lifecycle.shutdown()
         await model_setup_manager.shutdown()
         await asyncio.to_thread(mdns_publisher.stop)
+        _allow_audio_socket_acceptance()
 
 
 app = FastAPI(
@@ -232,8 +233,10 @@ def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
 
 
 def _best_export_segments(segments: list[TranscriptEvent]) -> list[TranscriptEvent]:
-    committed = [segment for segment in segments if segment.committed]
-    return committed or segments
+    # SessionRepository and CaptionStore already retain only the latest version per
+    # segment. Filtering globally to committed rows would drop a valid stable tail
+    # whenever an earlier segment had already committed.
+    return segments
 
 
 @app.get("/health")

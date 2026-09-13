@@ -246,3 +246,60 @@ async def test_pipeline_records_fallback_provenance_when_llm_correction_fails() 
     assert "unsafe rewrite" in corrected.correction.fallback_reason
     assert pipeline.correction_status.error is not None
     assert "deterministic result" in pipeline.correction_status.error
+
+
+class BlockingCorrector(ConstrainedCorrector):
+    provider = "blocking"
+    model = "blocking-corrector"
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.never = asyncio.Event()
+
+    async def correct(
+        self,
+        text: str,
+        *,
+        source_language: str,
+        context: SessionContext,
+    ) -> str:
+        del text, source_language, context
+        self.started.set()
+        await self.never.wait()
+        raise AssertionError("unreachable")
+
+
+@pytest.mark.asyncio
+async def test_pipeline_stop_cancels_blocked_postprocessing() -> None:
+    published: list[TranscriptEvent] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    corrector = BlockingCorrector()
+    pipeline = PipelineWithCorrector(publish, Settings(), corrector)
+    await pipeline.start(
+        StartSessionRequest(
+            source_language="ko",
+            target_languages=["en"],
+            correction_provider="fake",
+            translation_provider="none",
+        )
+    )
+    await pipeline.ingest(
+        TranscriptEvent(
+            segment_id="blocked",
+            version=1,
+            stage=CaptionStage.STABLE,
+            source_language="ko",
+            text="blocked correction",
+            start_ms=0,
+            end_ms=100,
+        )
+    )
+    await asyncio.wait_for(corrector.started.wait(), timeout=1.0)
+    await asyncio.wait_for(pipeline.stop(), timeout=0.2)
+
+    assert pipeline._worker_task is None
+    assert pipeline.queue_depth == 0
+    assert [event.stage for event in published] == [CaptionStage.STABLE]
