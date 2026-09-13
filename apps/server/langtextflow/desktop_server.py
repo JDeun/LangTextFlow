@@ -49,7 +49,8 @@ def _install_public_routes(web_root: Path) -> None:
     @app.middleware("http")
     async def hide_desktop_developer_surfaces(request: Request, call_next):
         host = request.client.host if request.client else None
-        if request.url.path in {"/docs", "/redoc", "/openapi.json"} and not is_loopback_client(host):
+        developer_surface = request.url.path in {"/docs", "/redoc", "/openapi.json"}
+        if developer_surface and not is_loopback_client(host):
             return Response(status_code=404)
         return await call_next(request)
 
