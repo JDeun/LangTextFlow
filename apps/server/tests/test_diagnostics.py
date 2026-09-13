@@ -70,10 +70,11 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
 
     assert manifest["version"] == "0.12.0"
     assert manifest["privacy"]["contains_transcript_text"] is False
+    assert manifest["privacy"]["contains_user_home_path"] is False
     assert state_json["context"]["hotword_count"] == 1
     assert state_json["context"]["glossary_count"] == 1
     assert state_json["context"]["reference_document_count"] == 1
-    assert preflight_json["details"]["path"].startswith("~")
+    assert preflight_json["details"]["path"] == "~/.cache/model"
 
     for secret in [
         "super-secret-api-key",
@@ -84,5 +85,43 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
         "SecretDoctrine",
         "Sensitive reference text",
         "private-sermon.md",
+        "/home/alice",
     ]:
         assert secret not in combined
+
+
+def test_diagnostics_redacts_home_paths_from_supported_platforms_and_nested_errors() -> None:
+    settings = Settings()
+    state = SessionState()
+    metrics = RealtimeMetrics()
+
+    payload = build_diagnostics_bundle(
+        version="0.12.0",
+        settings=settings,
+        state=state,
+        metrics=metrics,
+        preflight={
+            "linux": "/home/alice/.cache/model",
+            "macos": "/Users/bob/Library/Caches/model",
+            "windows": r"C:\Users\carol\AppData\Local\model",
+            "wsl": "/mnt/c/Users/dave/.cache/model",
+            "nested": [
+                {"error": "failed to open /home/erin/private/config.json"},
+                {"error": r"failed to open C:\Users\frank\secret\config.json"},
+            ],
+        },
+    )
+
+    with zipfile.ZipFile(io.BytesIO(payload)) as archive:
+        preflight_json = json.loads(archive.read("preflight.json"))
+        combined = archive.read("preflight.json").decode("utf-8")
+
+    assert preflight_json["linux"] == "~/.cache/model"
+    assert preflight_json["macos"] == "~/Library/Caches/model"
+    assert preflight_json["windows"] == r"~\AppData\Local\model"
+    assert preflight_json["wsl"] == "~/.cache/model"
+    assert preflight_json["nested"][0]["error"] == "failed to open ~/private/config.json"
+    assert preflight_json["nested"][1]["error"] == r"failed to open ~\secret\config.json"
+
+    for username in ["alice", "bob", "carol", "dave", "erin", "frank"]:
+        assert username not in combined
