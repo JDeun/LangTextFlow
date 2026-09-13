@@ -43,6 +43,7 @@ class CaptionRuntime:
         self._vad = EnergyVad(
             threshold_dbfs=self.settings.vad_threshold_dbfs,
             hangover_frames=self.settings.vad_hangover_frames,
+            max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
         self._stage_times: dict[str, dict[CaptionStage, datetime]] = {}
         self._persistence_queue: asyncio.Queue[

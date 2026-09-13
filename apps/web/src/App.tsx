@@ -344,7 +344,20 @@ function OperatorApp() {
       }
 
       if (nextSession.audio_required) {
-        const capture = new AudioCaptureController();
+        const capture = new AudioCaptureController((message) => {
+          setError(message);
+          void (async () => {
+            await capture.stop().catch(() => undefined);
+            if (captureRef.current === capture) captureRef.current = null;
+            const stopResponse = await fetch(`${API_URL}/api/v1/session/stop`, {
+              method: "POST",
+            }).catch(() => null);
+            if (stopResponse?.ok) {
+              setSession((await stopResponse.json()) as SessionState);
+              setHistoryRefreshToken((value) => value + 1);
+            }
+          })();
+        });
         captureRef.current = capture;
         await capture.start(selectedDevice);
       }

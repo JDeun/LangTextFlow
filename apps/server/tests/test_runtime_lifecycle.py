@@ -222,3 +222,13 @@ async def test_new_session_disconnects_existing_caption_subscribers(tmp_path) ->
     assert socket.closed == (1012, "caption session stopped")
     assert runtime.hub.client_count == 0
     await runtime.shutdown()
+
+
+def test_runtime_threads_configured_audio_frame_limit_into_vad(tmp_path) -> None:
+    settings = Settings(
+        database_path=str(tmp_path / "runtime.db"),
+        max_audio_frame_bytes=2 * 1024 * 1024,
+    )
+    runtime = CaptionRuntime(settings)
+    assert runtime._vad.max_frame_bytes == settings.max_audio_frame_bytes
+
