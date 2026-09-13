@@ -91,6 +91,7 @@ export function SessionHistory({
       session.translation_provider,
       session.preset,
       session.source_language,
+      session.interrupted ? "interrupted 비정상 종료 복구" : "",
       ...session.target_languages,
     ].join("\n").toLocaleLowerCase().includes(query));
   }, [sessionQuery, sessions]);
@@ -241,6 +242,9 @@ export function SessionHistory({
                 <div className="history-title-row">
                   <strong>{session.title}</strong>
                   {active && <span className="history-live">LIVE</span>}
+                  {session.interrupted && (
+                    <span className="history-interrupted">INTERRUPTED</span>
+                  )}
                 </div>
                 <small>
                   {dateLabel(session.started_at)} · {session.source_language.toUpperCase()}
@@ -252,6 +256,7 @@ export function SessionHistory({
                   {session.translation_provider !== "none"
                     ? ` / ${session.translation_provider}`
                     : ""}
+                  {session.interrupted ? " · 비정상 종료 후 복구됨" : ""}
                 </small>
                 {session.notes && <small className="history-note-preview">{session.notes}</small>}
               </div>
@@ -297,6 +302,7 @@ export function SessionHistory({
               <small>
                 {dateLabel(selected.started_at)}
                 {selected.ended_at ? ` → ${dateLabel(selected.ended_at)}` : " · 진행 중"}
+                {selected.interrupted ? " · 비정상 종료 복구" : ""}
                 {" · "}{selected.segment_count} segments
               </small>
             </div>
@@ -312,6 +318,9 @@ export function SessionHistory({
             <span>
               번역 <strong>{selected.translation_provider === "none" ? "사용 안 함" : selected.translation_provider}</strong>
             </span>
+            {selected.interrupted && (
+              <span>종료 상태 <strong>비정상 종료 후 자동 복구</strong></span>
+            )}
           </div>
 
           <div className="history-metadata-editor">
