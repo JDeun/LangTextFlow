@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import __version__
 from .asr import AsrEngineError
@@ -36,7 +37,12 @@ from .models import (
     StartSessionRequest,
     TranscriptEvent,
 )
-from .network import is_loopback_client, local_ipv4_addresses, websocket_origin_allowed
+from .network import (
+    is_loopback_client,
+    local_ipv4_addresses,
+    operator_origin_allowed,
+    websocket_origin_allowed,
+)
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
@@ -55,6 +61,9 @@ audience_join_limiter = AudienceJoinRateLimiter(
     block_seconds=settings.audience_join_block_seconds,
     max_clients=settings.audience_join_max_tracked_clients,
 )
+
+_OPERATOR_API_PREFIX = "/api/v1/"
+_AUDIENCE_API_PREFIX = "/api/v1/audience/"
 
 
 @asynccontextmanager
@@ -91,10 +100,9 @@ def _operator_request_origin_allowed(request: Request) -> bool:
     fetch_site = (request.headers.get("sec-fetch-site") or "").strip().casefold()
     if fetch_site == "cross-site":
         return False
-    return websocket_origin_allowed(
+    return operator_origin_allowed(
         request.headers.get("origin"),
         allowed_origins=settings.cors_origins,
-        allowed_origin_regex=settings.cors_origin_regex,
     )
 
 
@@ -116,7 +124,38 @@ def _websocket_origin_allowed(websocket: WebSocket) -> bool:
 
 def _operator_websocket_allowed(websocket: WebSocket) -> bool:
     host = websocket.client.host if websocket.client else None
-    return is_loopback_client(host) and _websocket_origin_allowed(websocket)
+    return is_loopback_client(host) and operator_origin_allowed(
+        websocket.headers.get("origin"),
+        allowed_origins=settings.cors_origins,
+    )
+
+
+def _is_operator_http_path(path: str) -> bool:
+    return path.startswith(_OPERATOR_API_PREFIX) and not path.startswith(
+        _AUDIENCE_API_PREFIX
+    )
+
+
+@app.middleware("http")
+async def enforce_operator_http_boundary(request: Request, call_next):
+    """Reject remote/operator browser traffic before request-body parsing.
+
+    FastAPI validates Pydantic request bodies before invoking route handlers. The
+    route-level `_require_operator` checks remain as defense in depth, while this
+    middleware prevents an untrusted LAN peer from forcing large operator payloads
+    through JSON/model parsing before receiving a 403.
+    """
+
+    if _is_operator_http_path(request.url.path):
+        host = request.client.host if request.client else None
+        if not is_loopback_client(host):
+            return JSONResponse(status_code=403, content={"detail": "operator API is local-only"})
+        if not _operator_request_origin_allowed(request):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "operator browser origin is not allowed"},
+            )
+    return await call_next(request)
 
 
 def _audience_rate_limit_error(retry_after: int) -> HTTPException:
@@ -623,9 +662,18 @@ async def audio_socket(websocket: WebSocket) -> None:
         await websocket.close(code=4400, reason="active engine does not accept audio")
         return
 
-    await websocket.accept()
-    await websocket.send_json({"type": "audio_config", **info.model_dump(mode="json")})
+    stream_session_id = await runtime.claim_audio_stream()
+    if stream_session_id is None:
+        await websocket.close(
+            code=4409,
+            reason="audio stream is unavailable, changed, or already connected",
+        )
+        return
+
     try:
+        info = runtime.audio_info(session_id=stream_session_id)
+        await websocket.accept()
+        await websocket.send_json({"type": "audio_config", **info.model_dump(mode="json")})
         while True:
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":
@@ -633,14 +681,18 @@ async def audio_socket(websocket: WebSocket) -> None:
             frame = message.get("bytes")
             text = message.get("text")
             if frame is not None:
-                await runtime.feed_audio(frame)
+                await runtime.feed_audio(frame, session_id=stream_session_id)
             elif text == "end":
-                await runtime.end_audio()
+                await runtime.end_audio(session_id=stream_session_id)
                 break
             else:
                 await websocket.close(code=4400, reason="invalid audio control message")
                 break
     except WebSocketDisconnect:
         pass
+    except RuntimeError as exc:
+        await websocket.close(code=4409, reason=str(exc)[:120])
     except (AsrEngineError, ValueError) as exc:
         await websocket.close(code=1011, reason=str(exc)[:120])
+    finally:
+        await runtime.release_audio_stream(stream_session_id)
