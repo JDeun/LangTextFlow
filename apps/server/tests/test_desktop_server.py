@@ -35,3 +35,11 @@ def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -
     # The LAN listener publishes only audience/display assets; operator APIs remain local-only.
     assert client.get("/").status_code == 404
     assert client.get("/api/v1/state").status_code == 403
+    assert client.get("/docs").status_code == 404
+    assert client.get("/redoc").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+    # Developer introspection remains available to the local operator process.
+    local = TestClient(main_module.app, client=("127.0.0.1", 50000))
+    assert local.get("/docs").status_code == 200
+    assert local.get("/openapi.json").status_code == 200
