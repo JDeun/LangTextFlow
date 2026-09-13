@@ -1,9 +1,11 @@
+import json
 from datetime import UTC, datetime
 
 import pytest
 
 from langtextflow.glossary_repository import GlossaryRepository
 from langtextflow.glossary_transfer import (
+    MAX_GLOSSARY_IMPORT_ENTRIES,
     GlossaryConflictPolicy,
     GlossaryImportRequest,
     GlossaryTransferFormat,
@@ -83,6 +85,15 @@ def test_csv_export_neutralizes_formula_cells_and_round_trips() -> None:
     )
     assert entries[0].term == hostile.term
     assert entries[0].category == hostile.category
+
+
+def test_import_rejects_excessive_entry_count_before_validation() -> None:
+    content = json.dumps(
+        [{"term": f"term-{index}"} for index in range(MAX_GLOSSARY_IMPORT_ENTRIES + 1)]
+    )
+
+    with pytest.raises(ValueError, match="entry limit"):
+        parse_glossary_import(GlossaryImportRequest(format="json", content=content))
 
 
 def test_import_rejects_duplicate_terms_case_insensitively() -> None:
