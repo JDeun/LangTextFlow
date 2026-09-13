@@ -48,6 +48,7 @@ class CaptionRuntime:
             tuple[str, TranscriptEvent] | None
         ] = asyncio.Queue(maxsize=1024)
         self._persistence_task: asyncio.Task[None] | None = None
+        self._lifecycle_lock = asyncio.Lock()
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -250,9 +251,13 @@ class CaptionRuntime:
         return self.metrics.model_copy(deep=True)
 
     async def start(self, request: StartSessionRequest) -> SessionState:
+        async with self._lifecycle_lock:
+            return await self._start_unlocked(request)
+
+    async def _start_unlocked(self, request: StartSessionRequest) -> SessionState:
         await self.initialize()
         if self.state.running:
-            await self.stop()
+            await self._stop_unlocked()
         self.store.clear()
         self._reset_metrics()
         await self.pipeline.start(request)
@@ -296,6 +301,10 @@ class CaptionRuntime:
         return self.state
 
     async def stop(self) -> SessionState:
+        async with self._lifecycle_lock:
+            return await self._stop_unlocked()
+
+    async def _stop_unlocked(self) -> SessionState:
         was_running = self.state.running
         session_id = self.state.session_id
         if self.engine is not None:
