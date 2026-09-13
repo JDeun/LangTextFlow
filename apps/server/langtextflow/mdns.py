@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import hashlib
 import re
+import secrets
 import socket
-import uuid
 from dataclasses import dataclass
 
 from zeroconf import IPVersion, ServiceInfo, Zeroconf
@@ -12,6 +11,7 @@ from .config import Settings
 from .network import local_ipv4_addresses
 
 _HOST_LABEL_RE = re.compile(r"[^a-z0-9-]+")
+_PROCESS_SUFFIX = secrets.token_hex(3)
 
 
 @dataclass(frozen=True)
@@ -24,17 +24,16 @@ class MdnsState:
 def normalize_mdns_hostname(configured: str = "") -> str:
     """Return a conservative single-label .local hostname.
 
-    The default intentionally avoids exposing the machine's user-visible host name.
-    A short stable suffix reduces collisions when multiple LangTextFlow instances are
-    used on the same LAN. Operators can override it with LANGTEXTFLOW_MDNS_HOSTNAME.
+    The default intentionally avoids exposing the machine's user-visible host name
+    or deriving an identifier from hardware. Operators can override the ephemeral
+    default with LANGTEXTFLOW_MDNS_HOSTNAME when a stable room hostname is desired.
     """
 
     raw = configured.strip().lower()
     if raw.endswith(".local"):
         raw = raw[:-6]
     if not raw:
-        suffix = hashlib.sha256(str(uuid.getnode()).encode("ascii")).hexdigest()[:6]
-        raw = f"langtextflow-{suffix}"
+        raw = f"langtextflow-{_PROCESS_SUFFIX}"
     label = _HOST_LABEL_RE.sub("-", raw).strip("-")[:63].rstrip("-")
     if not label:
         raise ValueError("mDNS hostname must contain at least one letter or number")
