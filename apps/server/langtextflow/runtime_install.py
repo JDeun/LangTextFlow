@@ -35,6 +35,7 @@ class ProvisionState(StrEnum):
 class RuntimeStatus(BaseModel):
     kind: RuntimeKind
     available: bool
+    installed: bool = False
     managed: bool = False
     path: str | None = None
     detail: str = ""
@@ -63,6 +64,7 @@ class RuntimeProvisionManager:
         self._jobs: dict[str, RuntimeProvisionJob] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._lock = asyncio.Lock()
+        self._ollama_process: asyncio.subprocess.Process | None = None
 
     @property
     def runtime_root(self) -> Path:
@@ -85,6 +87,7 @@ class RuntimeProvisionManager:
             return RuntimeStatus(
                 kind=kind,
                 available=available,
+                installed=available,
                 managed=bool(getattr(sys, "frozen", False)),
                 path=sys.executable if available else None,
                 detail="bundled with desktop"
@@ -92,22 +95,14 @@ class RuntimeProvisionManager:
                 else "",
             )
         if kind is RuntimeKind.OLLAMA:
-            executable = shutil.which("ollama")
-            healthy = False
-            if executable:
-                try:
-                    async with httpx.AsyncClient(timeout=1.5) as client:
-                        response = await client.get(
-                            f"{self.settings.ollama_url.rstrip('/')}/api/tags"
-                        )
-                        healthy = response.is_success
-                except Exception:
-                    healthy = False
+            executable = self._find_ollama_executable()
+            healthy = bool(executable) and await self._ollama_healthy()
             return RuntimeStatus(
                 kind=kind,
-                available=bool(executable),
-                managed=False,
-                path=executable,
+                available=healthy,
+                installed=bool(executable),
+                managed=self._ollama_process is not None and self._ollama_process.returncode is None,
+                path=str(executable) if executable else None,
                 detail="running"
                 if healthy
                 else ("installed, not running" if executable else "not installed"),
@@ -119,6 +114,7 @@ class RuntimeProvisionManager:
         return RuntimeStatus(
             kind=kind,
             available=available,
+            installed=available,
             managed=available,
             path=str(repo) if available else None,
             detail=self.settings.vibevoice_repo_ref if available else "not installed",
@@ -186,6 +182,7 @@ class RuntimeProvisionManager:
         for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
+        await self._stop_managed_ollama()
 
     async def _install_faster_whisper(self, job_id: str) -> None:
         if importlib.util.find_spec("faster_whisper") is not None:
@@ -208,28 +205,104 @@ class RuntimeProvisionManager:
         )
 
     async def _install_ollama(self, job_id: str) -> None:
-        if shutil.which("ollama"):
-            await self._complete(job_id, "Ollama is already installed")
+        executable = self._find_ollama_executable()
+        if executable is None:
+            if sys.platform == "win32" and shutil.which("winget"):
+                command = [
+                    "winget",
+                    "install",
+                    "--id",
+                    "Ollama.Ollama",
+                    "--exact",
+                    "--silent",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
+                ]
+            elif sys.platform == "darwin" and shutil.which("brew"):
+                command = ["brew", "install", "ollama"]
+            else:
+                await self._error(
+                    job_id,
+                    "automatic Ollama install requires winget on Windows or Homebrew on macOS",
+                )
+                return
+            await self._running(job_id, "installing Ollama")
+            try:
+                await _run(command)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                await self._error(job_id, str(exc))
+                return
+            executable = self._find_ollama_executable()
+            if executable is None:
+                await self._error(job_id, "Ollama installed but executable could not be located")
+                return
+
+        if await self._ollama_healthy():
+            await self._complete(job_id, "Ollama is running")
             return
-        if sys.platform == "win32" and shutil.which("winget"):
-            command = [
-                "winget",
-                "install",
-                "--id",
-                "Ollama.Ollama",
-                "--exact",
-                "--silent",
-                "--accept-package-agreements",
-                "--accept-source-agreements",
-            ]
-        elif sys.platform == "darwin" and shutil.which("brew"):
-            command = ["brew", "install", "ollama"]
-        else:
-            await self._error(
-                job_id, "automatic Ollama install requires winget on Windows or Homebrew on macOS"
+
+        await self._running(job_id, "starting Ollama runtime")
+        await self._stop_managed_ollama()
+        try:
+            self._ollama_process = await asyncio.create_subprocess_exec(
+                str(executable),
+                "serve",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                env=os.environ.copy(),
             )
+            for _ in range(40):
+                if await self._ollama_healthy():
+                    await self._complete(job_id, "Ollama is running")
+                    return
+                if self._ollama_process.returncode is not None:
+                    break
+                await asyncio.sleep(0.25)
+            await self._stop_managed_ollama()
+            await self._error(job_id, "Ollama did not become healthy after startup")
+        except asyncio.CancelledError:
+            await self._stop_managed_ollama()
+            raise
+        except Exception as exc:
+            await self._stop_managed_ollama()
+            await self._error(job_id, str(exc))
+
+    async def _ollama_healthy(self) -> bool:
+        try:
+            async with httpx.AsyncClient(timeout=1.5) as client:
+                response = await client.get(f"{self.settings.ollama_url.rstrip('/')}/api/tags")
+                return response.is_success
+        except Exception:
+            return False
+
+    def _find_ollama_executable(self) -> Path | None:
+        executable = shutil.which("ollama")
+        if executable:
+            return Path(executable).resolve()
+        candidates: list[Path] = []
+        if sys.platform == "win32":
+            local_app_data = os.environ.get("LOCALAPPDATA")
+            if local_app_data:
+                candidates.append(Path(local_app_data) / "Programs" / "Ollama" / "ollama.exe")
+        elif sys.platform == "darwin":
+            candidates.extend([Path("/opt/homebrew/bin/ollama"), Path("/usr/local/bin/ollama")])
+        return next((path.resolve() for path in candidates if path.is_file()), None)
+
+    async def _stop_managed_ollama(self) -> None:
+        process = self._ollama_process
+        self._ollama_process = None
+        if process is None or process.returncode is not None:
             return
-        await self._run_fixed(job_id, command, "installing Ollama")
+        with suppress(ProcessLookupError):
+            process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=3.0)
+        except TimeoutError:
+            with suppress(ProcessLookupError):
+                process.kill()
+            await process.wait()
 
     async def _install_vibevoice(self, job_id: str) -> None:
         if not shutil.which("git"):
