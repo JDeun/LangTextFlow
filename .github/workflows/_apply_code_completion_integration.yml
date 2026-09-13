@@ -5,6 +5,7 @@ on:
     branches: [feat/code-completion-pass]
     paths:
       - "scripts/_apply_code_completion_integration.py"
+      - "scripts/_apply_code_completion_integration_v2.py"
       - ".github/workflows/_apply_code_completion_integration.yml"
 
 permissions:
@@ -21,7 +22,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Apply guarded patch
-        run: python scripts/_apply_code_completion_integration.py
+        run: python scripts/_apply_code_completion_integration_v2.py
       - name: Commit integration
         shell: bash
         run: |
