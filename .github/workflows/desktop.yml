@@ -61,10 +61,10 @@ jobs:
         run: cargo tauri icon src-tauri/icons/icon.png
       - name: Verify Rust desktop shell
         working-directory: apps/desktop/src-tauri
-        run: cargo check --locked
+        run: cargo check
       - name: Build unsigned desktop bundle
         working-directory: apps/desktop
-        run: cargo tauri build --locked
+        run: cargo tauri build
       - name: Upload desktop bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
