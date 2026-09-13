@@ -15,6 +15,15 @@ LangTextFlow의 설계·운영·provider·품질·보안 문서를 목적별로 
 | [`LANGUAGE_FLOW.md`](LANGUAGE_FLOW.md) | source/target language와 multi-target fan-out |
 | [`DISPLAY_SETTINGS.md`](DISPLAY_SETTINGS.md) | Audience/Projector/OBS 공통 display profile |
 
+## Product UI/UX
+
+| 문서 | 내용 |
+|---|---|
+| [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) | Operator/Audience/Projector/Onboarding의 UI/UX 원칙, visual language, responsive/i18n/accessibility 및 regression contract |
+| [`ONBOARDING.md`](ONBOARDING.md) | first-run setup wizard와 권장 구성 적용 |
+| [`PREFLIGHT.md`](PREFLIGHT.md) | hardware/provider/model readiness 진단 |
+| [`DISPLAY_SETTINGS.md`](DISPLAY_SETTINGS.md) | Audience/Projector/OBS 공통 display profile |
+
 ## ASR, model setup & onboarding
 
 | 문서 | 내용 |
@@ -54,7 +63,7 @@ LangTextFlow의 설계·운영·provider·품질·보안 문서를 목적별로 
 | [`../SECURITY.md`](../SECURITY.md) | 공개 취약점 제보 정책 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 개발·검증·PR 기여 규칙 |
 
-Repository CI는 Ruff, pytest/coverage, explicit adversarial regression gate, dependency audit, Bandit, repository hygiene, Markdown link integrity, Hugging Face local-cache policy, frontend audit/typecheck/build를 실행하며 CodeQL은 Python과 JavaScript/TypeScript를 분석합니다.
+Repository CI는 Ruff, pytest/coverage, explicit adversarial regression gate, dependency audit, Bandit, repository hygiene, Markdown link integrity, CSS/i18n hygiene, frontend audit/typecheck/build 및 Browser E2E를 실행하며 CodeQL은 Python과 JavaScript/TypeScript를 분석합니다.
 
 ## Planning
 
@@ -62,7 +71,7 @@ Repository CI는 Ruff, pytest/coverage, explicit adversarial regression gate, de
 |---|---|
 | [`ROADMAP.md`](ROADMAP.md) | P0–P4 구현 상태와 상용 수준 완료 기준 |
 
-현재 roadmap에서 큰 미완료 영역은 실제 field/soak baseline, app-managed runtime installation, desktop packaging/signing, diagnostics/update/offline cache, e2e/load/accessibility/i18n입니다.
+현재 roadmap에서 큰 미완료 영역은 실제 field/soak baseline, app-managed runtime installation, desktop packaging/signing, diagnostics/update/offline cache, load/accessibility/i18n acceptance입니다.
 
 ## 문서 유지 원칙
 
@@ -74,3 +83,4 @@ Repository CI는 Ruff, pytest/coverage, explicit adversarial regression gate, de
 4. 보안상 operator-only 기능과 LAN audience 기능의 경계를 문서와 코드에서 동일하게 유지합니다.
 5. 기능 완료 여부는 README의 서술보다 `ROADMAP.md`와 자동 CI gate를 우선합니다.
 6. 모든 repository-local Markdown link는 CI에서 실제 파일 존재 여부를 검사합니다.
+7. UI 구조·시각 언어·responsive/i18n/accessibility 원칙은 [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)를 제품 계약으로 사용합니다.
