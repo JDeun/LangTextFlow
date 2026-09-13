@@ -20,6 +20,21 @@
   color: #123f35;
 }
 
+.onboarding-dialog label small,
+.onboarding-dialog .target-language-heading > small,
+.onboarding-dialog .target-language-source > i,
+.onboarding-dialog .target-language-chips button > b,
+.onboarding-dialog .target-language-chips button > span,
+.onboarding-dialog .target-language-summary small {
+  color: #4f5b53;
+  opacity: 1;
+}
+
+.onboarding-dialog .target-language-chips button.active > b,
+.onboarding-dialog .target-language-chips button.active > span {
+  color: #243f34;
+}
+
 .display-settings > summary {
   min-height: 32px;
   display: flex;
