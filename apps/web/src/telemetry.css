@@ -19,6 +19,21 @@
   text-transform: uppercase;
 }
 
+.telemetry-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.telemetry-diagnostics {
+  min-height: 24px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  font-size: 9px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .telemetry-live,
 .telemetry-idle,
 .telemetry-failed {
@@ -191,7 +206,19 @@
 }
 
 .telemetry-empty {
+  margin-bottom: 8px;
   color: #6d7883;
   font-size: 10px;
   line-height: 1.5;
+}
+
+@media (max-width: 520px) {
+  .telemetry-heading {
+    align-items: flex-start;
+  }
+
+  .telemetry-actions {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
