@@ -53,18 +53,30 @@ def is_loopback_client(host: str | None) -> bool:
         return False
 
 
+def operator_origin_allowed(origin: str | None, *, allowed_origins: list[str]) -> bool:
+    """Allow only explicitly configured operator browser origins.
+
+    Operator traffic always terminates on loopback, so LAN/private/mDNS origins that
+    are intentionally valid for audience pages must not inherit operator privileges.
+    Native local clients may omit Origin and are authorized by the socket boundary.
+    """
+
+    if origin is None:
+        return True
+    normalized = origin.strip()
+    return bool(normalized) and normalized in allowed_origins
+
+
 def websocket_origin_allowed(
     origin: str | None,
     *,
     allowed_origins: list[str],
     allowed_origin_regex: str,
 ) -> bool:
-    """Reject cross-site browser WebSockets while preserving non-browser clients.
+    """Validate the broader audience WebSocket Origin policy.
 
-    Browsers send an Origin header for WebSocket handshakes. CLI/native clients may
-    omit it, so a missing Origin is accepted and authorization remains the endpoint's
-    responsibility. When Origin is present it must match the same local/LAN/Tailscale
-    policy used by the HTTP CORS configuration.
+    Audience pages can legitimately be served from LAN/private/Tailscale/mDNS hosts.
+    Operator WebSockets must use :func:`operator_origin_allowed` instead.
     """
 
     if origin is None:
