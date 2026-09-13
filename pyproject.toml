@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langtextflow-server"
-version = "0.2.0"
+version = "0.12.0"
 description = "Realtime multilingual caption pipeline for LangTextFlow"
 requires-python = ">=3.11"
 license = "Apache-2.0"
