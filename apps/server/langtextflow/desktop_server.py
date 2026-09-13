@@ -7,6 +7,9 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from fastapi import HTTPException, Request
+from fastapi.responses import FileResponse
+
 
 class DesktopBoundaryApp:
     """ASGI boundary that hides developer-only HTTP surfaces from LAN clients."""
@@ -74,9 +77,6 @@ def _prepare_desktop_environment() -> Path:
 def _install_public_routes(web_root: Path) -> None:
     if not (web_root / "index.html").is_file():
         raise RuntimeError(f"packaged web assets are missing: {web_root}")
-
-    from fastapi import HTTPException, Request
-    from fastapi.responses import FileResponse
 
     from langtextflow.desktop_shutdown import request_desktop_shutdown
     from langtextflow.main import app
