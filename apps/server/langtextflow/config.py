@@ -36,8 +36,11 @@ class Settings(BaseSettings):
     audience_join_max_tracked_clients: int = Field(default=4096, ge=1, le=1_000_000)
     vibevoice_url: str = "http://127.0.0.1:8001"
     vibevoice_repo_path: str = ""
+    vibevoice_repo_url: str = "https://github.com/microsoft/VibeVoice.git"
+    vibevoice_repo_ref: str = "1541f590c7099820f10ea012f48d2399282df69f"
     vibevoice_python: str = ""
     vibevoice_model_path: str = ""
+    vibevoice_model_id: str = "microsoft/VibeVoice-ASR-Streaming-7B"
     vibevoice_tensor_parallel_size: int = Field(default=1, ge=1, le=64)
     vibevoice_max_model_len: int = Field(default=16384, ge=1)
     vibevoice_max_audio_windows: int = Field(default=512, ge=1)
