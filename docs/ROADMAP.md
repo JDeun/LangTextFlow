@@ -53,9 +53,10 @@
 - [x] ASR micro-benchmark harness (RTF / realtime lag / CER / WER / queue / RSS)
 - [x] full runtime benchmark harness (ASR → correction → translation → persistence)
 - [x] realtime/max pacing + 반복 fixture 기반 30/60/90분 soak 입력
+- [x] synthetic lifecycle/soak regression 자동화
 - [ ] 실패 provider 재시도 / controlled failback 정책 — v1은 flapping 방지를 위해 one-way failover 유지
-- [ ] fuzzy duplicate suppression 필요성 benchmark
-- [ ] semantic VAD/gating benchmark 및 필요 시 적용
+- [ ] fuzzy duplicate suppression 필요성 benchmark — 실제 음원 근거 필요
+- [ ] semantic VAD/gating benchmark 및 필요 시 적용 — 실제 음원 근거 필요
 - [ ] 한국어·영어 실제 집회 샘플 failover benchmark 실행
 - [ ] 실제 대상 장비에서 30/60/90분 장시간 soak test 실행
 
@@ -94,7 +95,7 @@
 - [x] 동일 snapshot을 ASR context + correction + translation에 공유
 - [x] 기존 DB에 `presets_json`을 추가하는 경량 migration
 - [x] glossary import/export (JSON/CSV) + atomic upsert/skip 정책
-- [ ] 최근 세션 기반 glossary 추천
+- [x] 최근 세션 기반 deterministic glossary 추천 + 운영자 채택 UX
 
 ## P3A — Audience onboarding / LAN
 
@@ -144,29 +145,47 @@
 - [x] audience/projector/OBS에서 원문 또는 번역 언어 선택
 - [x] 세션 Display Profile: 글꼴/크기/행수/유지시간/원문 병기/정렬 + 출력 화면 공통 적용
 - [x] glossary JSON/CSV import/export UX + 중복 처리 정책 선택
-- [ ] VibeVoice runtime/repository/model 자동 설치·검증
-- [ ] faster-whisper runtime package 자동 설치/복구
-- [ ] Ollama application 자체 설치/실행
-- [ ] 실제 benchmark 기반 ASR model/device/compute 추천 preset
-- [ ] glossary 추천 UX
+- [x] VibeVoice pinned runtime/repository/model provision job + 상태/취소/복구 UI (OS prerequisite가 없으면 fail-closed 안내)
+- [x] faster-whisper runtime package 자동 설치/복구; desktop sidecar에는 runtime 포함
+- [x] Ollama 설치 감지/Windows winget·macOS Homebrew 설치/health check/managed start lifecycle
+- [x] runtime/cache maintenance Operator UI
+- [x] glossary 추천 UX
+- [ ] 실제 benchmark 기반 ASR model/device/compute 추천 preset — 실제 장비 측정 근거 필요
 
 ## P4 — Distribution / Reliability
 
-- [ ] Tauri desktop shell 또는 동등한 desktop packaging
-- [ ] Windows/macOS signed installer
+### 코드로 완료된 항목
+
+- [x] Tauri 2 desktop shell + Python backend sidecar supervision
+- [x] Windows/macOS unsigned desktop bundle CI
+- [x] signed installer / updater release workflow와 외부 signing secret hook
+- [x] app-data DB/cache/runtime 경로 분리
 - [x] interrupted-session crash recovery + privacy-minimized diagnostics bundle
-- [ ] offline-first model cache
-- [ ] update channel
-- [ ] e2e/load/soak tests
+- [x] managed offline model cache inventory/cleanup + prefetch 경로
+- [x] updater plugin + signed updater artifact/endpoint configuration plumbing
+- [x] Browser E2E + synthetic lifecycle/load/soak regression automation
 - [x] Windows/macOS CI boundary smoke + frontend reconnect policy regression tests
-- [ ] 접근성/키보드 내비게이션/i18n
-- [ ] privacy/security review
+- [x] en/ko/ja localization + raw literal hygiene
+- [x] axe WCAG A/AA/2.1/2.2 automated accessibility gate for Onboarding/Operator/Audience
+- [x] keyboard focus-visible / reduced-motion / mobile overflow regression contract
+- [x] repository hygiene, dependency audit, SBOM, Bandit, CodeQL, adversarial/property/boundary security gates
+
+### 외부 자격증명 또는 실제 사용 환경이 필요한 acceptance
+
+- [ ] 실제 Windows code-signing certificate로 installer 서명
+- [ ] 실제 Apple Developer identity로 signing/notarization 수행
+- [ ] 실제 updater endpoint에 signed release 게시 후 upgrade/downgrade/recovery acceptance
+- [ ] 대상 Windows/macOS 장비의 실제 installer install/update/uninstall acceptance
+- [ ] 실제 마이크/GPU/네트워크에서 30/60/90분 field soak
+- [ ] 실제 한국어·영어 음원의 ASR/translation/correction quality baseline
+- [ ] keyboard/screen-reader를 포함한 human accessibility acceptance
+- [ ] 실제 사용 조직 기준 privacy/legal review
 
 ## 상용 수준 완료 기준
 
-1. 일반 사용자가 터미널 없이 설치/실행할 수 있다.
-2. 오디오 장치/모델/GPU 문제를 UI가 진단하고 해결책을 제시한다.
-3. 90분 이상 세션에서 지연 누적·메모리 누수 없이 동작한다.
-4. 네트워크/번역 실패가 원문 자막을 중단시키지 않는다.
-5. 업데이트/모델 다운로드/복구가 사용자 데이터 손실 없이 가능하다.
-6. 설치 파일 서명, 개인정보 처리, 라이선스 고지가 완료되어 있다.
+1. 일반 사용자가 터미널 없이 설치/실행할 수 있다. — 코드/packaging 경로 구현, 실제 signed installer acceptance 필요
+2. 오디오 장치/모델/GPU 문제를 UI가 진단하고 해결책을 제시한다. — 코드 구현 완료, 실제 장비 acceptance 필요
+3. 90분 이상 세션에서 지연 누적·메모리 누수 없이 동작한다. — synthetic harness 구현, 실제 대상 장비 soak 필요
+4. 네트워크/번역 실패가 원문 자막을 중단시키지 않는다. — 자동 adversarial/degraded-mode gate 구현
+5. 업데이트/모델 다운로드/복구가 사용자 데이터 손실 없이 가능하다. — plumbing 구현, 실제 signed update acceptance 필요
+6. 설치 파일 서명, 개인정보 처리, 라이선스 고지가 완료되어 있다. — workflow/license 구현, 실제 signing 및 privacy/legal acceptance 필요

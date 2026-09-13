@@ -7,7 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "LangTextFlow"
     environment: str = "development"
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://tauri.localhost",
+        "tauri://localhost",
+    ]
     cors_origin_regex: str = (
         r"^https?://(localhost|127\.0\.0\.1|"
         r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
@@ -20,6 +25,8 @@ class Settings(BaseSettings):
     backend_port: int = Field(default=8000, ge=1, le=65535)
     max_segments: int = Field(default=100, ge=1, le=10_000)
     database_path: str = "data/langtextflow.db"
+    model_cache_dir: str = "data/model-cache"
+    managed_runtime_dir: str = "data/runtime"
     mdns_enabled: bool = True
     mdns_hostname: str = ""
     mdns_service_name: str = "LangTextFlow"
@@ -29,8 +36,12 @@ class Settings(BaseSettings):
     audience_join_max_tracked_clients: int = Field(default=4096, ge=1, le=1_000_000)
     vibevoice_url: str = "http://127.0.0.1:8001"
     vibevoice_repo_path: str = ""
+    vibevoice_repo_url: str = "https://github.com/microsoft/VibeVoice.git"
+    vibevoice_repo_ref: str = "1541f590c7099820f10ea012f48d2399282df69f"
     vibevoice_python: str = ""
     vibevoice_model_path: str = ""
+    vibevoice_model_id: str = "microsoft/VibeVoice-ASR-Streaming-7B"
+    vibevoice_model_revision: str = "c0b4d1571323d98254b7a743e7fe7e543b792caa"
     vibevoice_tensor_parallel_size: int = Field(default=1, ge=1, le=64)
     vibevoice_max_model_len: int = Field(default=16384, ge=1)
     vibevoice_max_audio_windows: int = Field(default=512, ge=1)

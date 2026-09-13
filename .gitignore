@@ -11,6 +11,12 @@ node_modules/
 dist/
 .vite/
 
+# Rust / Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/binaries/*
+!apps/desktop/src-tauri/binaries/.gitkeep
+build/desktop-sidecar/
+
 # IDE / OS
 .DS_Store
 .idea/
@@ -25,6 +31,8 @@ cache/
 logs/
 data/*.db
 data/*.db-*
+data/model-cache/
+data/runtime/
 
 # Local benchmark output
 benchmark-results/

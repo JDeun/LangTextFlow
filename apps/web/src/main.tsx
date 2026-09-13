@@ -5,6 +5,7 @@ import { LocaleProvider } from "./i18n";
 import "./styles.css";
 import "./glossaryTransfer.css";
 import "./productShell.css";
+import "./accessibility.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

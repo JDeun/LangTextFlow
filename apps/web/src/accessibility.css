@@ -1,0 +1,97 @@
+/* WCAG-focused overrides. Keep these rules semantic and minimal. */
+:root {
+  --ltf-muted: #59635c;
+}
+
+.subtitle,
+.connection,
+.product-nav button,
+.onboarding-header > div > small,
+.onboarding-dialog .subtitle,
+.onboarding-dialog .connection {
+  color: #4f5b53;
+  opacity: 1;
+}
+
+.product-nav button:hover,
+.onboarding-dialog nav > button[type="button"] {
+  color: #34463b;
+  opacity: 1;
+}
+
+.onboarding-dialog nav > button[type="button"][aria-current="step"],
+.onboarding-dialog nav > button[type="button"].active {
+  color: #123f35;
+}
+
+label small,
+.target-language-heading > small,
+.target-language-summary span,
+.onboarding-dialog label small,
+.onboarding-dialog .target-language-heading > small,
+.onboarding-dialog .target-language-summary small {
+  color: #59635c;
+  opacity: 1;
+}
+
+.target-language-source > i,
+.onboarding-dialog .target-language-source > i {
+  background: #e1e6e2;
+  color: #465049;
+  opacity: 1;
+}
+
+.target-language-chips button,
+.target-language-chips button > b,
+.target-language-chips button > span,
+.onboarding-dialog .target-language-chips button > b,
+.onboarding-dialog .target-language-chips button > span {
+  color: #59635c;
+  opacity: 1;
+}
+
+.target-language-chips button.active,
+.target-language-chips button.active > b,
+.target-language-chips button.active > span,
+.onboarding-dialog .target-language-chips button.active > b,
+.onboarding-dialog .target-language-chips button.active > span {
+  color: #243f34;
+}
+
+/* A sole selected target is disabled only to preserve the minimum-one invariant.
+   Disabled state must not be expressed by reducing text contrast. */
+.target-language-chips button:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+}
+
+.target-language-chips button:disabled:not(.active) {
+  background: #f1f3f1;
+  color: #59635c;
+}
+
+/* The product shell renders telemetry metrics on a light card. Legacy telemetry
+   colors were designed for a dark surface, so force semantic AA-safe values. */
+.telemetry-metric > strong {
+  color: #24332a;
+}
+
+.telemetry-metric.warning > strong {
+  color: #6b4a13;
+}
+
+.telemetry-metric.danger > strong {
+  color: #8f3038;
+}
+
+.danger-quiet {
+  border-color: #c9a4a8;
+  color: #8f3038;
+}
+
+.display-settings > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  padding-block: 4px;
+}

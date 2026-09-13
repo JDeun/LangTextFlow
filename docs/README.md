@@ -1,86 +1,78 @@
-# LangTextFlow Documentation
+# LangTextFlow 문서
 
-LangTextFlow의 설계·운영·provider·품질·보안 문서를 목적별로 정리한 인덱스입니다.
+처음 사용하는 분은 기술 문서보다 **사용자 가이드**부터 읽는 것을 권장합니다.
 
-> [!NOTE]
-> README는 제품의 현재 상태와 빠른 시작을 설명하고, 이 디렉터리는 구현 계약과 검증 기준을 더 자세히 기록합니다. 구현 상태의 최종 체크리스트는 [`ROADMAP.md`](ROADMAP.md), 릴리스 판단 기준은 [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md)를 기준으로 합니다.
+## 처음 사용하는 분
 
-## Architecture & realtime runtime
+| 문서 | 언제 읽나요? |
+|---|---|
+| [`USER_GUIDE.md`](USER_GUIDE.md) | 처음 실행하고 실제 자막 세션을 시작할 때 |
+| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | 마이크·자막·번역·QR 접속에 문제가 있을 때 |
+| [`FAQ.md`](FAQ.md) | 지원 범위, 로컬 실행, 저장, 다국어 등 기본 질문이 있을 때 |
+
+## 운영과 설정
+
+| 문서 | 내용 |
+|---|---|
+| [`ONBOARDING.md`](ONBOARDING.md) | first-run setup wizard |
+| [`PREFLIGHT.md`](PREFLIGHT.md) | hardware/provider/model 준비 상태 진단 |
+| [`DISPLAY_SETTINGS.md`](DISPLAY_SETTINGS.md) | Audience/Projector/OBS 표시 설정 |
+| [`MODEL_SETUP.md`](MODEL_SETUP.md) | local runtime/model 준비와 복구 |
+| [`GLOSSARY_TRANSFER.md`](GLOSSARY_TRANSFER.md) | glossary import/export |
+| [`CONTEXT_DOCUMENTS.md`](CONTEXT_DOCUMENTS.md) | TXT/MD/PDF/DOCX reference context |
+
+## 개발자와 기여자
+
+### Architecture & realtime runtime
 
 | 문서 | 내용 |
 |---|---|
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | 전체 realtime pipeline과 주요 component |
-| [`FAILOVER.md`](FAILOVER.md) | VibeVoice → faster-whisper one-way failover, replay/rebase/dedup |
-| [`OBSERVABILITY.md`](OBSERVABILITY.md) | queue, latency, provider health, failover telemetry |
+| [`FAILOVER.md`](FAILOVER.md) | VibeVoice → faster-whisper failover |
+| [`OBSERVABILITY.md`](OBSERVABILITY.md) | queue, latency, provider health, telemetry |
 | [`LANGUAGE_FLOW.md`](LANGUAGE_FLOW.md) | source/target language와 multi-target fan-out |
-| [`DISPLAY_SETTINGS.md`](DISPLAY_SETTINGS.md) | Audience/Projector/OBS 공통 display profile |
+| [`VIBEVOICE.md`](VIBEVOICE.md) | VibeVoice sidecar/runtime lifecycle |
+| [`FASTER_WHISPER.md`](FASTER_WHISPER.md) | faster-whisper adapter/fallback |
 
-## Product UI/UX
-
-| 문서 | 내용 |
-|---|---|
-| [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) | Operator/Audience/Projector/Onboarding의 UI/UX 원칙, visual language, responsive/i18n/accessibility 및 regression contract |
-| [`ONBOARDING.md`](ONBOARDING.md) | first-run setup wizard와 권장 구성 적용 |
-| [`PREFLIGHT.md`](PREFLIGHT.md) | hardware/provider/model readiness 진단 |
-| [`DISPLAY_SETTINGS.md`](DISPLAY_SETTINGS.md) | Audience/Projector/OBS 공통 display profile |
-
-## ASR, model setup & onboarding
+### UI/UX
 
 | 문서 | 내용 |
 |---|---|
-| [`VIBEVOICE.md`](VIBEVOICE.md) | Microsoft VibeVoice streaming sidecar 구성과 lifecycle |
-| [`FASTER_WHISPER.md`](FASTER_WHISPER.md) | faster-whisper adapter와 fallback 구성 |
-| [`MODEL_SETUP.md`](MODEL_SETUP.md) | local model preparation job과 UI repair flow |
-| [`PREFLIGHT.md`](PREFLIGHT.md) | hardware/provider/model readiness 진단 |
-| [`ONBOARDING.md`](ONBOARDING.md) | first-run setup wizard와 권장 구성 적용 |
+| [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) | Operator/Audience/Projector/Onboarding의 visual, responsive, i18n, accessibility contract |
 
-## Context, glossary & correction
+### 품질과 acceptance
 
 | 문서 | 내용 |
 |---|---|
-| [`CONTEXT_DOCUMENTS.md`](CONTEXT_DOCUMENTS.md) | TXT/MD/PDF/DOCX context extraction과 bounded reference context |
-| [`GLOSSARY_TRANSFER.md`](GLOSSARY_TRANSFER.md) | glossary JSON/CSV import/export와 conflict policy |
-| [`CORRECTION_QUALITY.md`](CORRECTION_QUALITY.md) | correction benchmark, human review, release quality gate |
+| [`BENCHMARK.md`](BENCHMARK.md) | ASR/full-runtime benchmark와 soak harness |
+| [`TRANSLATION_BENCHMARK.md`](TRANSLATION_BENCHMARK.md) | translation latency/quality protocol |
+| [`CORRECTION_QUALITY.md`](CORRECTION_QUALITY.md) | correction quality gate |
+| [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | 자동 gate와 실제 장비/field acceptance |
 
-## Benchmark & acceptance
-
-| 문서 | 내용 |
-|---|---|
-| [`BENCHMARK.md`](BENCHMARK.md) | ASR/full-runtime benchmark, pacing, soak harness |
-| [`TRANSLATION_BENCHMARK.md`](TRANSLATION_BENCHMARK.md) | translation latency/quality/terminology benchmark protocol |
-| [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | automated gate와 실제 장비/field acceptance checklist |
-
-> [!IMPORTANT]
-> 30/60/90분 반복 입력이 가능한 soak **harness가 존재하는 것**과 실제 대상 장비에서 acceptance가 완료된 것은 다릅니다. 실제 한국어·영어 현장 음원과 배포 대상 장비의 장시간 검증 결과가 확보되기 전에는 production-ready로 과장하지 않습니다.
-
-## Security & adversarial validation
+### Security & adversarial validation
 
 | 문서 | 내용 |
 |---|---|
-| [`SECURITY_MODEL.md`](SECURITY_MODEL.md) | trust boundary, attack surface, realtime failure containment |
-| [`ADVERSARIAL_VALIDATION.md`](ADVERSARIAL_VALIDATION.md) | malformed input, WebSocket, document, LLM, persistence adversarial contract |
-| [`AUDIENCE_SECURITY.md`](AUDIENCE_SECURITY.md) | join code, LAN exposure, rate limiting, operator isolation |
+| [`SECURITY_MODEL.md`](SECURITY_MODEL.md) | trust boundary와 attack surface |
+| [`ADVERSARIAL_VALIDATION.md`](ADVERSARIAL_VALIDATION.md) | malformed input/WebSocket/document/LLM/persistence adversarial contract |
+| [`AUDIENCE_SECURITY.md`](AUDIENCE_SECURITY.md) | LAN audience isolation과 rate limiting |
 | [`../SECURITY.md`](../SECURITY.md) | 공개 취약점 제보 정책 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 개발·검증·PR 기여 규칙 |
 
-Repository CI는 Ruff, pytest/coverage, explicit adversarial regression gate, dependency audit, Bandit, repository hygiene, Markdown link integrity, CSS/i18n hygiene, frontend audit/typecheck/build 및 Browser E2E를 실행하며 CodeQL은 Python과 JavaScript/TypeScript를 분석합니다.
+## 프로젝트 상태
 
-## Planning
+- [`ROADMAP.md`](ROADMAP.md) — 구현 상태와 남은 acceptance
+- [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) — release 판단 기준
 
-| 문서 | 내용 |
-|---|---|
-| [`ROADMAP.md`](ROADMAP.md) | P0–P4 구현 상태와 상용 수준 완료 기준 |
-
-현재 roadmap에서 큰 미완료 영역은 실제 field/soak baseline, app-managed runtime installation, desktop packaging/signing, diagnostics/update/offline cache, load/accessibility/i18n acceptance입니다.
+> [!IMPORTANT]
+> 자동 benchmark/soak harness가 존재하는 것과 실제 대상 장비·현장 음원에서 acceptance가 완료된 것은 다릅니다. 실제 측정 결과가 확보되기 전에는 production-ready로 간주하지 않습니다.
 
 ## 문서 유지 원칙
 
-문서와 구현이 어긋나지 않도록 다음 원칙을 사용합니다.
-
-1. 구현되지 않은 기능은 완료된 것처럼 서술하지 않습니다.
-2. benchmark harness와 실제 측정 결과를 구분합니다.
-3. provider/model/runtime의 외부 라이선스와 LangTextFlow의 Apache-2.0 라이선스를 구분합니다.
-4. 보안상 operator-only 기능과 LAN audience 기능의 경계를 문서와 코드에서 동일하게 유지합니다.
-5. 기능 완료 여부는 README의 서술보다 `ROADMAP.md`와 자동 CI gate를 우선합니다.
-6. 모든 repository-local Markdown link는 CI에서 실제 파일 존재 여부를 검사합니다.
-7. UI 구조·시각 언어·responsive/i18n/accessibility 원칙은 [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)를 제품 계약으로 사용합니다.
+1. 구현되지 않은 기능을 완료된 것처럼 쓰지 않습니다.
+2. 자동 harness와 실제 측정 결과를 구분합니다.
+3. 외부 model/runtime 라이선스와 LangTextFlow의 Apache-2.0 라이선스를 구분합니다.
+4. operator-only 기능과 LAN audience의 보안 경계를 문서와 코드에서 동일하게 유지합니다.
+5. 기능 완료 여부는 README보다 `ROADMAP.md`와 CI gate를 우선합니다.
+6. repository-local Markdown link는 CI에서 검증합니다.
+7. UI 변경은 [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)의 제품 계약을 따릅니다.
