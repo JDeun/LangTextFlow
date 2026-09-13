@@ -1,13 +1,17 @@
 /* WCAG-focused overrides. Keep these rules semantic and minimal. */
+.subtitle,
+.connection,
+.product-nav button,
 .onboarding-header > div > small,
 .onboarding-dialog .subtitle,
 .onboarding-dialog .connection {
-  color: #344054;
+  color: #4f5b53;
   opacity: 1;
 }
 
+.product-nav button:hover,
 .onboarding-dialog nav > button[type="button"] {
-  color: #344054;
+  color: #34463b;
   opacity: 1;
 }
 
