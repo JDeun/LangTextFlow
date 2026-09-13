@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from collections.abc import Awaitable, Callable
@@ -74,10 +75,12 @@ def _install_public_routes(web_root: Path) -> None:
     if not (web_root / "index.html").is_file():
         raise RuntimeError(f"packaged web assets are missing: {web_root}")
 
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Request
     from fastapi.responses import FileResponse
 
+    from langtextflow.desktop_shutdown import request_desktop_shutdown
     from langtextflow.main import app
+    from langtextflow.network import is_loopback_client
 
     index = web_root / "index.html"
     assets = (web_root / "assets").resolve()
@@ -110,11 +113,48 @@ def _install_public_routes(web_root: Path) -> None:
         async def public_audio_worklet() -> FileResponse:
             return FileResponse(audio_worklet)
 
+    @app.post("/api/v1/desktop/shutdown", include_in_schema=False, status_code=202)
+    async def desktop_shutdown(request: Request) -> dict[str, str]:
+        host = request.client.host if request.client else None
+        if not is_loopback_client(host):
+            raise HTTPException(status_code=403, detail="desktop shutdown is local-only")
+        request_desktop_shutdown()
+        return {"status": "shutting-down"}
+
+
+async def _serve_desktop(app: Any, *, host: str, port: int) -> None:
+    import uvicorn
+
+    from langtextflow.desktop_shutdown import (
+        desktop_shutdown_requested,
+        reset_desktop_shutdown,
+    )
+
+    reset_desktop_shutdown()
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        access_log=False,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve(), name="desktop-uvicorn")
+    try:
+        while not task.done():
+            if desktop_shutdown_requested():
+                server.should_exit = True
+                break
+            await asyncio.sleep(0.05)
+        await task
+    finally:
+        server.should_exit = True
+        if not task.done():
+            await task
+
 
 def main() -> None:
     web_root = _prepare_desktop_environment()
-
-    import uvicorn
 
     from langtextflow.config import get_settings
     from langtextflow.main import app
@@ -122,12 +162,12 @@ def main() -> None:
     _install_public_routes(web_root)
     settings = get_settings()
     # LAN audience/projector access is intentional; operator APIs remain loopback-gated.
-    uvicorn.run(
-        DesktopBoundaryApp(app),
-        host="0.0.0.0",  # nosec B104
-        port=settings.backend_port,
-        access_log=False,
-        log_level="info",
+    asyncio.run(
+        _serve_desktop(
+            DesktopBoundaryApp(app),
+            host="0.0.0.0",  # nosec B104
+            port=settings.backend_port,
+        )
     )
 
 
