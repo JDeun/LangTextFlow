@@ -70,6 +70,20 @@ label small,
   color: #59635c;
 }
 
+/* The product shell renders telemetry metrics on a light card. Legacy telemetry
+   colors were designed for a dark surface, so force semantic AA-safe values. */
+.telemetry-metric > strong {
+  color: #24332a;
+}
+
+.telemetry-metric.warning > strong {
+  color: #6b4a13;
+}
+
+.telemetry-metric.danger > strong {
+  color: #8f3038;
+}
+
 .display-settings > summary {
   min-height: 32px;
   display: flex;
