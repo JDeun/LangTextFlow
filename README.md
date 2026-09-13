@@ -19,6 +19,21 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 > [!IMPORTANT]
 > **현재 상태: pre-field alpha / code-complete candidate.** 코드로 닫을 수 있는 핵심 제품 경로와 자동 검증은 구현되어 있으며 Windows/macOS unsigned desktop bundle도 CI에서 생성됩니다. 다만 공개 production release로 간주하려면 실제 code signing/notarization, installer lifecycle, 실제 장비·현장 음원에서의 30/60/90분 acceptance가 남아 있습니다.
 
+## 화면
+
+<table>
+<tr>
+<td width="50%"><img src="docs/assets/operator-en.jpg" alt="LangTextFlow Operator UI"></td>
+<td width="50%"><img src="docs/assets/onboarding-en.jpg" alt="LangTextFlow onboarding UI"></td>
+</tr>
+<tr>
+<td align="center"><sub>Operator — session setup, audience preview, history</sub></td>
+<td align="center"><sub>Onboarding — first-run readiness and setup</sub></td>
+</tr>
+</table>
+
+이 이미지는 Browser E2E smoke에서 실제 UI를 렌더링해 생성한 캡처입니다. 문서용 이미지는 화면 계약이 크게 바뀔 때 갱신합니다.
+
 ## 무엇을 할 수 있나요?
 
 | | 기능 | 설명 |
@@ -87,6 +102,20 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 
 예를 들어 발표자가 한국어로 말하고 영어와 일본어 청중이 함께 듣는다면 하나의 한국어 자막에서 English와 日本語 번역을 동시에 만들 수 있습니다. 청중은 Operator 설정에 접근하지 않고 자신의 자막 화면만 봅니다.
 
+## 어떤 모델이 무엇을 하나요?
+
+LangTextFlow는 한 모델이 모든 것을 처리하는 구조가 아닙니다. 역할별로 모델을 분리하고 각 단계가 실패해도 가능한 범위에서 원문 자막을 유지합니다.
+
+| 역할 | 현재 기본값 | 하는 일 | 대표 대안 |
+|---|---|---|---|
+| Primary ASR | `microsoft/VibeVoice-ASR-Streaming-7B` | streaming 음성 인식, partial/stable 자막 | faster-whisper를 primary로 사용 가능 |
+| ASR fallback | `faster-whisper small` | VibeVoice 장애 시 one-way failover | tiny/base/medium/large-v3/turbo 등 compatible model |
+| Correction | `qwen3.5:4b` | STT 오류를 제한적으로 교정 | 다른 Ollama instruction model |
+| Translation | `translategemma:4b` | 하나의 source caption을 여러 언어로 번역 | 다른 Ollama model 또는 OpenAI-compatible model |
+| VAD | RMS/energy 기반 | 음성 활동 상태/telemetry 보조 | Silero VAD 등은 별도 benchmark/adapter 필요 |
+
+모델 크기가 크다고 항상 좋은 것은 아닙니다. correction은 과도한 재작성, ASR은 realtime latency, translation은 fan-out throughput까지 함께 봐야 합니다. **역할별 대안, drop-in 교체 가능 여부, 새 adapter가 필요한 경우와 benchmark 기준은 [Model Guide](docs/MODEL_GUIDE.md)**에 정리했습니다.
+
 ## 정확도를 높이고 싶다면
 
 **Hotwords**에는 사람 이름·회사명·제품명처럼 인식이 틀리기 쉬운 단어를, **Glossary**에는 전문 용어와 원하는 번역을 등록합니다. 발표 자료가 있다면 TXT, Markdown, PDF, DOCX를 reference context로 추가할 수 있습니다.
@@ -142,8 +171,10 @@ npm run dev
 - **VibeVoice Streaming** — pinned local sidecar/runtime/model provisioning
 - **faster-whisper** — local micro-batch fallback/runtime
 - **Demo** — 실제 ASR 모델 없이 caption lifecycle 확인
-- **Ollama** — local translation, install/health/managed-start 복구
-- **OpenAI-compatible** — LM Studio / vLLM / compatible endpoint
+- **Ollama** — local correction/translation, install/health/managed-start 복구
+- **OpenAI-compatible** — LM Studio / vLLM / compatible translation endpoint
+
+자세한 모델 선택 기준은 [Model Guide](docs/MODEL_GUIDE.md)를 참조하십시오.
 
 </details>
 
@@ -247,6 +278,7 @@ CI에는 backend boundary/property/adversarial regression, Browser E2E, axe acce
 - [Preflight](docs/PREFLIGHT.md)
 - [Display Settings](docs/DISPLAY_SETTINGS.md)
 - [Model Setup](docs/MODEL_SETUP.md)
+- [Model Guide](docs/MODEL_GUIDE.md)
 
 ### 개발·설계
 
