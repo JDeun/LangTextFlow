@@ -1,0 +1,21 @@
+/* WCAG-focused overrides. Keep these rules semantic and minimal. */
+.onboarding-header > div > small,
+.onboarding-dialog .subtitle {
+  color: #52606d;
+}
+
+.onboarding-dialog nav > button[type="button"] {
+  color: #52606d;
+}
+
+.onboarding-dialog nav > button[type="button"][aria-current="step"],
+.onboarding-dialog nav > button[type="button"].active {
+  color: #173f35;
+}
+
+.display-settings > summary {
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  padding-block: 4px;
+}
