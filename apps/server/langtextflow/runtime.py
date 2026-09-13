@@ -1,6 +1,7 @@
 import asyncio
 import secrets
 import time
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -258,10 +259,20 @@ class CaptionRuntime:
         await self.initialize()
         if self.state.running:
             await self._stop_unlocked()
-        self.store.clear()
-        self._reset_metrics()
-        await self.pipeline.start(request)
+
+        # Validate/construct the engine before starting any post-processing worker.
+        # A bad engine value must not leave a partially started pipeline behind.
         engine = self._build_engine(request)
+        self.store.clear()
+        await self.hub.close_all(reason="caption session starting")
+        self._reset_metrics()
+        try:
+            await self.pipeline.start(request)
+        except Exception:
+            with suppress(Exception):
+                await self.pipeline.stop()
+            raise
+
         self.engine = engine
         self.state = SessionState(
             session_id=str(uuid4()),
@@ -293,10 +304,17 @@ class CaptionRuntime:
         except Exception:
             self.state.running = False
             self.engine = None
-            await self.pipeline.stop()
-            await self._stop_persistence_worker()
+            with suppress(Exception):
+                await engine.stop()
+            with suppress(Exception):
+                await self.pipeline.stop()
+            with suppress(Exception):
+                await self._stop_persistence_worker()
             if self.state.session_id and self.state.persistence_error is None:
-                await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
+                try:
+                    await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
+                except Exception as exc:
+                    self.state.persistence_error = str(exc)
             raise
         return self.state
 
@@ -307,19 +325,40 @@ class CaptionRuntime:
     async def _stop_unlocked(self) -> SessionState:
         was_running = self.state.running
         session_id = self.state.session_id
-        if self.engine is not None:
-            await self.engine.stop()
-            self.engine = None
-        await self.pipeline.stop()
-        await self._stop_persistence_worker()
+        self.state.running = False
+        first_error: Exception | None = None
+
+        engine = self.engine
+        self.engine = None
+        if engine is not None:
+            try:
+                await engine.stop()
+            except Exception as exc:
+                first_error = exc
+
+        try:
+            await self.pipeline.stop()
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+
+        try:
+            await self._stop_persistence_worker()
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+
         if was_running and session_id:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception as exc:
                 self.state.persistence_error = str(exc)
-        self.state.running = False
+
+        await self.hub.close_all(reason="caption session stopped")
         self.metrics.voice_active = False
         self._refresh_queue_metrics()
+        if first_error is not None:
+            raise first_error
         return self.state
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
@@ -363,7 +402,8 @@ class CaptionRuntime:
     def audience_view(self, join_code: str) -> AudienceSessionView:
         context = self.state.context
         if (
-            not self.state.session_id
+            not self.state.running
+            or not self.state.session_id
             or not self.state.join_code
             or context is None
             or not context.audience_access
