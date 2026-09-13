@@ -18,11 +18,19 @@ from .models import SessionState
 from .telemetry import RealtimeMetrics
 
 _DIAGNOSTICS_SCHEMA_VERSION = 1
+_REDACTED_SECRET = "<redacted-secret>"
 
 _HOME_PREFIX_PATTERNS = (
     re.compile(r"(?<![A-Za-z0-9_.-])/(?:home|Users)/[^/\\\s\"']+"),
     re.compile(r"(?i)(?<![A-Za-z0-9_.-])[A-Z]:\\Users\\[^\\/\s\"']+"),
     re.compile(r"(?i)(?<![A-Za-z0-9_.-])/mnt/[A-Z]/Users/[^/\\\s\"']+"),
+)
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]+=*"),
+    re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b"),
+    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
+    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}\b"),
+    re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{12,}\b"),
 )
 
 
@@ -49,16 +57,31 @@ def _redact_path_string(value: str) -> str:
     return normalized
 
 
-def _redact_paths(value: Any) -> Any:
-    """Recursively redact local user-home paths from diagnostic metadata."""
+def _sanitize_string(value: str, *, secrets: tuple[str, ...]) -> str:
+    normalized = _redact_path_string(value)
+    for secret in secrets:
+        if secret:
+            normalized = normalized.replace(secret, _REDACTED_SECRET)
+    for pattern in _SECRET_PATTERNS:
+        normalized = pattern.sub(_REDACTED_SECRET, normalized)
+    return normalized
+
+
+def _sanitize_diagnostics(value: Any, *, secrets: tuple[str, ...]) -> Any:
+    """Recursively remove user paths and credential-like values from support metadata."""
 
     if isinstance(value, dict):
-        return {str(key): _redact_paths(item) for key, item in value.items()}
+        return {
+            str(key): _sanitize_diagnostics(item, secrets=secrets)
+            for key, item in value.items()
+        }
     if isinstance(value, list):
-        return [_redact_paths(item) for item in value]
+        return [_sanitize_diagnostics(item, secrets=secrets) for item in value]
+    if isinstance(value, tuple):
+        return [_sanitize_diagnostics(item, secrets=secrets) for item in value]
     if not isinstance(value, str):
         return value
-    return _redact_path_string(value)
+    return _sanitize_string(value, secrets=secrets)
 
 
 def _safe_session_state(state: SessionState) -> dict[str, Any]:
@@ -94,7 +117,7 @@ def _safe_session_state(state: SessionState) -> dict[str, Any]:
         "audio_sample_rate": state.audio_sample_rate,
         "correction_status": state.correction_status.model_dump(mode="json"),
         "translation_status": state.translation_status.model_dump(mode="json"),
-        "persistence_error": _redact_paths(state.persistence_error),
+        "persistence_error": state.persistence_error,
         "started_at": state.started_at.isoformat() if state.started_at else None,
         "context": safe_context,
     }
@@ -161,7 +184,7 @@ def build_diagnostics_bundle(
         "python_version": platform.python_version(),
         "python_implementation": platform.python_implementation(),
         "cpu_count": os.cpu_count(),
-        "executable": _redact_paths(sys.executable),
+        "executable": sys.executable,
     }
 
     entries: dict[str, Any] = {
@@ -172,12 +195,19 @@ def build_diagnostics_bundle(
         "metrics.json": metrics.model_dump(mode="json"),
     }
     if preflight is not None:
-        entries["preflight.json"] = _redact_paths(_model_dump(preflight))
+        entries["preflight.json"] = _model_dump(preflight)
     if mdns_state is not None:
-        entries["mdns.json"] = _redact_paths(_model_dump(mdns_state))
+        entries["mdns.json"] = _model_dump(mdns_state)
+
+    secrets = tuple(
+        value
+        for value in (settings.openai_compatible_api_key,)
+        if isinstance(value, str) and value
+    )
 
     output = io.BytesIO()
     with zipfile.ZipFile(output, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
         for filename, value in entries.items():
-            archive.writestr(filename, _json_bytes(value))
+            safe_value = _sanitize_diagnostics(value, secrets=secrets)
+            archive.writestr(filename, _json_bytes(safe_value))
     return output.getvalue()
