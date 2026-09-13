@@ -1,5 +1,5 @@
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Annotated
@@ -101,10 +101,8 @@ async def _close_audio_socket_for_transition(reason: str) -> None:
     websocket = _block_audio_socket_acceptance()
     if websocket is None:
         return
-    try:
+    with suppress(Exception):
         await asyncio.wait_for(websocket.close(code=1012, reason=reason), timeout=1.0)
-    except Exception:
-        pass
 
 
 @asynccontextmanager
