@@ -1,0 +1,33 @@
+name: Add axe accessibility dependency
+
+on:
+  push:
+    branches: [feat/code-completion-pass]
+    paths:
+      - ".github/workflows/_add_axe_dependency.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  update-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: feat/code-completion-pass
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Add pinned axe-core
+        working-directory: apps/web
+        run: npm install --save-dev --package-lock-only --ignore-scripts axe-core@4.13.0
+      - name: Commit package metadata
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/package.json apps/web/package-lock.json
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "test: add axe-core accessibility gate dependency"
+          git push origin HEAD:feat/code-completion-pass
