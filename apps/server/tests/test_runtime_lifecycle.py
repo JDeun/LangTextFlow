@@ -107,3 +107,42 @@ async def test_persistence_disk_full_is_degraded_without_stopping_live_session(
     finally:
         await runtime.stop()
         await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_session_starts_are_serialized(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "runtime.db")))
+    request = StartSessionRequest(
+        engine="mock",
+        source_language="ko",
+        target_languages=["en"],
+        translation_provider="none",
+    )
+
+    original_start = runtime.pipeline.start
+    active_starts = 0
+    peak_starts = 0
+
+    async def delayed_start(value: StartSessionRequest) -> None:
+        nonlocal active_starts, peak_starts
+        active_starts += 1
+        peak_starts = max(peak_starts, active_starts)
+        try:
+            await asyncio.sleep(0.02)
+            await original_start(value)
+        finally:
+            active_starts -= 1
+
+    monkeypatch.setattr(runtime.pipeline, "start", delayed_start)
+
+    await asyncio.gather(runtime.start(request), runtime.start(request))
+    try:
+        assert peak_starts == 1
+        assert runtime.state.running is True
+        assert runtime._persistence_task is not None
+    finally:
+        await runtime.stop()
+        await runtime.shutdown()
