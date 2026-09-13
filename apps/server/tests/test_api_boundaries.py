@@ -11,6 +11,13 @@ from langtextflow.audience_security import AudienceJoinRateLimiter
 from langtextflow.models import SessionContext, SessionState
 
 
+def _local_client() -> TestClient:
+    return TestClient(
+        main_module.app,
+        client=("127.0.0.1", 50000),
+    )
+
+
 def test_operator_rest_does_not_trust_forwarded_for() -> None:
     client = TestClient(
         main_module.app,
@@ -23,11 +30,40 @@ def test_operator_rest_does_not_trust_forwarded_for() -> None:
     assert response.status_code == 403
 
 
-def test_operator_websocket_rejects_hostile_origin_from_loopback() -> None:
-    client = TestClient(
-        main_module.app,
-        client=("127.0.0.1", 50000),
+def test_operator_rest_rejects_hostile_origin_from_loopback() -> None:
+    response = _local_client().post(
+        "/api/v1/session/stop",
+        headers={"Origin": "https://localhost.evil.example"},
     )
+    assert response.status_code == 403
+
+
+def test_operator_rest_rejects_cross_site_fetch_metadata() -> None:
+    response = _local_client().get(
+        "/api/v1/state",
+        headers={"Sec-Fetch-Site": "cross-site"},
+    )
+    assert response.status_code == 403
+
+
+def test_operator_rest_accepts_allowed_local_origin() -> None:
+    response = _local_client().get(
+        "/api/v1/state",
+        headers={
+            "Origin": "http://localhost:5173",
+            "Sec-Fetch-Site": "same-site",
+        },
+    )
+    assert response.status_code == 200
+
+
+def test_operator_rest_accepts_native_client_without_browser_headers() -> None:
+    response = _local_client().get("/api/v1/state")
+    assert response.status_code == 200
+
+
+def test_operator_websocket_rejects_hostile_origin_from_loopback() -> None:
+    client = _local_client()
     with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
         "/ws/captions",
         headers={"origin": "https://localhost.evil.example"},
