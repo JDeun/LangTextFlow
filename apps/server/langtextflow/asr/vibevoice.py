@@ -134,11 +134,8 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         if self._queue is None or self._ended or self._failure is not None:
             return
         self._ended = True
-        try:
+        with suppress(asyncio.QueueFull):
             self._queue.put_nowait(None)
-        except asyncio.QueueFull:
-            # The sender observes _ended and emits the end marker after draining.
-            pass
 
     async def stop(self) -> None:
         await self.end_audio()
