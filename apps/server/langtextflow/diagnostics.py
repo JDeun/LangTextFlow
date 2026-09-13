@@ -1,21 +1,20 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import io
 import json
 import os
+from pathlib import Path
 import platform
 import sys
-import zipfile
-from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
+import zipfile
 
 from pydantic import BaseModel
 
 from .config import Settings
 from .models import SessionState
 from .telemetry import RealtimeMetrics
-
 
 _DIAGNOSTICS_SCHEMA_VERSION = 1
 
