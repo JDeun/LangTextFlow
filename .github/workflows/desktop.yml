@@ -9,6 +9,7 @@ on:
       - "scripts/build_desktop_sidecar.py"
       - "pyproject.toml"
       - "uv.lock"
+      - "rust-toolchain.toml"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
@@ -38,11 +39,12 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Install Rust stable
+      - name: Install pinned Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          test "$(rustc --version | awk '{print $2}')" = "1.90.0"
       - name: Install locked application dependencies
         shell: bash
         run: |
@@ -60,6 +62,13 @@ jobs:
       - name: Verify Rust desktop shell
         working-directory: apps/desktop/src-tauri
         run: cargo check
+      - name: Upload generated Cargo lockfile
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: cargo-lock-${{ runner.os }}
+          path: apps/desktop/src-tauri/Cargo.lock
+          if-no-files-found: error
+          retention-days: 2
       - name: Build unsigned desktop bundle
         working-directory: apps/desktop
         run: npx --yes @tauri-apps/cli@2.11.4 build
