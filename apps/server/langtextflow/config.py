@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     vibevoice_startup_timeout_seconds: float = 600.0
     audio_queue_chunks: int = 32
     max_audio_frame_bytes: int = 1024 * 1024
+    audio_enqueue_timeout_seconds: float = 5.0
+    audio_shutdown_timeout_seconds: float = 10.0
     asr_replay_seconds: float = 8.0
     asr_health_check_seconds: float = 0.25
     faster_whisper_model: str = "small"
