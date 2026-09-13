@@ -33,7 +33,13 @@ export function isTranscriptEvent(value: unknown): value is TranscriptEvent {
   if (!isRecord(value)) return false;
   if (value.type !== "transcript") return false;
   if (typeof value.segment_id !== "string" || value.segment_id.length === 0) return false;
-  if (!Number.isSafeInteger(value.version) || (value.version as number) < 0) return false;
+  if (
+    typeof value.version !== "number" ||
+    !Number.isSafeInteger(value.version) ||
+    value.version < 0
+  ) {
+    return false;
+  }
   if (typeof value.stage !== "string" || !CAPTION_STAGES.has(value.stage as CaptionStage)) {
     return false;
   }
@@ -41,11 +47,11 @@ export function isTranscriptEvent(value: unknown): value is TranscriptEvent {
     return false;
   }
   if (typeof value.text !== "string" || !isStringMap(value.translations)) return false;
-  if (!isFiniteNonNegativeNumber(value.start_ms)) return false;
-  if (
-    value.end_ms !== null &&
-    (!isFiniteNonNegativeNumber(value.end_ms) || value.end_ms < value.start_ms)
-  ) {
+
+  const startMs = value.start_ms;
+  const endMs = value.end_ms;
+  if (!isFiniteNonNegativeNumber(startMs)) return false;
+  if (endMs !== null && (!isFiniteNonNegativeNumber(endMs) || endMs < startMs)) {
     return false;
   }
   if (!isNullableString(value.speaker)) return false;
