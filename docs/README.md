@@ -9,6 +9,7 @@
 | [`USER_GUIDE.md`](USER_GUIDE.md) | 처음 실행하고 실제 자막 세션을 시작할 때 |
 | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | 마이크·자막·번역·QR 접속에 문제가 있을 때 |
 | [`FAQ.md`](FAQ.md) | 지원 범위, 로컬 실행, 저장, 다국어 등 기본 질문이 있을 때 |
+| [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | 현재 미지원 기능과 production acceptance 경계를 확인할 때 |
 
 ## 운영과 설정
 
@@ -48,6 +49,7 @@
 | [`TRANSLATION_BENCHMARK.md`](TRANSLATION_BENCHMARK.md) | translation latency/quality protocol |
 | [`CORRECTION_QUALITY.md`](CORRECTION_QUALITY.md) | correction quality gate |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | 자동 gate와 실제 장비/field acceptance |
+| [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | 현재 지원하지 않는 기능과 검증 경계 |
 
 ### Security & adversarial validation
 
@@ -63,6 +65,7 @@
 
 - [`ROADMAP.md`](ROADMAP.md) — 구현 상태와 남은 acceptance
 - [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) — release 판단 기준
+- [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) — 현재 미지원 기능과 field validation 경계
 
 > [!IMPORTANT]
 > 자동 benchmark/soak harness가 존재하는 것과 실제 대상 장비·현장 음원에서 acceptance가 완료된 것은 다릅니다. 실제 측정 결과가 확보되기 전에는 production-ready로 간주하지 않습니다.
@@ -76,3 +79,4 @@
 5. 기능 완료 여부는 README보다 `ROADMAP.md`와 CI gate를 우선합니다.
 6. repository-local Markdown link는 CI에서 검증합니다.
 7. UI 변경은 [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)의 제품 계약을 따릅니다.
+8. 사용자에게 중요한 미지원 기능은 [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)에 명시합니다.
