@@ -40,10 +40,18 @@ def _install_public_routes(web_root: Path) -> None:
     if not (web_root / "index.html").is_file():
         raise RuntimeError(f"packaged web assets are missing: {web_root}")
 
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Request, Response
     from fastapi.responses import FileResponse
 
     from langtextflow.main import app
+    from langtextflow.network import is_loopback_client
+
+    @app.middleware("http")
+    async def hide_desktop_developer_surfaces(request: Request, call_next):
+        host = request.client.host if request.client else None
+        if request.url.path in {"/docs", "/redoc", "/openapi.json"} and not is_loopback_client(host):
+            return Response(status_code=404)
+        return await call_next(request)
 
     index = web_root / "index.html"
     assets = (web_root / "assets").resolve()
