@@ -97,11 +97,15 @@ class RuntimeProvisionManager:
         if kind is RuntimeKind.OLLAMA:
             executable = self._find_ollama_executable()
             healthy = bool(executable) and await self._ollama_healthy()
+            managed = (
+                self._ollama_process is not None
+                and self._ollama_process.returncode is None
+            )
             return RuntimeStatus(
                 kind=kind,
                 available=healthy,
                 installed=bool(executable),
-                managed=self._ollama_process is not None and self._ollama_process.returncode is None,
+                managed=managed,
                 path=str(executable) if executable else None,
                 detail="running"
                 if healthy
