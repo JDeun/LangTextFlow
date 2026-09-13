@@ -190,3 +190,49 @@ def test_audio_websocket_rejects_frame_above_configured_limit(
         with pytest.raises(WebSocketDisconnect) as exc_info:
             websocket.receive_json()
         assert exc_info.value.code == 1009
+
+
+def test_operator_rest_rejects_lan_origin_even_from_loopback_before_body_parse() -> None:
+    response = _local_client().post(
+        "/api/v1/session/start",
+        content="{ definitely-not-json",
+        headers={
+            "Content-Type": "application/json",
+            "Origin": "http://192.168.1.40:5173",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "operator browser origin is not allowed"}
+
+
+def test_operator_websocket_rejects_lan_origin_from_loopback() -> None:
+    client = _local_client()
+    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+        "/ws/captions",
+        headers={"origin": "http://192.168.1.40:5173"},
+    ):
+        pass
+    assert exc_info.value.code == 4403
+
+
+def test_only_one_audio_websocket_can_own_active_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        main_module.runtime,
+        "audio_info",
+        lambda: AudioStreamInfo(engine="test", required=True, sample_rate=16000),
+    )
+    client = _local_client()
+    with client.websocket_connect(
+        "/ws/audio",
+        headers={"origin": "http://localhost:5173"},
+    ) as first:
+        assert first.receive_json()["type"] == "audio_config"
+        with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+            "/ws/audio",
+            headers={"origin": "http://localhost:5173"},
+        ):
+            pass
+        assert exc_info.value.code == 4409
+        first.send_text("end")

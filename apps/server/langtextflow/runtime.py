@@ -277,7 +277,7 @@ class CaptionRuntime:
         self.state = SessionState(
             session_id=str(uuid4()),
             join_code=self._join_code(),
-            running=True,
+            running=False,
             source_language=request.source_language,
             target_languages=request.target_languages,
             engine=request.engine,
@@ -300,6 +300,7 @@ class CaptionRuntime:
             if active_provider:
                 await self._provider_changed(str(active_provider))
             self.state.audio_sample_rate = engine.sample_rate
+            self.state.running = True
             self._refresh_queue_metrics()
         except Exception:
             self.state.running = False
@@ -315,6 +316,7 @@ class CaptionRuntime:
                     await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
                 except Exception as exc:
                     self.state.persistence_error = str(exc)
+            await self.hub.close_all(reason="caption session failed to start")
             raise
         return self.state
 

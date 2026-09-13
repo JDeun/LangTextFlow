@@ -254,11 +254,11 @@ class ReplayFallbackAsrEngine(AsrEngine):
         if not pcm_f32le or len(pcm_f32le) % 4:
             raise ValueError("audio frame must contain little-endian float32 PCM")
 
-        self._remember_audio(pcm_f32le)
         async with self._lock:
             active = self._active
             if active is None:
                 raise AsrEngineError("no ASR provider is active")
+            self._remember_audio(pcm_f32le)
             if active.failure is not None or not active.running:
                 reason = active.failure or f"{self._active_name or 'ASR provider'} stopped"
                 await self._failover_locked(reason)
