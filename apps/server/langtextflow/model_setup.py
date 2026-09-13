@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import os
 import re
 import sys
+from pathlib import Path
 from contextlib import suppress
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -213,10 +215,12 @@ class ModelSetupManager:
             state=SetupJobState.RUNNING,
             status="faster-whisper 모델 파일을 준비하는 중입니다.",
         )
+        cache_dir = (Path(self.settings.model_cache_dir).expanduser().resolve() / "huggingface")
+        cache_dir.mkdir(parents=True, exist_ok=True)
         code = (
             "import json,sys; "
             "from faster_whisper.utils import download_model; "
-            "path=download_model(sys.argv[1]); "
+            "path=download_model(sys.argv[1], cache_dir=sys.argv[2]); "
             "print(json.dumps({'path': path}))"
         )
         process: asyncio.subprocess.Process | None = None
@@ -226,7 +230,9 @@ class ModelSetupManager:
                 "-c",
                 code,
                 job.model,
+                str(cache_dir),
                 stdout=asyncio.subprocess.PIPE,
+                env={**os.environ, "HF_HOME": str(cache_dir)},
                 stderr=asyncio.subprocess.PIPE,
             )
             async with self._lock:

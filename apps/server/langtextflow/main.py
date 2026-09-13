@@ -1,5 +1,7 @@
 import asyncio
+import os
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Annotated
@@ -13,6 +15,7 @@ from .audience_security import AudienceJoinRateLimiter
 from .config import get_settings
 from .diagnostics import build_diagnostics_bundle
 from .exports import export_json, export_srt, export_txt, export_vtt
+from .glossary_recommendations import GlossaryRecommendation, recommend_glossary_terms
 from .glossary_repository import GlossaryRepository
 from .glossary_transfer import (
     GlossaryImportRequest,
@@ -23,6 +26,7 @@ from .glossary_transfer import (
     parse_glossary_import,
 )
 from .mdns import MdnsPublisher
+from .model_cache import CacheInventory, ModelCacheManager
 from .model_setup import ModelSetupJob, ModelSetupManager, ModelSetupRequest
 from .models import (
     AudienceSessionView,
@@ -46,13 +50,24 @@ from .network import (
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
+from .runtime_install import (
+    RuntimeKind,
+    RuntimeProvisionJob,
+    RuntimeProvisionManager,
+    RuntimeStatus,
+)
 from .telemetry import RealtimeMetrics
 from .vibevoice_lifecycle import VibeVoiceLifecycleManager, VibeVoiceLifecycleState
 
 settings = get_settings()
+model_cache_root = Path(settings.model_cache_dir).expanduser().resolve()
+model_cache_root.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("HF_HOME", str(model_cache_root / "huggingface"))
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
 model_setup_manager = ModelSetupManager(settings)
+model_cache_manager = ModelCacheManager(settings)
+runtime_provision_manager = RuntimeProvisionManager(settings)
 vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
 mdns_publisher = MdnsPublisher(settings)
 audience_join_limiter = AudienceJoinRateLimiter(
@@ -118,6 +133,7 @@ async def lifespan(_: FastAPI):
         await runtime.shutdown()
         await vibevoice_lifecycle.shutdown()
         await model_setup_manager.shutdown()
+        await runtime_provision_manager.shutdown()
         await asyncio.to_thread(mdns_publisher.stop)
         _allow_audio_socket_acceptance()
 
@@ -403,6 +419,61 @@ async def cancel_model_setup_job(request: Request, job_id: str) -> ModelSetupJob
     return job
 
 
+@app.get("/api/v1/setup/runtimes", response_model=list[RuntimeStatus])
+async def runtime_statuses(request: Request) -> list[RuntimeStatus]:
+    _require_operator(request)
+    return await runtime_provision_manager.statuses()
+
+
+@app.post("/api/v1/setup/runtimes/{kind}", response_model=RuntimeProvisionJob, status_code=202)
+async def provision_runtime(request: Request, kind: RuntimeKind) -> RuntimeProvisionJob:
+    _require_operator(request)
+    if runtime.state.running:
+        raise HTTPException(status_code=409, detail="stop the active caption session before changing runtimes")
+    return await runtime_provision_manager.start(kind)
+
+
+@app.get("/api/v1/setup/runtime-jobs", response_model=list[RuntimeProvisionJob])
+async def runtime_provision_jobs(request: Request) -> list[RuntimeProvisionJob]:
+    _require_operator(request)
+    return await runtime_provision_manager.list_jobs()
+
+
+@app.get("/api/v1/setup/runtime-jobs/{job_id}", response_model=RuntimeProvisionJob)
+async def runtime_provision_job(request: Request, job_id: str) -> RuntimeProvisionJob:
+    _require_operator(request)
+    job = await runtime_provision_manager.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="runtime provision job not found")
+    return job
+
+
+@app.post("/api/v1/setup/runtime-jobs/{job_id}/cancel", response_model=RuntimeProvisionJob)
+async def cancel_runtime_provision_job(request: Request, job_id: str) -> RuntimeProvisionJob:
+    _require_operator(request)
+    job = await runtime_provision_manager.cancel(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="runtime provision job not found")
+    return job
+
+
+@app.get("/api/v1/setup/cache", response_model=CacheInventory)
+async def model_cache_inventory(request: Request) -> CacheInventory:
+    _require_operator(request)
+    return await model_cache_manager.inventory()
+
+
+@app.delete("/api/v1/setup/cache/{area}", response_model=CacheInventory)
+async def clear_model_cache(request: Request, area: str) -> CacheInventory:
+    _require_operator(request)
+    if runtime.state.running:
+        raise HTTPException(status_code=409, detail="stop the active caption session before clearing model cache")
+    try:
+        return await model_cache_manager.clear(area)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/state", response_model=SessionState)
 async def get_state(request: Request) -> SessionState:
     _require_operator(request)
@@ -523,6 +594,20 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
 def list_glossary(request: Request) -> list[GlossaryRecord]:
     _require_operator(request)
     return glossary_repository.list()
+
+
+@app.get("/api/v1/glossary/recommendations", response_model=list[GlossaryRecommendation])
+async def glossary_recommendations(
+    request: Request,
+    session_limit: int = Query(default=20, ge=1, le=100),
+    limit: int = Query(default=30, ge=1, le=100),
+    min_occurrences: int = Query(default=2, ge=2, le=50),
+) -> list[GlossaryRecommendation]:
+    _require_operator(request)
+    return await asyncio.to_thread(
+        recommend_glossary_terms, runtime.history, glossary_repository,
+        session_limit=session_limit, limit=limit, min_occurrences=min_occurrences,
+    )
 
 
 @app.get("/api/v1/glossary/export")

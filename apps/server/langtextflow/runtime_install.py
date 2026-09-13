@@ -18,9 +18,6 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 
-VIBEVOICE_MODEL_REVISION = "c0b4d1571323d98254b7a743e7fe7e543b792caa"
-
-
 class RuntimeKind(StrEnum):
     FASTER_WHISPER = "faster-whisper"
     OLLAMA = "ollama"
@@ -228,14 +225,14 @@ class RuntimeProvisionManager:
                 await _run([sys.executable, "-m", "venv", str(repo / ".venv")])
             await self._running(job_id, "installing pinned VibeVoice runtime")
             await _run([str(python), "-m", "pip", "install", "--disable-pip-version-check", "-e", str(repo)])
-            model_dir = self.cache_root / "vibevoice" / VIBEVOICE_MODEL_REVISION
+            model_dir = self.cache_root / "vibevoice" / self.settings.vibevoice_model_revision
             model_dir.parent.mkdir(parents=True, exist_ok=True)
             code = (
                 "from huggingface_hub import snapshot_download; import sys; "
                 "print(snapshot_download(sys.argv[1], revision=sys.argv[2], local_dir=sys.argv[3]))"
             )
             await self._running(job_id, "downloading pinned VibeVoice model snapshot")
-            await _run([str(python), "-c", code, self.settings.vibevoice_model_id, VIBEVOICE_MODEL_REVISION, str(model_dir)])
+            await _run([str(python), "-c", code, self.settings.vibevoice_model_id, self.settings.vibevoice_model_revision, str(model_dir)])
             await self._complete(
                 job_id,
                 "VibeVoice runtime and model are ready",

@@ -296,6 +296,27 @@ class VibeVoiceLifecycleManager:
         except Exception:
             return False
 
+    def _repo_path(self) -> Path:
+        if self.settings.vibevoice_repo_path:
+            return Path(self.settings.vibevoice_repo_path).expanduser().resolve()
+        return Path(self.settings.managed_runtime_dir).expanduser().resolve() / "vibevoice"
+
+    def _model_path(self) -> Path:
+        if self.settings.vibevoice_model_path:
+            return Path(self.settings.vibevoice_model_path).expanduser().resolve()
+        return (
+            Path(self.settings.model_cache_dir).expanduser().resolve()
+            / "vibevoice"
+            / self.settings.vibevoice_model_revision
+        )
+
+    def _python_path(self) -> str:
+        if self.settings.vibevoice_python.strip():
+            return self.settings.vibevoice_python.strip()
+        repo = self._repo_path()
+        candidate = repo / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+        return str(candidate)
+
     def _configuration_error(self) -> str | None:
         parsed = urlparse(self.settings.vibevoice_url)
         if parsed.scheme != "http" or not parsed.hostname:
@@ -307,13 +328,9 @@ class VibeVoiceLifecycleManager:
         except ValueError as exc:
             return str(exc)
 
-        repo = (
-            Path(self.settings.vibevoice_repo_path).expanduser()
-            if self.settings.vibevoice_repo_path
-            else None
-        )
-        if repo is None or not repo.is_dir():
-            return "VibeVoice repository 경로를 설정하고 먼저 runtime을 준비하세요."
+        repo = self._repo_path()
+        if not repo.is_dir():
+            return "VibeVoice runtime을 먼저 준비하세요."
         server_module = repo / "vllm_plugin" / "asr_streaming_server.py"
         if not server_module.is_file():
             return (
@@ -321,13 +338,9 @@ class VibeVoiceLifecycleManager:
                 "vllm_plugin/asr_streaming_server.py를 찾지 못했습니다."
             )
 
-        model = (
-            Path(self.settings.vibevoice_model_path).expanduser()
-            if self.settings.vibevoice_model_path
-            else None
-        )
-        if model is None or not model.is_dir():
-            return "준비된 VibeVoice streaming checkpoint의 로컬 경로를 설정하세요."
+        model = self._model_path()
+        if not model.is_dir():
+            return "준비된 VibeVoice streaming checkpoint를 찾지 못했습니다."
         if not (model / "preprocessor_config.json").is_file():
             return "VibeVoice checkpoint에 preprocessor_config.json이 없습니다."
         tokenizer = model / "added_tokens.json"
@@ -340,7 +353,7 @@ class VibeVoiceLifecycleManager:
         if not isinstance(tokens, dict) or "<|text_chunk_end|>" not in tokens:
             return "checkpoint tokenizer에 <|text_chunk_end|>가 없어 streaming 준비가 필요합니다."
 
-        python = self.settings.vibevoice_python.strip() or sys.executable
+        python = self._python_path()
         if Path(python).is_absolute():
             if not Path(python).is_file():
                 return "설정한 VibeVoice Python 실행 파일을 찾지 못했습니다."
@@ -352,9 +365,9 @@ class VibeVoiceLifecycleManager:
         error = self._configuration_error()
         if error is not None:
             raise ValueError(error)
-        repo = str(Path(self.settings.vibevoice_repo_path).expanduser().resolve())
-        model = str(Path(self.settings.vibevoice_model_path).expanduser().resolve())
-        python = self.settings.vibevoice_python.strip() or sys.executable
+        repo = str(self._repo_path())
+        model = str(self._model_path())
+        python = self._python_path()
         port = _managed_port(self.settings.vibevoice_url)
         command = [
             python,
@@ -461,8 +474,8 @@ class VibeVoiceLifecycleManager:
             status=status,
             error=error,
             url=self.settings.vibevoice_url,
-            repo_path=self.settings.vibevoice_repo_path or None,
-            model_path=self.settings.vibevoice_model_path or None,
+            repo_path=str(self._repo_path()),
+            model_path=str(self._model_path()),
             started_at=started_at,
             log_tail=list(self._logs),
         )
