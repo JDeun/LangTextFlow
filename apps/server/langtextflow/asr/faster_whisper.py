@@ -115,11 +115,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         if self._queue is None or self._ended or self._failure is not None:
             return
         self._ended = True
-        try:
+        with suppress(asyncio.QueueFull):
             self._queue.put_nowait(None)
-        except asyncio.QueueFull:
-            # The worker observes _ended and exits once the existing backlog drains.
-            pass
 
     async def stop(self) -> None:
         await self.end_audio()
@@ -127,10 +124,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         if task is not None:
             if self._failure is not None and not task.done():
                 task.cancel()
-            try:
+            with suppress(asyncio.CancelledError, TimeoutError):
                 await asyncio.wait_for(task, timeout=10.0)
-            except (asyncio.CancelledError, TimeoutError):
-                pass
         self._worker_task = None
         self._queue = None
         self._request = None
