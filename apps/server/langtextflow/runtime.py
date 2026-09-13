@@ -159,6 +159,8 @@ class CaptionRuntime:
             base_url=self.settings.vibevoice_url,
             queue_chunks=self.settings.audio_queue_chunks,
             max_frame_bytes=self.settings.max_audio_frame_bytes,
+            enqueue_timeout_seconds=self.settings.audio_enqueue_timeout_seconds,
+            shutdown_timeout_seconds=self.settings.audio_shutdown_timeout_seconds,
         )
 
     def _faster_whisper_engine(self, publish=None) -> FasterWhisperStreamingAsrEngine:
@@ -170,6 +172,8 @@ class CaptionRuntime:
             chunk_seconds=self.settings.faster_whisper_chunk_seconds,
             queue_chunks=self.settings.audio_queue_chunks,
             max_frame_bytes=self.settings.max_audio_frame_bytes,
+            enqueue_timeout_seconds=self.settings.audio_enqueue_timeout_seconds,
+            shutdown_timeout_seconds=self.settings.audio_shutdown_timeout_seconds,
         )
 
     async def _provider_changed(self, provider: str) -> None:
