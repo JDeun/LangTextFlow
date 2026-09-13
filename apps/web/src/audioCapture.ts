@@ -13,6 +13,8 @@ export interface AudioSocketConfig {
 }
 
 export const MAX_AUDIO_SOCKET_BUFFERED_BYTES = 1024 * 1024;
+export const AUDIO_PROTOCOL_ERROR_CODE = 4003;
+export const AUDIO_BACKPRESSURE_CLOSE_CODE = 4013;
 
 export function canQueueAudioFrame(
   bufferedAmount: number,
@@ -78,7 +80,7 @@ function waitForAudioConfig(socket: WebSocket): Promise<AudioSocketConfig> {
         resolve(payload);
       } catch (error) {
         window.clearTimeout(timeout);
-        socket.close(1003, "invalid audio configuration");
+        socket.close(AUDIO_PROTOCOL_ERROR_CODE, "invalid audio configuration");
         reject(error);
       }
     };
@@ -113,7 +115,7 @@ export class AudioCaptureController {
     if (this.worklet) this.worklet.port.onmessage = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     if (this.socket && this.socket.readyState < WebSocket.CLOSING) {
-      this.socket.close(1013, "audio stream unavailable");
+      this.socket.close(AUDIO_BACKPRESSURE_CLOSE_CODE, "audio stream unavailable");
     }
     this.onFatalError?.(message);
   }
