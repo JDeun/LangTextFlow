@@ -34,7 +34,6 @@ dev = [
   "ruff>=0.9,<1",
   "pip-audit>=2.7,<3",
   "bandit>=1.7,<2",
-  "httpx2>=2.12,<3",
 ]
 
 [project.scripts]
