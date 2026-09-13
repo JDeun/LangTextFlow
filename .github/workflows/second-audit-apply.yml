@@ -42,10 +42,11 @@ jobs:
           cd ../..
           chmod +x scripts/run_browser_e2e.sh
           git diff --check
-      - name: Commit generated lockfiles and hardening
+      - name: Commit generated code and lockfiles
         shell: bash
         run: |
           set -euo pipefail
+          git restore --source=HEAD -- .github/workflows/ci.yml .github/workflows/codeql.yml .github/workflows/second-audit-apply.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
