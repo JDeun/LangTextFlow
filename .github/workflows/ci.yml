@@ -11,8 +11,8 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Upgrade packaging bootstrap tools
@@ -74,7 +74,7 @@ jobs:
           mkdir -p artifacts
           pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json
       - name: Upload Python SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: python-sbom
           path: artifacts/python-sbom.cdx.json
@@ -89,8 +89,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -106,7 +106,7 @@ jobs:
           mkdir -p ../../artifacts
           npm sbom --sbom-format cyclonedx > ../../artifacts/frontend-sbom.cdx.json
       - name: Upload frontend SBOM
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-sbom
           path: artifacts/frontend-sbom.cdx.json
