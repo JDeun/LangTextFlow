@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     vibevoice_python: str = ""
     vibevoice_model_path: str = ""
     vibevoice_model_id: str = "microsoft/VibeVoice-ASR-Streaming-7B"
+    vibevoice_model_revision: str = "c0b4d1571323d98254b7a743e7fe7e543b792caa"
     vibevoice_tensor_parallel_size: int = Field(default=1, ge=1, le=64)
     vibevoice_max_model_len: int = Field(default=16384, ge=1)
     vibevoice_max_audio_windows: int = Field(default=512, ge=1)
