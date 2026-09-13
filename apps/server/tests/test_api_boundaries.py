@@ -30,10 +30,32 @@ def test_operator_rest_does_not_trust_forwarded_for() -> None:
     assert response.status_code == 403
 
 
+def test_operator_boundary_rejects_remote_request_before_body_validation() -> None:
+    client = TestClient(
+        main_module.app,
+        client=("203.0.113.21", 50000),
+    )
+    response = client.post(
+        "/api/v1/session/start",
+        content=b"{not-valid-json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "operator API is local-only"}
+
+
 def test_operator_rest_rejects_hostile_origin_from_loopback() -> None:
     response = _local_client().post(
         "/api/v1/session/stop",
         headers={"Origin": "https://localhost.evil.example"},
+    )
+    assert response.status_code == 403
+
+
+def test_operator_rest_rejects_audience_lan_origin_from_loopback() -> None:
+    response = _local_client().post(
+        "/api/v1/session/stop",
+        headers={"Origin": "http://malicious.local:5173"},
     )
     assert response.status_code == 403
 
@@ -67,6 +89,16 @@ def test_operator_websocket_rejects_hostile_origin_from_loopback() -> None:
     with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
         "/ws/captions",
         headers={"origin": "https://localhost.evil.example"},
+    ):
+        pass
+    assert exc_info.value.code == 4403
+
+
+def test_operator_websocket_rejects_audience_lan_origin_from_loopback() -> None:
+    client = _local_client()
+    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+        "/ws/captions",
+        headers={"origin": "http://malicious.local:5173"},
     ):
         pass
     assert exc_info.value.code == 4403
