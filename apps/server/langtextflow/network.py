@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import socket
 from ipaddress import IPv4Address, ip_address, ip_network
+from urllib.parse import urlparse
 
 _SHARED = ip_network("100.64.0.0/10")
 
@@ -51,6 +52,26 @@ def is_loopback_client(host: str | None) -> bool:
         return ip_address(host).is_loopback
     except ValueError:
         return False
+
+
+def operator_origin_allowed(origin: str | None, *, allowed_origins: list[str]) -> bool:
+    """Allow browser operator traffic only from explicitly configured loopback origins.
+
+    Audience pages may legitimately run on LAN, Tailscale, or mDNS origins. Operator
+    controls must not inherit that broad policy: a hostile LAN page could otherwise
+    drive localhost APIs through the user's browser. Native/CLI clients may omit Origin.
+    """
+    if origin is None:
+        return True
+    normalized = origin.strip()
+    if not normalized or normalized not in allowed_origins:
+        return False
+    try:
+        parsed = urlparse(normalized)
+        host = parsed.hostname
+    except ValueError:
+        return False
+    return is_loopback_client(host)
 
 
 def websocket_origin_allowed(
