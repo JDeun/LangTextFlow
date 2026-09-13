@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .models import GlossaryEntry, GlossaryRecord
 
+MAX_GLOSSARY_IMPORT_ENTRIES = 5000
+
 
 class GlossaryTransferFormat(StrEnum):
     JSON = "json"
@@ -93,6 +95,10 @@ def parse_glossary_import(payload: GlossaryImportRequest) -> list[GlossaryEntry]
 
     if not raw_entries:
         raise ValueError("glossary import contains no entries")
+    if len(raw_entries) > MAX_GLOSSARY_IMPORT_ENTRIES:
+        raise ValueError(
+            f"glossary import exceeds the {MAX_GLOSSARY_IMPORT_ENTRIES}-entry limit"
+        )
 
     entries: list[GlossaryEntry] = []
     seen_terms: set[str] = set()
