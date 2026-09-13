@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BIN_DIR = ROOT / "apps" / "desktop" / "src-tauri" / "binaries"
 ENTRYPOINT = ROOT / "apps" / "server" / "langtextflow" / "desktop_server.py"
+WEB_DIST = ROOT / "apps" / "web" / "dist"
 
 
 def _target_triple() -> str:
@@ -33,6 +34,9 @@ def _collect_args(*packages: str) -> list[str]:
 
 
 def main() -> None:
+    if not (WEB_DIST / "index.html").is_file():
+        raise RuntimeError("apps/web/dist is missing; run the production web build first")
+
     triple = _target_triple()
     name = "langtextflow-server"
     dist_dir = ROOT / "build" / "desktop-sidecar" / "dist"
@@ -43,6 +47,7 @@ def main() -> None:
     work_dir.mkdir(parents=True, exist_ok=True)
     spec_dir.mkdir(parents=True, exist_ok=True)
 
+    data_separator = ";" if sys.platform == "win32" else ":"
     command = [
         sys.executable,
         "-m",
@@ -54,6 +59,8 @@ def main() -> None:
         name,
         "--paths",
         str(ROOT / "apps" / "server"),
+        "--add-data",
+        f"{WEB_DIST}{data_separator}web-dist",
         "--collect-submodules",
         "uvicorn",
         "--collect-submodules",
