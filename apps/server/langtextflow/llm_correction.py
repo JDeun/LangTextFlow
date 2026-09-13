@@ -79,9 +79,14 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         except Exception as exc:
             raise CorrectionError(f"Ollama is unavailable: {exc}") from exc
 
+        if not isinstance(payload, dict):
+            raise CorrectionError("Ollama model list response must be a JSON object")
+        models = payload.get("models", [])
+        if not isinstance(models, list):
+            raise CorrectionError("Ollama model list response models field must be a list")
         names = {
             str(item.get("name") or item.get("model") or "")
-            for item in payload.get("models", [])
+            for item in models
             if isinstance(item, dict)
         }
         family = self.model.split(":", 1)[0]

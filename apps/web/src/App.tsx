@@ -75,7 +75,9 @@ function translationProviderUsesModel(provider: string) {
 }
 
 function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode: boolean }) {
-  const { connected, segments } = useCaptionSocket(`/ws/audience/${encodeURIComponent(joinCode)}`);
+  const { connected, segments, terminalError } = useCaptionSocket(
+    `/ws/audience/${encodeURIComponent(joinCode)}`,
+  );
   const [session, setSession] = useState<AudienceSessionView | null>(null);
   const [error, setError] = useState("");
   const queryLanguage = new URLSearchParams(window.location.search).get("lang") ?? "";
@@ -99,7 +101,9 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
       .catch((reason: Error) => setError(reason.message));
   }, [joinCode]);
 
-  if (error) return <main className="audience-error">{error}</main>;
+  if (error || terminalError) {
+    return <main className="audience-error">{error || terminalError}</main>;
+  }
   if (!session || !language) {
     return <main className="audience-error">세션을 불러오는 중입니다…</main>;
   }
@@ -167,7 +171,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
 }
 
 function OperatorApp() {
-  const { connected, segments } = useCaptionSocket();
+  const { connected, segments, terminalError } = useCaptionSocket();
   const captureRef = useRef<AudioCaptureController | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("ko");
   const [targetLanguages, setTargetLanguages] = useState<string[]>(["en"]);
@@ -276,7 +280,10 @@ function OperatorApp() {
       query.set("translation_model", translationModel.trim());
     }
     const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
-    if (!response.ok) return;
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(detail || `사전점검 요청에 실패했습니다. (${response.status})`);
+    }
     const report = (await response.json()) as SystemPreflight;
     if (!report.ready) {
       const labels = report.blocking_checks
@@ -337,7 +344,19 @@ function OperatorApp() {
       }
 
       if (nextSession.audio_required) {
-        const capture = new AudioCaptureController();
+        const capture = new AudioCaptureController((message) => {
+          setError(message);
+          void (async () => {
+            await capture.stop().catch(() => undefined);
+            if (captureRef.current === capture) captureRef.current = null;
+            const stopResponse = await fetch(`${API_URL}/api/v1/session/stop`, {
+              method: "POST",
+            }).catch(() => null);
+            if (stopResponse?.ok) {
+              setSession((await stopResponse.json()) as SessionState);
+            }
+          })();
+        });
         captureRef.current = capture;
         await capture.start(selectedDevice);
       }
@@ -581,7 +600,9 @@ function OperatorApp() {
             </div>
           )}
 
-          {error && <div className="error-box">{error}</div>}
+          {(error || terminalError) && (
+            <div className="error-box">{error || terminalError}</div>
+          )}
           {session?.persistence_error && (
             <div className="warning-box">기록 저장 경고: {session.persistence_error}</div>
           )}

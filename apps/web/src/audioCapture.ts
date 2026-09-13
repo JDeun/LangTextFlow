@@ -1,15 +1,15 @@
 import { getWebSocketUrl } from "./api";
+import {
+  AUDIO_BACKPRESSURE_CLOSE_CODE,
+  AUDIO_PROTOCOL_ERROR_CODE,
+  canQueueAudioFrame,
+  parseAudioSocketConfig,
+} from "./audioCapturePolicy";
+import type { AudioSocketConfig } from "./audioCapturePolicy";
 
 export interface AudioInputDevice {
   deviceId: string;
   label: string;
-}
-
-interface AudioSocketConfig {
-  type: "audio_config";
-  sample_rate: number;
-  channels: number;
-  sample_format: "f32le";
 }
 
 export async function requestAudioInputs(): Promise<AudioInputDevice[]> {
@@ -32,10 +32,15 @@ function waitForAudioConfig(socket: WebSocket): Promise<AudioSocketConfig> {
     const timeout = window.setTimeout(() => reject(new Error("오디오 서버 응답이 없습니다.")), 5000);
     socket.onmessage = (event) => {
       if (typeof event.data !== "string") return;
-      const payload = JSON.parse(event.data) as AudioSocketConfig;
-      if (payload.type !== "audio_config") return;
-      window.clearTimeout(timeout);
-      resolve(payload);
+      try {
+        const payload = parseAudioSocketConfig(event.data);
+        window.clearTimeout(timeout);
+        resolve(payload);
+      } catch (error) {
+        window.clearTimeout(timeout);
+        socket.close(AUDIO_PROTOCOL_ERROR_CODE, "invalid audio configuration");
+        reject(error);
+      }
     };
     socket.onerror = () => {
       window.clearTimeout(timeout);
@@ -57,9 +62,29 @@ export class AudioCaptureController {
   private source: MediaStreamAudioSourceNode | null = null;
   private worklet: AudioWorkletNode | null = null;
   private sink: GainNode | null = null;
+  private failed = false;
+  private stopping = false;
+  private readonly onFatalError?: (message: string) => void;
+
+  constructor(onFatalError?: (message: string) => void) {
+    this.onFatalError = onFatalError;
+  }
+
+  private fail(message: string): void {
+    if (this.failed || this.stopping) return;
+    this.failed = true;
+    if (this.worklet) this.worklet.port.onmessage = null;
+    this.stream?.getTracks().forEach((track) => track.stop());
+    if (this.socket && this.socket.readyState < WebSocket.CLOSING) {
+      this.socket.close(AUDIO_BACKPRESSURE_CLOSE_CODE, "audio stream unavailable");
+    }
+    this.onFatalError?.(message);
+  }
 
   async start(deviceId?: string): Promise<number> {
     if (this.context) return this.context.sampleRate;
+    this.failed = false;
+    this.stopping = false;
 
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -76,6 +101,15 @@ export class AudioCaptureController {
       this.socket.binaryType = "arraybuffer";
       const config = await waitForAudioConfig(this.socket);
 
+      this.socket.onerror = () => {
+        this.fail("오디오 스트림 서버와의 연결에 오류가 발생해 세션을 중지합니다.");
+      };
+      this.socket.onclose = (event) => {
+        if (!this.stopping && event.code !== 1000) {
+          this.fail(event.reason || "오디오 스트림 연결이 종료되어 세션을 중지합니다.");
+        }
+      };
+
       this.context = new AudioContext({ sampleRate: config.sample_rate });
       await this.context.audioWorklet.addModule("/audio-worklet.js");
       await this.context.resume();
@@ -90,7 +124,13 @@ export class AudioCaptureController {
       this.sink = this.context.createGain();
       this.sink.gain.value = 0;
       this.worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-        if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(event.data);
+        const socket = this.socket;
+        if (socket?.readyState !== WebSocket.OPEN) return;
+        if (!canQueueAudioFrame(socket.bufferedAmount, event.data.byteLength)) {
+          this.fail("오디오 처리 속도가 입력을 따라가지 못해 세션을 안전하게 중지합니다.");
+          return;
+        }
+        socket.send(event.data);
       };
       this.source.connect(this.worklet);
       this.worklet.connect(this.sink);
@@ -103,18 +143,22 @@ export class AudioCaptureController {
   }
 
   async stop(): Promise<void> {
-    if (this.socket?.readyState === WebSocket.OPEN) this.socket.send("end");
+    this.stopping = true;
+    if (this.worklet) this.worklet.port.onmessage = null;
+    if (this.socket?.readyState === WebSocket.OPEN && !this.failed) this.socket.send("end");
     this.worklet?.disconnect();
     this.source?.disconnect();
     this.sink?.disconnect();
     this.stream?.getTracks().forEach((track) => track.stop());
-    if (this.context) await this.context.close();
-    this.socket?.close(1000);
+    if (this.context && this.context.state !== "closed") await this.context.close();
+    if (this.socket && this.socket.readyState < WebSocket.CLOSING) this.socket.close(1000);
     this.socket = null;
     this.stream = null;
     this.context = null;
     this.source = null;
     this.worklet = null;
     this.sink = null;
+    this.failed = false;
+    this.stopping = false;
   }
 }

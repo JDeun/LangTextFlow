@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 from fastapi import WebSocket
 
@@ -44,6 +45,30 @@ class WebSocketHub:
             return True
         except Exception:
             return False
+
+    async def _close_one(self, client: WebSocket, *, code: int, reason: str) -> None:
+        with suppress(Exception):
+            await asyncio.wait_for(
+                client.close(code=code, reason=reason),
+                timeout=self.send_timeout_seconds,
+            )
+
+    async def close_all(
+        self,
+        *,
+        code: int = 1012,
+        reason: str = "caption session changed",
+    ) -> None:
+        """Disconnect every subscriber so a new session requires fresh authorization."""
+        async with self._connect_lock:
+            clients = tuple(self._clients)
+            self._clients.clear()
+        if not clients:
+            return
+        await asyncio.gather(
+            *(self._close_one(client, code=code, reason=reason) for client in clients),
+            return_exceptions=False,
+        )
 
     async def broadcast(self, event: TranscriptEvent) -> None:
         if not self._clients:

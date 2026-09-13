@@ -1,6 +1,7 @@
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
+from threading import Lock
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
@@ -36,7 +37,12 @@ from .models import (
     StartSessionRequest,
     TranscriptEvent,
 )
-from .network import is_loopback_client, local_ipv4_addresses, websocket_origin_allowed
+from .network import (
+    is_loopback_client,
+    local_ipv4_addresses,
+    operator_origin_allowed,
+    websocket_origin_allowed,
+)
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
@@ -55,6 +61,49 @@ audience_join_limiter = AudienceJoinRateLimiter(
     block_seconds=settings.audience_join_block_seconds,
     max_clients=settings.audience_join_max_tracked_clients,
 )
+_audio_socket_guard = Lock()
+_audio_transition_lock = asyncio.Lock()
+_active_audio_socket: WebSocket | None = None
+_audio_socket_accepting = True
+
+
+def _claim_audio_socket(websocket: WebSocket) -> bool:
+    global _active_audio_socket
+    with _audio_socket_guard:
+        if not _audio_socket_accepting or _active_audio_socket is not None:
+            return False
+        _active_audio_socket = websocket
+        return True
+
+
+def _release_audio_socket(websocket: WebSocket) -> None:
+    global _active_audio_socket
+    with _audio_socket_guard:
+        if _active_audio_socket is websocket:
+            _active_audio_socket = None
+
+
+def _block_audio_socket_acceptance() -> WebSocket | None:
+    global _active_audio_socket, _audio_socket_accepting
+    with _audio_socket_guard:
+        _audio_socket_accepting = False
+        websocket = _active_audio_socket
+        _active_audio_socket = None
+        return websocket
+
+
+def _allow_audio_socket_acceptance() -> None:
+    global _audio_socket_accepting
+    with _audio_socket_guard:
+        _audio_socket_accepting = True
+
+
+async def _close_audio_socket_for_transition(reason: str) -> None:
+    websocket = _block_audio_socket_acceptance()
+    if websocket is None:
+        return
+    with suppress(Exception):
+        await asyncio.wait_for(websocket.close(code=1012, reason=reason), timeout=1.0)
 
 
 @asynccontextmanager
@@ -65,10 +114,12 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        await _close_audio_socket_for_transition("server shutting down")
         await runtime.shutdown()
         await vibevoice_lifecycle.shutdown()
         await model_setup_manager.shutdown()
         await asyncio.to_thread(mdns_publisher.stop)
+        _allow_audio_socket_acceptance()
 
 
 app = FastAPI(
@@ -106,6 +157,12 @@ async def reject_remote_operator_api_before_body_parse(request: Request, call_ne
                 status_code=403,
                 media_type="application/json",
             )
+        if not _operator_request_origin_allowed(request):
+            return Response(
+                content='{"detail":"operator browser origin is not allowed"}',
+                status_code=403,
+                media_type="application/json",
+            )
     return await call_next(request)
 
 
@@ -113,10 +170,9 @@ def _operator_request_origin_allowed(request: Request) -> bool:
     fetch_site = (request.headers.get("sec-fetch-site") or "").strip().casefold()
     if fetch_site == "cross-site":
         return False
-    return websocket_origin_allowed(
+    return operator_origin_allowed(
         request.headers.get("origin"),
         allowed_origins=settings.cors_origins,
-        allowed_origin_regex=settings.cors_origin_regex,
     )
 
 
@@ -138,7 +194,10 @@ def _websocket_origin_allowed(websocket: WebSocket) -> bool:
 
 def _operator_websocket_allowed(websocket: WebSocket) -> bool:
     host = websocket.client.host if websocket.client else None
-    return is_loopback_client(host) and _websocket_origin_allowed(websocket)
+    return is_loopback_client(host) and operator_origin_allowed(
+        websocket.headers.get("origin"),
+        allowed_origins=settings.cors_origins,
+    )
 
 
 def _audience_rate_limit_error(retry_after: int) -> HTTPException:
@@ -175,8 +234,10 @@ def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
 
 
 def _best_export_segments(segments: list[TranscriptEvent]) -> list[TranscriptEvent]:
-    committed = [segment for segment in segments if segment.committed]
-    return committed or segments
+    # SessionRepository and CaptionStore already retain only the latest version per
+    # segment. Filtering globally to committed rows would drop a valid stable tail
+    # whenever an earlier segment had already committed.
+    return segments
 
 
 @app.get("/health")
@@ -536,18 +597,27 @@ def seed_church_glossary(request: Request) -> list[GlossaryRecord]:
 @app.post("/api/v1/session/start", response_model=SessionState)
 async def start_session(request: Request, payload: StartSessionRequest) -> SessionState:
     _require_operator(request)
-    try:
-        return await runtime.start(_with_saved_glossary(payload))
-    except AsrEngineError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    async with _audio_transition_lock:
+        await _close_audio_socket_for_transition("caption session restarting")
+        try:
+            return await runtime.start(_with_saved_glossary(payload))
+        except AsrEngineError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            _allow_audio_socket_acceptance()
 
 
 @app.post("/api/v1/session/stop", response_model=SessionState)
 async def stop_session(request: Request) -> SessionState:
     _require_operator(request)
-    return await runtime.stop()
+    async with _audio_transition_lock:
+        await _close_audio_socket_for_transition("caption session stopping")
+        try:
+            return await runtime.stop()
+        finally:
+            _allow_audio_socket_acceptance()
 
 
 @app.get("/api/v1/audio/config", response_model=AudioStreamInfo)
@@ -645,30 +715,37 @@ async def audio_socket(websocket: WebSocket) -> None:
         await websocket.close(code=4400, reason="active engine does not accept audio")
         return
 
-    await websocket.accept()
-    await websocket.send_json({"type": "audio_config", **info.model_dump(mode="json")})
+    if not _claim_audio_socket(websocket):
+        await websocket.close(code=4409, reason="another audio source is already connected")
+        return
+
     try:
-        while True:
-            message = await websocket.receive()
-            if message["type"] == "websocket.disconnect":
-                break
-            frame = message.get("bytes")
-            text = message.get("text")
-            if frame is not None:
-                if len(frame) > settings.max_audio_frame_bytes:
-                    await websocket.close(
-                        code=1009,
-                        reason="audio frame exceeds configured safety limit",
-                    )
+        await websocket.accept()
+        await websocket.send_json({"type": "audio_config", **info.model_dump(mode="json")})
+        try:
+            while True:
+                message = await websocket.receive()
+                if message["type"] == "websocket.disconnect":
                     break
-                await runtime.feed_audio(frame)
-            elif text == "end":
-                await runtime.end_audio()
-                break
-            else:
-                await websocket.close(code=4400, reason="invalid audio control message")
-                break
-    except WebSocketDisconnect:
-        pass
-    except (AsrEngineError, ValueError) as exc:
-        await websocket.close(code=1011, reason=str(exc)[:120])
+                frame = message.get("bytes")
+                text = message.get("text")
+                if frame is not None:
+                    if len(frame) > settings.max_audio_frame_bytes:
+                        await websocket.close(
+                            code=1009,
+                            reason="audio frame exceeds configured safety limit",
+                        )
+                        break
+                    await runtime.feed_audio(frame)
+                elif text == "end":
+                    await runtime.end_audio()
+                    break
+                else:
+                    await websocket.close(code=4400, reason="invalid audio control message")
+                    break
+        except WebSocketDisconnect:
+            pass
+        except (AsrEngineError, RuntimeError, ValueError) as exc:
+            await websocket.close(code=1011, reason=str(exc)[:120])
+    finally:
+        _release_audio_socket(websocket)

@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { getWebSocketUrl } from "./api";
+import { parseCaptionPayload } from "./captionPayload";
 import {
+  CLIENT_PROTOCOL_ERROR_CODE,
   MAX_RETRY_MS,
   isTerminalCloseCode,
   retryAfterMs,
   retryDelayMs,
   terminalMessage,
 } from "./captionSocketPolicy";
-import type { SnapshotEvent, TranscriptEvent } from "./types";
+import type { TranscriptEvent } from "./types";
 
 export function useCaptionSocket(path = "/ws/captions") {
   const [connected, setConnected] = useState(false);
@@ -52,24 +54,16 @@ export function useCaptionSocket(path = "/ws/captions") {
       };
       socket.onerror = () => socket?.close();
       socket.onmessage = (message) => {
-        let payload: TranscriptEvent | SnapshotEvent;
+        let payload;
         try {
-          payload = JSON.parse(message.data) as TranscriptEvent | SnapshotEvent;
+          payload = parseCaptionPayload(message.data);
         } catch {
-          socket?.close(1003, "invalid caption payload");
+          socket?.close(CLIENT_PROTOCOL_ERROR_CODE, "invalid caption payload");
           return;
         }
 
         if (payload.type === "snapshot") {
-          if (!Array.isArray(payload.segments)) {
-            socket?.close(1003, "invalid caption snapshot");
-            return;
-          }
           setSegments(Object.fromEntries(payload.segments.map((item) => [item.segment_id, item])));
-          return;
-        }
-        if (!payload.segment_id || typeof payload.version !== "number") {
-          socket?.close(1003, "invalid caption event");
           return;
         }
         setSegments((current) => {

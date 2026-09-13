@@ -155,3 +155,40 @@ async def test_ollama_corrector_rejects_oversized_model_response(
             source_language="ko",
             context=SessionContext(),
         )
+
+
+class _BadPrepareResponse:
+    def raise_for_status(self) -> None:
+        return
+
+    def json(self) -> list[object]:
+        return []
+
+
+class _BadPrepareClient:
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        del args, kwargs
+
+    async def __aenter__(self) -> "_BadPrepareClient":
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        del args
+
+    async def get(self, url: str) -> _BadPrepareResponse:
+        assert url.endswith("/api/tags")
+        return _BadPrepareResponse()
+
+
+@pytest.mark.asyncio
+async def test_ollama_corrector_prepare_rejects_non_object_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("langtextflow.llm_correction.httpx.AsyncClient", _BadPrepareClient)
+    corrector = OllamaConstrainedCorrector(
+        base_url="http://127.0.0.1:11434",
+        model="test-model",
+    )
+
+    with pytest.raises(CorrectionError, match="JSON object"):
+        await corrector.prepare()

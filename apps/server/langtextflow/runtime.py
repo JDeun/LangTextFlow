@@ -1,6 +1,7 @@
 import asyncio
 import secrets
 import time
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -42,6 +43,7 @@ class CaptionRuntime:
         self._vad = EnergyVad(
             threshold_dbfs=self.settings.vad_threshold_dbfs,
             hangover_frames=self.settings.vad_hangover_frames,
+            max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
         self._stage_times: dict[str, dict[CaptionStage, datetime]] = {}
         self._persistence_queue: asyncio.Queue[
@@ -258,15 +260,25 @@ class CaptionRuntime:
         await self.initialize()
         if self.state.running:
             await self._stop_unlocked()
-        self.store.clear()
-        self._reset_metrics()
-        await self.pipeline.start(request)
+
+        # Validate/construct the engine before starting any post-processing worker.
+        # A bad engine value must not leave a partially started pipeline behind.
         engine = self._build_engine(request)
+        self.store.clear()
+        await self.hub.close_all(reason="caption session starting")
+        self._reset_metrics()
+        try:
+            await self.pipeline.start(request)
+        except Exception:
+            with suppress(Exception):
+                await self.pipeline.stop()
+            raise
+
         self.engine = engine
         self.state = SessionState(
             session_id=str(uuid4()),
             join_code=self._join_code(),
-            running=True,
+            running=False,
             source_language=request.source_language,
             target_languages=request.target_languages,
             engine=request.engine,
@@ -289,14 +301,23 @@ class CaptionRuntime:
             if active_provider:
                 await self._provider_changed(str(active_provider))
             self.state.audio_sample_rate = engine.sample_rate
+            self.state.running = True
             self._refresh_queue_metrics()
         except Exception:
             self.state.running = False
             self.engine = None
-            await self.pipeline.stop()
-            await self._stop_persistence_worker()
+            with suppress(Exception):
+                await engine.stop()
+            with suppress(Exception):
+                await self.pipeline.stop()
+            with suppress(Exception):
+                await self._stop_persistence_worker()
             if self.state.session_id and self.state.persistence_error is None:
-                await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
+                try:
+                    await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
+                except Exception as exc:
+                    self.state.persistence_error = str(exc)
+            await self.hub.close_all(reason="caption session failed to start")
             raise
         return self.state
 
@@ -307,30 +328,55 @@ class CaptionRuntime:
     async def _stop_unlocked(self) -> SessionState:
         was_running = self.state.running
         session_id = self.state.session_id
-        if self.engine is not None:
-            await self.engine.stop()
-            self.engine = None
-        await self.pipeline.stop()
-        await self._stop_persistence_worker()
+        self.state.running = False
+        first_error: Exception | None = None
+
+        engine = self.engine
+        self.engine = None
+        if engine is not None:
+            try:
+                await engine.stop()
+            except Exception as exc:
+                first_error = exc
+
+        try:
+            await self.pipeline.stop()
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+
+        try:
+            await self._stop_persistence_worker()
+        except Exception as exc:
+            if first_error is None:
+                first_error = exc
+
         if was_running and session_id:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception as exc:
                 self.state.persistence_error = str(exc)
-        self.state.running = False
+
+        await self.hub.close_all(reason="caption session stopped")
         self.metrics.voice_active = False
         self._refresh_queue_metrics()
+        if first_error is not None:
+            raise first_error
         return self.state
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
-        if self.engine is None or not self.state.running or not self.engine.accepts_audio:
+        # Capture the active provider once. A concurrent stop intentionally clears
+        # self.engine before awaiting provider shutdown; repeatedly dereferencing
+        # self.engine here could otherwise turn that race into AttributeError.
+        engine = self.engine
+        if engine is None or not self.state.running or not engine.accepts_audio:
             raise RuntimeError("there is no active audio ASR session")
 
         dbfs, voice_active = self._vad.analyze(pcm_f32le)
         self.metrics.audio_frames_received += 1
         self.metrics.audio_bytes_received += len(pcm_f32le)
         self.metrics.audio_duration_ms += round(
-            (len(pcm_f32le) / 4 / self.engine.sample_rate) * 1000.0,
+            (len(pcm_f32le) / 4 / engine.sample_rate) * 1000.0,
             3,
         )
         self.metrics.audio_rms_dbfs = dbfs
@@ -338,7 +384,7 @@ class CaptionRuntime:
 
         started = time.perf_counter()
         try:
-            await self.engine.feed_audio(pcm_f32le)
+            await engine.feed_audio(pcm_f32le)
         finally:
             self._refresh_queue_metrics()
         enqueue_wait_ms = round((time.perf_counter() - started) * 1000.0, 1)
@@ -347,23 +393,26 @@ class CaptionRuntime:
             self.metrics.audio_backpressure_events += 1
 
     async def end_audio(self) -> None:
-        if self.engine is not None and self.engine.accepts_audio:
-            await self.engine.end_audio()
+        engine = self.engine
+        if engine is not None and engine.accepts_audio:
+            await engine.end_audio()
             self._refresh_queue_metrics()
 
     def audio_info(self) -> AudioStreamInfo:
-        if self.engine is None or not self.state.running:
+        engine = self.engine
+        if engine is None or not self.state.running:
             raise RuntimeError("there is no active session")
         return AudioStreamInfo(
             engine=self.state.engine,
-            required=self.engine.accepts_audio,
-            sample_rate=self.engine.sample_rate,
+            required=engine.accepts_audio,
+            sample_rate=engine.sample_rate,
         )
 
     def audience_view(self, join_code: str) -> AudienceSessionView:
         context = self.state.context
         if (
-            not self.state.session_id
+            not self.state.running
+            or not self.state.session_id
             or not self.state.join_code
             or context is None
             or not context.audience_access

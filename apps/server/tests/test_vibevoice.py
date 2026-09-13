@@ -184,3 +184,20 @@ async def test_vibevoice_records_unexpected_receiver_close_and_rejects_audio(
 
     await engine.stop()
     assert fake_ws.closed is True
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_end_audio_does_not_block_on_full_queue() -> None:
+    async def publish(event) -> None:
+        del event
+
+    engine = VibeVoiceStreamingAsrEngine(
+        publish,
+        base_url="http://127.0.0.1:8001",
+        queue_chunks=1,
+    )
+    engine._queue = asyncio.Queue(maxsize=1)
+    engine._queue.put_nowait(b"\x00\x00\x00\x00")
+
+    await asyncio.wait_for(engine.end_audio(), timeout=0.1)
+    assert engine._ended is True

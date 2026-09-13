@@ -8,7 +8,13 @@ from starlette.websockets import WebSocketDisconnect
 
 from langtextflow import main as main_module
 from langtextflow.audience_security import AudienceJoinRateLimiter
-from langtextflow.models import AudioStreamInfo, SessionContext, SessionState
+from langtextflow.models import (
+    AudioStreamInfo,
+    CaptionStage,
+    SessionContext,
+    SessionState,
+    TranscriptEvent,
+)
 
 
 def _local_client() -> TestClient:
@@ -190,3 +196,76 @@ def test_audio_websocket_rejects_frame_above_configured_limit(
         with pytest.raises(WebSocketDisconnect) as exc_info:
             websocket.receive_json()
         assert exc_info.value.code == 1009
+
+
+def test_operator_rest_rejects_lan_origin_even_from_loopback_before_body_parse() -> None:
+    response = _local_client().post(
+        "/api/v1/session/start",
+        content="{ definitely-not-json",
+        headers={
+            "Content-Type": "application/json",
+            "Origin": "http://192.168.1.40:5173",
+        },
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "operator browser origin is not allowed"}
+
+
+def test_operator_websocket_rejects_lan_origin_from_loopback() -> None:
+    client = _local_client()
+    with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+        "/ws/captions",
+        headers={"origin": "http://192.168.1.40:5173"},
+    ):
+        pass
+    assert exc_info.value.code == 4403
+
+
+def test_only_one_audio_websocket_can_own_active_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        main_module.runtime,
+        "audio_info",
+        lambda: AudioStreamInfo(engine="test", required=True, sample_rate=16000),
+    )
+    client = _local_client()
+    with client.websocket_connect(
+        "/ws/audio",
+        headers={"origin": "http://localhost:5173"},
+    ) as first:
+        assert first.receive_json()["type"] == "audio_config"
+        with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(
+            "/ws/audio",
+            headers={"origin": "http://localhost:5173"},
+        ):
+            pass
+        assert exc_info.value.code == 4409
+        first.send_text("end")
+
+
+def test_export_selection_keeps_uncommitted_tail_segment() -> None:
+    committed = TranscriptEvent(
+        segment_id="one",
+        version=2,
+        stage=CaptionStage.COMMITTED,
+        source_language="ko",
+        text="first",
+        start_ms=0,
+        end_ms=100,
+        committed=True,
+    )
+    stable_tail = TranscriptEvent(
+        segment_id="two",
+        version=1,
+        stage=CaptionStage.STABLE,
+        source_language="ko",
+        text="tail",
+        start_ms=100,
+        end_ms=200,
+    )
+
+    assert main_module._best_export_segments([committed, stable_tail]) == [
+        committed,
+        stable_tail,
+    ]
