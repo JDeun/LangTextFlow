@@ -1,8 +1,9 @@
 export const BASE_RETRY_MS = 750;
 export const MAX_RETRY_MS = 15_000;
 export const RETRY_JITTER_RATIO = 0.2;
+export const CLIENT_PROTOCOL_ERROR_CODE = 4003;
 
-const TERMINAL_CLOSE_CODES = new Set([4403, 4404]);
+const TERMINAL_CLOSE_CODES = new Set([CLIENT_PROTOCOL_ERROR_CODE, 4403, 4404]);
 
 export function isTerminalCloseCode(code: number) {
   return TERMINAL_CLOSE_CODES.has(code);
@@ -22,6 +23,9 @@ export function retryDelayMs(attempt: number, randomValue = Math.random()) {
 }
 
 export function terminalMessage(code: number, reason: string) {
+  if (code === CLIENT_PROTOCOL_ERROR_CODE) {
+    return reason || "서버가 유효하지 않은 자막 데이터를 반환했습니다.";
+  }
   if (code === 4403) return reason || "이 WebSocket 연결은 허용되지 않습니다.";
   if (code === 4404) return reason || "세션을 찾을 수 없거나 종료되었습니다.";
   return "";
