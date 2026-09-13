@@ -11,6 +11,8 @@ import {
 
 test("audio buffering stays within the configured browser-side ceiling", () => {
   assert.equal(canQueueAudioFrame(0, 4096), true);
+  assert.equal(canQueueAudioFrame(MAX_AUDIO_SOCKET_BUFFERED_BYTES, 0), true);
+  assert.equal(canQueueAudioFrame(MAX_AUDIO_SOCKET_BUFFERED_BYTES, 1), false);
   assert.equal(
     canQueueAudioFrame(MAX_AUDIO_SOCKET_BUFFERED_BYTES - 4096, 4096),
     true,
