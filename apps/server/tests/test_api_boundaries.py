@@ -8,7 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from langtextflow import main as main_module
 from langtextflow.audience_security import AudienceJoinRateLimiter
-from langtextflow.models import SessionContext, SessionState
+from langtextflow.models import AudioStreamInfo, SessionContext, SessionState
 
 
 def _local_client() -> TestClient:
@@ -150,3 +150,43 @@ def test_audience_caption_socket_is_server_push_only(monkeypatch: pytest.MonkeyP
         with pytest.raises(WebSocketDisconnect) as exc_info:
             websocket.receive_json()
         assert exc_info.value.code == 4400
+
+
+def test_remote_operator_request_is_rejected_before_json_body_parsing() -> None:
+    client = TestClient(
+        main_module.app,
+        client=("203.0.113.55", 50000),
+    )
+    response = client.post(
+        "/api/v1/session/start",
+        content="{ definitely-not-json",
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 403
+    assert response.json() == {"detail": "operator API is local-only"}
+
+
+def test_audio_websocket_rejects_frame_above_configured_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unexpected_feed(_: bytes) -> None:
+        raise AssertionError("oversized frame reached runtime.feed_audio")
+
+    monkeypatch.setattr(
+        main_module.runtime,
+        "audio_info",
+        lambda: AudioStreamInfo(engine="test", required=True, sample_rate=16000),
+    )
+    monkeypatch.setattr(main_module.runtime, "feed_audio", unexpected_feed)
+
+    client = _local_client()
+    with client.websocket_connect(
+        "/ws/audio",
+        headers={"origin": "http://localhost:5173"},
+    ) as websocket:
+        config = websocket.receive_json()
+        assert config["type"] == "audio_config"
+        websocket.send_bytes(bytes(main_module.settings.max_audio_frame_bytes + 4))
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            websocket.receive_json()
+        assert exc_info.value.code == 1009
