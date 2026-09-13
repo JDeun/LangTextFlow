@@ -16,35 +16,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
-      - name: Upgrade packaging bootstrap tools
-        run: python -m pip install --upgrade "pip>=26" "setuptools>=83" wheel
-      - run: pip install -e '.[dev]'
+      - name: Install pinned uv bootstrap
+        run: python -m pip install "uv==0.12.13"
+      - name: Sync locked backend dependencies
+        run: uv sync --locked --extra dev
       - name: Verify installed dependency consistency
-        run: python -m pip check
+        run: uv pip check
       - name: Repository hygiene scan
-        run: python scripts/repo_hygiene.py
+        run: uv run python scripts/repo_hygiene.py
       - name: Markdown link integrity
-        run: python scripts/check_markdown_links.py
+        run: uv run python scripts/check_markdown_links.py
       - name: Hugging Face snapshot access policy
-        run: python scripts/check_hf_snapshot_calls.py
+        run: uv run python scripts/check_hf_snapshot_calls.py
       - name: Python lint
-        run: ruff check apps/server scripts
-      - name: Adversarial boundary and fanout regression gate
+        run: uv run ruff check apps/server scripts
+      - name: Adversarial boundary, property, and fanout regression gate
         run: >-
-          pytest -q
+          uv run pytest -q
           apps/server/tests/test_adversarial_inputs.py
           apps/server/tests/test_adversarial_schema.py
           apps/server/tests/test_api_boundaries.py
           apps/server/tests/test_malformed_corpus.py
+          apps/server/tests/test_property_boundaries.py
           apps/server/tests/test_hub_load.py
           apps/server/tests/test_runtime_lifecycle.py
       - name: Backend tests and coverage gate
         run: >-
-          pytest --strict-config --strict-markers
+          uv run pytest --strict-config --strict-markers
           --cov=apps/server/langtextflow
           --cov-report=term-missing
           --cov-fail-under=70
@@ -53,7 +55,7 @@ jobs:
           LANGTEXTFLOW_DATABASE_PATH: /tmp/langtextflow-ci.db
         run: |
           set -euo pipefail
-          python -m uvicorn langtextflow.main:app \
+          uv run python -m uvicorn langtextflow.main:app \
             --app-dir apps/server \
             --host 127.0.0.1 \
             --port 8765 \
@@ -77,16 +79,16 @@ jobs:
       - name: Python vulnerability audit and CycloneDX SBOM
         run: |
           mkdir -p artifacts
-          pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json
+          uv run pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json
       - name: Upload Python SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: python-sbom
           path: artifacts/python-sbom.cdx.json
           if-no-files-found: error
           retention-days: 14
       - name: Python static security scan
-        run: bandit -r apps/server/langtextflow -ll -s B615
+        run: uv run bandit -r apps/server/langtextflow -ll -s B615
 
   frontend:
     runs-on: ubuntu-latest
@@ -95,8 +97,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
@@ -114,12 +116,40 @@ jobs:
           mkdir -p ../../artifacts
           npm sbom --sbom-format cyclonedx > ../../artifacts/frontend-sbom.cdx.json
       - name: Upload frontend SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: frontend-sbom
           path: artifacts/frontend-sbom.cdx.json
           if-no-files-found: error
           retention-days: 14
+
+  browser-e2e:
+    name: Browser E2E smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Install pinned uv bootstrap
+        run: python -m pip install "uv==0.12.13"
+      - name: Sync locked backend dependencies
+        run: uv sync --locked --extra dev
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install and build frontend
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+      - name: End-to-end operator and audience smoke
+        env:
+          LANGTEXTFLOW_DATABASE_PATH: /tmp/langtextflow-e2e.db
+        run: bash scripts/run_browser_e2e.sh
 
   platform-smoke:
     name: Platform smoke (${{ matrix.os }})
@@ -130,20 +160,23 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
-      - name: Install backend test dependencies
-        run: python -m pip install -e '.[dev]'
+      - name: Install pinned uv bootstrap
+        run: python -m pip install "uv==0.12.13"
+      - name: Sync locked backend dependencies
+        run: uv sync --locked --extra dev
       - name: Cross-platform backend boundary smoke
         run: >-
-          python -m pytest -q
+          uv run python -m pytest -q
+          apps/server/tests/test_config.py
           apps/server/tests/test_diagnostics.py
           apps/server/tests/test_network.py
           apps/server/tests/test_mdns.py
           apps/server/tests/test_runtime_lifecycle.py
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "22"
           cache: npm
