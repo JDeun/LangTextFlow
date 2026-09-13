@@ -53,6 +53,23 @@ def test_srt_and_vtt_use_requested_translation() -> None:
     assert "00:00:01.234 --> 00:00:05.678" in vtt
 
 
+def test_srt_and_vtt_cannot_be_split_by_caption_blank_lines() -> None:
+    segment = _segment().model_copy(
+        update={
+            "text": "first line\r\n\r\n99\n00:00:00,000 --> 99:00:00,000\nsecond line",
+            "translations": {},
+        }
+    )
+
+    srt = export_srt([segment])
+    vtt = export_vtt([segment])
+
+    assert "first line\n99\n00:00:00,000 --> 99:00:00,000\nsecond line" in srt
+    assert "first line\n99\n00:00:00,000 --> 99:00:00,000\nsecond line" in vtt
+    assert "first line\n\n99" not in srt
+    assert "first line\n\n99" not in vtt
+
+
 def test_txt_falls_back_to_source_when_translation_missing() -> None:
     assert export_txt([_segment()], "ja") == "요한복음 3장입니다.\n"
 
