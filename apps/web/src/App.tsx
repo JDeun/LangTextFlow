@@ -354,7 +354,6 @@ function OperatorApp() {
             }).catch(() => null);
             if (stopResponse?.ok) {
               setSession((await stopResponse.json()) as SessionState);
-              setHistoryRefreshToken((value) => value + 1);
             }
           })();
         });
