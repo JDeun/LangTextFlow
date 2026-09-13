@@ -93,6 +93,14 @@ class CaptionPipeline:
         self._worker_task = None
         if task is not None:
             if not task.done():
+                try:
+                    await asyncio.wait_for(
+                        self._queue.join(),
+                        timeout=self.settings.postprocess_drain_timeout_seconds,
+                    )
+                except TimeoutError:
+                    pass
+            if not task.done():
                 task.cancel()
             try:
                 await task
