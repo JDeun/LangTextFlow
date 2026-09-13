@@ -1,29 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { getWebSocketUrl } from "./api";
+import {
+  MAX_RETRY_MS,
+  isTerminalCloseCode,
+  retryAfterMs,
+  retryDelayMs,
+  terminalMessage,
+} from "./captionSocketPolicy";
 import type { SnapshotEvent, TranscriptEvent } from "./types";
-
-const BASE_RETRY_MS = 750;
-const MAX_RETRY_MS = 15_000;
-const RETRY_JITTER_RATIO = 0.2;
-const TERMINAL_CLOSE_CODES = new Set([4403, 4404]);
-
-function retryAfterMs(reason: string) {
-  const match = reason.match(/retry after\s+(\d+)s/i);
-  if (!match) return null;
-  return Math.max(1, Number(match[1])) * 1000;
-}
-
-function retryDelayMs(attempt: number) {
-  const exponential = Math.min(MAX_RETRY_MS, BASE_RETRY_MS * 2 ** Math.max(0, attempt));
-  const jitter = exponential * RETRY_JITTER_RATIO * (Math.random() * 2 - 1);
-  return Math.max(BASE_RETRY_MS, Math.round(exponential + jitter));
-}
-
-function terminalMessage(code: number, reason: string) {
-  if (code === 4403) return reason || "이 WebSocket 연결은 허용되지 않습니다.";
-  if (code === 4404) return reason || "세션을 찾을 수 없거나 종료되었습니다.";
-  return "";
-}
 
 export function useCaptionSocket(path = "/ws/captions") {
   const [connected, setConnected] = useState(false);
@@ -56,7 +40,7 @@ export function useCaptionSocket(path = "/ws/captions") {
         setConnected(false);
         if (disposed) return;
 
-        if (TERMINAL_CLOSE_CODES.has(event.code)) {
+        if (isTerminalCloseCode(event.code)) {
           setTerminalError(terminalMessage(event.code, event.reason));
           return;
         }
