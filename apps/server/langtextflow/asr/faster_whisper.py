@@ -29,6 +29,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         chunk_seconds: float = 4.0,
         queue_chunks: int = 32,
         max_frame_bytes: int = 1024 * 1024,
+        enqueue_timeout_seconds: float = 5.0,
+        shutdown_timeout_seconds: float = 10.0,
     ) -> None:
         super().__init__(publish)
         if chunk_seconds <= 0:
@@ -39,6 +41,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self.chunk_seconds = chunk_seconds
         self.queue_chunks = queue_chunks
         self.max_frame_bytes = max_frame_bytes
+        self.enqueue_timeout_seconds = max(0.1, enqueue_timeout_seconds)
+        self.shutdown_timeout_seconds = max(0.1, shutdown_timeout_seconds)
         self._sample_rate = 16000
         self._request: StartSessionRequest | None = None
         self._model: Any | None = None
@@ -100,6 +104,22 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             name="faster-whisper-inference",
         )
 
+    async def _put_audio_queue(self, item: bytes | None, *, operation: str) -> None:
+        queue = self._queue
+        if queue is None:
+            raise AsrEngineError("faster-whisper audio stream is not active")
+        try:
+            await asyncio.wait_for(
+                queue.put(item),
+                timeout=self.enqueue_timeout_seconds,
+            )
+        except TimeoutError as exc:
+            self._failure = (
+                "faster-whisper audio queue stalled: "
+                f"{operation} timed out after {self.enqueue_timeout_seconds:.1f}s"
+            )
+            raise AsrEngineError(self._failure) from exc
+
     async def feed_audio(self, pcm_f32le: bytes) -> None:
         if self._failure is not None:
             raise AsrEngineError(self._failure)
@@ -109,19 +129,31 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             raise ValueError("audio frame must contain little-endian float32 PCM")
         if len(pcm_f32le) > self.max_frame_bytes:
             raise ValueError("audio frame is larger than the configured safety limit")
-        await self._queue.put(pcm_f32le)
+        await self._put_audio_queue(pcm_f32le, operation="audio enqueue")
 
     async def end_audio(self) -> None:
         if self._queue is None or self._ended or self._failure is not None:
             return
         self._ended = True
-        await self._queue.put(None)
+        await self._put_audio_queue(None, operation="stream finalization")
 
     async def stop(self) -> None:
-        await self.end_audio()
-        if self._worker_task is not None:
-            with suppress(asyncio.CancelledError):
-                await self._worker_task
+        with suppress(AsrEngineError):
+            await self.end_audio()
+        task = self._worker_task
+        if task is not None and not task.done():
+            if self._failure is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+            else:
+                try:
+                    await asyncio.wait_for(task, timeout=self.shutdown_timeout_seconds)
+                except TimeoutError:
+                    if not task.done():
+                        task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await task
         self._worker_task = None
         self._queue = None
         self._request = None
