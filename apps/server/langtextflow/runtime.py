@@ -42,6 +42,7 @@ class CaptionRuntime:
         self._vad = EnergyVad(
             threshold_dbfs=self.settings.vad_threshold_dbfs,
             hangover_frames=self.settings.vad_hangover_frames,
+            max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
         self._stage_times: dict[str, dict[CaptionStage, datetime]] = {}
         self._persistence_queue: asyncio.Queue[
@@ -49,6 +50,9 @@ class CaptionRuntime:
         ] = asyncio.Queue(maxsize=1024)
         self._persistence_task: asyncio.Task[None] | None = None
         self._lifecycle_lock = asyncio.Lock()
+        self._audio_io_lock = asyncio.Lock()
+        self._audio_claim_lock = asyncio.Lock()
+        self._audio_stream_session_id: str | None = None
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -307,9 +311,10 @@ class CaptionRuntime:
     async def _stop_unlocked(self) -> SessionState:
         was_running = self.state.running
         session_id = self.state.session_id
-        if self.engine is not None:
-            await self.engine.stop()
-            self.engine = None
+        async with self._audio_io_lock:
+            if self.engine is not None:
+                await self.engine.stop()
+                self.engine = None
         await self.pipeline.stop()
         await self._stop_persistence_worker()
         if was_running and session_id:
@@ -322,36 +327,74 @@ class CaptionRuntime:
         self._refresh_queue_metrics()
         return self.state
 
-    async def feed_audio(self, pcm_f32le: bytes) -> None:
-        if self.engine is None or not self.state.running or not self.engine.accepts_audio:
-            raise RuntimeError("there is no active audio ASR session")
+    async def claim_audio_stream(self) -> str | None:
+        """Lease the active session's single audio-producer slot.
 
-        dbfs, voice_active = self._vad.analyze(pcm_f32le)
-        self.metrics.audio_frames_received += 1
-        self.metrics.audio_bytes_received += len(pcm_f32le)
-        self.metrics.audio_duration_ms += round(
-            (len(pcm_f32le) / 4 / self.engine.sample_rate) * 1000.0,
-            3,
-        )
-        self.metrics.audio_rms_dbfs = dbfs
-        self.metrics.voice_active = voice_active
+        A stale socket from a previous session may coexist briefly with a new
+        session. The session-id lease prevents it from feeding the replacement
+        engine while still allowing the new session to claim its own producer.
+        """
 
-        started = time.perf_counter()
-        try:
-            await self.engine.feed_audio(pcm_f32le)
-        finally:
-            self._refresh_queue_metrics()
-        enqueue_wait_ms = round((time.perf_counter() - started) * 1000.0, 1)
-        self.metrics.last_audio_enqueue_wait_ms = enqueue_wait_ms
-        if enqueue_wait_ms >= self.settings.audio_backpressure_warn_ms:
-            self.metrics.audio_backpressure_events += 1
+        async with self._audio_claim_lock:
+            session_id = self.state.session_id
+            engine = self.engine
+            if (
+                not session_id
+                or not self.state.running
+                or engine is None
+                or not engine.accepts_audio
+            ):
+                return None
+            if self._audio_stream_session_id == session_id:
+                return None
+            self._audio_stream_session_id = session_id
+            return session_id
 
-    async def end_audio(self) -> None:
-        if self.engine is not None and self.engine.accepts_audio:
-            await self.engine.end_audio()
-            self._refresh_queue_metrics()
+    async def release_audio_stream(self, session_id: str) -> None:
+        async with self._audio_claim_lock:
+            if self._audio_stream_session_id == session_id:
+                self._audio_stream_session_id = None
 
-    def audio_info(self) -> AudioStreamInfo:
+    async def feed_audio(self, pcm_f32le: bytes, *, session_id: str | None = None) -> None:
+        async with self._audio_io_lock:
+            if session_id is not None and self.state.session_id != session_id:
+                raise RuntimeError("audio stream belongs to a different session")
+            engine = self.engine
+            if engine is None or not self.state.running or not engine.accepts_audio:
+                raise RuntimeError("there is no active audio ASR session")
+
+            dbfs, voice_active = self._vad.analyze(pcm_f32le)
+            self.metrics.audio_frames_received += 1
+            self.metrics.audio_bytes_received += len(pcm_f32le)
+            self.metrics.audio_duration_ms += round(
+                (len(pcm_f32le) / 4 / engine.sample_rate) * 1000.0,
+                3,
+            )
+            self.metrics.audio_rms_dbfs = dbfs
+            self.metrics.voice_active = voice_active
+
+            started = time.perf_counter()
+            try:
+                await engine.feed_audio(pcm_f32le)
+            finally:
+                self._refresh_queue_metrics()
+            enqueue_wait_ms = round((time.perf_counter() - started) * 1000.0, 1)
+            self.metrics.last_audio_enqueue_wait_ms = enqueue_wait_ms
+            if enqueue_wait_ms >= self.settings.audio_backpressure_warn_ms:
+                self.metrics.audio_backpressure_events += 1
+
+    async def end_audio(self, *, session_id: str | None = None) -> None:
+        async with self._audio_io_lock:
+            if session_id is not None and self.state.session_id != session_id:
+                raise RuntimeError("audio stream belongs to a different session")
+            engine = self.engine
+            if engine is not None and engine.accepts_audio:
+                await engine.end_audio()
+                self._refresh_queue_metrics()
+
+    def audio_info(self, *, session_id: str | None = None) -> AudioStreamInfo:
+        if session_id is not None and self.state.session_id != session_id:
+            raise RuntimeError("audio stream belongs to a different session")
         if self.engine is None or not self.state.running:
             raise RuntimeError("there is no active session")
         return AudioStreamInfo(
@@ -361,13 +404,19 @@ class CaptionRuntime:
         )
 
     def audience_view(self, join_code: str) -> AudienceSessionView:
+        if len(join_code) != 6:
+            raise KeyError("audience session not found")
+        normalized_join_code = join_code.upper()
+        if any(character not in _JOIN_ALPHABET for character in normalized_join_code):
+            raise KeyError("audience session not found")
+
         context = self.state.context
         if (
             not self.state.session_id
             or not self.state.join_code
             or context is None
             or not context.audience_access
-            or not secrets.compare_digest(self.state.join_code, join_code.upper())
+            or not secrets.compare_digest(self.state.join_code, normalized_join_code)
         ):
             raise KeyError("audience session not found")
         return AudienceSessionView(
