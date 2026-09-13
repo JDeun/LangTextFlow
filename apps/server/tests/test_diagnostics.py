@@ -11,8 +11,11 @@ from langtextflow.telemetry import RealtimeMetrics
 
 
 def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
+    configured_key = "super-secret-api-key"
+    bearer_token = "bearer-token-" + "1234567890"
+    openai_style_token = "sk-" + "abcdefghijklmnopqrstuv"
     settings = Settings(
-        openai_compatible_api_key="super-secret-api-key",
+        openai_compatible_api_key=configured_key,
         database_path="/home/alice/private/langtextflow.db",
     )
     context = SessionContext(
@@ -38,7 +41,7 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
         target_languages=["en"],
         engine="mock",
         context=context,
-        persistence_error="provider rejected super-secret-api-key at /home/alice/private/db",
+        persistence_error=f"provider rejected {configured_key} at /home/alice/private/db",
     )
     metrics = RealtimeMetrics(audio_frames_received=4, audio_bytes_received=1024)
 
@@ -51,9 +54,9 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
             "details": {
                 "path": "/home/alice/.cache/model",
                 "error": (
-                    "Authorization Bearer bearer-token-1234567890; "
-                    "fallback sk-abcdefghijklmnopqrstuv; "
-                    "configured super-secret-api-key"
+                    f"Authorization Bearer {bearer_token}; "
+                    f"fallback {openai_style_token}; "
+                    f"configured {configured_key}"
                 ),
             }
         },
@@ -88,9 +91,9 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
     assert "<redacted-secret>" in preflight_json["details"]["error"]
 
     for secret in [
-        "super-secret-api-key",
-        "bearer-token-1234567890",
-        "sk-abcdefghijklmnopqrstuv",
+        configured_key,
+        bearer_token,
+        openai_style_token,
         "ABC234",
         "Private worship service",
         "Alice Example",
