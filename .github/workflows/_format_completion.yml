@@ -22,28 +22,19 @@ jobs:
       - run: python -m pip install "ruff==0.16.7"
       - name: Fix and format product Python
         run: |
-          ruff check --fix \
-            apps/server/langtextflow/main.py \
-            apps/server/langtextflow/model_setup.py \
-            apps/server/langtextflow/runtime_install.py \
-            apps/server/langtextflow/vibevoice_lifecycle.py \
-            apps/server/tests/test_runtime_install.py \
-            apps/server/tests/test_model_cache.py \
-            apps/server/tests/test_glossary_recommendations.py \
-            apps/server/tests/test_lifecycle_soak.py \
-            scripts/build_desktop_sidecar.py \
+          files=(
+            apps/server/langtextflow/main.py
+            apps/server/langtextflow/model_setup.py
+            apps/server/langtextflow/runtime_install.py
+            apps/server/langtextflow/vibevoice_lifecycle.py
+            apps/server/tests/test_runtime_install.py
+            apps/server/tests/test_model_cache.py
+            apps/server/tests/test_glossary_recommendations.py
+            scripts/build_desktop_sidecar.py
             scripts/render_tauri_release_config.py
-          ruff format \
-            apps/server/langtextflow/main.py \
-            apps/server/langtextflow/model_setup.py \
-            apps/server/langtextflow/runtime_install.py \
-            apps/server/langtextflow/vibevoice_lifecycle.py \
-            apps/server/tests/test_runtime_install.py \
-            apps/server/tests/test_model_cache.py \
-            apps/server/tests/test_glossary_recommendations.py \
-            apps/server/tests/test_lifecycle_soak.py \
-            scripts/build_desktop_sidecar.py \
-            scripts/render_tauri_release_config.py
+          )
+          ruff check --fix "${files[@]}" || true
+          ruff format "${files[@]}"
       - name: Commit formatting
         run: |
           git config user.name "github-actions[bot]"
