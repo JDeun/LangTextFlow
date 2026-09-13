@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import math
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from langtextflow.telemetry import decode_pcm_f32le
 
