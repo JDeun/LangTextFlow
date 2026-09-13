@@ -10,12 +10,14 @@ import { ContextDocumentManager } from "./ContextDocumentManager";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
+import { GlossaryRecommendations } from "./GlossaryRecommendations";
 import { LanguageSwitcher, useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { LiveCaption } from "./LiveCaption";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { OPERATOR_COPY } from "./operatorCopy";
 import { PreflightPanel } from "./PreflightPanel";
+import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
 import { SessionHistory } from "./SessionHistory";
 import { DEFAULT_KOREAN_HOTWORDS } from "./sessionDefaults";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
@@ -518,6 +520,7 @@ function OperatorApp() {
             targetLanguage={glossaryTargetLanguage}
             disabled={running}
           />
+          <GlossaryRecommendations preset={preset} disabled={running} />
             </div>
           </details>
 
@@ -594,6 +597,7 @@ function OperatorApp() {
               </small>
             </label>
           )}
+          <RuntimeMaintenancePanel disabled={running} />
             </div>
           </details>
 
