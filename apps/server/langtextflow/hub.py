@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 
 from fastapi import WebSocket
 
@@ -46,13 +47,11 @@ class WebSocketHub:
             return False
 
     async def _close_one(self, client: WebSocket, *, code: int, reason: str) -> None:
-        try:
+        with suppress(Exception):
             await asyncio.wait_for(
                 client.close(code=code, reason=reason),
                 timeout=self.send_timeout_seconds,
             )
-        except Exception:
-            pass
 
     async def close_all(
         self,
