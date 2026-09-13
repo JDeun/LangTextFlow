@@ -54,6 +54,7 @@ class CaptionRuntime:
         if self._initialized:
             return
         await asyncio.to_thread(self.history.initialize)
+        await asyncio.to_thread(self.history.recover_interrupted_sessions)
         self._initialized = True
 
     def _start_persistence_worker(self) -> None:
