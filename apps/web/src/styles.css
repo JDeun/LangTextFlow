@@ -206,4 +206,44 @@ body {
   .locale-switcher select { min-width: 92px; }
   .audience-caption-card { padding: 26px 22px; min-height: 300px; }
 }
-\n\n/* Progressive disclosure for operator setup */\n.settings-group {\n  margin: 14px 0;\n  border: 1px solid var(--line);\n  border-radius: 14px;\n  background: rgba(12, 16, 21, .7);\n  overflow: clip;\n}\n.settings-group > summary {\n  list-style: none;\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 12px;\n  padding: 14px;\n  cursor: pointer;\n  user-select: none;\n}\n.settings-group > summary::-webkit-details-marker { display: none; }\n.settings-group > summary::after {\n  content: "+";\n  color: var(--muted);\n  font-size: 18px;\n  font-weight: 400;\n}\n.settings-group[open] > summary::after { content: "−"; }\n.settings-group > summary span { display: grid; gap: 3px; min-width: 0; }\n.settings-group > summary strong { color: var(--text); font-size: 13px; }\n.settings-group > summary small { color: var(--muted); line-height: 1.35; font-size: 10px; }\n.settings-group-body { padding: 0 14px 14px; border-top: 1px solid rgba(57, 70, 84, .42); }\n.settings-group-body > :first-child { margin-top: 14px; }\n.settings-group-body .context-documents,\n.settings-group-body .glossary-manager { margin-left: 0; margin-right: 0; }\nbutton:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {\n  outline: 2px solid var(--accent);\n  outline-offset: 2px;\n}\n@media (prefers-reduced-motion: reduce) {\n  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }\n}\n
+
+/* Progressive disclosure for operator setup */
+.settings-group {
+  margin: 14px 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(12, 16, 21, .7);
+  overflow: clip;
+}
+.settings-group > summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.settings-group > summary::-webkit-details-marker { display: none; }
+.settings-group > summary::after {
+  content: "+";
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 400;
+}
+.settings-group[open] > summary::after { content: "−"; }
+.settings-group > summary span { display: grid; gap: 3px; min-width: 0; }
+.settings-group > summary strong { color: var(--text); font-size: 13px; }
+.settings-group > summary small { color: var(--muted); line-height: 1.35; font-size: 10px; }
+.settings-group-body { padding: 0 14px 14px; border-top: 1px solid rgba(57, 70, 84, .42); }
+.settings-group-body > :first-child { margin-top: 14px; }
+.settings-group-body .context-documents,
+.settings-group-body .glossary-manager { margin-left: 0; margin-right: 0; }
+button:focus-visible, summary:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+}

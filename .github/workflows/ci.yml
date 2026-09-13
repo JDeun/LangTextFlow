@@ -109,6 +109,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: UI localization hygiene
         run: node scripts/check-i18n-literals.mjs
+      - name: CSS hygiene
+        run: node scripts/check-css-hygiene.mjs
       - name: Frontend policy tests
         run: npm test
       - name: Type-check and production build

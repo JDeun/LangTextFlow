@@ -93,6 +93,11 @@ await cdp("Page.enable");
 await cdp("Runtime.enable");
 await setViewport(1440, 1000, false);
 await navigate("http://127.0.0.1:5173/");
+await waitFor(
+  () => evaluate(`document.querySelector('.onboarding-dialog') !== null`),
+  "onboarding dialog",
+);
+await screenshot("onboarding-en");
 await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); true`);
 
 const localeExpectations = [
@@ -109,6 +114,22 @@ for (const [locale, expected] of localeExpectations) {
   await screenshot(`operator-${locale}`);
 }
 
+const disclosureState = await evaluate(`(() => {
+  const groups = Array.from(document.querySelectorAll('.settings-group'));
+  return groups.length >= 2 && groups.every((group) => !group.open);
+})()`);
+if (!disclosureState) throw new Error("advanced operator groups must be collapsed by default");
+
+const disclosureToggle = await evaluate(`(() => {
+  const group = document.querySelectorAll('.settings-group')[1];
+  if (!group) return false;
+  group.open = true;
+  const opened = group.open;
+  group.open = false;
+  return opened && !group.open;
+})()`);
+if (!disclosureToggle) throw new Error("advanced operator group disclosure is not operable");
+
 await setLocale("ko");
 await setViewport(390, 844, true);
 await navigate("http://127.0.0.1:5173/");
@@ -117,6 +138,8 @@ await waitFor(
   "collapsed mobile preflight",
 );
 await screenshot("operator-mobile-ko");
+const operatorMobileFits = await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`);
+if (!operatorMobileFits) throw new Error("operator mobile layout has horizontal overflow");
 await setViewport(1440, 1000, false);
 await waitFor(
   () => evaluate(`document.querySelector('[data-testid="connection-status"]')?.textContent?.includes("서버 연결됨")`),
@@ -168,6 +191,12 @@ await waitFor(
 await screenshot("audience-ko");
 await setViewport(390, 844, true);
 await screenshot("audience-mobile-ko");
+const audienceIsolation = await evaluate(`(() => {
+  const fits = document.documentElement.scrollWidth <= window.innerWidth + 1;
+  const noOperatorControls = !document.querySelector('.control-panel') && !document.querySelector('[data-testid="session-toggle"]');
+  return fits && noOperatorControls;
+})()`);
+if (!audienceIsolation) throw new Error("audience view leaked operator UI or overflows horizontally");
 await setViewport(1440, 1000, false);
 
 const stopResponse = await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });

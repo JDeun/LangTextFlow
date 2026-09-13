@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
 import { HISTORY_COPY } from "./historyCopy";
 import { useI18n } from "./i18n";
@@ -73,11 +73,15 @@ export function SessionHistory({
   const [busyId, setBusyId] = useState("");
   const [detailBusy, setDetailBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
+  const refreshRequestRef = useRef(0);
+  const detailRequestRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const requestId = ++refreshRequestRef.current;
     const response = await fetch(`${apiUrl}/api/v1/history?limit=50`);
     if (!response.ok) throw new Error(copy.loadFailed);
-    setSessions((await response.json()) as SessionRecord[]);
+    const nextSessions = (await response.json()) as SessionRecord[];
+    if (requestId === refreshRequestRef.current) setSessions(nextSessions);
   }, [apiUrl, copy.loadFailed]);
 
   useEffect(() => {
@@ -118,6 +122,7 @@ export function SessionHistory({
   }
 
   async function openDetail(session: SessionRecord) {
+    const requestId = ++detailRequestRef.current;
     setDetailBusy(true);
     setError("");
     setTranscriptQuery("");
@@ -131,6 +136,7 @@ export function SessionHistory({
       if (!captionsResponse.ok) throw new Error(await captionsResponse.text());
       const detail = (await detailResponse.json()) as SessionDetail;
       const transcript = (await captionsResponse.json()) as TranscriptEvent[];
+      if (requestId !== detailRequestRef.current) return;
       const languages = sessionLanguages(detail);
       const preferred = languages.includes(targetLanguage)
         ? targetLanguage
@@ -141,13 +147,17 @@ export function SessionHistory({
       setEditTitle(detail.title);
       setEditNotes(detail.notes || "");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : copy.detailFailed);
+      if (requestId === detailRequestRef.current) {
+        setError(reason instanceof Error ? reason.message : copy.detailFailed);
+      }
     } finally {
-      setDetailBusy(false);
+      if (requestId === detailRequestRef.current) setDetailBusy(false);
     }
   }
 
   function closeDetail() {
+    detailRequestRef.current += 1;
+    setDetailBusy(false);
     setSelected(null);
     setSegments([]);
     setTranscriptQuery("");
@@ -216,7 +226,10 @@ export function SessionHistory({
           <span>{copy.heading}</span>
           <small>{copy.headingHelp}</small>
         </div>
-        <button className="secondary-button" onClick={() => refresh()}>
+        <button
+          className="secondary-button"
+          onClick={() => void refresh().catch((reason: Error) => setError(reason.message))}
+        >
           {copy.refresh}
         </button>
       </div>
