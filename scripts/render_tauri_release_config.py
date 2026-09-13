@@ -18,7 +18,7 @@ def _required(name: str) -> str:
 def main() -> None:
     endpoint = _required("TAURI_UPDATER_ENDPOINT")
     public_key = _required("TAURI_SIGNING_PUBLIC_KEY")
-    payload = {
+    payload: dict[str, object] = {
         "bundle": {"createUpdaterArtifacts": True},
         "plugins": {
             "updater": {
@@ -27,6 +27,19 @@ def main() -> None:
             }
         },
     }
+
+    thumbprint = os.environ.get("WINDOWS_CERTIFICATE_THUMBPRINT", "").strip()
+    if thumbprint:
+        bundle = payload["bundle"]
+        assert isinstance(bundle, dict)
+        bundle["windows"] = {
+            "certificateThumbprint": thumbprint,
+            "digestAlgorithm": "sha256",
+            "timestampUrl": os.environ.get(
+                "WINDOWS_TIMESTAMP_URL", "http://timestamp.digicert.com"
+            ).strip(),
+        }
+
     OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(OUTPUT.relative_to(ROOT))
 
