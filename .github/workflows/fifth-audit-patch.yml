@@ -1,0 +1,38 @@
+name: Fifth audit patch
+
+on:
+  push:
+    branches:
+      - hardening/fifth-audit
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: hardening/fifth-audit
+          fetch-depth: 0
+      - name: Apply patch
+        run: python scripts/fifth_audit_patch.py
+      - name: Validate patch
+        run: |
+          node apps/web/scripts/check-css-hygiene.mjs
+          git diff --check
+      - name: Commit product changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/styles.css apps/web/src/productShell.css apps/web/tests/e2e-smoke.mjs apps/web/scripts/check-css-hygiene.mjs
+          if git diff --cached --quiet; then
+            echo "No product changes to commit"
+            exit 0
+          fi
+          git commit -m "style: adopt clean communication shell and harden UI hygiene"
+          git push origin HEAD:hardening/fifth-audit
