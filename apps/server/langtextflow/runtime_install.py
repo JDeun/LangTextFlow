@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import os
 import shutil
 import sys
@@ -113,15 +114,15 @@ class RuntimeProvisionManager:
             )
 
         repo = self._vibevoice_repo()
-        python = self._vibevoice_python()
-        available = repo.is_dir() and python.is_file()
+        installed = repo.is_dir() or self._vibevoice_python().is_file()
+        available, detail = self._vibevoice_ready()
         return RuntimeStatus(
             kind=kind,
             available=available,
-            installed=available,
+            installed=installed,
             managed=available,
-            path=str(repo) if available else None,
-            detail=self.settings.vibevoice_repo_ref if available else "not installed",
+            path=str(repo) if installed else None,
+            detail=detail,
         )
 
     async def start(self, kind: RuntimeKind) -> RuntimeProvisionJob:
@@ -318,6 +319,9 @@ class RuntimeProvisionManager:
 
         repo = self._vibevoice_repo()
         python = self._vibevoice_python()
+        marker = self._vibevoice_ready_marker()
+        with suppress(FileNotFoundError):
+            marker.unlink()
         repo.parent.mkdir(parents=True, exist_ok=True)
         self.cache_root.mkdir(parents=True, exist_ok=True)
         await self._running(job_id, "preparing pinned VibeVoice source")
@@ -362,7 +366,7 @@ class RuntimeProvisionManager:
                     str(repo),
                 ]
             )
-            model_dir = self.cache_root / "vibevoice" / self.settings.vibevoice_model_revision
+            model_dir = self._vibevoice_model_dir()
             model_dir.parent.mkdir(parents=True, exist_ok=True)
             code = (
                 "from huggingface_hub import snapshot_download; import sys; "
@@ -379,14 +383,24 @@ class RuntimeProvisionManager:
                     str(model_dir),
                 ]
             )
+            self._write_vibevoice_ready_marker(repo=repo, python=python, model_dir=model_dir)
+            available, detail = self._vibevoice_ready()
+            if not available:
+                with suppress(FileNotFoundError):
+                    marker.unlink()
+                raise RuntimeError(f"VibeVoice readiness validation failed: {detail}")
             await self._complete(
                 job_id,
                 "VibeVoice runtime and model are ready",
                 {"repo": str(repo), "python": str(python), "model": str(model_dir)},
             )
         except asyncio.CancelledError:
+            with suppress(FileNotFoundError):
+                marker.unlink()
             raise
         except Exception as exc:
+            with suppress(FileNotFoundError):
+                marker.unlink()
             await self._error(job_id, str(exc))
 
     def _vibevoice_repo(self) -> Path:
@@ -399,6 +413,61 @@ class RuntimeProvisionManager:
             return Path(self.settings.vibevoice_python).expanduser().resolve()
         repo = self._vibevoice_repo()
         return repo / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
+
+    def _vibevoice_model_dir(self) -> Path:
+        if self.settings.vibevoice_model_path:
+            return Path(self.settings.vibevoice_model_path).expanduser().resolve()
+        return self.cache_root / "vibevoice" / self.settings.vibevoice_model_revision
+
+    def _vibevoice_ready_marker(self) -> Path:
+        return self._vibevoice_repo() / ".langtextflow-ready.json"
+
+    def _vibevoice_ready(self) -> tuple[bool, str]:
+        repo = self._vibevoice_repo()
+        python = self._vibevoice_python()
+        model_dir = self._vibevoice_model_dir()
+        marker = self._vibevoice_ready_marker()
+        required = [
+            repo / "vllm_plugin" / "asr_streaming_server.py",
+            python,
+            model_dir / "preprocessor_config.json",
+            model_dir / "added_tokens.json",
+            marker,
+        ]
+        if not any(path.exists() for path in required[:-1]):
+            return False, "not installed"
+        missing = [str(path) for path in required if not path.is_file()]
+        if missing:
+            return False, "partial install; repair required"
+        try:
+            payload = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False, "invalid readiness manifest; repair required"
+        expected = {
+            "repo_ref": self.settings.vibevoice_repo_ref,
+            "model_id": self.settings.vibevoice_model_id,
+            "model_revision": self.settings.vibevoice_model_revision,
+        }
+        if not isinstance(payload, dict) or any(payload.get(key) != value for key, value in expected.items()):
+            return False, "runtime revisions changed; repair required"
+        return True, self.settings.vibevoice_repo_ref
+
+    def _write_vibevoice_ready_marker(self, *, repo: Path, python: Path, model_dir: Path) -> None:
+        marker = self._vibevoice_ready_marker()
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        temporary = marker.with_suffix(".tmp")
+        payload = {
+            "schema_version": 1,
+            "repo_ref": self.settings.vibevoice_repo_ref,
+            "model_id": self.settings.vibevoice_model_id,
+            "model_revision": self.settings.vibevoice_model_revision,
+            "repo": str(repo),
+            "python": str(python),
+            "model": str(model_dir),
+            "ready_at": datetime.now(UTC).isoformat(),
+        }
+        temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(marker)
 
     async def _run_fixed(self, job_id: str, command: list[str], status: str) -> None:
         await self._running(job_id, status)
