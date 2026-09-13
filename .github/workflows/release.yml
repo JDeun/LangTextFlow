@@ -7,11 +7,45 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
+  verify-release-commit:
+    name: Verify release commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Require commit to be on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "Release commit is not reachable from main: $GITHUB_SHA" >&2
+            exit 1
+          }
+      - name: Require successful main CI and CodeQL for exact commit
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs?head_sha=${GITHUB_SHA}&status=completed&per_page=100")"
+          for workflow in CI CodeQL; do
+            count="$(jq --arg workflow "$workflow" '[.workflow_runs[] | select(.name == $workflow and .event == "push" and .head_branch == "main" and .conclusion == "success")] | length' <<<"$runs")"
+            if [ "$count" -lt 1 ]; then
+              echo "No successful $workflow push run for main commit $GITHUB_SHA" >&2
+              exit 1
+            fi
+          done
+
   release:
     name: Signed release (${{ matrix.os }})
+    needs: verify-release-commit
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -28,11 +62,12 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Install Rust stable
+      - name: Install pinned Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          test "$(rustc --version | awk '{print $2}')" = "1.90.0"
       - name: Install locked application dependencies
         shell: bash
         run: |
