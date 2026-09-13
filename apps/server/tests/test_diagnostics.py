@@ -38,6 +38,7 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
         target_languages=["en"],
         engine="mock",
         context=context,
+        persistence_error="provider rejected super-secret-api-key at /home/alice/private/db",
     )
     metrics = RealtimeMetrics(audio_frames_received=4, audio_bytes_received=1024)
 
@@ -46,7 +47,16 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
         settings=settings,
         state=state,
         metrics=metrics,
-        preflight={"details": {"path": "/home/alice/.cache/model"}},
+        preflight={
+            "details": {
+                "path": "/home/alice/.cache/model",
+                "error": (
+                    "Authorization Bearer bearer-token-1234567890; "
+                    "fallback sk-abcdefghijklmnopqrstuv; "
+                    "configured super-secret-api-key"
+                ),
+            }
+        },
         mdns_state={"hostname": "langtextflow-123abc.local", "ready": True},
     )
 
@@ -75,9 +85,12 @@ def test_diagnostics_bundle_excludes_sensitive_session_content() -> None:
     assert state_json["context"]["glossary_count"] == 1
     assert state_json["context"]["reference_document_count"] == 1
     assert preflight_json["details"]["path"] == "~/.cache/model"
+    assert "<redacted-secret>" in preflight_json["details"]["error"]
 
     for secret in [
         "super-secret-api-key",
+        "bearer-token-1234567890",
+        "sk-abcdefghijklmnopqrstuv",
         "ABC234",
         "Private worship service",
         "Alice Example",
