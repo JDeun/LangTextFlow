@@ -61,6 +61,52 @@ async def test_ollama_install_fails_closed_without_supported_package_manager(
 
 
 @pytest.mark.asyncio
+async def test_ollama_status_distinguishes_installed_from_ready(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    executable = tmp_path / "ollama"
+    executable.write_text("stub", encoding="utf-8")
+    manager = RuntimeProvisionManager(
+        Settings(
+            managed_runtime_dir=str(tmp_path / "runtime"), model_cache_dir=str(tmp_path / "cache")
+        )
+    )
+    monkeypatch.setattr(manager, "_find_ollama_executable", lambda: executable)
+
+    async def unhealthy() -> bool:
+        return False
+
+    monkeypatch.setattr(manager, "_ollama_healthy", unhealthy)
+    status = await manager.status(RuntimeKind.OLLAMA)
+    assert status.installed
+    assert not status.available
+    assert status.detail == "installed, not running"
+
+
+@pytest.mark.asyncio
+async def test_ollama_existing_healthy_runtime_completes_without_restart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    executable = tmp_path / "ollama"
+    executable.write_text("stub", encoding="utf-8")
+    manager = RuntimeProvisionManager(
+        Settings(
+            managed_runtime_dir=str(tmp_path / "runtime"), model_cache_dir=str(tmp_path / "cache")
+        )
+    )
+    monkeypatch.setattr(manager, "_find_ollama_executable", lambda: executable)
+
+    async def healthy() -> bool:
+        return True
+
+    monkeypatch.setattr(manager, "_ollama_healthy", healthy)
+    job = await manager.start(RuntimeKind.OLLAMA)
+    settled = await _wait(manager, job.job_id)
+    assert settled.state is ProvisionState.COMPLETED
+    assert settled.status == "Ollama is running"
+
+
+@pytest.mark.asyncio
 async def test_vibevoice_status_uses_managed_runtime_paths(tmp_path: Path) -> None:
     settings = Settings(
         managed_runtime_dir=str(tmp_path / "runtime"),
@@ -69,4 +115,5 @@ async def test_vibevoice_status_uses_managed_runtime_paths(tmp_path: Path) -> No
     manager = RuntimeProvisionManager(settings)
     status = await manager.status(RuntimeKind.VIBEVOICE)
     assert not status.available
+    assert not status.installed
     assert status.path is None
