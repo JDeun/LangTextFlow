@@ -4,6 +4,7 @@ import io
 import json
 import os
 import platform
+import re
 import sys
 import zipfile
 from datetime import UTC, datetime
@@ -18,6 +19,12 @@ from .telemetry import RealtimeMetrics
 
 _DIAGNOSTICS_SCHEMA_VERSION = 1
 
+_HOME_PREFIX_PATTERNS = (
+    re.compile(r"(?<![A-Za-z0-9_.-])/(?:home|Users)/[^/\\\s\"']+"),
+    re.compile(r"(?i)(?<![A-Za-z0-9_.-])[A-Z]:\\Users\\[^\\/\s\"']+"),
+    re.compile(r"(?i)(?<![A-Za-z0-9_.-])/mnt/[A-Z]/Users/[^/\\\s\"']+"),
+)
+
 
 def _json_bytes(value: Any) -> bytes:
     return json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True).encode("utf-8")
@@ -29,8 +36,21 @@ def _model_dump(value: Any) -> Any:
     return value
 
 
+def _redact_path_string(value: str) -> str:
+    """Remove user-identifying home-directory prefixes from diagnostic strings."""
+
+    normalized = value
+    home = str(Path.home())
+    if home and home != "/":
+        normalized = normalized.replace(home, "~")
+
+    for pattern in _HOME_PREFIX_PATTERNS:
+        normalized = pattern.sub("~", normalized)
+    return normalized
+
+
 def _redact_paths(value: Any) -> Any:
-    """Redact obvious local home-directory prefixes from diagnostic metadata."""
+    """Recursively redact local user-home paths from diagnostic metadata."""
 
     if isinstance(value, dict):
         return {str(key): _redact_paths(item) for key, item in value.items()}
@@ -38,10 +58,7 @@ def _redact_paths(value: Any) -> Any:
         return [_redact_paths(item) for item in value]
     if not isinstance(value, str):
         return value
-
-    home = str(Path.home())
-    normalized = value.replace(home, "~") if home and home != "/" else value
-    return normalized
+    return _redact_path_string(value)
 
 
 def _safe_session_state(state: SessionState) -> dict[str, Any]:
@@ -77,7 +94,7 @@ def _safe_session_state(state: SessionState) -> dict[str, Any]:
         "audio_sample_rate": state.audio_sample_rate,
         "correction_status": state.correction_status.model_dump(mode="json"),
         "translation_status": state.translation_status.model_dump(mode="json"),
-        "persistence_error": state.persistence_error,
+        "persistence_error": _redact_paths(state.persistence_error),
         "started_at": state.started_at.isoformat() if state.started_at else None,
         "context": safe_context,
     }
@@ -134,6 +151,7 @@ def build_diagnostics_bundle(
             "contains_reference_text": False,
             "contains_glossary_terms": False,
             "contains_api_keys": False,
+            "contains_user_home_path": False,
         },
     }
     system = {
