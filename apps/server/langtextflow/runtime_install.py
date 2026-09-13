@@ -448,7 +448,10 @@ class RuntimeProvisionManager:
             "model_id": self.settings.vibevoice_model_id,
             "model_revision": self.settings.vibevoice_model_revision,
         }
-        if not isinstance(payload, dict) or any(payload.get(key) != value for key, value in expected.items()):
+        revision_mismatch = not isinstance(payload, dict) or any(
+            payload.get(key) != value for key, value in expected.items()
+        )
+        if revision_mismatch:
             return False, "runtime revisions changed; repair required"
         return True, self.settings.vibevoice_repo_ref
 
