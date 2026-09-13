@@ -54,17 +54,15 @@ jobs:
           npm run build
       - name: Build Python backend sidecar
         run: uv run python scripts/build_desktop_sidecar.py
-      - name: Install pinned Tauri CLI
-        run: cargo install tauri-cli --version 2.11.4 --locked
       - name: Generate platform icon assets
         working-directory: apps/desktop
-        run: cargo tauri icon src-tauri/icons/icon.png
+        run: npx --yes @tauri-apps/cli@2.11.4 icon src-tauri/icons/icon.png
       - name: Verify Rust desktop shell
         working-directory: apps/desktop/src-tauri
         run: cargo check
       - name: Build unsigned desktop bundle
         working-directory: apps/desktop
-        run: cargo tauri build
+        run: npx --yes @tauri-apps/cli@2.11.4 build
       - name: Upload desktop bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
