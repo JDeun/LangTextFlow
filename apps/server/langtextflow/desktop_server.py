@@ -2,7 +2,41 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
+
+
+class DesktopBoundaryApp:
+    """ASGI boundary that hides developer-only HTTP surfaces from LAN clients."""
+
+    def __init__(self, app: Callable[..., Awaitable[None]]) -> None:
+        self.app = app
+
+    async def __call__(
+        self,
+        scope: dict[str, Any],
+        receive: Callable[..., Awaitable[dict[str, Any]]],
+        send: Callable[[dict[str, Any]], Awaitable[None]],
+    ) -> None:
+        if scope.get("type") == "http":
+            path = str(scope.get("path") or "")
+            client = scope.get("client")
+            host = client[0] if isinstance(client, (tuple, list)) and client else None
+            if path in {"/docs", "/redoc", "/openapi.json"}:
+                from langtextflow.network import is_loopback_client
+
+                if not is_loopback_client(host):
+                    await send(
+                        {
+                            "type": "http.response.start",
+                            "status": 404,
+                            "headers": [(b"content-length", b"0")],
+                        }
+                    )
+                    await send({"type": "http.response.body", "body": b""})
+                    return
+        await self.app(scope, receive, send)
 
 
 def _web_root() -> Path:
@@ -40,19 +74,10 @@ def _install_public_routes(web_root: Path) -> None:
     if not (web_root / "index.html").is_file():
         raise RuntimeError(f"packaged web assets are missing: {web_root}")
 
-    from fastapi import HTTPException, Request, Response
+    from fastapi import HTTPException
     from fastapi.responses import FileResponse
 
     from langtextflow.main import app
-    from langtextflow.network import is_loopback_client
-
-    @app.middleware("http")
-    async def hide_desktop_developer_surfaces(request: Request, call_next):
-        host = request.client.host if request.client else None
-        developer_surface = request.url.path in {"/docs", "/redoc", "/openapi.json"}
-        if developer_surface and not is_loopback_client(host):
-            return Response(status_code=404)
-        return await call_next(request)
 
     index = web_root / "index.html"
     assets = (web_root / "assets").resolve()
@@ -92,11 +117,12 @@ def main() -> None:
     import uvicorn
 
     from langtextflow.config import get_settings
+    from langtextflow.main import app
 
     _install_public_routes(web_root)
     settings = get_settings()
     uvicorn.run(
-        "langtextflow.main:app",
+        DesktopBoundaryApp(app),
         host="0.0.0.0",
         port=settings.backend_port,
         access_log=False,
