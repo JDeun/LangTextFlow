@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_URL } from "./api";
 import { useI18n } from "./i18n";
 import { ModelSetupControl } from "./ModelSetupControl";
@@ -47,8 +47,10 @@ export function PreflightPanel({
   const [error, setError] = useState("");
   const [microphone, setMicrophone] = useState<MicrophoneState>("unchecked");
   const [microphoneDetail, setMicrophoneDetail] = useState(copy.initial);
+  const requestIdRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError("");
     try {
@@ -61,11 +63,14 @@ export function PreflightPanel({
       }
       const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
       if (!response.ok) throw new Error(`${copy.http} ${response.status}`);
-      setReport((await response.json()) as SystemPreflight);
+      const nextReport = (await response.json()) as SystemPreflight;
+      if (requestId === requestIdRef.current) setReport(nextReport);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : copy.failed);
+      if (requestId === requestIdRef.current) {
+        setError(reason instanceof Error ? reason.message : copy.failed);
+      }
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }, [copy.failed, copy.http, engine, translationModel, translationProvider]);
 
@@ -75,7 +80,10 @@ export function PreflightPanel({
 
   useEffect(() => {
     const timer = window.setTimeout(() => void load(), 180);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      requestIdRef.current += 1;
+    };
   }, [load]);
 
   useEffect(() => {

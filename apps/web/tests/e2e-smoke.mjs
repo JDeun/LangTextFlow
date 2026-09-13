@@ -93,6 +93,11 @@ await cdp("Page.enable");
 await cdp("Runtime.enable");
 await setViewport(1440, 1000, false);
 await navigate("http://127.0.0.1:5173/");
+await waitFor(
+  () => evaluate(`document.querySelector('.onboarding-dialog') !== null`),
+  "onboarding dialog",
+);
+await screenshot("onboarding-en");
 await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); true`);
 
 const localeExpectations = [

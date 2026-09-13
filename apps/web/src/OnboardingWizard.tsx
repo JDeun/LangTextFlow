@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { API_URL } from "./api";
 import { useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
@@ -62,8 +62,10 @@ export function OnboardingWizard({
   const [error, setError] = useState("");
   const [microphone, setMicrophone] = useState<MicrophoneState>("unchecked");
   const [microphoneDetail, setMicrophoneDetail] = useState(copy.micInitialDetail);
+  const preflightRequestRef = useRef(0);
 
   const loadPreflight = useCallback(async () => {
+    const requestId = ++preflightRequestRef.current;
     setLoading(true);
     setError("");
     try {
@@ -76,13 +78,16 @@ export function OnboardingWizard({
       }
       const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
       if (!response.ok) throw new Error(`${copy.systemHttp} ${response.status}`);
-      setReport((await response.json()) as SystemPreflight);
+      const nextReport = (await response.json()) as SystemPreflight;
+      if (requestId === preflightRequestRef.current) setReport(nextReport);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : copy.systemFailed);
+      if (requestId === preflightRequestRef.current) {
+        setError(reason instanceof Error ? reason.message : copy.systemFailed);
+      }
     } finally {
-      setLoading(false);
+      if (requestId === preflightRequestRef.current) setLoading(false);
     }
-  }, [engine, translationModel, translationProvider]);
+  }, [copy.systemFailed, copy.systemHttp, engine, translationModel, translationProvider]);
 
   const handleRepairCompleted = useCallback(() => {
     void loadPreflight();
@@ -94,7 +99,12 @@ export function OnboardingWizard({
   }, [loadPreflight, open, step]);
 
   useEffect(() => {
-    if (open) setStep(0);
+    if (open) {
+      setStep(0);
+    } else {
+      preflightRequestRef.current += 1;
+      setLoading(false);
+    }
   }, [open]);
 
   useEffect(() => {
