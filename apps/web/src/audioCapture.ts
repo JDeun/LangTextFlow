@@ -106,8 +106,11 @@ export class AudioCaptureController {
   private sink: GainNode | null = null;
   private failed = false;
   private stopping = false;
+  private readonly onFatalError?: (message: string) => void;
 
-  constructor(private readonly onFatalError?: (message: string) => void) {}
+  constructor(onFatalError?: (message: string) => void) {
+    this.onFatalError = onFatalError;
+  }
 
   private fail(message: string): void {
     if (this.failed || this.stopping) return;
