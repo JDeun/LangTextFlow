@@ -104,6 +104,10 @@ PARTIAL → STABLE → CORRECTED → TRANSLATED → COMMITTED
 - Audience / Projector / OBS별 표시 언어 선택
 - Display Profile: font, size, max lines, hold time, source 병기, 정렬
 - QR 기반 LAN audience join
+- en / ko / ja 인터페이스 locale
+- clean communication SaaS shell + professional operator layer, progressive disclosure, Audience/Projector content-first 원칙
+
+상세한 UI 구조, responsive/i18n/accessibility 원칙과 regression contract는 [UI/UX Design System](docs/DESIGN_SYSTEM.md)을 참조하십시오.
 
 ### 세션 기록과 export
 
@@ -134,6 +138,8 @@ LangTextFlow는 happy-path 테스트 통과만으로 release-ready라고 간주�
 - model response size 제한
 - SQLite disk-full failure injection 및 degraded-mode 회귀 검증
 - repository hygiene scan
+- CSS / i18n hygiene gate
+- Browser E2E + Windows/macOS boundary smoke
 - `pip check`, `pip-audit`, `npm audit`, Bandit, Ruff, coverage gate
 - CodeQL Python + JavaScript/TypeScript
 - Dependabot
@@ -230,6 +236,7 @@ LangTextFlow/
 빠르게 볼 문서:
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [UI/UX Design System](docs/DESIGN_SYSTEM.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Onboarding](docs/ONBOARDING.md)
 - [Preflight](docs/PREFLIGHT.md)
