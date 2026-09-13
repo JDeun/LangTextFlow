@@ -385,6 +385,7 @@ class SessionRecord(BaseModel):
     translation_model: str | None
     started_at: datetime
     ended_at: datetime | None = None
+    interrupted: bool = False
     segment_count: int = 0
 
 

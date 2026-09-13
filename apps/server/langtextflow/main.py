@@ -1,13 +1,16 @@
 import asyncio
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import __version__
 from .asr import AsrEngineError
 from .audience_security import AudienceJoinRateLimiter
 from .config import get_settings
+from .diagnostics import build_diagnostics_bundle
 from .exports import export_json, export_srt, export_txt, export_vtt
 from .glossary_repository import GlossaryRepository
 from .glossary_transfer import (
@@ -18,6 +21,7 @@ from .glossary_transfer import (
     glossary_export_media_type,
     parse_glossary_import,
 )
+from .mdns import MdnsPublisher
 from .model_setup import ModelSetupJob, ModelSetupManager, ModelSetupRequest
 from .models import (
     AudienceSessionView,
@@ -44,6 +48,7 @@ runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
 model_setup_manager = ModelSetupManager(settings)
 vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
+mdns_publisher = MdnsPublisher(settings)
 audience_join_limiter = AudienceJoinRateLimiter(
     max_failures=settings.audience_join_max_failures,
     window_seconds=settings.audience_join_window_seconds,
@@ -56,17 +61,19 @@ audience_join_limiter = AudienceJoinRateLimiter(
 async def lifespan(_: FastAPI):
     glossary_repository.initialize()
     await runtime.initialize()
+    await asyncio.to_thread(mdns_publisher.start)
     try:
         yield
     finally:
         await runtime.shutdown()
         await vibevoice_lifecycle.shutdown()
         await model_setup_manager.shutdown()
+        await asyncio.to_thread(mdns_publisher.stop)
 
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.12.0",
+    version=__version__,
     description="Realtime caption orchestration API",
     lifespan=lifespan,
 )
@@ -165,6 +172,17 @@ async def network_info(request: Request) -> NetworkInfo:
     )
 
 
+@app.get("/api/v1/network/mdns")
+async def mdns_status(request: Request) -> dict[str, str | bool | None]:
+    _require_operator(request)
+    state = mdns_publisher.state
+    return {
+        "hostname": state.hostname,
+        "ready": state.ready,
+        "error": state.error,
+    }
+
+
 @app.get("/api/v1/preflight", response_model=SystemPreflight)
 async def system_preflight(
     request: Request,
@@ -178,6 +196,48 @@ async def system_preflight(
         translation_model,
         engine=engine,
         translation_provider=translation_provider,
+    )
+
+
+@app.get("/api/v1/diagnostics")
+async def diagnostics_bundle(request: Request) -> Response:
+    _require_operator(request)
+    state = runtime.state
+    translation_provider = (
+        state.translation_status.provider if state.translation_status.enabled else "none"
+    )
+    translation_model = state.translation_status.model
+    try:
+        preflight: object = await run_preflight(
+            settings,
+            translation_model,
+            engine=state.engine,
+            translation_provider=translation_provider,
+        )
+    except Exception as exc:  # pragma: no cover - defensive support path
+        preflight = {"error": str(exc)[:1000]}
+
+    mdns_state = mdns_publisher.state
+    bundle = build_diagnostics_bundle(
+        version=__version__,
+        settings=settings,
+        state=state,
+        metrics=runtime.metrics_snapshot(),
+        preflight=preflight,
+        mdns_state={
+            "hostname": mdns_state.hostname,
+            "ready": mdns_state.ready,
+            "error": mdns_state.error,
+        },
+    )
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    return Response(
+        content=bundle,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="langtextflow-diagnostics-{stamp}.zip"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

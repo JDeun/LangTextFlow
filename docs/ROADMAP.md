@@ -53,7 +53,7 @@
 - [x] ASR micro-benchmark harness (RTF / realtime lag / CER / WER / queue / RSS)
 - [x] full runtime benchmark harness (ASR → correction → translation → persistence)
 - [x] realtime/max pacing + 반복 fixture 기반 30/60/90분 soak 입력
-- [ ] 실패 provider 재시도 / controlled failback 정책
+- [ ] 실패 provider 재시도 / controlled failback 정책 — v1은 flapping 방지를 위해 one-way failover 유지
 - [ ] fuzzy duplicate suppression 필요성 benchmark
 - [ ] semantic VAD/gating benchmark 및 필요 시 적용
 - [ ] 한국어·영어 실제 집회 샘플 failover benchmark 실행
@@ -107,7 +107,7 @@
 - [x] operator REST/WebSocket/audio control을 loopback-only로 제한
 - [x] audience REST/WebSocket만 join code 기반 LAN 접근 허용
 - [x] join code rate limit / brute-force hardening
-- [ ] mDNS 기반 사람이 읽기 쉬운 local hostname
+- [x] mDNS 기반 사람이 읽기 쉬운 local hostname
 
 ## P3B — Session history / export
 
@@ -154,10 +154,11 @@
 
 - [ ] Tauri desktop shell 또는 동등한 desktop packaging
 - [ ] Windows/macOS signed installer
-- [ ] crash recovery / diagnostics bundle
+- [x] interrupted-session crash recovery + privacy-minimized diagnostics bundle
 - [ ] offline-first model cache
 - [ ] update channel
 - [ ] e2e/load/soak tests
+- [x] Windows/macOS CI boundary smoke + frontend reconnect policy regression tests
 - [ ] 접근성/키보드 내비게이션/i18n
 - [ ] privacy/security review
 

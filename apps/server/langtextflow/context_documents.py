@@ -39,6 +39,13 @@ def supported_context_document(filename: str) -> bool:
     return Path(filename).suffix.casefold() in _SUPPORTED_EXTENSIONS
 
 
+def _max_base64_chars(max_bytes: int) -> int:
+    # Strict base64 uses four encoded characters for every three decoded bytes.
+    # Checking the encoded size before decoding prevents a deliberately enormous
+    # request string from causing a second equally large allocation in b64decode().
+    return 4 * ((max(0, max_bytes) + 2) // 3)
+
+
 def extract_context_document(
     *,
     filename: str,
@@ -51,6 +58,10 @@ def extract_context_document(
         raise ValueError("supported context document types are TXT, Markdown, PDF, and DOCX")
     if not content_base64:
         raise ValueError("context document content is empty")
+    if max_bytes < 1:
+        raise ValueError("context document byte limit must be positive")
+    if len(content_base64) > _max_base64_chars(max_bytes):
+        raise ValueError("context document encoded payload exceeds the safe size limit")
 
     try:
         data = base64.b64decode(content_base64, validate=True)

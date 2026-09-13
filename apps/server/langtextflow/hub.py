@@ -14,18 +14,23 @@ class WebSocketHub:
         self.max_clients = max(1, max_clients)
         self.send_timeout_seconds = max(0.05, send_timeout_seconds)
         self._clients: set[WebSocket] = set()
+        self._connect_lock = asyncio.Lock()
 
     @property
     def client_count(self) -> int:
         return len(self._clients)
 
     async def connect(self, websocket: WebSocket) -> bool:
-        if len(self._clients) >= self.max_clients:
-            await websocket.close(code=1013, reason="caption client capacity reached")
-            return False
-        await websocket.accept()
-        self._clients.add(websocket)
-        return True
+        # Capacity check and registration must be atomic across the await in accept().
+        # Without this lock, concurrent handshakes can each observe free capacity and
+        # over-subscribe the hub before either socket is registered.
+        async with self._connect_lock:
+            if len(self._clients) >= self.max_clients:
+                await websocket.close(code=1013, reason="caption client capacity reached")
+                return False
+            await websocket.accept()
+            self._clients.add(websocket)
+            return True
 
     def disconnect(self, websocket: WebSocket) -> None:
         self._clients.discard(websocket)

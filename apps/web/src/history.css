@@ -30,9 +30,10 @@
 }
 .history-item.selected { border-color: #48637e; background: #121922; }
 .history-copy { min-width: 0; display: grid; gap: 5px; }
-.history-title-row { display: flex; align-items: center; gap: 8px; }
+.history-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .history-title-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .history-live { padding: 2px 6px; border-radius: 99px; background: #183126; color: #75d59a; font-size: 9px; font-weight: 800; }
+.history-interrupted { padding: 2px 6px; border-radius: 99px; background: #392617; color: #e9b26e; font-size: 9px; font-weight: 800; }
 .history-copy small { color: #717d89; font-size: 11px; line-height: 1.4; }
 .history-note-preview { max-width: 620px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #8794a0 !important; }
 .history-actions { display: flex; align-items: center; justify-content: flex-end; gap: 5px; flex-wrap: wrap; }

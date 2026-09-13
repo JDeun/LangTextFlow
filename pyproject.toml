@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "langtextflow-server"
-version = "0.2.0"
+version = "0.12.0"
 description = "Realtime multilingual caption pipeline for LangTextFlow"
 requires-python = ">=3.11"
 license = "Apache-2.0"
@@ -17,6 +17,7 @@ dependencies = [
   "websockets>=15,<18",
   "pypdf>=6.18,<7",
   "defusedxml>=0.7.1,<1",
+  "zeroconf>=0.151.3,<0.152",
 ]
 
 [project.optional-dependencies]

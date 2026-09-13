@@ -12,13 +12,50 @@ SECRET_PATTERNS = {
     "GitHub token": re.compile(r"\b(?:ghp_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,})\b"),
     "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     "OpenAI-style secret": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}\b"),
+    "Slack token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{20,}\b"),
 }
 
 FRONTEND_FORBIDDEN = {
     "dangerouslySetInnerHTML": re.compile(r"\bdangerouslySetInnerHTML\b"),
+    "innerHTML assignment": re.compile(r"\.innerHTML\s*="),
+    "outerHTML assignment": re.compile(r"\.outerHTML\s*="),
+    "insertAdjacentHTML": re.compile(r"\.insertAdjacentHTML\s*\("),
     "eval": re.compile(r"\beval\s*\("),
     "new Function": re.compile(r"\bnew\s+Function\s*\("),
     "document.write": re.compile(r"\bdocument\.write\s*\("),
+}
+
+BACKEND_FORBIDDEN = {
+    "eval": re.compile(r"\beval\s*\("),
+    "exec": re.compile(r"\bexec\s*\("),
+    "os.system": re.compile(r"\bos\.system\s*\("),
+    "shell=True": re.compile(r"\bshell\s*=\s*True\b"),
+    "pickle load": re.compile(r"\bpickle\.(?:load|loads)\s*\("),
+    "tempfile.mktemp": re.compile(r"\btempfile\.mktemp\s*\("),
+}
+
+FORBIDDEN_EXACT_PATHS = {
+    ".env",
+    ".coverage",
+    "coverage.xml",
+}
+FORBIDDEN_SUFFIXES = {
+    ".db",
+    ".sqlite",
+    ".sqlite3",
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+    ".pyc",
+}
+FORBIDDEN_PATH_PARTS = {
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "node_modules",
+    "htmlcov",
 }
 
 
@@ -51,16 +88,33 @@ def read_text(path: Path) -> str | None:
         return None
 
 
+def forbidden_tracked_path(relative: str) -> str | None:
+    path = Path(relative)
+    if relative in FORBIDDEN_EXACT_PATHS:
+        return "runtime/local artifact"
+    if path.name == ".env" or (path.name.startswith(".env.") and path.name != ".env.example"):
+        return "environment file"
+    if path.suffix.casefold() in FORBIDDEN_SUFFIXES:
+        return f"forbidden {path.suffix} artifact"
+    if any(part in FORBIDDEN_PATH_PARTS for part in path.parts):
+        return "generated/cache directory"
+    return None
+
+
 def main() -> int:
     findings: list[str] = []
     self_path = Path(__file__).resolve()
     for path in tracked_files():
+        relative = path.relative_to(ROOT).as_posix()
+        path_finding = forbidden_tracked_path(relative)
+        if path_finding is not None:
+            findings.append(f"{relative}: tracked {path_finding}")
+
         if path.resolve() == self_path:
             continue
         text = read_text(path)
         if text is None:
             continue
-        relative = path.relative_to(ROOT).as_posix()
         for name, pattern in SECRET_PATTERNS.items():
             if pattern.search(text):
                 findings.append(f"{relative}: possible {name}")
@@ -68,6 +122,10 @@ def main() -> int:
             for name, pattern in FRONTEND_FORBIDDEN.items():
                 if pattern.search(text):
                     findings.append(f"{relative}: forbidden frontend primitive {name}")
+        if relative.startswith("apps/server/langtextflow/"):
+            for name, pattern in BACKEND_FORBIDDEN.items():
+                if pattern.search(text):
+                    findings.append(f"{relative}: forbidden backend primitive {name}")
 
     if findings:
         print("Repository hygiene scan failed:")

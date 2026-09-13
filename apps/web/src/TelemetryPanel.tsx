@@ -32,9 +32,15 @@ function latencyLevel(value: number | null, warningMs: number, dangerMs: number)
   return "normal";
 }
 
+function diagnosticsFilename(disposition: string | null) {
+  const match = disposition?.match(/filename="([^"]+)"/i);
+  return match?.[1] || "langtextflow-diagnostics.zip";
+}
+
 export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
   const [metrics, setMetrics] = useState<RealtimeMetrics | null>(null);
   const [error, setError] = useState("");
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -64,6 +70,28 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
     };
   }, [apiUrl, running]);
 
+  async function downloadDiagnostics() {
+    setDiagnosticsBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`${apiUrl}/api/v1/diagnostics`);
+      if (!response.ok) throw new Error(`diagnostics HTTP ${response.status}`);
+      const blob = await response.blob();
+      const href = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = diagnosticsFilename(response.headers.get("content-disposition"));
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(href);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "진단 번들을 만들지 못했습니다.");
+    } finally {
+      setDiagnosticsBusy(false);
+    }
+  }
+
   const audioSeconds = useMemo(
     () => (metrics ? metrics.audio_duration_ms / 1000 : 0),
     [metrics],
@@ -88,10 +116,21 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
     <section className="telemetry-card">
       <div className="telemetry-heading">
         <span>Realtime telemetry</span>
-        <span className={statusClass}>{statusLabel}</span>
+        <div className="telemetry-actions">
+          <button
+            type="button"
+            className="secondary-button telemetry-diagnostics"
+            onClick={downloadDiagnostics}
+            disabled={diagnosticsBusy}
+          >
+            {diagnosticsBusy ? "진단 수집 중…" : "진단 번들"}
+          </button>
+          <span className={statusClass}>{statusLabel}</span>
+        </div>
       </div>
 
       {error && !metrics && <div className="telemetry-empty">{error}</div>}
+      {error && metrics && <div className="telemetry-empty">{error}</div>}
       {metrics && (
         <>
           <div

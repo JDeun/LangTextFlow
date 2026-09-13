@@ -145,6 +145,7 @@ export interface SessionRecord {
   translation_model: string | null;
   started_at: string;
   ended_at: string | null;
+  interrupted: boolean;
   segment_count: number;
 }
 

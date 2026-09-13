@@ -80,7 +80,6 @@ def test_session_history_keeps_latest_segment_version_and_correction_provenance(
             committed=True,
         ),
     )
-    # An out-of-order stale event must not replace the committed latest version.
     repository.upsert_segment(
         "session-1",
         TranscriptEvent(
@@ -107,6 +106,7 @@ def test_session_history_keeps_latest_segment_version_and_correction_provenance(
     assert sessions[0].notes == ""
     assert sessions[0].correction_provider == "ollama"
     assert sessions[0].correction_model == "qwen3.5:4b"
+    assert sessions[0].interrupted is False
 
 
 def test_session_history_can_record_resolved_asr_provider(tmp_path) -> None:
@@ -198,7 +198,36 @@ def test_initialize_migrates_existing_sessions_table_with_history_fields(tmp_pat
     assert "notes" in session_columns
     assert "correction_provider" in session_columns
     assert "correction_model" in session_columns
+    assert "interrupted" in session_columns
     assert "correction_json" in segment_columns
+
+
+def test_recover_interrupted_sessions_marks_only_unclosed_sessions(tmp_path) -> None:
+    repository = SessionRepository(str(tmp_path / "langtextflow.db"))
+    repository.initialize()
+    repository.create_session(_state(), _request())
+
+    second_state = _state().model_copy(
+        update={
+            "session_id": "session-2",
+            "join_code": "DEF456",
+            "started_at": datetime(2026, 9, 12, 0, 30, tzinfo=UTC),
+        }
+    )
+    repository.create_session(second_state, _request())
+    repository.mark_ended("session-2", datetime(2026, 9, 12, 1, 0, tzinfo=UTC))
+
+    recovered_at = datetime(2026, 9, 12, 2, 0, tzinfo=UTC)
+    assert repository.recover_interrupted_sessions(recovered_at) == 1
+
+    interrupted = repository.get_session("session-1")
+    clean = repository.get_session("session-2")
+    assert interrupted is not None
+    assert interrupted.interrupted is True
+    assert interrupted.ended_at == recovered_at
+    assert clean is not None
+    assert clean.interrupted is False
+    assert clean.ended_at == datetime(2026, 9, 12, 1, 0, tzinfo=UTC)
 
 
 def test_session_end_and_delete_cascades_transcript(tmp_path) -> None:
@@ -221,6 +250,7 @@ def test_session_end_and_delete_cascades_transcript(tmp_path) -> None:
     detail = repository.get_session("session-1")
     assert detail is not None
     assert detail.ended_at is not None
+    assert detail.interrupted is False
 
     assert repository.delete_session("session-1") is True
     assert repository.get_session("session-1") is None

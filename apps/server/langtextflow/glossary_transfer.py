@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .models import GlossaryEntry, GlossaryRecord
 
+MAX_GLOSSARY_IMPORT_ENTRIES = 5000
+
 
 class GlossaryTransferFormat(StrEnum):
     JSON = "json"
@@ -66,13 +68,13 @@ def export_glossary(
         for entry in entries:
             writer.writerow(
                 {
-                    "term": entry["term"],
+                    "term": _csv_safe_text(entry["term"]),
                     "aliases_json": json.dumps(entry["aliases"], ensure_ascii=False),
                     "translations_json": json.dumps(
                         entry["translations"],
                         ensure_ascii=False,
                     ),
-                    "category": entry["category"],
+                    "category": _csv_safe_text(entry["category"]),
                     "presets_json": json.dumps(entry["presets"], ensure_ascii=False),
                     "boost": entry["boost"],
                     "enabled": "true" if entry["enabled"] else "false",
@@ -93,6 +95,10 @@ def parse_glossary_import(payload: GlossaryImportRequest) -> list[GlossaryEntry]
 
     if not raw_entries:
         raise ValueError("glossary import contains no entries")
+    if len(raw_entries) > MAX_GLOSSARY_IMPORT_ENTRIES:
+        raise ValueError(
+            f"glossary import exceeds the {MAX_GLOSSARY_IMPORT_ENTRIES}-entry limit"
+        )
 
     entries: list[GlossaryEntry] = []
     seen_terms: set[str] = set()
@@ -133,6 +139,24 @@ def _portable_entry(record: GlossaryRecord) -> dict[str, Any]:
     }
 
 
+def _csv_formula_risky(value: str) -> bool:
+    stripped = value.lstrip(" \t\r\n")
+    return bool(stripped) and stripped[0] in {"=", "+", "-", "@"}
+
+
+def _csv_safe_text(value: str) -> str:
+    # Excel/LibreOffice may evaluate formula-looking CSV cells on open. Prefixing
+    # an apostrophe makes the value text; the importer removes only prefixes that
+    # guard a formula-looking value so normal apostrophes round-trip unchanged.
+    return f"'{value}" if _csv_formula_risky(value) else value
+
+
+def _csv_unescape_text(value: str) -> str:
+    if value.startswith("'") and _csv_formula_risky(value[1:]):
+        return value[1:]
+    return value
+
+
 def _parse_json(content: str) -> list[dict[str, Any]]:
     try:
         data = json.loads(content.lstrip("\ufeff"))
@@ -158,12 +182,13 @@ def _parse_csv(content: str) -> list[dict[str, Any]]:
 
     rows: list[dict[str, Any]] = []
     for index, row in enumerate(reader, start=2):
-        term = (row.get("term") or "").strip()
+        term = _csv_unescape_text(row.get("term") or "").strip()
         if not term and not any((value or "").strip() for value in row.values()):
             continue
         if not term:
             raise ValueError(f"glossary CSV row {index} is missing term")
         try:
+            raw_category = _csv_unescape_text(row.get("category") or "general")
             rows.append(
                 {
                     "term": term,
@@ -174,7 +199,7 @@ def _parse_csv(content: str) -> list[dict[str, Any]]:
                         "translations_json",
                         index,
                     ),
-                    "category": (row.get("category") or "general").strip() or "general",
+                    "category": raw_category.strip() or "general",
                     "presets": _json_cell(row.get("presets_json"), [], "presets_json", index),
                     "boost": _float_cell(row.get("boost"), 1.0, "boost", index),
                     "enabled": _bool_cell(row.get("enabled"), True, index),

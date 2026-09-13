@@ -74,6 +74,22 @@ def test_rejects_image_only_pdf_without_ocr() -> None:
         )
 
 
+def test_rejects_encoded_payload_that_cannot_fit_before_decoding() -> None:
+    with pytest.raises(ValueError, match="encoded payload exceeds"):
+        extract_context_document(
+            filename="oversized.txt",
+            content_base64=encoded(b"abcd"),
+            max_bytes=3,
+        )
+
+    document = extract_context_document(
+        filename="boundary.txt",
+        content_base64=encoded(b"abc"),
+        max_bytes=3,
+    )
+    assert document.text == "abc"
+
+
 def test_reference_document_extracts_and_excludes_raw_payload_from_snapshot() -> None:
     raw = "설교 제목: 은혜\n본문: 요한복음 3장 16절".encode()
     document = ReferenceDocument(
