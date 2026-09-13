@@ -310,7 +310,9 @@ class VibeVoiceLifecycleManager:
         candidate = (
             repo / ".venv" / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
         )
-        return str(candidate)
+        if candidate.is_file():
+            return str(candidate)
+        return sys.executable
 
     def _configuration_error(self) -> str | None:
         parsed = urlparse(self.settings.vibevoice_url)
