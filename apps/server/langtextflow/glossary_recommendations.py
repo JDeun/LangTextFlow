@@ -39,7 +39,7 @@ def recommend_glossary_terms(
 
     existing = {
         term.casefold()
-        for record in glossary.list_all()
+        for record in glossary.list()
         for term in [record.term, *record.aliases]
         if term.strip()
     }
