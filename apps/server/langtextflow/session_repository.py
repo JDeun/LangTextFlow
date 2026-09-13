@@ -46,7 +46,8 @@ class SessionRepository:
                     translation_model TEXT,
                     context_json TEXT NOT NULL,
                     started_at TEXT NOT NULL,
-                    ended_at TEXT
+                    ended_at TEXT,
+                    interrupted INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -66,6 +67,10 @@ class SessionRepository:
             if "correction_model" not in session_columns:
                 connection.execute(
                     "ALTER TABLE sessions ADD COLUMN correction_model TEXT"
+                )
+            if "interrupted" not in session_columns:
+                connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN interrupted INTEGER NOT NULL DEFAULT 0"
                 )
             connection.execute(
                 """
@@ -109,6 +114,25 @@ class SessionRepository:
                 """
             )
 
+    def recover_interrupted_sessions(self, recovered_at: datetime | None = None) -> int:
+        """Close sessions left open by a previous process termination.
+
+        This is called once during runtime initialization, before a new live session can
+        start. It never rewrites transcript content or the original Session Context.
+        """
+
+        timestamp = (recovered_at or datetime.now(UTC)).isoformat()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE sessions
+                SET ended_at = ?, interrupted = 1
+                WHERE ended_at IS NULL
+                """,
+                (timestamp,),
+            )
+        return cursor.rowcount
+
     def create_session(self, state: SessionState, request: StartSessionRequest) -> None:
         if not state.session_id or not state.join_code or not state.started_at:
             raise ValueError("session state is incomplete")
@@ -120,8 +144,8 @@ class SessionRepository:
                     source_language, target_languages_json, engine,
                     correction_provider, correction_model,
                     translation_provider, translation_model, context_json,
-                    started_at, ended_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+                    started_at, ended_at, interrupted
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)
                 """,
                 (
                     state.session_id,
@@ -160,7 +184,7 @@ class SessionRepository:
         timestamp = (ended_at or datetime.now(UTC)).isoformat()
         with self._connect() as connection:
             connection.execute(
-                "UPDATE sessions SET ended_at = ? WHERE session_id = ?",
+                "UPDATE sessions SET ended_at = ?, interrupted = 0 WHERE session_id = ?",
                 (timestamp, session_id),
             )
 
@@ -301,6 +325,7 @@ class SessionRepository:
             ),
             started_at=datetime.fromisoformat(str(row["started_at"])),
             ended_at=datetime.fromisoformat(str(ended_raw)) if ended_raw is not None else None,
+            interrupted=bool(row["interrupted"]),
             segment_count=int(row["segment_count"]),
         )
 
