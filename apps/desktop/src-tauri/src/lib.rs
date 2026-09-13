@@ -1,9 +1,19 @@
-use std::{collections::HashMap, fs, sync::Mutex};
+use std::{
+    collections::HashMap,
+    fs,
+    io::Write,
+    net::{SocketAddr, TcpStream},
+    sync::Mutex,
+    thread,
+    time::Duration,
+};
 
 use tauri::{Manager, RunEvent};
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
+
+const BACKEND_ADDR: &str = "127.0.0.1:8000";
 
 fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let app_data = app.path().app_data_dir()?;
@@ -31,6 +41,7 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error
         "LANGTEXTFLOW_MANAGED_RUNTIME_DIR".to_string(),
         runtime_dir.to_string_lossy().into_owned(),
     );
+    env.insert("LANGTEXTFLOW_BACKEND_PORT".to_string(), "8000".to_string());
     env.insert("LANGTEXTFLOW_ENVIRONMENT".to_string(), "desktop".to_string());
 
     let command = app.shell().sidecar("langtextflow-server")?.envs(env);
@@ -41,6 +52,24 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
+fn request_backend_shutdown() {
+    let Ok(address) = BACKEND_ADDR.parse::<SocketAddr>() else {
+        return;
+    };
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(250)) else {
+        return;
+    };
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(250)));
+    let request = concat!(
+        "POST /api/v1/desktop/shutdown HTTP/1.1\r\n",
+        "Host: 127.0.0.1:8000\r\n",
+        "Content-Length: 0\r\n",
+        "Connection: close\r\n\r\n"
+    );
+    let _ = stream.write_all(request.as_bytes());
+    let _ = stream.flush();
+}
+
 fn stop_backend(app: &tauri::AppHandle) {
     let state = app.state::<BackendProcess>();
     let child = {
@@ -48,6 +77,10 @@ fn stop_backend(app: &tauri::AppHandle) {
         guard.take()
     };
     if let Some(child) = child {
+        request_backend_shutdown();
+        // Give FastAPI/Uvicorn lifespan enough time to drain post-processing and SQLite.
+        // kill() remains a bounded fallback for a wedged backend.
+        thread::sleep(Duration::from_millis(2500));
         let _ = child.kill();
     }
 }
