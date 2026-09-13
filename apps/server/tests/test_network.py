@@ -6,7 +6,13 @@ from langtextflow.network import _allowed, is_loopback_client, websocket_origin_
 
 
 def _request(host: str) -> Request:
-    return Request({"type": "http", "client": (host, 12345)})
+    return Request(
+        {
+            "type": "http",
+            "client": (host, 12345),
+            "headers": [],
+        }
+    )
 
 
 def test_loopback_client_detection() -> None:
