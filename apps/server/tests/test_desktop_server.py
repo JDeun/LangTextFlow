@@ -17,7 +17,8 @@ def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -
     (tmp_path / "secret.txt").write_text("secret", encoding="utf-8")
 
     desktop_server._install_public_routes(web_root)
-    client = TestClient(main_module.app, client=("192.168.1.20", 50000))
+    desktop_app = desktop_server.DesktopBoundaryApp(main_module.app)
+    client = TestClient(desktop_app, client=("192.168.1.20", 50000))
 
     audience = client.get("/audience/ABC234")
     display = client.get("/display/ABC234?mode=projector&lang=en")
@@ -40,6 +41,6 @@ def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -
     assert client.get("/openapi.json").status_code == 404
 
     # Developer introspection remains available to the local operator process.
-    local = TestClient(main_module.app, client=("127.0.0.1", 50000))
+    local = TestClient(desktop_app, client=("127.0.0.1", 50000))
     assert local.get("/docs").status_code == 200
     assert local.get("/openapi.json").status_code == 200
