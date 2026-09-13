@@ -62,14 +62,23 @@ def test_docx_rejects_extreme_compression_ratio() -> None:
 
 
 class FakeSocket:
-    def __init__(self, *, delay: float = 0.0, fail: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        delay: float = 0.0,
+        accept_delay: float = 0.0,
+        fail: bool = False,
+    ) -> None:
         self.delay = delay
+        self.accept_delay = accept_delay
         self.fail = fail
         self.accepted = False
         self.closed = False
         self.messages: list[dict[str, object]] = []
 
     async def accept(self) -> None:
+        if self.accept_delay:
+            await asyncio.sleep(self.accept_delay)
         self.accepted = True
 
     async def close(self, code: int = 1000, reason: str = "") -> None:
@@ -120,3 +129,17 @@ async def test_websocket_hub_rejects_connections_over_capacity() -> None:
     assert await hub.connect(second) is False
     assert second.closed is True
     assert hub.client_count == 1
+
+
+@pytest.mark.asyncio
+async def test_websocket_hub_capacity_is_atomic_under_concurrent_handshakes() -> None:
+    hub = WebSocketHub(max_clients=1)
+    first = FakeSocket(accept_delay=0.05)
+    second = FakeSocket(accept_delay=0.05)
+
+    results = await asyncio.gather(hub.connect(first), hub.connect(second))
+
+    assert sorted(results) == [False, True]
+    assert hub.client_count == 1
+    assert first.accepted is True
+    assert second.closed is True
