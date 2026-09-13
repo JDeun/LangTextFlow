@@ -1,5 +1,9 @@
 import { getWebSocketUrl } from "./api";
-import { parseAudioSocketConfig, shouldSendAudioFrame } from "./audioSocketPolicy";
+import {
+  parseAudioSocketConfig,
+  shouldSendAudioFrame,
+  type AudioSocketConfig,
+} from "./audioSocketPolicy";
 
 export interface AudioInputDevice {
   deviceId: string;
@@ -21,45 +25,41 @@ export async function requestAudioInputs(): Promise<AudioInputDevice[]> {
     }));
 }
 
-function waitForAudioConfig(socket: WebSocket) {
-  return new Promise<ReturnType<typeof parseAudioSocketConfig> extends infer T ? Exclude<T, null> : never>(
-    (resolve, reject) => {
-      let settled = false;
-      const timeout = window.setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        reject(new Error("오디오 서버 응답이 없습니다."));
-      }, 5000);
+function waitForAudioConfig(socket: WebSocket): Promise<AudioSocketConfig> {
+  return new Promise<AudioSocketConfig>((resolve, reject) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("오디오 서버 응답이 없습니다."));
+    }, 5000);
 
-      const fail = (error: Error) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        reject(error);
-      };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      reject(error);
+    };
 
-      socket.onmessage = (event) => {
-        if (settled) return;
-        const payload = parseAudioSocketConfig(event.data);
-        if (!payload) {
-          socket.close(1003, "invalid audio config");
-          fail(new Error("오디오 서버 설정 응답이 올바르지 않습니다."));
-          return;
-        }
-        settled = true;
-        window.clearTimeout(timeout);
-        resolve(payload);
-      };
-      socket.onerror = () => {
-        fail(new Error("오디오 스트림 서버에 연결할 수 없습니다."));
-      };
-      socket.onclose = (event) => {
-        if (event.code !== 1000) {
-          fail(new Error(event.reason || "오디오 스트림 연결이 종료되었습니다."));
-        }
-      };
-    },
-  );
+    socket.onmessage = (event) => {
+      if (settled) return;
+      const payload = parseAudioSocketConfig(event.data);
+      if (!payload) {
+        socket.close(1003, "invalid audio config");
+        fail(new Error("오디오 서버 설정 응답이 올바르지 않습니다."));
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(payload);
+    };
+    socket.onerror = () => {
+      fail(new Error("오디오 스트림 서버에 연결할 수 없습니다."));
+    };
+    socket.onclose = (event) => {
+      fail(new Error(event.reason || "오디오 스트림 연결이 종료되었습니다."));
+    };
+  });
 }
 
 export class AudioCaptureController {
