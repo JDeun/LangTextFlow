@@ -8,6 +8,7 @@
 <p align="center">
   <a href="https://github.com/JDeun/LangTextFlow/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/JDeun/LangTextFlow/actions/workflows/ci.yml/badge.svg"></a>
   <a href="https://github.com/JDeun/LangTextFlow/actions/workflows/codeql.yml"><img alt="CodeQL" src="https://github.com/JDeun/LangTextFlow/actions/workflows/codeql.yml/badge.svg"></a>
+  <a href="https://github.com/JDeun/LangTextFlow/actions/workflows/desktop.yml"><img alt="Desktop Packaging" src="https://github.com/JDeun/LangTextFlow/actions/workflows/desktop.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-blue.svg"></a>
 </p>
 
@@ -16,7 +17,7 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 교회/선교 집회에서 시작했지만 국제 컨퍼런스, 강의, 세미나, 사내 행사와 라이브 스트리밍처럼 **한 사람이 말하고 여러 사람이 각자의 언어로 읽어야 하는 상황**을 대상으로 설계합니다.
 
 > [!IMPORTANT]
-> **현재 상태: pre-field alpha.** 핵심 앱, desktop shell, 자동 설치/복구 경로, 보안·접근성·패키징 자동 검증은 구현되어 있습니다. 실제 공개 production release에는 Windows/macOS signing/notarization과 실제 장비·현장 음원 acceptance가 추가로 필요합니다.
+> **현재 상태: pre-field alpha / code-complete candidate.** 코드로 닫을 수 있는 핵심 제품 경로와 자동 검증은 구현되어 있으며 Windows/macOS unsigned desktop bundle도 CI에서 생성됩니다. 다만 공개 production release로 간주하려면 실제 code signing/notarization, installer lifecycle, 실제 장비·현장 음원에서의 30/60/90분 acceptance가 남아 있습니다.
 
 ## 무엇을 할 수 있나요?
 
@@ -29,6 +30,20 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 | 📚 | **전문 용어·자료 반영** | Hotword, Glossary, PDF/DOCX/TXT/Markdown 자료를 문맥으로 사용합니다. |
 | 💾 | **기록과 내보내기** | 세션을 로컬에 기록하고 SRT, WebVTT, TXT, JSON으로 내보냅니다. |
 | 🏠 | **Local-first** | VibeVoice/faster-whisper/Ollama 등 로컬 구성을 지원합니다. |
+
+## 현재 지원 범위
+
+| 영역 | 현재 지원 | 비고 |
+|---|---|---|
+| 입력 | 마이크 / 오디오 인터페이스 | 브라우저 `getUserMedia` 기반 |
+| 시스템/회의 앱 오디오 직접 캡처 | 아직 미지원 | OS-level capture는 향후 검토 |
+| 원본 언어 | 사용자가 세션 시작 전에 선택 | 자동 language detection/code-switching은 아직 미지원 |
+| 번역 | 복수 target language | Ollama 또는 OpenAI-compatible provider |
+| 청중 전달 | LAN Audience / Projector / OBS | join code 기반 읽기 전용 경로 |
+| Desktop | Windows / macOS packaging | 현재 unsigned CI bundle, production signing 전 |
+| 저장 | 로컬 SQLite | export: SRT / WebVTT / TXT / JSON |
+
+세부 제한사항은 **[Known Limitations](docs/KNOWN_LIMITATIONS.md)**에서 확인할 수 있습니다.
 
 ## 5단계면 시작됩니다
 
@@ -80,34 +95,37 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 
 LangTextFlow는 **local-first**를 기본 방향으로 합니다. Operator 제어와 오디오 입력은 로컬 PC 경계에서 보호하고, LAN에는 join-code 기반의 읽기 전용 Audience 경로만 노출합니다. 세션 기록은 기본적으로 로컬 SQLite에 저장하며, 외부 OpenAI-compatible provider는 사용자가 명시적으로 선택할 때만 사용합니다.
 
+> [!NOTE]
+> `local-first`는 모든 구성이 항상 오프라인이라는 의미는 아닙니다. 외부 provider를 선택하거나 모델/runtime을 최초 다운로드할 때는 네트워크 통신이 발생할 수 있습니다.
+
 ## 설치와 실행
 
 ### 일반 사용자
 
 Windows/macOS desktop bundle과 release workflow가 구현되어 있습니다. 현재 공개 production release 전 단계이므로 **서명된 공식 installer가 배포되기 전에는 source/development build가 기준**입니다.
 
-공개 installer가 준비되면 이 섹션을 다운로드 중심 설치 안내로 전환합니다. 현재 문제 해결은 [Troubleshooting](docs/TROUBLESHOOTING.md)을 참조하십시오.
+공식 릴리스가 게시되면 GitHub **Releases**가 설치 파일의 단일 배포 지점이 됩니다. 현재 문제 해결은 [Troubleshooting](docs/TROUBLESHOOTING.md)을 참조하십시오.
 
 ### 개발자 / Source 실행
 
+Python 3.11+와 Node.js 22를 권장합니다.
+
 <details>
 <summary><strong>Backend</strong></summary>
-
-Python 3.11+:
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -e '.[dev,whisper]'
-uvicorn langtextflow.main:app --app-dir apps/server --reload --host 0.0.0.0 --port 8000
+uvicorn langtextflow.main:app --app-dir apps/server --reload --host 127.0.0.1 --port 8000
 ```
+
+개발 중 Operator API는 loopback에서 사용하고, LAN Audience 동작은 desktop/package 또는 별도 LAN 개발 구성을 통해 검증하는 것을 권장합니다.
 
 </details>
 
 <details>
 <summary><strong>Frontend</strong></summary>
-
-Node.js 22 권장:
 
 ```bash
 cd apps/web
@@ -155,7 +173,9 @@ npm run dev
 2. 대상 Windows/macOS 장비의 30/60/90분 실제 soak와 latency/memory acceptance
 3. 행사장 마이크·오디오 인터페이스·LAN 환경 검증
 4. 실제 Windows code-signing certificate와 Apple signing/notarization
-5. 사람을 통한 최종 usability/accessibility acceptance
+5. 실제 installer install/update/uninstall 및 signed updater acceptance
+6. 사람을 통한 최종 usability/accessibility acceptance
+7. 실제 사용 조직 기준 privacy/legal review
 
 자동 benchmark **harness가 있다는 것**과 실제 field acceptance가 끝났다는 것은 구분합니다.
 
@@ -219,6 +239,7 @@ CI에는 backend boundary/property/adversarial regression, Browser E2E, axe acce
 - **[사용자 가이드](docs/USER_GUIDE.md)** — 처음 실행부터 세션 종료까지
 - **[문제 해결](docs/TROUBLESHOOTING.md)** — 마이크/자막/번역/청중 접속 문제
 - **[FAQ](docs/FAQ.md)** — 자주 묻는 질문
+- **[Known Limitations](docs/KNOWN_LIMITATIONS.md)** — 현재 지원하지 않거나 현장 검증이 필요한 범위
 
 ### 운영·설정
 
@@ -238,7 +259,7 @@ CI에는 backend boundary/property/adversarial regression, Browser E2E, axe acce
 
 ## 라이선스
 
-LangTextFlow 자체 코드는 **Apache License 2.0**입니다. 외부 model/runtime/dataset에는 각각의 라이선스가 적용됩니다.
+LangTextFlow 자체 코드는 **Apache License 2.0**입니다. 외부 model/runtime/dataset에는 각각의 라이선스가 적용됩니다. 배포 전에는 실제 사용하려는 모델과 외부 provider의 라이선스 및 데이터 처리 조건을 별도로 확인해야 합니다.
 
 ---
 
