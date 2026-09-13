@@ -121,9 +121,10 @@ def main() -> None:
 
     _install_public_routes(web_root)
     settings = get_settings()
+    # LAN audience/projector access is intentional; operator APIs remain loopback-gated.
     uvicorn.run(
         DesktopBoundaryApp(app),
-        host="0.0.0.0",
+        host="0.0.0.0",  # nosec B104
         port=settings.backend_port,
         access_log=False,
         log_level="info",
