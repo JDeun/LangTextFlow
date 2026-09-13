@@ -30,7 +30,8 @@ def _prepare_desktop_environment() -> Path:
         os.environ.setdefault("LANGTEXTFLOW_MANAGED_RUNTIME_DIR", str(runtime_dir))
         os.environ.setdefault("HF_HOME", str(model_cache_dir / "huggingface"))
 
-    os.environ.setdefault("LANGTEXTFLOW_FRONTEND_PORT", os.environ.get("LANGTEXTFLOW_BACKEND_PORT", "8000"))
+    backend_port = os.environ.get("LANGTEXTFLOW_BACKEND_PORT", "8000")
+    os.environ.setdefault("LANGTEXTFLOW_FRONTEND_PORT", backend_port)
     os.environ.setdefault("LANGTEXTFLOW_ENVIRONMENT", "desktop")
     return _web_root()
 
@@ -70,6 +71,7 @@ def _install_public_routes(web_root: Path) -> None:
 
     audio_worklet = web_root / "audio-worklet.js"
     if audio_worklet.is_file():
+
         @app.get("/audio-worklet.js", include_in_schema=False)
         async def public_audio_worklet() -> FileResponse:
             return FileResponse(audio_worklet)
