@@ -115,11 +115,12 @@ async def _start_engine(
     monkeypatch.setattr("langtextflow.asr.vibevoice.httpx.AsyncClient", FakeHttpClient)
     monkeypatch.setattr("langtextflow.asr.vibevoice.websockets.connect", fake_connect)
 
+    options: dict[str, object] = {"queue_chunks": 2}
+    options.update(engine_kwargs)
     engine = VibeVoiceStreamingAsrEngine(
         publish,
         base_url="http://127.0.0.1:8001",
-        queue_chunks=2,
-        **engine_kwargs,
+        **options,
     )
     await engine.start(
         StartSessionRequest(
