@@ -7,7 +7,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     app_name: str = "LangTextFlow"
     environment: str = "development"
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://tauri.localhost",
+        "tauri://localhost",
+    ]
     cors_origin_regex: str = (
         r"^https?://(localhost|127\.0\.0\.1|"
         r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
@@ -20,6 +25,8 @@ class Settings(BaseSettings):
     backend_port: int = Field(default=8000, ge=1, le=65535)
     max_segments: int = Field(default=100, ge=1, le=10_000)
     database_path: str = "data/langtextflow.db"
+    model_cache_dir: str = "data/model-cache"
+    managed_runtime_dir: str = "data/runtime"
     mdns_enabled: bool = True
     mdns_hostname: str = ""
     mdns_service_name: str = "LangTextFlow"
