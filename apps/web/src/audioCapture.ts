@@ -1,15 +1,9 @@
 import { getWebSocketUrl } from "./api";
+import { parseAudioSocketConfig, shouldSendAudioFrame } from "./audioSocketPolicy";
 
 export interface AudioInputDevice {
   deviceId: string;
   label: string;
-}
-
-interface AudioSocketConfig {
-  type: "audio_config";
-  sample_rate: number;
-  channels: number;
-  sample_format: "f32le";
 }
 
 export async function requestAudioInputs(): Promise<AudioInputDevice[]> {
@@ -27,27 +21,45 @@ export async function requestAudioInputs(): Promise<AudioInputDevice[]> {
     }));
 }
 
-function waitForAudioConfig(socket: WebSocket): Promise<AudioSocketConfig> {
-  return new Promise((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error("오디오 서버 응답이 없습니다.")), 5000);
-    socket.onmessage = (event) => {
-      if (typeof event.data !== "string") return;
-      const payload = JSON.parse(event.data) as AudioSocketConfig;
-      if (payload.type !== "audio_config") return;
-      window.clearTimeout(timeout);
-      resolve(payload);
-    };
-    socket.onerror = () => {
-      window.clearTimeout(timeout);
-      reject(new Error("오디오 스트림 서버에 연결할 수 없습니다."));
-    };
-    socket.onclose = (event) => {
-      if (event.code !== 1000) {
+function waitForAudioConfig(socket: WebSocket) {
+  return new Promise<ReturnType<typeof parseAudioSocketConfig> extends infer T ? Exclude<T, null> : never>(
+    (resolve, reject) => {
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error("오디오 서버 응답이 없습니다."));
+      }, 5000);
+
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
         window.clearTimeout(timeout);
-        reject(new Error(event.reason || "오디오 스트림 연결이 종료되었습니다."));
-      }
-    };
-  });
+        reject(error);
+      };
+
+      socket.onmessage = (event) => {
+        if (settled) return;
+        const payload = parseAudioSocketConfig(event.data);
+        if (!payload) {
+          socket.close(1003, "invalid audio config");
+          fail(new Error("오디오 서버 설정 응답이 올바르지 않습니다."));
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(payload);
+      };
+      socket.onerror = () => {
+        fail(new Error("오디오 스트림 서버에 연결할 수 없습니다."));
+      };
+      socket.onclose = (event) => {
+        if (event.code !== 1000) {
+          fail(new Error(event.reason || "오디오 스트림 연결이 종료되었습니다."));
+        }
+      };
+    },
+  );
 }
 
 export class AudioCaptureController {
@@ -57,10 +69,16 @@ export class AudioCaptureController {
   private source: MediaStreamAudioSourceNode | null = null;
   private worklet: AudioWorkletNode | null = null;
   private sink: GainNode | null = null;
+  private droppedFrames = 0;
+
+  get droppedFrameCount(): number {
+    return this.droppedFrames;
+  }
 
   async start(deviceId?: string): Promise<number> {
     if (this.context) return this.context.sampleRate;
 
+    this.droppedFrames = 0;
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
@@ -90,7 +108,13 @@ export class AudioCaptureController {
       this.sink = this.context.createGain();
       this.sink.gain.value = 0;
       this.worklet.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-        if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(event.data);
+        const socket = this.socket;
+        if (socket?.readyState !== WebSocket.OPEN) return;
+        if (!shouldSendAudioFrame(socket.bufferedAmount)) {
+          this.droppedFrames += 1;
+          return;
+        }
+        socket.send(event.data);
       };
       this.source.connect(this.worklet);
       this.worklet.connect(this.sink);
