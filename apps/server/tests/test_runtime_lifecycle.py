@@ -232,3 +232,43 @@ def test_runtime_threads_configured_audio_frame_limit_into_vad(tmp_path) -> None
     runtime = CaptionRuntime(settings)
     assert runtime._vad.max_frame_bytes == settings.max_audio_frame_bytes
 
+
+
+class _RaceAudioEngine:
+    accepts_audio = True
+    sample_rate = 16000
+    queue_depth = 0
+    queue_capacity = 1
+    failure = None
+    running = True
+
+    def __init__(self) -> None:
+        self.received = False
+
+    async def feed_audio(self, frame: bytes) -> None:
+        assert frame
+        self.received = True
+
+    async def end_audio(self) -> None:
+        return
+
+
+@pytest.mark.asyncio
+async def test_feed_audio_uses_captured_engine_during_concurrent_stop_boundary(tmp_path) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "runtime.db")))
+    engine = _RaceAudioEngine()
+    runtime.engine = engine  # type: ignore[assignment]
+    runtime.state.running = True
+
+    original_analyze = runtime._vad.analyze
+
+    def detach_engine_after_validation(frame: bytes) -> tuple[float, bool]:
+        result = original_analyze(frame)
+        runtime.engine = None
+        return result
+
+    runtime._vad.analyze = detach_engine_after_validation  # type: ignore[method-assign]
+    frame = b"\x00\x00\x00\x00" * 32
+    await runtime.feed_audio(frame)
+
+    assert engine.received is True

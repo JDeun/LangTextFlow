@@ -365,14 +365,18 @@ class CaptionRuntime:
         return self.state
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
-        if self.engine is None or not self.state.running or not self.engine.accepts_audio:
+        # Capture the active provider once. A concurrent stop intentionally clears
+        # self.engine before awaiting provider shutdown; repeatedly dereferencing
+        # self.engine here could otherwise turn that race into AttributeError.
+        engine = self.engine
+        if engine is None or not self.state.running or not engine.accepts_audio:
             raise RuntimeError("there is no active audio ASR session")
 
         dbfs, voice_active = self._vad.analyze(pcm_f32le)
         self.metrics.audio_frames_received += 1
         self.metrics.audio_bytes_received += len(pcm_f32le)
         self.metrics.audio_duration_ms += round(
-            (len(pcm_f32le) / 4 / self.engine.sample_rate) * 1000.0,
+            (len(pcm_f32le) / 4 / engine.sample_rate) * 1000.0,
             3,
         )
         self.metrics.audio_rms_dbfs = dbfs
@@ -380,7 +384,7 @@ class CaptionRuntime:
 
         started = time.perf_counter()
         try:
-            await self.engine.feed_audio(pcm_f32le)
+            await engine.feed_audio(pcm_f32le)
         finally:
             self._refresh_queue_metrics()
         enqueue_wait_ms = round((time.perf_counter() - started) * 1000.0, 1)
@@ -389,17 +393,19 @@ class CaptionRuntime:
             self.metrics.audio_backpressure_events += 1
 
     async def end_audio(self) -> None:
-        if self.engine is not None and self.engine.accepts_audio:
-            await self.engine.end_audio()
+        engine = self.engine
+        if engine is not None and engine.accepts_audio:
+            await engine.end_audio()
             self._refresh_queue_metrics()
 
     def audio_info(self) -> AudioStreamInfo:
-        if self.engine is None or not self.state.running:
+        engine = self.engine
+        if engine is None or not self.state.running:
             raise RuntimeError("there is no active session")
         return AudioStreamInfo(
             engine=self.state.engine,
-            required=self.engine.accepts_audio,
-            sample_rate=self.engine.sample_rate,
+            required=engine.accepts_audio,
+            sample_rate=engine.sample_rate,
         )
 
     def audience_view(self, join_code: str) -> AudienceSessionView:

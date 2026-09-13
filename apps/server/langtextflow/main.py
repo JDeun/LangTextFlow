@@ -62,6 +62,7 @@ audience_join_limiter = AudienceJoinRateLimiter(
     max_clients=settings.audience_join_max_tracked_clients,
 )
 _audio_socket_guard = Lock()
+_audio_transition_lock = asyncio.Lock()
 _active_audio_socket: WebSocket | None = None
 _audio_socket_accepting = True
 
@@ -596,25 +597,27 @@ def seed_church_glossary(request: Request) -> list[GlossaryRecord]:
 @app.post("/api/v1/session/start", response_model=SessionState)
 async def start_session(request: Request, payload: StartSessionRequest) -> SessionState:
     _require_operator(request)
-    await _close_audio_socket_for_transition("caption session restarting")
-    try:
-        return await runtime.start(_with_saved_glossary(payload))
-    except AsrEngineError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    finally:
-        _allow_audio_socket_acceptance()
+    async with _audio_transition_lock:
+        await _close_audio_socket_for_transition("caption session restarting")
+        try:
+            return await runtime.start(_with_saved_glossary(payload))
+        except AsrEngineError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        finally:
+            _allow_audio_socket_acceptance()
 
 
 @app.post("/api/v1/session/stop", response_model=SessionState)
 async def stop_session(request: Request) -> SessionState:
     _require_operator(request)
-    await _close_audio_socket_for_transition("caption session stopping")
-    try:
-        return await runtime.stop()
-    finally:
-        _allow_audio_socket_acceptance()
+    async with _audio_transition_lock:
+        await _close_audio_socket_for_transition("caption session stopping")
+        try:
+            return await runtime.stop()
+        finally:
+            _allow_audio_socket_acceptance()
 
 
 @app.get("/api/v1/audio/config", response_model=AudioStreamInfo)
