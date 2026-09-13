@@ -15,6 +15,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .http_safety import iter_bounded_lines
 
 _MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
 _TERMINAL_STATES = {"completed", "cancelled", "error"}
@@ -181,7 +182,10 @@ class ModelSetupManager:
                 json={"model": job.model, "stream": True},
             ) as response:
                 response.raise_for_status()
-                async for line in response.aiter_lines():
+                async for line in iter_bounded_lines(
+                    response,
+                    label="Ollama pull progress record",
+                ):
                     if not line.strip():
                         continue
                     payload = _parse_progress_line(line)
