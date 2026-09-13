@@ -77,7 +77,7 @@ class MdnsPublisher:
                 return self._state
 
             server = f"{hostname}."
-            service_name = self.settings.mdns_service_name.strip() or "LangTextFlow"
+            service_name = (self.settings.mdns_service_name.strip() or "LangTextFlow")[:80]
             instance = f"{service_name}._http._tcp.local."
             info = ServiceInfo(
                 "_http._tcp.local.",
@@ -110,12 +110,22 @@ class MdnsPublisher:
         self._service = None
         if zeroconf is None:
             return
-        try:
-            if service is not None:
+
+        error: str | None = None
+        if service is not None:
+            try:
                 zeroconf.unregister_service(service)
-        finally:
+            except Exception as exc:  # pragma: no cover - OS/network specific
+                error = str(exc)[:500]
+        try:
             zeroconf.close()
-        self._state = MdnsState(hostname=self._safe_hostname(), ready=False)
+        except Exception as exc:  # pragma: no cover - OS/network specific
+            error = error or str(exc)[:500]
+        self._state = MdnsState(
+            hostname=self._safe_hostname(),
+            ready=False,
+            error=error,
+        )
 
     def _safe_hostname(self) -> str | None:
         if not self.settings.mdns_enabled:
