@@ -56,6 +56,16 @@ Context-document extraction enforces:
 
 Image-only/scanned PDFs do not silently invoke OCR.
 
+### Import/export boundary
+
+Portable data paths are treated as untrusted even though they are operator-initiated:
+
+- glossary JSON/CSV content is size-bounded and limited to 5,000 entries per import;
+- malformed typed cells and duplicate terms are rejected before repository writes;
+- formula-looking glossary CSV text (`=`, `+`, `-`, `@`) is neutralized for spreadsheet applications and reversibly unescaped on LangTextFlow re-import;
+- SRT/WebVTT caption text removes NUL/CR variants and consecutive blank cue separators so provider/model output cannot terminate a cue and inject a second subtitle block;
+- JSON export remains structured serialization rather than string interpolation.
+
 ### Diagnostics/privacy boundary
 
 Support bundles use an allowlisted session/settings shape and a final recursive sanitization pass. Regression tests cover:
@@ -93,6 +103,8 @@ CI runs:
 - deterministic frontend install (`npm ci`), frontend policy tests, TypeScript check, and production build;
 - Windows and macOS boundary smoke runs for diagnostics/network/mDNS/runtime lifecycle plus frontend test/build;
 - job-level timeouts and cancellation of superseded CI runs so hung or stale runs cannot consume the release queue indefinitely.
+
+Development dependencies are kept minimal; unused packages are removed rather than retained merely because audits currently pass.
 
 ## What automated adversarial tests do not prove
 
