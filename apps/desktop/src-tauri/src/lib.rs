@@ -33,10 +33,7 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error
     );
     env.insert("LANGTEXTFLOW_ENVIRONMENT".to_string(), "desktop".to_string());
 
-    let command = app
-        .shell()
-        .sidecar("langtextflow-server")?
-        .envs(env);
+    let command = app.shell().sidecar("langtextflow-server")?.envs(env);
     let (_events, child) = command.spawn()?;
 
     let state = app.state::<BackendProcess>();
@@ -46,12 +43,11 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error
 
 fn stop_backend(app: &tauri::AppHandle) {
     let state = app.state::<BackendProcess>();
-    if let Some(mut child) = state
-        .0
-        .lock()
-        .expect("backend process mutex poisoned")
-        .take()
-    {
+    let child = {
+        let mut guard = state.0.lock().expect("backend process mutex poisoned");
+        guard.take()
+    };
+    if let Some(child) = child {
         let _ = child.kill();
     }
 }
