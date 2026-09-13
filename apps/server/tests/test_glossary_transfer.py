@@ -59,6 +59,32 @@ def test_csv_export_uses_bom_and_round_trips_json_cells() -> None:
     assert entries[0].enabled is True
 
 
+def test_csv_export_neutralizes_formula_cells_and_round_trips() -> None:
+    now = datetime(2026, 9, 12, tzinfo=UTC)
+    hostile = GlossaryRecord(
+        id="record-hostile",
+        term="=HYPERLINK(\"https://example.invalid\")",
+        aliases=[],
+        translations={},
+        category="@SUM(1+1)",
+        presets=[ProductPreset.GENERAL],
+        boost=1.0,
+        enabled=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+    content = export_glossary([hostile], GlossaryTransferFormat.CSV)
+    assert "'=HYPERLINK" in content
+    assert "'@SUM(1+1)" in content
+
+    entries = parse_glossary_import(
+        GlossaryImportRequest(format="csv", content=content)
+    )
+    assert entries[0].term == hostile.term
+    assert entries[0].category == hostile.category
+
+
 def test_import_rejects_duplicate_terms_case_insensitively() -> None:
     content = """
     {
