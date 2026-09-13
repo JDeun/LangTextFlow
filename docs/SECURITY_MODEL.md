@@ -1,6 +1,6 @@
 # Security Model
 
-LangTextFlow is a local-first realtime caption system. Its security model assumes a trusted operator machine and potentially untrusted audience clients, uploaded context, model servers, model output, and LAN peers.
+LangTextFlow is a local-first realtime caption system. Its security model assumes a trusted operator machine and potentially untrusted audience clients, uploaded context, model servers, model output, LAN peers, and web pages open in the operator's browser.
 
 ## Trust boundaries
 
@@ -15,7 +15,11 @@ The following capabilities are intentionally loopback-only:
 - model setup and sidecar lifecycle;
 - preflight and diagnostics.
 
-Reverse proxies must not expose those endpoints to the LAN or public Internet without adding a separate authentication layer.
+Operator REST access is authorized from the actual socket client address; forwarding headers are not trusted. Browser requests are additionally checked against the configured local/LAN Origin policy and `Sec-Fetch-Site: cross-site` is rejected. This prevents an unrelated web page open on the operator PC from using the browser as a confused deputy against `localhost`, including simple cross-origin POST requests whose execution is not prevented by CORS alone.
+
+Operator WebSockets use the same loopback and Origin trust boundary. Native/CLI local clients without browser `Origin`/Fetch-Metadata headers remain supported.
+
+Reverse proxies must not expose operator endpoints to the LAN or public Internet without adding a separate authentication layer and intentionally redefining the trusted-origin policy.
 
 ### Audience boundary
 
@@ -84,4 +88,4 @@ Before distributing a desktop release, the installer must document the database/
 
 ## Release security gate
 
-A release candidate must satisfy `docs/RELEASE_CHECKLIST.md`. Any unresolved critical/high dependency advisory, exposed secret, operator endpoint reachable from a non-loopback client, or reproducible crash/data-loss defect blocks release.
+A release candidate must satisfy `docs/RELEASE_CHECKLIST.md`. Any unresolved critical/high dependency advisory, exposed secret, operator endpoint reachable from a non-loopback or disallowed browser origin, or reproducible crash/data-loss defect blocks release.

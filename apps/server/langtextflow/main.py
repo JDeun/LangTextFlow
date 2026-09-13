@@ -80,10 +80,23 @@ app.add_middleware(
 )
 
 
+def _operator_request_origin_allowed(request: Request) -> bool:
+    fetch_site = (request.headers.get("sec-fetch-site") or "").strip().casefold()
+    if fetch_site == "cross-site":
+        return False
+    return websocket_origin_allowed(
+        request.headers.get("origin"),
+        allowed_origins=settings.cors_origins,
+        allowed_origin_regex=settings.cors_origin_regex,
+    )
+
+
 def _require_operator(request: Request) -> None:
     host = request.client.host if request.client else None
     if not is_loopback_client(host):
         raise HTTPException(status_code=403, detail="operator API is local-only")
+    if not _operator_request_origin_allowed(request):
+        raise HTTPException(status_code=403, detail="operator browser origin is not allowed")
 
 
 def _websocket_origin_allowed(websocket: WebSocket) -> bool:

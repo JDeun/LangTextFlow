@@ -11,8 +11,8 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Upgrade packaging bootstrap tools
@@ -22,18 +22,64 @@ jobs:
         run: python -m pip check
       - name: Repository hygiene scan
         run: python scripts/repo_hygiene.py
+      - name: Markdown link integrity
+        run: python scripts/check_markdown_links.py
       - name: Hugging Face snapshot access policy
         run: python scripts/check_hf_snapshot_calls.py
       - name: Python lint
         run: ruff check apps/server scripts
+      - name: Adversarial boundary and fanout regression gate
+        run: >-
+          pytest -q
+          apps/server/tests/test_adversarial_inputs.py
+          apps/server/tests/test_adversarial_schema.py
+          apps/server/tests/test_api_boundaries.py
+          apps/server/tests/test_malformed_corpus.py
+          apps/server/tests/test_hub_load.py
+          apps/server/tests/test_runtime_lifecycle.py
       - name: Backend tests and coverage gate
         run: >-
           pytest --strict-config --strict-markers
           --cov=apps/server/langtextflow
           --cov-report=term-missing
-          --cov-fail-under=60
-      - name: Python dependency vulnerability audit
-        run: pip-audit
+          --cov-fail-under=70
+      - name: Backend startup and lifespan smoke
+        env:
+          LANGTEXTFLOW_DATABASE_PATH: /tmp/langtextflow-ci.db
+        run: |
+          set -euo pipefail
+          python -m uvicorn langtextflow.main:app \
+            --app-dir apps/server \
+            --host 127.0.0.1 \
+            --port 8765 \
+            >/tmp/langtextflow-uvicorn.log 2>&1 &
+          server_pid=$!
+          cleanup() {
+            kill "$server_pid" 2>/dev/null || true
+            wait "$server_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          for _ in $(seq 1 40); do
+            if curl --fail --silent --show-error http://127.0.0.1:8765/health >/tmp/langtextflow-health.json; then
+              break
+            fi
+            sleep 0.25
+          done
+          test "$(cat /tmp/langtextflow-health.json)" = '{"status":"ok"}' || {
+            cat /tmp/langtextflow-uvicorn.log
+            exit 1
+          }
+      - name: Python vulnerability audit and CycloneDX SBOM
+        run: |
+          mkdir -p artifacts
+          pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json
+      - name: Upload Python SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: python-sbom
+          path: artifacts/python-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Python static security scan
         run: bandit -r apps/server/langtextflow -ll -s B615
 
@@ -43,8 +89,8 @@ jobs:
       run:
         working-directory: apps/web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -53,5 +99,16 @@ jobs:
         run: npm ci
       - name: Audit frontend dependencies
         run: npm audit --audit-level=high
-      - name: Build frontend
+      - name: Type-check and production build
         run: npm run build
+      - name: Generate frontend CycloneDX SBOM
+        run: |
+          mkdir -p ../../artifacts
+          npm sbom --sbom-format cyclonedx > ../../artifacts/frontend-sbom.cdx.json
+      - name: Upload frontend SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-sbom
+          path: artifacts/frontend-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 14

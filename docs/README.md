@@ -44,15 +44,17 @@ LangTextFlow의 설계·운영·provider·품질·보안 문서를 목적별로 
 > [!IMPORTANT]
 > 30/60/90분 반복 입력이 가능한 soak **harness가 존재하는 것**과 실제 대상 장비에서 acceptance가 완료된 것은 다릅니다. 실제 한국어·영어 현장 음원과 배포 대상 장비의 장시간 검증 결과가 확보되기 전에는 production-ready로 과장하지 않습니다.
 
-## Security
+## Security & adversarial validation
 
 | 문서 | 내용 |
 |---|---|
 | [`SECURITY_MODEL.md`](SECURITY_MODEL.md) | trust boundary, attack surface, realtime failure containment |
+| [`ADVERSARIAL_VALIDATION.md`](ADVERSARIAL_VALIDATION.md) | malformed input, WebSocket, document, LLM, persistence adversarial contract |
 | [`AUDIENCE_SECURITY.md`](AUDIENCE_SECURITY.md) | join code, LAN exposure, rate limiting, operator isolation |
 | [`../SECURITY.md`](../SECURITY.md) | 공개 취약점 제보 정책 |
+| [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 개발·검증·PR 기여 규칙 |
 
-Repository CI는 Ruff, pytest/coverage, dependency audit, Bandit, repository hygiene, Hugging Face local-cache policy, frontend audit/build를 실행하며 CodeQL은 Python과 JavaScript/TypeScript를 분석합니다.
+Repository CI는 Ruff, pytest/coverage, explicit adversarial regression gate, dependency audit, Bandit, repository hygiene, Markdown link integrity, Hugging Face local-cache policy, frontend audit/typecheck/build를 실행하며 CodeQL은 Python과 JavaScript/TypeScript를 분석합니다.
 
 ## Planning
 
@@ -71,3 +73,4 @@ Repository CI는 Ruff, pytest/coverage, dependency audit, Bandit, repository hyg
 3. provider/model/runtime의 외부 라이선스와 LangTextFlow의 Apache-2.0 라이선스를 구분합니다.
 4. 보안상 operator-only 기능과 LAN audience 기능의 경계를 문서와 코드에서 동일하게 유지합니다.
 5. 기능 완료 여부는 README의 서술보다 `ROADMAP.md`와 자동 CI gate를 우선합니다.
+6. 모든 repository-local Markdown link는 CI에서 실제 파일 존재 여부를 검사합니다.
