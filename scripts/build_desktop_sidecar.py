@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -15,16 +16,20 @@ def _target_triple() -> str:
     configured = os.environ.get("TAURI_TARGET_TRIPLE", "").strip()
     if configured:
         return configured
-    result = subprocess.run(
-        ["rustc", "-vV"],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    result = subprocess.run(["rustc", "-vV"], check=True, capture_output=True, text=True)
     for line in result.stdout.splitlines():
         if line.startswith("host: "):
             return line.removeprefix("host: ").strip()
     raise RuntimeError("unable to determine Rust target triple")
+
+
+def _collect_args(*packages: str) -> list[str]:
+    args: list[str] = []
+    for package in packages:
+        if importlib.util.find_spec(package) is None:
+            continue
+        args.extend(["--collect-all", package])
+    return args
 
 
 def main() -> None:
@@ -53,6 +58,7 @@ def main() -> None:
         "uvicorn",
         "--collect-submodules",
         "langtextflow",
+        *_collect_args("faster_whisper", "ctranslate2", "tokenizers", "numpy"),
         "--distpath",
         str(dist_dir),
         "--workpath",
