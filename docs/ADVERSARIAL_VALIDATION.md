@@ -1,6 +1,6 @@
 # Adversarial Validation
 
-LangTextFlow treats malformed inputs, hostile local web content, slow clients, provider failures, and persistence failures as first-class release concerns.
+LangTextFlow treats malformed inputs, hostile local web content, slow clients, provider failures, persistence failures, and concurrency races as first-class release concerns.
 
 ## Automated adversarial coverage
 
@@ -33,14 +33,18 @@ Tests and runtime guards cover:
 - the rate limiter uses the observed socket client rather than forwarded-address headers;
 - invalid browser origins are rejected before consuming a join attempt;
 - bounded audience connection counts;
+- atomic connection-capacity enforcement under concurrent WebSocket handshakes;
 - 128-client fanout regression coverage;
-- slow/broken audience clients are isolated by concurrent sends and per-client timeouts rather than blocking healthy clients.
+- slow/broken audience clients are isolated by concurrent sends and per-client timeouts rather than blocking healthy clients;
+- browser reconnect policy stops on terminal authorization/not-found closes, honors server rate-limit retry timing, and uses bounded exponential backoff with jitter for transient failures;
+- malformed caption WebSocket payloads are rejected without crashing the React render path.
 
 ### Document boundary
 
 Context-document extraction enforces:
 
-- total file-size limits;
+- encoded-payload size rejection before base64 decoding and allocating decoded bytes;
+- decoded total file-size limits;
 - PDF page limits;
 - DOCX ZIP-entry and uncompressed-size limits;
 - DOCX compression-ratio limits;
@@ -52,13 +56,23 @@ Context-document extraction enforces:
 
 Image-only/scanned PDFs do not silently invoke OCR.
 
+### Diagnostics/privacy boundary
+
+Support bundles use an allowlisted session/settings shape and a final recursive sanitization pass. Regression tests cover:
+
+- transcript, join code, title/presenter, glossary/hotword terms, raw reference text, and filenames remaining absent;
+- Linux, macOS, Windows, and WSL user-home path redaction;
+- configured API keys being removed even when echoed inside nested provider/preflight errors;
+- common Bearer/OpenAI/GitHub/Slack credential-shaped strings being redacted;
+- diagnostic ZIP responses remaining metadata-only and cache-disabled at the API boundary.
+
 ### LLM boundary
 
 Transcript, glossary, and reference-document content is serialized as untrusted data and separated from system policy. Correction/translation adapters also bound model response size. LLM failure or unsafe correction output degrades to the deterministic/original path rather than blocking live captions.
 
 ### Persistence/failure containment
 
-Failure-injection tests verify that SQLite write failures such as `disk full` are reported as persistence errors without terminating the in-memory live caption path. Runtime lifecycle tests verify persistence-worker cleanup.
+Failure-injection tests verify that SQLite write failures such as `disk full` are reported as persistence errors without terminating the in-memory live caption path. Runtime lifecycle tests verify persistence-worker cleanup, interrupted-session recovery, and serialization of overlapping session start/stop lifecycle operations.
 
 ## Supply-chain and repository gates
 
@@ -70,13 +84,15 @@ CI runs:
 - Ruff;
 - Bandit medium/high findings gate;
 - CodeQL for Python and JavaScript/TypeScript;
-- repository secret/dangerous-frontend-pattern hygiene scanning;
+- repository secret scanning plus forbidden tracked runtime artifacts, dangerous frontend HTML/eval primitives, and dangerous backend execution/deserialization primitives;
 - Hugging Face `snapshot_download()` local-cache policy scanning;
 - local Markdown link validation;
-- an explicit adversarial boundary/fanout regression suite;
+- an explicit adversarial boundary/fanout/concurrency regression suite;
 - full backend tests with a 70% coverage floor;
 - real Uvicorn startup/lifespan `/health` smoke;
-- deterministic frontend install (`npm ci`), TypeScript check, and production build.
+- deterministic frontend install (`npm ci`), frontend policy tests, TypeScript check, and production build;
+- Windows and macOS boundary smoke runs for diagnostics/network/mDNS/runtime lifecycle plus frontend test/build;
+- job-level timeouts and cancellation of superseded CI runs so hung or stale runs cannot consume the release queue indefinitely.
 
 ## What automated adversarial tests do not prove
 
