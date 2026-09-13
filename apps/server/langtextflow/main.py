@@ -87,6 +87,28 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def reject_remote_operator_api_before_body_parse(request: Request, call_next):
+    """Reject LAN access to operator REST APIs before request-body parsing.
+
+    Audience read-only endpoints intentionally remain reachable on the LAN. All
+    other /api/v1 routes are operator-only and must be rejected at the ASGI
+    middleware boundary so an untrusted LAN peer cannot spend CPU/memory on
+    Pydantic parsing before receiving a 403.
+    """
+    path = request.url.path
+    is_audience_path = path.startswith("/api/v1/audience/")
+    if path.startswith("/api/v1/") and not is_audience_path:
+        host = request.client.host if request.client else None
+        if not is_loopback_client(host):
+            return Response(
+                content='{"detail":"operator API is local-only"}',
+                status_code=403,
+                media_type="application/json",
+            )
+    return await call_next(request)
+
+
 def _operator_request_origin_allowed(request: Request) -> bool:
     fetch_site = (request.headers.get("sec-fetch-site") or "").strip().casefold()
     if fetch_site == "cross-site":
@@ -633,6 +655,12 @@ async def audio_socket(websocket: WebSocket) -> None:
             frame = message.get("bytes")
             text = message.get("text")
             if frame is not None:
+                if len(frame) > settings.max_audio_frame_bytes:
+                    await websocket.close(
+                        code=1009,
+                        reason="audio frame exceeds configured safety limit",
+                    )
+                    break
                 await runtime.feed_audio(frame)
             elif text == "end":
                 await runtime.end_audio()

@@ -76,16 +76,24 @@ class EnergyVad:
     clipping quiet speech in reverberant rooms.
     """
 
-    def __init__(self, threshold_dbfs: float = -45.0, hangover_frames: int = 3) -> None:
+    def __init__(
+        self,
+        threshold_dbfs: float = -45.0,
+        hangover_frames: int = 3,
+        max_frame_bytes: int = MAX_PCM_FRAME_BYTES,
+    ) -> None:
         self.threshold_dbfs = threshold_dbfs
         self.hangover_frames = max(0, hangover_frames)
+        self.max_frame_bytes = max(4, max_frame_bytes)
         self._hangover = 0
 
     def reset(self) -> None:
         self._hangover = 0
 
     def analyze(self, pcm_f32le: bytes) -> tuple[float, bool]:
-        samples = decode_pcm_f32le(pcm_f32le)
+        samples = decode_pcm_f32le(
+            pcm_f32le, max_frame_bytes=self.max_frame_bytes
+        )
         if not samples:
             return -120.0, False
 
