@@ -4,6 +4,17 @@ from langtextflow.glossary_repository import GlossaryRepository
 from langtextflow.sqlite_recovery import recover_sqlite_if_corrupt
 
 
+def test_missing_database_is_left_for_normal_initialization(tmp_path) -> None:
+    database = tmp_path / "missing.db"
+
+    result = recover_sqlite_if_corrupt(database)
+
+    assert result.recovered is False
+    assert result.quarantined_path is None
+    assert result.reason is None
+    assert not database.exists()
+
+
 def test_healthy_database_is_left_untouched(tmp_path) -> None:
     database = tmp_path / "healthy.db"
     with sqlite3.connect(database) as connection:
