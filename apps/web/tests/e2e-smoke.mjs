@@ -77,16 +77,20 @@ async function setViewport(width, height, mobile = false, deviceScaleFactor = 1)
 
 async function pressEnter() {
   await cdp("Input.dispatchKeyEvent", {
-    type: "rawKeyDown",
+    type: "keyDown",
     key: "Enter",
     code: "Enter",
+    text: "\r",
+    unmodifiedText: "\r",
     windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
   });
   await cdp("Input.dispatchKeyEvent", {
     type: "keyUp",
     key: "Enter",
     code: "Enter",
     windowsVirtualKeyCode: 13,
+    nativeVirtualKeyCode: 13,
   });
 }
 
