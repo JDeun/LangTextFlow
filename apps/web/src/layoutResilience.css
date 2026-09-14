@@ -16,10 +16,31 @@
   word-break: break-word;
 }
 
+.brand,
+.subtitle {
+  display: block;
+}
+
 .topbar > *,
 .section-heading-row > *,
 .runtime-card > *,
 .cache-row > * {
+  min-width: 0;
+}
+
+.topbar > :first-child {
+  flex: 1 1 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.topbar-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.section-heading > span {
+  flex: 1 1 0;
   min-width: 0;
 }
 
