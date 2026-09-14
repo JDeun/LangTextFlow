@@ -157,10 +157,15 @@ def main() -> None:
     web_root = _prepare_desktop_environment()
 
     from langtextflow.config import get_settings
+    from langtextflow.sqlite_recovery import recover_sqlite_if_corrupt
+
+    settings = get_settings()
+    # Run before importing main: repository singletons are created at module import.
+    recover_sqlite_if_corrupt(settings.database_path)
+
     from langtextflow.main import app
 
     _install_public_routes(web_root)
-    settings = get_settings()
     # LAN audience/projector access is intentional; operator APIs remain loopback-gated.
     asyncio.run(
         _serve_desktop(
