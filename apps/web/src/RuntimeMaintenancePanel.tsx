@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
 import { COMPLETION_COPY } from "./completionCopy";
+import {
+  checkDesktopUpdate,
+  desktopUpdateSupported,
+  installDesktopUpdate,
+} from "./desktopUpdate";
 import { useI18n } from "./i18n";
 
 interface RuntimeStatus {
@@ -49,6 +54,10 @@ export function RuntimeMaintenancePanel({ disabled }: { disabled: boolean }) {
   const [jobs, setJobs] = useState<RuntimeJob[]>([]);
   const [cache, setCache] = useState<CacheInventory | null>(null);
   const [error, setError] = useState("");
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  const [updateChecked, setUpdateChecked] = useState(false);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const updaterSupported = desktopUpdateSupported();
 
   const refresh = useCallback(async () => {
     try {
@@ -110,6 +119,32 @@ export function RuntimeMaintenancePanel({ disabled }: { disabled: boolean }) {
     }
   };
 
+  const checkUpdate = async () => {
+    setUpdateBusy(true);
+    setError("");
+    try {
+      setUpdateVersion(await checkDesktopUpdate());
+      setUpdateChecked(true);
+    } catch (reason) {
+      setUpdateVersion(null);
+      setUpdateChecked(false);
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setUpdateBusy(false);
+    }
+  };
+
+  const installUpdate = async () => {
+    setUpdateBusy(true);
+    setError("");
+    try {
+      await installDesktopUpdate();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+      setUpdateBusy(false);
+    }
+  };
+
   return (
     <section className="runtime-maintenance" data-testid="runtime-maintenance">
       <div className="section-heading-row">
@@ -149,6 +184,38 @@ export function RuntimeMaintenancePanel({ disabled }: { disabled: boolean }) {
               <button type="button" className="secondary-button" disabled={disabled || entry.bytes === 0} onClick={() => void clearCache(entry.area)}>{copy.clear}</button>
             </div>
           ))}
+        </div>
+      )}
+      {updaterSupported && (
+        <div className="cache-panel" data-testid="desktop-updater">
+          <div><strong>{copy.updateTitle}</strong><small>{copy.updateHelp}</small></div>
+          {updateChecked && (
+            <small>
+              {updateVersion ? `${copy.updateAvailable}: ${updateVersion}` : copy.updateCurrent}
+            </small>
+          )}
+          <div className="cache-row">
+            <span>{updateVersion || ""}</span>
+            {updateVersion ? (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={disabled || updateBusy}
+                onClick={() => void installUpdate()}
+              >
+                {updateBusy ? copy.updateInstalling : copy.updateInstall}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={disabled || updateBusy}
+                onClick={() => void checkUpdate()}
+              >
+                {updateBusy ? copy.updateChecking : copy.updateCheck}
+              </button>
+            )}
+          </div>
         </div>
       )}
       {error && <div className="error-box">{error}</div>}

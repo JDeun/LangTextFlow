@@ -10,6 +10,7 @@ use std::{
 
 use tauri::{Manager, RunEvent};
 use tauri_plugin_shell::{process::CommandChild, ShellExt};
+use tauri_plugin_updater::UpdaterExt;
 
 struct BackendProcess(Mutex<Option<CommandChild>>);
 
@@ -46,7 +47,7 @@ fn ensure_backend_port_available() -> Result<(), Box<dyn std::error::Error>> {
             drop(listener);
             Ok(())
         }
-        Err(error) if backend_health_responds() => Err(format!(
+        Err(_error) if backend_health_responds() => Err(format!(
             "LangTextFlow is already running or its backend already owns {BACKEND_ADDR}. Close the existing LangTextFlow window before starting another instance."
         )
         .into()),
@@ -114,6 +115,16 @@ fn request_backend_shutdown() {
     let _ = stream.flush();
 }
 
+fn wait_for_backend_shutdown(timeout: Duration) {
+    let started = std::time::Instant::now();
+    while started.elapsed() < timeout {
+        if !backend_health_responds() {
+            return;
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
 fn stop_backend(app: &tauri::AppHandle) {
     let state = app.state::<BackendProcess>();
     let child = {
@@ -124,9 +135,43 @@ fn stop_backend(app: &tauri::AppHandle) {
         request_backend_shutdown();
         // Give FastAPI/Uvicorn lifespan enough time to drain post-processing and SQLite.
         // kill() remains a bounded fallback for a wedged backend.
-        thread::sleep(Duration::from_millis(2500));
+        wait_for_backend_shutdown(Duration::from_millis(2500));
         let _ = child.kill();
     }
+}
+
+#[tauri::command]
+async fn check_for_update(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let updater = app.updater().map_err(|error| error.to_string())?;
+    let update = updater.check().await.map_err(|error| error.to_string())?;
+    Ok(update.map(|candidate| candidate.version))
+}
+
+#[tauri::command]
+async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    let updater = app.updater().map_err(|error| error.to_string())?;
+    let Some(update) = updater.check().await.map_err(|error| error.to_string())? else {
+        return Err("No newer LangTextFlow update is available.".to_string());
+    };
+
+    // The updater verifies the downloaded artifact signature before returning the bytes.
+    // We deliberately keep the current application untouched until this step succeeds.
+    let bytes = update
+        .download(|_, _| {}, || {})
+        .await
+        .map_err(|error| format!("Update download or signature verification failed: {error}"))?;
+
+    request_backend_shutdown();
+    wait_for_backend_shutdown(Duration::from_millis(2500));
+    update
+        .install(bytes)
+        .map_err(|error| format!("Verified update could not be installed: {error}"))?;
+
+    // Windows installers may terminate the current process themselves. On platforms
+    // where install returns, request a normal Tauri restart so ExitRequested still
+    // drains the backend lifecycle before the new binary starts.
+    app.request_restart();
+    Ok(())
 }
 
 pub fn run() {
@@ -134,6 +179,7 @@ pub fn run() {
         .manage(BackendProcess(Mutex::new(None)))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![check_for_update, install_update])
         .setup(|app| {
             spawn_backend(&app.handle())?;
             Ok(())
