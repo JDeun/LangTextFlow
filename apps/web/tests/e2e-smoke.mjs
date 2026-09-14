@@ -65,14 +65,29 @@ async function navigate(url) {
   await waitFor(() => evaluate("document.readyState === 'complete'"), `page load: ${url}`);
 }
 
-async function setViewport(width, height, mobile = false) {
+async function setViewport(width, height, mobile = false, deviceScaleFactor = 1) {
   await cdp("Emulation.setDeviceMetricsOverride", {
     width,
     height,
-    deviceScaleFactor: 1,
+    deviceScaleFactor,
     mobile,
   });
   await sleep(100);
+}
+
+async function pressEnter() {
+  await cdp("Input.dispatchKeyEvent", {
+    type: "rawKeyDown",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+  });
+  await cdp("Input.dispatchKeyEvent", {
+    type: "keyUp",
+    key: "Enter",
+    code: "Enter",
+    windowsVirtualKeyCode: 13,
+  });
 }
 
 async function setLocale(locale) {
@@ -131,6 +146,26 @@ const disclosureToggle = await evaluate(`(() => {
 if (!disclosureToggle) throw new Error("advanced operator group disclosure is not operable");
 
 await setLocale("ko");
+await setViewport(1440, 1000, false, 2);
+const retinaFits = await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`);
+if (!retinaFits) throw new Error("desktop high-DPI layout has horizontal overflow");
+await screenshot("operator-retina-ko");
+
+const longStringFits = await evaluate(`(() => {
+  const targets = [
+    document.querySelector('.brand'),
+    document.querySelector('.subtitle'),
+    document.querySelector('.section-heading span'),
+  ].filter(Boolean);
+  const originals = targets.map((node) => node.textContent);
+  const stress = '초장문현지화레이아웃검증문자열'.repeat(10);
+  targets.forEach((node) => { node.textContent = stress; });
+  const fits = document.documentElement.scrollWidth <= window.innerWidth + 1;
+  targets.forEach((node, index) => { node.textContent = originals[index]; });
+  return fits;
+})()`);
+if (!longStringFits) throw new Error("long-string localization stress caused horizontal overflow");
+
 await setViewport(390, 844, true);
 await navigate("http://127.0.0.1:5173/");
 await waitFor(
@@ -164,24 +199,27 @@ await waitFor(
   "mock engine state and enabled session start",
 );
 
-const startClicked = await evaluate(`(() => {
+const keyboardFocus = await evaluate(`(() => {
   const button = document.querySelector('[data-testid="session-toggle"]');
   if (!button || button.disabled) return false;
-  button.click();
-  return true;
+  button.focus();
+  return document.activeElement === button;
 })()`);
-if (!startClicked) throw new Error("session start button was not clickable");
+if (!keyboardFocus) throw new Error("session start control could not receive keyboard focus");
+await pressEnter();
 
 await waitFor(
   () => evaluate(`document.querySelector('[data-testid="session-toggle"]')?.textContent?.includes("자막 중지")`),
-  "session start",
+  "keyboard session start",
 );
 await screenshot("operator-live-ko");
 
 const stateResponse = await fetch("http://127.0.0.1:8000/api/v1/state");
 if (!stateResponse.ok) throw new Error(`state request failed: ${stateResponse.status}`);
 const state = await stateResponse.json();
-if (!state.running || !state.join_code) throw new Error(`invalid running state: ${JSON.stringify(state)}`);
+if (!state.running || !state.join_code || !state.session_id) {
+  throw new Error(`invalid running state: ${JSON.stringify(state)}`);
+}
 
 await navigate(`http://127.0.0.1:5173/audience/${state.join_code}`);
 await waitFor(
@@ -204,5 +242,36 @@ if (!stopResponse.ok) throw new Error(`session stop failed: ${stopResponse.statu
 const stopped = await stopResponse.json();
 if (stopped.running) throw new Error("session remained running after stop");
 
+await navigate("http://127.0.0.1:5173/");
+await waitFor(
+  () => evaluate(`document.querySelector('.history-item') !== null`),
+  "session history record after stop",
+);
+const historyOpened = await evaluate(`(() => {
+  const button = document.querySelector('.history-open');
+  if (!button) return false;
+  button.focus();
+  button.click();
+  return true;
+})()`);
+if (!historyOpened) throw new Error("history detail control was not available");
+await waitFor(
+  () => evaluate(`document.querySelector('.history-detail') !== null`),
+  "history detail",
+);
+await screenshot("history-detail-ko");
+
+for (const format of ["srt", "vtt", "txt", "json"]) {
+  const exportResponse = await fetch(
+    `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}/export?format=${format}`,
+  );
+  if (!exportResponse.ok) throw new Error(`${format} export failed: ${exportResponse.status}`);
+  const disposition = exportResponse.headers.get("content-disposition") || "";
+  if (!disposition.toLowerCase().includes(`.${format}`)) {
+    throw new Error(`${format} export did not advertise the expected filename`);
+  }
+  await exportResponse.arrayBuffer();
+}
+
 socket.close();
-console.log("browser E2E smoke passed for en/ko/ja locale switching and mobile layout");
+console.log("browser E2E smoke passed: onboarding, locale/layout, keyboard start, audience, stop, history and exports");
