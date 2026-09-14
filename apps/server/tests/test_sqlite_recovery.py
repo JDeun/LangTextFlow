@@ -49,7 +49,13 @@ def test_corrupt_database_companion_files_are_quarantined(tmp_path) -> None:
 
     assert result.quarantined_path is not None
     assert result.quarantined_path.exists()
-    assert result.quarantined_path.with_name(result.quarantined_path.name + "-wal").read_bytes() == b"wal"
-    assert result.quarantined_path.with_name(result.quarantined_path.name + "-shm").read_bytes() == b"shm"
+    quarantined_wal = result.quarantined_path.with_name(
+        result.quarantined_path.name + "-wal"
+    )
+    quarantined_shm = result.quarantined_path.with_name(
+        result.quarantined_path.name + "-shm"
+    )
+    assert quarantined_wal.read_bytes() == b"wal"
+    assert quarantined_shm.read_bytes() == b"shm"
     assert not wal.exists()
     assert not shm.exists()
