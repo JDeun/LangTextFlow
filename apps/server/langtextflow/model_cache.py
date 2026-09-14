@@ -8,6 +8,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .storage_guard import storage_capacity
 
 _ALLOWED_CACHE_AREAS = {"huggingface", "vibevoice"}
 
@@ -24,11 +25,15 @@ class CacheInventory(BaseModel):
     root: str
     total_bytes: int = Field(ge=0)
     entries: list[CacheEntry]
+    filesystem_free_bytes: int = Field(default=0, ge=0)
+    safety_reserve_bytes: int = Field(default=0, ge=0)
+    writable_bytes: int = Field(default=0, ge=0)
 
 
 class ModelCacheManager:
     def __init__(self, settings: Settings) -> None:
         self.root = Path(settings.model_cache_dir).expanduser().resolve()
+        self.reserve_bytes = settings.storage_reserve_mb * 1024 * 1024
 
     async def inventory(self) -> CacheInventory:
         return await asyncio.to_thread(self._inventory_sync)
@@ -56,7 +61,15 @@ class ModelCacheManager:
                     modified_at=modified,
                 )
             )
-        return CacheInventory(root=str(self.root), total_bytes=total, entries=entries)
+        capacity = storage_capacity(self.root, reserve_bytes=self.reserve_bytes)
+        return CacheInventory(
+            root=str(self.root),
+            total_bytes=total,
+            entries=entries,
+            filesystem_free_bytes=capacity.free_bytes,
+            safety_reserve_bytes=capacity.reserve_bytes,
+            writable_bytes=capacity.available_for_operation,
+        )
 
     def _clear_sync(self, area: str) -> None:
         target = (self.root / area).resolve()
