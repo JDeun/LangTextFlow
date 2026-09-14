@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./telemetry.css";
 import { useI18n } from "./i18n";
-import type { RealtimeMetrics } from "./types";
+import type { RealtimeMetrics, SessionState } from "./types";
 import { UTILITY_COPY } from "./utilityCopy";
 
 interface TelemetryPanelProps {
@@ -43,6 +43,7 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
   const { locale } = useI18n();
   const copy = UTILITY_COPY[locale].telemetry;
   const [metrics, setMetrics] = useState<RealtimeMetrics | null>(null);
+  const [persistenceError, setPersistenceError] = useState("");
   const [error, setError] = useState("");
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
 
@@ -52,11 +53,17 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
 
     const load = async () => {
       try {
-        const response = await fetch(`${apiUrl}/api/v1/metrics`);
-        if (!response.ok) throw new Error(`metrics HTTP ${response.status}`);
-        const payload = (await response.json()) as RealtimeMetrics;
+        const [metricsResponse, stateResponse] = await Promise.all([
+          fetch(`${apiUrl}/api/v1/metrics`),
+          fetch(`${apiUrl}/api/v1/state`),
+        ]);
+        if (!metricsResponse.ok) throw new Error(`metrics HTTP ${metricsResponse.status}`);
+        if (!stateResponse.ok) throw new Error(`state HTTP ${stateResponse.status}`);
+        const payload = (await metricsResponse.json()) as RealtimeMetrics;
+        const state = (await stateResponse.json()) as SessionState;
         if (!disposed) {
           setMetrics(payload);
+          setPersistenceError(state.persistence_error || "");
           setError("");
         }
       } catch (reason) {
@@ -132,6 +139,11 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
       </div>
 
       {error && <div className="telemetry-empty">{error}</div>}
+      {persistenceError && (
+        <div className="error-box" role="alert" data-testid="persistence-error">
+          {copy.storage}: {persistenceError}
+        </div>
+      )}
       {metrics && (
         <>
           <div
