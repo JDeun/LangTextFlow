@@ -28,6 +28,34 @@ def test_healthy_database_is_left_untouched(tmp_path) -> None:
     assert database.read_bytes() == before
 
 
+def test_empty_quick_check_result_is_quarantined(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "empty-check.db"
+    database.write_bytes(b"placeholder")
+
+    class FakeCursor:
+        def fetchone(self):
+            return None
+
+    class FakeConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, _query):
+            return FakeCursor()
+
+    monkeypatch.setattr(sqlite3, "connect", lambda _path: FakeConnection())
+
+    result = recover_sqlite_if_corrupt(database)
+
+    assert result.recovered is True
+    assert result.reason == "quick_check returned no result"
+    assert result.quarantined_path is not None
+    assert result.quarantined_path.exists()
+
+
 def test_corrupt_database_is_quarantined_and_can_be_rebuilt(tmp_path) -> None:
     database = tmp_path / "langtextflow.db"
     corrupt_bytes = b"not-a-sqlite-database\x00private-history"
