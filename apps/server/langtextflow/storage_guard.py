@@ -6,7 +6,6 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-
 DEFAULT_RESERVE_BYTES = 512 * 1024 * 1024
 
 
