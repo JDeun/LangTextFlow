@@ -30,6 +30,9 @@ interface CacheInventory {
   root: string;
   total_bytes: number;
   entries: CacheEntry[];
+  filesystem_free_bytes: number;
+  safety_reserve_bytes: number;
+  writable_bytes: number;
 }
 
 function formatBytes(value: number) {
@@ -137,6 +140,9 @@ export function RuntimeMaintenancePanel({ disabled }: { disabled: boolean }) {
         <div className="cache-panel">
           <div><strong>{copy.cacheTitle}</strong><small>{copy.cacheHelp}</small></div>
           <small>{formatBytes(cache.total_bytes)} · {cache.root}</small>
+          <small>
+            {copy.cacheHeadroom}: {formatBytes(cache.writable_bytes)} · {copy.cacheReserve}: {formatBytes(cache.safety_reserve_bytes)}
+          </small>
           {cache.entries.map((entry) => (
             <div className="cache-row" key={entry.area}>
               <span>{entry.area} · {formatBytes(entry.bytes)} · {entry.files}</span>
