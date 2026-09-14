@@ -40,7 +40,12 @@ def recover_sqlite_if_corrupt(database_path: str | Path) -> SqliteRecoveryResult
     quarantined = path.with_name(f"{path.name}.corrupt-{stamp}")
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    for source, suffix in ((path, ""), (Path(f"{path}-wal"), "-wal"), (Path(f"{path}-shm"), "-shm")):
+    companions = (
+        (path, ""),
+        (Path(f"{path}-wal"), "-wal"),
+        (Path(f"{path}-shm"), "-shm"),
+    )
+    for source, suffix in companions:
         if source.exists():
             os.replace(source, Path(f"{quarantined}{suffix}"))
 
