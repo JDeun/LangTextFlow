@@ -1,1 +1,0 @@
-See [Hardware Requirements](HARDWARE_REQUIREMENTS.md).
