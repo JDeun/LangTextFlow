@@ -64,7 +64,7 @@ jobs:
         run: cargo check --locked
       - name: Build unsigned desktop bundle
         working-directory: apps/desktop
-        run: npx --yes @tauri-apps/cli@2.11.4 build -- --locked
+        run: npx --yes @tauri-apps/cli@2.11.4 build
       - name: Upload desktop bundles
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
