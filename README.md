@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/langtextflow-logo.svg" alt="LangTextFlow logo" width="128">
+</p>
+
 <h1 align="center">LangTextFlow</h1>
 
 <p align="center">
