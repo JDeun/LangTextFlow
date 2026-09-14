@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -62,13 +62,25 @@ jobs:
       - name: Verify Rust desktop shell
         working-directory: apps/desktop/src-tauri
         run: cargo check
-      - name: Upload generated Cargo lockfile
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: cargo-lock-${{ runner.os }}
-          path: apps/desktop/src-tauri/Cargo.lock
-          if-no-files-found: error
-          retention-days: 2
+      - name: Commit generated Cargo lockfile to RC branch
+        if: runner.os == 'macOS' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          cp apps/desktop/src-tauri/Cargo.lock "$RUNNER_TEMP/Cargo.lock"
+          git fetch origin "$HEAD_REF"
+          git checkout -B "$HEAD_REF" "origin/$HEAD_REF"
+          cp "$RUNNER_TEMP/Cargo.lock" apps/desktop/src-tauri/Cargo.lock
+          if git ls-files --error-unmatch apps/desktop/src-tauri/Cargo.lock >/dev/null 2>&1 && git diff --quiet -- apps/desktop/src-tauri/Cargo.lock; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/src-tauri/Cargo.lock
+          git commit -m "build: lock desktop Rust dependencies"
+          git push origin "HEAD:$HEAD_REF"
       - name: Build unsigned desktop bundle
         working-directory: apps/desktop
         run: npx --yes @tauri-apps/cli@2.11.4 build
