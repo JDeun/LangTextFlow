@@ -1,0 +1,29 @@
+/* Defensive wrapping for localization, generated names, and pathological long tokens. */
+.brand,
+.subtitle,
+.section-heading,
+.section-heading span,
+.start-button,
+.stop-button,
+.runtime-card,
+.cache-panel,
+.error-box,
+.warning-box,
+.network-warning {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.topbar > *,
+.section-heading-row > *,
+.runtime-card > *,
+.cache-row > * {
+  min-width: 0;
+}
+
+.start-button,
+.stop-button {
+  white-space: normal;
+}
