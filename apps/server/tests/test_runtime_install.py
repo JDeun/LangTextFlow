@@ -1,5 +1,6 @@
 import asyncio
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -117,3 +118,65 @@ async def test_vibevoice_status_uses_managed_runtime_paths(tmp_path: Path) -> No
     assert not status.available
     assert not status.installed
     assert status.path is None
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_partial_install_is_not_reported_ready(tmp_path: Path) -> None:
+    settings = Settings(
+        managed_runtime_dir=str(tmp_path / "runtime"),
+        model_cache_dir=str(tmp_path / "cache"),
+    )
+    manager = RuntimeProvisionManager(settings)
+    repo = manager._vibevoice_repo()
+    python = manager._vibevoice_python()
+    (repo / "vllm_plugin").mkdir(parents=True)
+    (repo / "vllm_plugin" / "asr_streaming_server.py").write_text("# stub", encoding="utf-8")
+    python.parent.mkdir(parents=True)
+    python.write_text("stub", encoding="utf-8")
+
+    status = await manager.status(RuntimeKind.VIBEVOICE)
+    assert status.installed is True
+    assert status.available is False
+    assert status.managed is False
+    assert "partial install" in status.detail
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_ready_manifest_must_match_pinned_revisions(tmp_path: Path) -> None:
+    settings = Settings(
+        managed_runtime_dir=str(tmp_path / "runtime"),
+        model_cache_dir=str(tmp_path / "cache"),
+    )
+    manager = RuntimeProvisionManager(settings)
+    repo = manager._vibevoice_repo()
+    python = manager._vibevoice_python()
+    model = manager._vibevoice_model_dir()
+    (repo / "vllm_plugin").mkdir(parents=True)
+    (repo / "vllm_plugin" / "asr_streaming_server.py").write_text("# stub", encoding="utf-8")
+    python.parent.mkdir(parents=True)
+    python.write_text("stub", encoding="utf-8")
+    model.mkdir(parents=True)
+    (model / "preprocessor_config.json").write_text("{}", encoding="utf-8")
+    (model / "added_tokens.json").write_text("{}", encoding="utf-8")
+    marker = manager._vibevoice_ready_marker()
+    marker.write_text(
+        json.dumps(
+            {
+                "repo_ref": "wrong-ref",
+                "model_id": settings.vibevoice_model_id,
+                "model_revision": settings.vibevoice_model_revision,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    status = await manager.status(RuntimeKind.VIBEVOICE)
+    assert status.installed is True
+    assert status.available is False
+    assert "revisions changed" in status.detail
+
+    manager._write_vibevoice_ready_marker(repo=repo, python=python, model_dir=model)
+    status = await manager.status(RuntimeKind.VIBEVOICE)
+    assert status.available is True
+    assert status.managed is True
+    assert status.detail == settings.vibevoice_repo_ref

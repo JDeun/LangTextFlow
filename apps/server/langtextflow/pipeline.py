@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from datetime import UTC, datetime
 
 from .config import Settings
@@ -92,6 +93,12 @@ class CaptionPipeline:
         task = self._worker_task
         self._worker_task = None
         if task is not None:
+            if not task.done():
+                with suppress(TimeoutError):
+                    await asyncio.wait_for(
+                        self._queue.join(),
+                        timeout=self.settings.postprocess_drain_timeout_seconds,
+                    )
             if not task.done():
                 task.cancel()
             try:

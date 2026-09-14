@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     vad_threshold_dbfs: float = -45.0
     vad_hangover_frames: int = Field(default=3, ge=0, le=10_000)
     audio_backpressure_warn_ms: float = Field(default=50.0, ge=0)
+    postprocess_drain_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_correction_model: str = "qwen3.5:4b"
     correction_timeout_seconds: float = Field(default=4.0, gt=0)

@@ -6,6 +6,10 @@ from fastapi.testclient import TestClient
 
 from langtextflow import desktop_server
 from langtextflow import main as main_module
+from langtextflow.desktop_shutdown import (
+    desktop_shutdown_requested,
+    reset_desktop_shutdown,
+)
 
 
 def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -> None:
@@ -16,6 +20,7 @@ def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -
     (assets / "app.js").write_text("console.log('ok')", encoding="utf-8")
     (tmp_path / "secret.txt").write_text("secret", encoding="utf-8")
 
+    reset_desktop_shutdown()
     desktop_server._install_public_routes(web_root)
     desktop_app = desktop_server.DesktopBoundaryApp(main_module.app)
     client = TestClient(desktop_app, client=("192.168.1.20", 50000))
@@ -36,11 +41,18 @@ def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -
     # The LAN listener publishes only audience/display assets; operator APIs remain local-only.
     assert client.get("/").status_code == 404
     assert client.get("/api/v1/state").status_code == 403
+    assert client.post("/api/v1/desktop/shutdown").status_code == 403
+    assert desktop_shutdown_requested() is False
     assert client.get("/docs").status_code == 404
     assert client.get("/redoc").status_code == 404
     assert client.get("/openapi.json").status_code == 404
 
-    # Developer introspection remains available to the local operator process.
+    # Developer introspection and graceful shutdown remain local-only.
     local = TestClient(desktop_app, client=("127.0.0.1", 50000))
     assert local.get("/docs").status_code == 200
     assert local.get("/openapi.json").status_code == 200
+    shutdown = local.post("/api/v1/desktop/shutdown")
+    assert shutdown.status_code == 202
+    assert shutdown.json() == {"status": "shutting-down"}
+    assert desktop_shutdown_requested() is True
+    reset_desktop_shutdown()

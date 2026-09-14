@@ -9,6 +9,7 @@ on:
       - "scripts/build_desktop_sidecar.py"
       - "pyproject.toml"
       - "uv.lock"
+      - "rust-toolchain.toml"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
@@ -38,11 +39,12 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
-      - name: Install Rust stable
+      - name: Install pinned Rust toolchain
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          test "$(rustc --version | awk '{print $2}')" = "1.90.0"
       - name: Install locked application dependencies
         shell: bash
         run: |
@@ -57,9 +59,9 @@ jobs:
       - name: Generate platform icon assets
         working-directory: apps/desktop
         run: npx --yes @tauri-apps/cli@2.11.4 icon src-tauri/icons/icon.png
-      - name: Verify Rust desktop shell
+      - name: Verify locked Rust desktop shell
         working-directory: apps/desktop/src-tauri
-        run: cargo check
+        run: cargo check --locked
       - name: Build unsigned desktop bundle
         working-directory: apps/desktop
         run: npx --yes @tauri-apps/cli@2.11.4 build

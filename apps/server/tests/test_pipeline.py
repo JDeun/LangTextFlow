@@ -248,6 +248,38 @@ async def test_pipeline_records_fallback_provenance_when_llm_correction_fails() 
     assert "deterministic result" in pipeline.correction_status.error
 
 
+@pytest.mark.asyncio
+async def test_pipeline_stop_drains_ready_postprocessing() -> None:
+    published: list[TranscriptEvent] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    pipeline = CaptionPipeline(publish, Settings(postprocess_drain_timeout_seconds=0.5))
+    await pipeline.start(
+        StartSessionRequest(
+            source_language="ko",
+            target_languages=["en"],
+            translation_provider="demo",
+        )
+    )
+    await pipeline.ingest(
+        TranscriptEvent(
+            segment_id="drain",
+            version=1,
+            stage=CaptionStage.STABLE,
+            source_language="ko",
+            text="graceful drain",
+            start_ms=0,
+            end_ms=100,
+        )
+    )
+    await pipeline.stop()
+
+    assert published[-1].stage is CaptionStage.COMMITTED
+    assert published[-1].committed is True
+
+
 class BlockingCorrector(ConstrainedCorrector):
     provider = "blocking"
     model = "blocking-corrector"
@@ -277,7 +309,11 @@ async def test_pipeline_stop_cancels_blocked_postprocessing() -> None:
         published.append(event)
 
     corrector = BlockingCorrector()
-    pipeline = PipelineWithCorrector(publish, Settings(), corrector)
+    pipeline = PipelineWithCorrector(
+        publish,
+        Settings(postprocess_drain_timeout_seconds=0.05),
+        corrector,
+    )
     await pipeline.start(
         StartSessionRequest(
             source_language="ko",

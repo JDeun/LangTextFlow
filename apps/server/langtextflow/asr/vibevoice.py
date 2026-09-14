@@ -148,9 +148,13 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                 with suppress(asyncio.CancelledError, TimeoutError):
                     await asyncio.wait_for(self._sender_task, timeout=2.0)
         if self._receiver_task is not None and not self._receiver_task.done():
-            self._receiver_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._receiver_task
+            if self._failure is None:
+                with suppress(asyncio.CancelledError, TimeoutError):
+                    await asyncio.wait_for(self._receiver_task, timeout=2.0)
+            if not self._receiver_task.done():
+                self._receiver_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await self._receiver_task
         await self._close_socket()
         self._sender_task = None
         self._receiver_task = None

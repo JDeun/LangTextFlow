@@ -82,6 +82,16 @@ class FakeWebSocket:
         await self.incoming.put(None)
 
 
+class FinalTranscriptOnEndWebSocket(FakeWebSocket):
+    async def send(self, payload: str | bytes) -> None:
+        self.sent.append(payload)
+        if payload == "end":
+            await self.incoming.put(json.dumps({"text": "마지막 문장입니다"}))
+            await asyncio.sleep(0)
+            await self.incoming.put(json.dumps({"done": True, "total_chunks": 1}))
+            await self.incoming.put(None)
+
+
 async def _start_engine(
     monkeypatch: pytest.MonkeyPatch,
     fake_ws: FakeWebSocket,
@@ -160,6 +170,35 @@ async def test_vibevoice_streaming_contract(monkeypatch: pytest.MonkeyPatch) -> 
 
     await engine.stop()
     assert fake_ws.closed is True
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_stop_waits_for_final_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+    published = []
+    fake_ws = FinalTranscriptOnEndWebSocket()
+
+    async def publish(event) -> None:
+        published.append(event)
+
+    async def fake_connect(url: str, **kwargs: object) -> FakeWebSocket:
+        del url, kwargs
+        return fake_ws
+
+    monkeypatch.setattr("langtextflow.asr.vibevoice.httpx.AsyncClient", FakeHttpClient)
+    monkeypatch.setattr("langtextflow.asr.vibevoice.websockets.connect", fake_connect)
+
+    engine = VibeVoiceStreamingAsrEngine(
+        publish,
+        base_url="http://127.0.0.1:8001",
+        queue_chunks=2,
+    )
+    await engine.start(StartSessionRequest(source_language="ko", engine="vibevoice"))
+    await engine.feed_audio(b"\x00\x00\x00\x00" * 400)
+    await engine.stop()
+
+    assert [event.text for event in published] == ["마지막 문장입니다"]
+    assert fake_ws.closed is True
+    assert engine.failure is None
 
 
 @pytest.mark.asyncio
