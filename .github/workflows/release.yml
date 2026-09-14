@@ -81,6 +81,9 @@ jobs:
       - name: Generate platform icon assets
         working-directory: apps/desktop
         run: npx --yes @tauri-apps/cli@2.11.4 icon src-tauri/icons/icon.png
+      - name: Verify locked Rust desktop shell
+        working-directory: apps/desktop/src-tauri
+        run: cargo check --locked
       - name: Import Windows signing certificate
         if: runner.os == 'Windows'
         shell: pwsh
