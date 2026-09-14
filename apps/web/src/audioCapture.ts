@@ -3,6 +3,8 @@ import {
   AUDIO_BACKPRESSURE_CLOSE_CODE,
   AUDIO_PROTOCOL_ERROR_CODE,
   canQueueAudioFrame,
+  chooseRecoveryDevice,
+  microphoneErrorMessage,
   parseAudioSocketConfig,
 } from "./audioCapturePolicy";
 import type { AudioSocketConfig } from "./audioCapturePolicy";
@@ -16,15 +18,19 @@ export async function requestAudioInputs(): Promise<AudioInputDevice[]> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("이 환경에서는 마이크 입력을 사용할 수 없습니다.");
   }
-  const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  permissionStream.getTracks().forEach((track) => track.stop());
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  return devices
-    .filter((device) => device.kind === "audioinput")
-    .map((device, index) => ({
-      deviceId: device.deviceId,
-      label: device.label || `오디오 입력 ${index + 1}`,
-    }));
+  try {
+    const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    permissionStream.getTracks().forEach((track) => track.stop());
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices
+      .filter((device) => device.kind === "audioinput")
+      .map((device, index) => ({
+        deviceId: device.deviceId,
+        label: device.label || `오디오 입력 ${index + 1}`,
+      }));
+  } catch (error) {
+    throw new Error(microphoneErrorMessage(error));
+  }
 }
 
 function waitForAudioConfig(socket: WebSocket): Promise<AudioSocketConfig> {
@@ -64,7 +70,18 @@ export class AudioCaptureController {
   private sink: GainNode | null = null;
   private failed = false;
   private stopping = false;
+  private recovering = false;
+  private preferredDeviceId: string | undefined;
   private readonly onFatalError?: (message: string) => void;
+  private readonly trackEndedHandler = () => {
+    void this.recoverAudioInput();
+  };
+  private readonly deviceChangeHandler = () => {
+    void this.recoverAudioInput();
+  };
+  private readonly resumeHandler = () => {
+    void this.resumeAudioContext();
+  };
 
   constructor(onFatalError?: (message: string) => void) {
     this.onFatalError = onFatalError;
@@ -73,6 +90,7 @@ export class AudioCaptureController {
   private fail(message: string): void {
     if (this.failed || this.stopping) return;
     this.failed = true;
+    this.detachDeviceListeners();
     if (this.worklet) this.worklet.port.onmessage = null;
     this.stream?.getTracks().forEach((track) => track.stop());
     if (this.socket && this.socket.readyState < WebSocket.CLOSING) {
@@ -81,20 +99,119 @@ export class AudioCaptureController {
     this.onFatalError?.(message);
   }
 
+  private async openAudioStream(deviceId?: string): Promise<MediaStream> {
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+    } catch (error) {
+      throw new Error(microphoneErrorMessage(error));
+    }
+  }
+
+  private attachTrackListeners(stream: MediaStream): void {
+    stream.getAudioTracks().forEach((track) => {
+      track.addEventListener("ended", this.trackEndedHandler);
+    });
+  }
+
+  private detachTrackListeners(stream: MediaStream | null): void {
+    stream?.getAudioTracks().forEach((track) => {
+      track.removeEventListener("ended", this.trackEndedHandler);
+    });
+  }
+
+  private attachDeviceListeners(): void {
+    navigator.mediaDevices?.addEventListener?.("devicechange", this.deviceChangeHandler);
+    document.addEventListener("visibilitychange", this.resumeHandler);
+    window.addEventListener("focus", this.resumeHandler);
+    window.addEventListener("pageshow", this.resumeHandler);
+  }
+
+  private detachDeviceListeners(): void {
+    navigator.mediaDevices?.removeEventListener?.("devicechange", this.deviceChangeHandler);
+    document.removeEventListener("visibilitychange", this.resumeHandler);
+    window.removeEventListener("focus", this.resumeHandler);
+    window.removeEventListener("pageshow", this.resumeHandler);
+    this.detachTrackListeners(this.stream);
+  }
+
+  private async resumeAudioContext(): Promise<void> {
+    const context = this.context;
+    if (this.stopping || this.failed || !context || context.state !== "suspended") return;
+    try {
+      await context.resume();
+    } catch (error) {
+      this.fail(`절전/재개 후 오디오 입력을 다시 시작하지 못했습니다. ${microphoneErrorMessage(error)}`);
+    }
+  }
+
+  private async recoverAudioInput(): Promise<void> {
+    if (
+      this.recovering ||
+      this.stopping ||
+      this.failed ||
+      !this.context ||
+      !this.worklet ||
+      !navigator.mediaDevices?.enumerateDevices
+    ) {
+      return;
+    }
+
+    this.recovering = true;
+    try {
+      const devices = (await navigator.mediaDevices.enumerateDevices()).filter(
+        (device) => device.kind === "audioinput",
+      );
+      const currentLive = this.stream?.getAudioTracks().some((track) => track.readyState === "live") ?? false;
+      const preferredStillPresent =
+        !this.preferredDeviceId || devices.some((device) => device.deviceId === this.preferredDeviceId);
+      if (currentLive && preferredStillPresent) return;
+
+      const recoveryDeviceId = chooseRecoveryDevice(this.preferredDeviceId, devices);
+      if (!recoveryDeviceId && devices.length === 0) {
+        throw new Error("사용 가능한 대체 마이크가 없습니다.");
+      }
+
+      const replacement = await this.openAudioStream(recoveryDeviceId);
+      if (this.stopping || this.failed) {
+        replacement.getTracks().forEach((track) => track.stop());
+        return;
+      }
+
+      const replacementSource = this.context.createMediaStreamSource(replacement);
+      replacementSource.connect(this.worklet);
+
+      const previousStream = this.stream;
+      this.detachTrackListeners(previousStream);
+      this.source?.disconnect();
+      this.stream = replacement;
+      this.source = replacementSource;
+      this.preferredDeviceId = recoveryDeviceId;
+      this.attachTrackListeners(replacement);
+      previousStream?.getTracks().forEach((track) => track.stop());
+      await this.resumeAudioContext();
+    } catch (error) {
+      this.fail(`마이크 연결이 끊겼고 자동 재연결에 실패했습니다. ${microphoneErrorMessage(error)}`);
+    } finally {
+      this.recovering = false;
+    }
+  }
+
   async start(deviceId?: string): Promise<number> {
     if (this.context) return this.context.sampleRate;
     this.failed = false;
     this.stopping = false;
+    this.recovering = false;
+    this.preferredDeviceId = deviceId;
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        channelCount: 1,
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      },
-    });
+    this.stream = await this.openAudioStream(deviceId);
 
     try {
       this.socket = new WebSocket(getWebSocketUrl("/ws/audio"));
@@ -135,6 +252,8 @@ export class AudioCaptureController {
       this.source.connect(this.worklet);
       this.worklet.connect(this.sink);
       this.sink.connect(this.context.destination);
+      this.attachTrackListeners(this.stream);
+      this.attachDeviceListeners();
       return this.context.sampleRate;
     } catch (error) {
       await this.stop();
@@ -144,6 +263,7 @@ export class AudioCaptureController {
 
   async stop(): Promise<void> {
     this.stopping = true;
+    this.detachDeviceListeners();
     if (this.worklet) this.worklet.port.onmessage = null;
     if (this.socket?.readyState === WebSocket.OPEN && !this.failed) this.socket.send("end");
     this.worklet?.disconnect();
@@ -158,6 +278,8 @@ export class AudioCaptureController {
     this.source = null;
     this.worklet = null;
     this.sink = null;
+    this.preferredDeviceId = undefined;
+    this.recovering = false;
     this.failed = false;
     this.stopping = false;
   }
