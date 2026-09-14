@@ -7,6 +7,7 @@
 | 문서 | 언제 읽나요? |
 |---|---|
 | [`USER_GUIDE.md`](USER_GUIDE.md) | 처음 실행하고 실제 자막 세션을 시작할 때 |
+| [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md) | 내 PC에서 어떤 모델 구성이 가능한지, 최소/권장 사양을 확인할 때 |
 | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | 마이크·자막·번역·QR 접속에 문제가 있을 때 |
 | [`FAQ.md`](FAQ.md) | 지원 범위, 로컬 실행, 저장, 다국어 등 기본 질문이 있을 때 |
 | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | 현재 미지원 기능과 production acceptance 경계를 확인할 때 |
@@ -15,6 +16,7 @@
 
 | 문서 | 내용 |
 |---|---|
+| [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md) | 최소/권장/행사 운영 하드웨어 프로필, GPU·메모리·스토리지·네트워크 기준 |
 | [`ONBOARDING.md`](ONBOARDING.md) | first-run setup wizard |
 | [`PREFLIGHT.md`](PREFLIGHT.md) | hardware/provider/model 준비 상태 진단 |
 | [`DISPLAY_SETTINGS.md`](DISPLAY_SETTINGS.md) | Audience/Projector/OBS 표시 설정 |
@@ -83,3 +85,4 @@
 7. UI 변경은 [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)의 제품 계약을 따릅니다.
 8. 사용자에게 중요한 미지원 기능은 [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md)에 명시합니다.
 9. 기본 모델 교체는 공개 benchmark 점수만으로 결정하지 않고 LangTextFlow의 역할별 benchmark/quality gate를 통과시킵니다.
+10. 하드웨어 사양은 추정치를 공식 지원으로 승격하지 않고 실기기 benchmark 결과가 쌓일 때 [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md)에 compatibility matrix로 반영합니다.
