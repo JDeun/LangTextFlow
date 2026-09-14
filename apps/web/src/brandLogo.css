@@ -1,0 +1,27 @@
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.brand::before {
+  content: "";
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  background: url("/langtextflow-logo.svg") center / contain no-repeat;
+}
+
+.audience-header .brand::before {
+  width: 26px;
+  height: 26px;
+  flex-basis: 26px;
+}
+
+@media (max-width: 560px) {
+  .brand::before {
+    width: 26px;
+    height: 26px;
+    flex-basis: 26px;
+  }
+}
