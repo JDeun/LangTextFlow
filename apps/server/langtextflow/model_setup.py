@@ -11,15 +11,31 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .storage_guard import ensure_storage_capacity
 
 _MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
 _TERMINAL_STATES = {"completed", "cancelled", "error"}
+_MIB = 1024 * 1024
+_GIB = 1024 * _MIB
+_WHISPER_DOWNLOAD_ESTIMATES = {
+    "tiny": 200 * _MIB,
+    "base": 350 * _MIB,
+    "small": 1 * _GIB,
+    "medium": 3 * _GIB,
+    "large": 6 * _GIB,
+    "large-v1": 6 * _GIB,
+    "large-v2": 6 * _GIB,
+    "large-v3": 6 * _GIB,
+    "large-v3-turbo": 4 * _GIB,
+    "turbo": 4 * _GIB,
+}
 
 
 class SetupJobState(StrEnum):
@@ -71,6 +87,10 @@ class ModelSetupManager:
         self._active_keys: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
 
+    @property
+    def _reserve_bytes(self) -> int:
+        return self.settings.storage_reserve_mb * _MIB
+
     def _client(self, *, timeout: httpx.Timeout | float | None) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=timeout, transport=self._transport)
 
@@ -119,6 +139,7 @@ class ModelSetupManager:
             if existing_id is not None:
                 return self._jobs[existing_id].model_copy(deep=True)
 
+            self._ensure_initial_storage(provider, normalized)
             job = ModelSetupJob(
                 job_id=uuid4().hex,
                 provider=provider,
@@ -133,6 +154,33 @@ class ModelSetupManager:
             )
             self._tasks[job.job_id] = task
             return job.model_copy(deep=True)
+
+    def _ensure_initial_storage(self, provider: str, model: str) -> None:
+        if provider == "faster-whisper":
+            required = _whisper_download_estimate(model)
+            cache_dir = Path(self.settings.model_cache_dir).expanduser().resolve() / "huggingface"
+            ensure_storage_capacity(
+                cache_dir,
+                required_bytes=required,
+                reserve_bytes=self._reserve_bytes,
+                operation=f"prepare faster-whisper model {model}",
+            )
+            return
+        if provider == "ollama":
+            storage = self._local_ollama_storage_path()
+            if storage is not None:
+                ensure_storage_capacity(
+                    storage,
+                    reserve_bytes=self._reserve_bytes,
+                    operation=f"start Ollama model download {model}",
+                )
+
+    def _local_ollama_storage_path(self) -> Path | None:
+        parsed = urlparse(self.settings.ollama_url)
+        if (parsed.hostname or "").casefold() not in {"localhost", "127.0.0.1", "::1"}:
+            return None
+        configured = os.environ.get("OLLAMA_MODELS", "").strip()
+        return Path(configured).expanduser() if configured else Path.home() / ".ollama" / "models"
 
     async def cancel_job(self, job_id: str) -> ModelSetupJob | None:
         async with self._lock:
@@ -273,6 +321,14 @@ class ModelSetupManager:
         percent: float | None = None
         if completed is not None and total is not None and total > 0:
             percent = round(min(100.0, max(0.0, completed / total * 100.0)), 1)
+            storage = self._local_ollama_storage_path()
+            if storage is not None:
+                ensure_storage_capacity(
+                    storage,
+                    required_bytes=max(0, total - completed),
+                    reserve_bytes=self._reserve_bytes,
+                    operation="finish the Ollama model download",
+                )
         await self._update_job(
             job_id,
             status=status,
@@ -363,6 +419,11 @@ def _normalize_model_name(model: str) -> str:
     if not _MODEL_NAME_RE.fullmatch(value):
         raise ValueError("model name contains unsupported characters")
     return value
+
+
+def _whisper_download_estimate(model: str) -> int:
+    normalized = model.casefold().split("/")[-1]
+    return _WHISPER_DOWNLOAD_ESTIMATES.get(normalized, 6 * _GIB)
 
 
 def _parse_progress_line(line: str) -> dict[str, Any] | None:
