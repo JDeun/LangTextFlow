@@ -58,7 +58,7 @@ jobs:
         run: uv run python scripts/build_desktop_sidecar.py
       - name: Generate platform icon assets
         working-directory: apps/desktop
-        run: npx --yes @tauri-apps/cli@2.11.4 icon src-tauri/icons/icon.png
+        run: npx --yes @tauri-apps/cli@2.11.4 icon src-tauri/icons/logo.svg
       - name: Verify locked Rust desktop shell
         working-directory: apps/desktop/src-tauri
         run: cargo check --locked
