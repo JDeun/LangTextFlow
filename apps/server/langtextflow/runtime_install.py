@@ -17,6 +17,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .storage_guard import StorageCapacityError, ensure_storage_capacity
+
+_MIB = 1024 * 1024
+_GIB = 1024 * _MIB
 
 
 class RuntimeKind(StrEnum):
@@ -75,6 +79,10 @@ class RuntimeProvisionManager:
     def cache_root(self) -> Path:
         return Path(self.settings.model_cache_dir).expanduser().resolve()
 
+    @property
+    def reserve_bytes(self) -> int:
+        return self.settings.storage_reserve_mb * _MIB
+
     async def statuses(self) -> list[RuntimeStatus]:
         return [
             await self.status(RuntimeKind.FASTER_WHISPER),
@@ -98,10 +106,7 @@ class RuntimeProvisionManager:
         if kind is RuntimeKind.OLLAMA:
             executable = self._find_ollama_executable()
             healthy = bool(executable) and await self._ollama_healthy()
-            managed = (
-                self._ollama_process is not None
-                and self._ollama_process.returncode is None
-            )
+            managed = self._ollama_process is not None and self._ollama_process.returncode is None
             return RuntimeStatus(
                 kind=kind,
                 available=healthy,
@@ -196,6 +201,16 @@ class RuntimeProvisionManager:
         if getattr(sys, "frozen", False):
             await self._error(job_id, "desktop bundle does not contain faster-whisper")
             return
+        try:
+            ensure_storage_capacity(
+                Path(sys.prefix),
+                required_bytes=1 * _GIB,
+                reserve_bytes=self.reserve_bytes,
+                operation="install the faster-whisper runtime",
+            )
+        except StorageCapacityError as exc:
+            await self._error(job_id, str(exc))
+            return
         await self._run_fixed(
             job_id,
             [
@@ -212,6 +227,16 @@ class RuntimeProvisionManager:
     async def _install_ollama(self, job_id: str) -> None:
         executable = self._find_ollama_executable()
         if executable is None:
+            try:
+                ensure_storage_capacity(
+                    Path.home(),
+                    required_bytes=2 * _GIB,
+                    reserve_bytes=self.reserve_bytes,
+                    operation="install the Ollama runtime",
+                )
+            except StorageCapacityError as exc:
+                await self._error(job_id, str(exc))
+                return
             if sys.platform == "win32" and shutil.which("winget"):
                 command = [
                     "winget",
@@ -322,10 +347,23 @@ class RuntimeProvisionManager:
         marker = self._vibevoice_ready_marker()
         with suppress(FileNotFoundError):
             marker.unlink()
-        repo.parent.mkdir(parents=True, exist_ok=True)
-        self.cache_root.mkdir(parents=True, exist_ok=True)
-        await self._running(job_id, "preparing pinned VibeVoice source")
+        await self._running(job_id, "checking storage capacity")
         try:
+            ensure_storage_capacity(
+                self.runtime_root,
+                required_bytes=4 * _GIB,
+                reserve_bytes=self.reserve_bytes,
+                operation="install the VibeVoice runtime",
+            )
+            ensure_storage_capacity(
+                self.cache_root,
+                required_bytes=20 * _GIB,
+                reserve_bytes=self.reserve_bytes,
+                operation="download the VibeVoice model",
+            )
+            repo.parent.mkdir(parents=True, exist_ok=True)
+            self.cache_root.mkdir(parents=True, exist_ok=True)
+            await self._running(job_id, "preparing pinned VibeVoice source")
             if not (repo / ".git").exists():
                 await _run(
                     [

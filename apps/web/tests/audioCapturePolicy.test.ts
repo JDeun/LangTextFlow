@@ -6,6 +6,8 @@ import {
   AUDIO_PROTOCOL_ERROR_CODE,
   MAX_AUDIO_SOCKET_BUFFERED_BYTES,
   canQueueAudioFrame,
+  chooseRecoveryDevice,
+  microphoneErrorMessage,
   parseAudioSocketConfig,
 } from "../src/audioCapturePolicy.ts";
 
@@ -61,4 +63,27 @@ test("audio socket config parser accepts only supported mono f32le settings", ()
       ),
     /지원 범위/,
   );
+});
+
+test("microphone permission and device failures produce actionable recovery copy", () => {
+  assert.match(microphoneErrorMessage({ name: "NotAllowedError" }), /권한/);
+  assert.match(microphoneErrorMessage({ name: "NotFoundError" }), /연결 상태/);
+  assert.match(microphoneErrorMessage({ name: "OverconstrainedError" }), /다른 마이크/);
+  assert.match(microphoneErrorMessage({ name: "NotReadableError" }), /독점/);
+});
+
+test("device recovery keeps the preferred input, then falls back predictably", () => {
+  assert.equal(
+    chooseRecoveryDevice("mic-2", [{ deviceId: "mic-1" }, { deviceId: "mic-2" }]),
+    "mic-2",
+  );
+  assert.equal(
+    chooseRecoveryDevice("missing", [{ deviceId: "mic-1" }, { deviceId: "default" }]),
+    "default",
+  );
+  assert.equal(
+    chooseRecoveryDevice("missing", [{ deviceId: "mic-1" }, { deviceId: "mic-2" }]),
+    "mic-1",
+  );
+  assert.equal(chooseRecoveryDevice("missing", []), undefined);
 });

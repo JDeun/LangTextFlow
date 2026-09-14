@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     database_path: str = "data/langtextflow.db"
     model_cache_dir: str = "data/model-cache"
     managed_runtime_dir: str = "data/runtime"
+    storage_reserve_mb: int = Field(default=1024, ge=64, le=102_400)
     mdns_enabled: bool = True
     mdns_hostname: str = ""
     mdns_service_name: str = "LangTextFlow"

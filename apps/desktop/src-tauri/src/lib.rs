@@ -1,8 +1,8 @@
 use std::{
     collections::HashMap,
     fs,
-    io::Write,
-    net::{SocketAddr, TcpStream},
+    io::{Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
     sync::Mutex,
     thread,
     time::Duration,
@@ -15,7 +15,51 @@ struct BackendProcess(Mutex<Option<CommandChild>>);
 
 const BACKEND_ADDR: &str = "127.0.0.1:8000";
 
+fn backend_health_responds() -> bool {
+    let Ok(address) = BACKEND_ADDR.parse::<SocketAddr>() else {
+        return false;
+    };
+    let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(250)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(250)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(250)));
+    let request = concat!(
+        "GET /health HTTP/1.1\r\n",
+        "Host: 127.0.0.1:8000\r\n",
+        "Connection: close\r\n\r\n"
+    );
+    if stream.write_all(request.as_bytes()).is_err() || stream.flush().is_err() {
+        return false;
+    }
+    let mut response = [0_u8; 64];
+    let Ok(read) = stream.read(&mut response) else {
+        return false;
+    };
+    let header = String::from_utf8_lossy(&response[..read]);
+    header.starts_with("HTTP/1.1 200") || header.starts_with("HTTP/1.0 200")
+}
+
+fn ensure_backend_port_available() -> Result<(), Box<dyn std::error::Error>> {
+    match TcpListener::bind(BACKEND_ADDR) {
+        Ok(listener) => {
+            drop(listener);
+            Ok(())
+        }
+        Err(error) if backend_health_responds() => Err(format!(
+            "LangTextFlow is already running or its backend already owns {BACKEND_ADDR}. Close the existing LangTextFlow window before starting another instance."
+        )
+        .into()),
+        Err(error) => Err(format!(
+            "LangTextFlow cannot start because {BACKEND_ADDR} is already in use by another application: {error}. Close the conflicting application or free port 8000."
+        )
+        .into()),
+    }
+}
+
 fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+    ensure_backend_port_available()?;
+
     let app_data = app.path().app_data_dir()?;
     let data_dir = app_data.join("data");
     let cache_dir = app_data.join("cache");

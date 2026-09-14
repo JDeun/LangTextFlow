@@ -12,6 +12,7 @@ from langtextflow.runtime_install import (
     RuntimeKind,
     RuntimeProvisionManager,
 )
+from langtextflow.storage_guard import StorageCapacityError
 
 
 async def _wait(manager: RuntimeProvisionManager, job_id: str):
@@ -42,6 +43,39 @@ async def test_faster_whisper_existing_runtime_completes_without_install(
     job = await manager.start(RuntimeKind.FASTER_WHISPER)
     settled = await _wait(manager, job.job_id)
     assert settled.state is ProvisionState.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_provision_stops_before_install_when_storage_is_low(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name: None if name == "faster_whisper" else real_find_spec(name),
+    )
+    monkeypatch.delattr(sys, "frozen", raising=False)
+
+    def reject_storage(*_args, **_kwargs):
+        raise StorageCapacityError("Not enough disk space to install runtime")
+
+    async def must_not_run(_command: list[str]) -> None:
+        raise AssertionError("installer must not run after storage guard failure")
+
+    monkeypatch.setattr("langtextflow.runtime_install.ensure_storage_capacity", reject_storage)
+    monkeypatch.setattr("langtextflow.runtime_install._run", must_not_run)
+    manager = RuntimeProvisionManager(
+        Settings(
+            managed_runtime_dir=str(tmp_path / "runtime"), model_cache_dir=str(tmp_path / "cache")
+        )
+    )
+
+    job = await manager.start(RuntimeKind.FASTER_WHISPER)
+    settled = await _wait(manager, job.job_id)
+
+    assert settled.state is ProvisionState.ERROR
+    assert "Not enough disk space" in (settled.error or "")
 
 
 @pytest.mark.asyncio
@@ -118,6 +152,43 @@ async def test_vibevoice_status_uses_managed_runtime_paths(tmp_path: Path) -> No
     assert not status.available
     assert not status.installed
     assert status.path is None
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_storage_guard_prevents_partial_provision(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(
+        "langtextflow.runtime_install.shutil.which",
+        lambda name: f"/usr/bin/{name}" if name in {"git", "ffmpeg"} else None,
+    )
+    calls = 0
+
+    def storage_check(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise StorageCapacityError("Not enough disk space for VibeVoice model")
+        return None
+
+    async def must_not_run(_command: list[str]) -> None:
+        raise AssertionError("provision command must not run after storage guard failure")
+
+    monkeypatch.setattr("langtextflow.runtime_install.ensure_storage_capacity", storage_check)
+    monkeypatch.setattr("langtextflow.runtime_install._run", must_not_run)
+    manager = RuntimeProvisionManager(
+        Settings(
+            managed_runtime_dir=str(tmp_path / "runtime"),
+            model_cache_dir=str(tmp_path / "cache"),
+        )
+    )
+
+    job = await manager.start(RuntimeKind.VIBEVOICE)
+    settled = await _wait(manager, job.job_id)
+
+    assert settled.state is ProvisionState.ERROR
+    assert "Not enough disk space" in (settled.error or "")
+    assert not manager._vibevoice_ready_marker().exists()
 
 
 @pytest.mark.asyncio
