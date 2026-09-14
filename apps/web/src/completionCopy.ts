@@ -10,6 +10,8 @@ export const COMPLETION_COPY: Record<Locale, {
   refresh: string;
   cacheTitle: string;
   cacheHelp: string;
+  cacheHeadroom: string;
+  cacheReserve: string;
   clear: string;
   recommendationsTitle: string;
   recommendationsHelp: string;
@@ -28,6 +30,8 @@ export const COMPLETION_COPY: Record<Locale, {
     refresh: "Refresh",
     cacheTitle: "Offline model cache",
     cacheHelp: "Cached models stay available without downloading them again.",
+    cacheHeadroom: "Safe writable space",
+    cacheReserve: "Reserved free space",
     clear: "Clear cache",
     recommendationsTitle: "Glossary suggestions",
     recommendationsHelp: "Repeated terms from recent sessions that are not yet registered.",
@@ -46,6 +50,8 @@ export const COMPLETION_COPY: Record<Locale, {
     refresh: "새로고침",
     cacheTitle: "오프라인 모델 캐시",
     cacheHelp: "캐시된 모델은 다시 다운로드하지 않고 오프라인에서 사용할 수 있습니다.",
+    cacheHeadroom: "안전하게 쓸 수 있는 공간",
+    cacheReserve: "보호용 여유 공간",
     clear: "캐시 삭제",
     recommendationsTitle: "용어집 추천",
     recommendationsHelp: "최근 세션에서 반복됐지만 아직 등록되지 않은 용어입니다.",
@@ -64,6 +70,8 @@ export const COMPLETION_COPY: Record<Locale, {
     refresh: "更新",
     cacheTitle: "オフラインモデルキャッシュ",
     cacheHelp: "キャッシュ済みモデルは再ダウンロードせずオフラインで利用できます。",
+    cacheHeadroom: "安全に書き込める空き容量",
+    cacheReserve: "保護用の予約空き容量",
     clear: "キャッシュを削除",
     recommendationsTitle: "用語集の候補",
     recommendationsHelp: "最近のセッションで繰り返された未登録の用語です。",
