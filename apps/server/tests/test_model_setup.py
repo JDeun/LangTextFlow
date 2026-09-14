@@ -11,7 +11,9 @@ from langtextflow.model_setup import (
     SetupJobState,
     _normalize_model_name,
     _parse_progress_line,
+    _whisper_download_estimate,
 )
+from langtextflow.storage_guard import StorageCapacityError
 
 
 async def wait_for_terminal(manager: ModelSetupManager, job_id: str) -> None:
@@ -41,6 +43,27 @@ def test_model_name_validation_is_conservative() -> None:
     assert _normalize_model_name("namespace/model:tag") == "namespace/model:tag"
     with pytest.raises(ValueError):
         _normalize_model_name("../bad model")
+
+
+def test_whisper_download_estimate_is_conservative_for_unknown_models() -> None:
+    assert _whisper_download_estimate("small") < _whisper_download_estimate("unknown-model")
+    assert _whisper_download_estimate("namespace/large-v3") == 6 * 1024**3
+
+
+@pytest.mark.asyncio
+async def test_local_ollama_pull_is_blocked_when_storage_reserve_is_unavailable(
+    monkeypatch,
+) -> None:
+    def reject(*_args, **_kwargs):
+        raise StorageCapacityError("Not enough disk space")
+
+    monkeypatch.setattr("langtextflow.model_setup.ensure_storage_capacity", reject)
+    manager = ModelSetupManager(Settings(ollama_url="http://127.0.0.1:11434"))
+
+    with pytest.raises(StorageCapacityError, match="Not enough disk space"):
+        await manager.start_ollama_pull("translategemma:4b")
+
+    assert await manager.list_jobs() == []
 
 
 @pytest.mark.asyncio
