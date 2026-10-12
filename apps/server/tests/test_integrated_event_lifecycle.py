@@ -7,6 +7,7 @@ original foreign-key and file boundaries.
 from __future__ import annotations
 
 import struct
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -174,3 +175,102 @@ async def test_unknown_project_and_recording_consent_never_stop_running_event(
         assert runtime.state.session_id == live.session_id
     finally:
         await runtime.shutdown()
+
+
+
+def test_summary_api_uses_completed_original_transcript_and_is_idempotent(
+    tmp_path, monkeypatch,
+) -> None:
+    """Exercise REST -> async worker -> SQLite on a project-owned session."""
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from langtextflow import post_event_api
+    from langtextflow.models import SessionState
+    from langtextflow.post_event_api import install_post_event_routes
+    from langtextflow.post_event_archive import PostEventArchive
+    from langtextflow.session_repository import SessionRepository
+
+    db = str(tmp_path / "summary.db")
+    history = SessionRepository(db)
+    history.initialize()
+    projects = ProjectRepository(db)
+    project = projects.create(ProjectInput(title="Summarized event"))
+    sid = "project-summary-session"
+    history.create_session(
+        SessionState(
+            session_id=sid, join_code="ABC123", engine="mock",
+            started_at=datetime.now(UTC),
+        ),
+        StartSessionRequest(
+            project_id=project.project_id,
+            source_language="ko", target_languages=["en"], engine="mock",
+        ),
+    )
+    history.upsert_segment(
+        sid,
+        TranscriptEvent(
+            segment_id="evidence-1", version=1,
+            source_language="ko", text="새로운 목표를 공유했습니다.",
+            translations={"en": "The new goals were shared."},
+            committed=True, stage=CaptionStage.COMMITTED,
+            start_ms=500, end_ms=3200,
+        ),
+    )
+    history.mark_ended(sid)
+    archive = PostEventArchive(db)
+    archive.initialize()
+
+    calls = []
+
+    async def fake_model(source: str, **kwargs) -> str:
+        calls.append((source, kwargs))
+        assert "새로운 목표" in source
+        assert "The new goals" not in source
+        return "원문에 기반한 행사 요약 초안"
+
+    monkeypatch.setattr(post_event_api, "generate_summary", fake_model)
+    app = FastAPI()
+    runtime = SimpleNamespace(
+        history=history,
+        state=SessionState(running=False, session_id=None),
+    )
+    install_post_event_routes(
+        app, runtime, archive, Settings(database_path=db),
+        lambda request: None,
+    )
+    with TestClient(app) as client:
+        path = f"/api/v1/history/{sid}"
+        response = client.post(
+            path + "/summary",
+            json={"language": "ko", "provider": "ollama", "model": "local-fixture"},
+        )
+        assert response.status_code == 202, response.text
+        first_id = response.json()["summary_id"]
+        result = None
+        for _ in range(50):
+            poll = client.get(path + "/archive")
+            assert poll.status_code == 200
+            result = poll.json()["summary"]
+            if result is not None and result["status"] != "running":
+                break
+            time.sleep(0.01)
+        assert result is not None and result["status"] == "completed"
+        assert result["content"] == "원문에 기반한 행사 요약 초안"
+        assert result["summary_id"] == first_id
+        assert len(calls) == 1
+        # Completed revision should reuse the same immutable summary.
+        again = client.post(
+            path + "/summary",
+            json={"language": "ko", "provider": "ollama", "model": "local-fixture"},
+        )
+        assert again.status_code == 202
+        assert again.json()["summary_id"] == first_id
+        assert len(calls) == 1
+        denied = client.post(
+            path + "/summary",
+            json={"language": "ko", "provider": "openai-compatible", "model": "cloud"},
+        )
+        assert denied.status_code == 400
