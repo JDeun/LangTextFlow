@@ -18,12 +18,12 @@ from typing import Any
 
 from langtextflow.benchmark import pcm16le_to_f32le, percentile, quality_metrics
 from langtextflow.config import Settings
-from langtextflow.models import CaptionStage, SessionContext, StartSessionRequest
+from langtextflow.models import SessionContext, StartSessionRequest
 from langtextflow.runtime import CaptionRuntime
 
 from scripts.evaluate_fleurs_asr import (
     FLEURS_DATASET, FLEURS_LICENSE, FLEURS_REVISION,
-    audio_input, fleurs_test_parquet_uri, write_pcm_wav,
+    fleurs_test_parquet_uri, write_pcm_wav,
 )
 
 
