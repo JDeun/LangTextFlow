@@ -84,12 +84,17 @@ def evaluate(
     fixture_dir = output / "temporary-fixtures"
     fixture_dir.mkdir(exist_ok=True)
 
+    # Datasets >=4 rejects legacy dataset loader scripts (fleurs.py).
+    # Access only the verified parquet fixture at the pinned HF revision.
+    parquet_path = (
+        f"hf://datasets/google/fleurs@{FLEURS_REVISION}/"
+        f"{CONFIGS[language]}/test-00000-of-00001.parquet"
+    )
     dataset = load_dataset(
-        "google/fleurs",
-        CONFIGS[language],
+        "parquet",
+        data_files={"test": parquet_path},
         split="test",
         streaming=True,
-        revision=FLEURS_REVISION,
     ).cast_column("audio", Audio(decode=False))
 
     rows = []
@@ -153,7 +158,9 @@ def evaluate(
         reference_path.unlink(missing_ok=True)
 
     if len(rows) != sample_count:
-        raise RuntimeError(f"Only {len(rows)} eligible FLEURS samples found, requested {sample_count}")
+        raise RuntimeError(
+            f"Only {len(rows)} eligible FLEURS samples found; requested {sample_count}"
+        )
 
     summary = {
         "dataset": "google/fleurs",
