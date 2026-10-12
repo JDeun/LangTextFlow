@@ -95,7 +95,7 @@ class PostEventArchive:
         if not self.audio_root.is_dir():
             return removed
         for candidate in self.audio_root.glob("*.wav.partial"):
-            if not re.fullmatch(r"[0-9a-f]{32}\\.wav\\.partial", candidate.name):
+            if not re.fullmatch(r"[0-9a-f]{32}\.wav\.partial", candidate.name):
                 continue
             try:
                 if candidate.is_symlink() or not candidate.is_file():
