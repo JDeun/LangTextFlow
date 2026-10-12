@@ -275,3 +275,67 @@ def test_running_summary_single_flight_survives_restart_migration(tmp_path) -> N
         transcript_sha256="f" * 64, prompt_version="post-event-v1",
     )
     assert next_row["status"] == "running"
+
+
+
+def test_recording_upload_fsync_failure_never_creates_database_row(
+    tmp_path, monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+    from langtextflow import post_event_api
+
+    history, archive = _seed(tmp_path)
+    app = FastAPI()
+    runtime = SimpleNamespace(
+        history=history,
+        state=SessionState(session_id=None, running=False),
+    )
+    install_post_event_routes(
+        app, runtime, archive,
+        Settings(database_path=str(tmp_path / "events.db"), storage_reserve_mb=64),
+        lambda request: None,
+    )
+
+    def failed_fsync(fd):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr(post_event_api.os, "fsync", failed_fsync)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/history/s-1/recordings",
+            data=_wav(), headers={"content-type": "audio/wav"},
+        )
+    assert response.status_code == 422
+    assert archive.recordings("s-1") == []
+    assert list(archive.audio_root.glob("*.wav")) == []
+
+
+def test_recording_upload_during_session_deletion_returns_404_and_no_orphan(
+    tmp_path, monkeypatch,
+) -> None:
+    from types import SimpleNamespace
+
+    history, archive = _seed(tmp_path)
+    app = FastAPI()
+    runtime = SimpleNamespace(
+        history=history,
+        state=SessionState(session_id=None, running=False),
+    )
+    install_post_event_routes(
+        app, runtime, archive,
+        Settings(database_path=str(tmp_path / "events.db"), storage_reserve_mb=64),
+        lambda request: None,
+    )
+
+    def deleted_session(*args, **kwargs):
+        raise sqlite3.IntegrityError("FOREIGN KEY constraint failed")
+
+    monkeypatch.setattr(archive, "insert_recording", deleted_session)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/history/s-1/recordings",
+            data=_wav(), headers={"content-type": "audio/wav"},
+        )
+    assert response.status_code == 404
+    assert archive.recordings("s-1") == []
+    assert list(archive.audio_root.glob("*.wav")) == []
