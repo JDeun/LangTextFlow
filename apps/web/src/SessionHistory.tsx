@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
+import { EventProjectControls } from "./EventProjectControls";
 import { HISTORY_COPY } from "./historyCopy";
 import { useI18n } from "./i18n";
-import type { SessionDetail, SessionRecord, TranscriptEvent } from "./types";
+import type { EventProject, SessionDetail, SessionRecord, TranscriptEvent } from "./types";
 
 interface SessionHistoryProps {
   apiUrl: string;
   targetLanguage: string;
   activeSessionId: string | null;
   refreshToken: string;
+  projects: EventProject[];
+  selectedProjectId: string;
+  onSelectProject: (id: string) => void;
+  onProjectsChanged: () => Promise<void>;
 }
 
 function dateLabel(value: string) {
@@ -58,6 +63,10 @@ export function SessionHistory({
   targetLanguage,
   activeSessionId,
   refreshToken,
+  projects,
+  selectedProjectId,
+  onSelectProject,
+  onProjectsChanged,
 }: SessionHistoryProps) {
   const { locale } = useI18n();
   const copy = HISTORY_COPY[locale];
@@ -88,10 +97,19 @@ export function SessionHistory({
     refresh().catch((reason: Error) => setError(reason.message));
   }, [refresh, refreshToken]);
 
+  useEffect(() => {
+    setSelected(null);
+    setSegments([]);
+  }, [selectedProjectId]);
+
   const filteredSessions = useMemo(() => {
     const query = sessionQuery.trim().toLocaleLowerCase();
     if (!query) return sessions;
-    return sessions.filter((session) => [
+    return sessions.filter((session) => {
+      if (selectedProjectId === "unassigned" && session.project_id) return false;
+      if (selectedProjectId !== "all" && selectedProjectId !== "unassigned" &&
+          session.project_id !== selectedProjectId) return false;
+      return [
       session.title,
       session.notes,
       session.presenter || "",
@@ -101,8 +119,9 @@ export function SessionHistory({
       session.source_language,
       session.interrupted ? `interrupted ${copy.recovered}` : "",
       ...session.target_languages,
-    ].join("\n").toLocaleLowerCase().includes(query));
-  }, [copy.recovered, sessionQuery, sessions]);
+      ].join("\n").toLocaleLowerCase().includes(query);
+    });
+  }, [copy.recovered, sessionQuery, sessions, selectedProjectId]);
 
   const filteredSegments = useMemo(() => {
     const query = transcriptQuery.trim();
@@ -201,6 +220,32 @@ export function SessionHistory({
     }
   }
 
+  async function assignProject(session: SessionRecord, projectId: string) {
+    setBusyId(session.session_id);
+    setError("");
+    try {
+      const response = await fetch(
+        `${apiUrl}/api/v1/history/${encodeURIComponent(session.session_id)}/project`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ project_id: projectId || null }),
+        },
+      );
+      if (!response.ok) throw new Error(await response.text());
+      const updated = (await response.json()) as SessionDetail;
+      setSessions((current) => current.map((item) => (
+        item.session_id === session.session_id ? { ...item, project_id: updated.project_id } : item
+      )));
+      if (selected?.session_id === session.session_id) setSelected(updated);
+      await onProjectsChanged();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : copy.saveFailed);
+    } finally {
+      setBusyId("");
+    }
+  }
+
   async function remove(session: SessionRecord) {
     setBusyId(session.session_id);
     setError("");
@@ -233,6 +278,15 @@ export function SessionHistory({
           {copy.refresh}
         </button>
       </div>
+
+      <EventProjectControls
+        apiUrl={apiUrl}
+        locale={locale}
+        projects={projects}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={onSelectProject}
+        onProjectsChanged={async () => { await onProjectsChanged(); await refresh(); }}
+      />
 
       <div className="history-search-row">
         <input
@@ -272,6 +326,22 @@ export function SessionHistory({
                 {session.notes && <small className="history-note-preview">{session.notes}</small>}
               </div>
               <div className="history-actions">
+                <label className="history-project-assign">
+                  {locale === "ko" ? "소속 행사" : locale === "ja" ? "所属イベント" : "Project"}
+                  <select
+                    aria-label={locale === "ko" ? "세션 소속 프로젝트" : locale === "ja" ? "セッションのプロジェクト" : "Session project"}
+                    value={session.project_id || ""}
+                    disabled={busyId === session.session_id}
+                    onChange={(event) => void assignProject(session, event.target.value)}
+                  >
+                    <option value="">{locale === "ko" ? "미분류" : locale === "ja" ? "未分類" : "Unassigned"}</option>
+                    {projects.map((project) => (
+                      <option key={project.project_id} value={project.project_id}>
+                        {project.title}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button className="secondary-button history-open" type="button" onClick={() => openDetail(session)} disabled={detailBusy}>
                   {opened ? copy.reopen : copy.details}
                 </button>
