@@ -50,6 +50,14 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 | 💾 | **기록과 내보내기** | 세션을 로컬에 기록하고 SRT, WebVTT, TXT, JSON으로 내보냅니다. |
 | 🏠 | **Local-first** | VibeVoice/faster-whisper/Ollama 등 로컬 구성을 지원합니다. |
 
+## 행사 프로젝트
+
+**Event Projects**를 만들어 하나의 행사에 리허설·여러 강연·질의응답 등 여러 세션을 연결할 수 있습니다. 
+기존 세션은 보존한 채 프로젝트로 이동할 수 있고, 프로젝트를 삭제해도 원본 전사 기록은 삭제되지 않습니다.
+행사 생성·편집과 세션 배정은 운영자 화면의 **세션 기록 → 행사 프로젝트**에서 관리합니다.
+
+[Event Projects 사용·데이터 구조](docs/EVENT_PROJECTS.md) · [프로젝트 지식 아카이브 후속 작업 #86](https://github.com/JDeun/LangTextFlow/issues/86)
+
 ## 현재 지원 범위
 
 | 영역 | 현재 지원 | 비고 |
