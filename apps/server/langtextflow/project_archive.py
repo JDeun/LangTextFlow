@@ -32,8 +32,9 @@ def build_project_archive_manifest(
     items: list[dict[str, Any]] = []
     for session_id in ids:
         session = sessions.get_session(session_id)
-        if session is None:
-            # Another request deleted a session after the ID list was fetched.
+        if session is None or session.project_id != project_id:
+            # Reassignment or deletion may race with the initial ID query.
+            # Never return an old project's session after its association moved.
             continue
         summary = archive.latest_summary(session_id)
         recordings = archive.recordings(session_id)
