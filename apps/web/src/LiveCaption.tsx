@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { captionForLanguage } from "./captionText";
+import { useI18n } from "./i18n";
 import {
   captionTextStyle,
   sourceTextStyle,
@@ -16,11 +18,6 @@ interface LiveCaptionProps {
   emptyText?: string;
 }
 
-function textForLanguage(segment: TranscriptEvent, language: string) {
-  if (language === segment.source_language) return segment.text;
-  return segment.translations[language] || segment.text;
-}
-
 export function LiveCaption({
   segment,
   language,
@@ -30,6 +27,7 @@ export function LiveCaption({
   sourceClassName,
   emptyText = "",
 }: LiveCaptionProps) {
+  const { t } = useI18n();
   const [visible, setVisible] = useState(Boolean(segment));
 
   useEffect(() => {
@@ -64,7 +62,8 @@ export function LiveCaption({
     && language !== segment.source_language
     && segment.translations[language],
   );
-  const primaryText = segment && visible ? textForLanguage(segment, language) : emptyText;
+  const primaryText = segment && visible
+    ? captionForLanguage(segment, language, t("live.untranslated")) : emptyText;
 
   return (
     <>

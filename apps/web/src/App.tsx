@@ -6,6 +6,7 @@ import {
   type AudioInputDevice,
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
+import { captionForLanguage } from "./captionText";
 import { ContextDocumentManager } from "./ContextDocumentManager";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
@@ -39,10 +40,11 @@ const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lect
 const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 const DISPLAY_SETTINGS_STORAGE_KEY = "langtextflow:display:v1";
 
-function displayCaption(segment: TranscriptEvent | undefined, language: string, emptyText = "") {
-  if (!segment) return emptyText;
-  if (language === segment.source_language) return segment.text;
-  return segment.translations[language] || segment.text;
+function displayCaption(
+  segment: TranscriptEvent | undefined, language: string,
+  emptyText = "", untranslatedLabel = "Untranslated",
+) {
+  return captionForLanguage(segment, language, untranslatedLabel, emptyText);
 }
 
 function splitHotwords(value: string) {
@@ -162,7 +164,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
       <section className="audience-transcript">
         {segments.slice(-8).reverse().map((segment) => (
           <article key={segment.segment_id}>
-            <span>{displayCaption(segment, language, t("live.emptyCaption"))}</span>
+            <span>{displayCaption(segment, language, t("live.emptyCaption"), t("live.untranslated"))}</span>
             {segment.stage === "partial" && <small>draft</small>}
           </article>
         ))}
@@ -752,7 +754,7 @@ function OperatorApp() {
                     <span className={`stage-tag ${segment.stage}`}>{segment.stage}</span>
                     <span>v{segment.version}</span>
                   </div>
-                  <div className="segment-text">{displayCaption(segment, previewLanguage, t("live.emptyCaption"))}</div>
+                  <div className="segment-text">{displayCaption(segment, previewLanguage, t("live.emptyCaption"), t("live.untranslated"))}</div>
                   {previewLanguage !== sourceLanguage && segment.translations[previewLanguage] && (
                     <div className="segment-source">{segment.text}</div>
                   )}

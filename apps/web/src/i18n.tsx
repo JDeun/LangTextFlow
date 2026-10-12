@@ -70,6 +70,7 @@ const en = {
     emptySegments: "No segments received yet.",
     emptyCaption: "Start speaking and captions will appear here.",
     persistenceWarning: "Recording warning",
+    untranslated: "Not translated",
   },
   preflight: {
     requestFailed: "Preflight request failed.",
@@ -155,6 +156,7 @@ const ko: Catalog = {
     emptySegments: "아직 수신된 세그먼트가 없습니다.",
     emptyCaption: "말하기를 시작하면 자막이 이곳에 표시됩니다.",
     persistenceWarning: "기록 저장 경고",
+    untranslated: "번역 없음",
   },
   preflight: {
     requestFailed: "사전점검 요청에 실패했습니다.",
@@ -236,6 +238,7 @@ const ja: Catalog = {
     emptySegments: "受信したセグメントはまだありません。",
     emptyCaption: "話し始めると、ここに字幕が表示されます。",
     persistenceWarning: "記録の警告",
+    untranslated: "未翻訳",
   },
   preflight: {
     requestFailed: "事前チェックに失敗しました。",
