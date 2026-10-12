@@ -115,3 +115,24 @@ while fetching an index, the manifest states a total count *at query time* rathe
 than a transactionally frozen archive. No completeness guarantee for concurrent
 edits is implied. Project-level backup/export with binary media and full
 cross-session synthesis remain issue #86.
+
+
+### Evidence-linked Markdown working report
+
+From the same Event Archive Index UI, **Download cited report (Markdown)**
+calls the operator-only
+`GET /api/v1/projects/{project_id}/report?limit=25&offset=0` endpoint.
+
+The document includes project metadata, session IDs, starts, recording counts,
+the existing latest summary status and excerpt (up to 5,000 characters),
+the source-transcript SHA-256 used to create that summary, a **STALE** marker
+when the committed transcript has changed, and up to three timestamped,
+segment-ID-referenced **committed original-language** excerpts per session.
+
+This is an audit-friendly **working report**, not a new cross-session LLM
+summarization or a full export. Each request is bounded to at most 25 sessions;
+pagination can change while sessions are edited/moved; untrusted model output
+and transcript/title text are escaped before Markdown inclusion. The report
+does not include binary recordings, translated captions, API credentials or
+local recording filesystem paths. Treat even a hash-matching summary as
+**unreviewed until a human checks its factual accuracy**.
