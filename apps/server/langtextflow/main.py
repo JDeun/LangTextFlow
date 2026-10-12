@@ -50,6 +50,7 @@ from .network import (
 from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .project_archive import build_project_archive_manifest
+from .project_report import build_project_report
 from .project_repository import (
     ProjectAssignment,
     ProjectInput,
@@ -538,6 +539,38 @@ async def project_archive_manifest(
         )
     except KeyError as exc:
         raise HTTPException(404, "project not found") from exc
+
+
+@app.get("/api/v1/projects/{project_id}/report")
+async def download_project_report(
+    request: Request,
+    project_id: str,
+    limit: int = Query(default=10, ge=1, le=25),
+    offset: int = Query(default=0, ge=0, le=10000),
+) -> Response:
+    """Export bounded original-evidence report, never a synthesized project claim."""
+    _require_operator(request)
+    try:
+        content = await asyncio.to_thread(
+            build_project_report,
+            project_repository,
+            runtime.history,
+            post_event_archive,
+            project_id,
+            limit=limit,
+            offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "project not found") from exc
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="event-project-report.md"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @app.get("/api/v1/projects/{project_id}", response_model=ProjectRecord)
