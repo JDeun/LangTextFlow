@@ -196,3 +196,17 @@ async def test_invalid_project_does_not_interrupt_live_session(tmp_path) -> None
     finally:
         await runtime.stop()
         await runtime.shutdown()
+
+
+def test_history_project_filter_is_applied_before_limit(tmp_path) -> None:
+    history, repository = _history(tmp_path)
+    project = repository.create(ProjectInput(title="Older conference"))
+    _session(history, "target-session", project.project_id)
+    for index in range(60):
+        _session(history, f"unassigned-{index:02d}")
+    selected = history.list_sessions(limit=1, project_id=project.project_id)
+    assert [item.session_id for item in selected] == ["target-session"]
+    assert [item.session_id for item in history.list_sessions(limit=1, unassigned=True)][0] != "target-session"
+    assert len(history.list_sessions(limit=200)) == 61
+    assert len(history.list_sessions(limit=200, project_id=project.project_id)) == 1
+    assert len(history.list_sessions(limit=200, unassigned=True)) == 60
