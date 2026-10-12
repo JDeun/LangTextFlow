@@ -39,8 +39,10 @@ jobs:
         run: |
           python -m pip install "uv==0.12.13"
           uv sync --locked --extra dev --extra benchmark
-          uv pip install "sherpa-onnx==1.13.8" "datasets==4.4.1" "soundfile==0.13.1"
-          uv run --no-sync pytest -q apps/server/tests/test_cpu_asr_candidates.py
+          uv pip install "sherpa-onnx==1.13.8" "datasets==4.4.1" \
+            "soundfile==0.13.1" "huggingface-hub==0.35.3"
+          uv run --no-sync pytest -q apps/server/tests/test_cpu_asr_candidates.py \
+            apps/server/tests/test_compare_cpu_asr_candidates.py
       - name: Evaluate five models in exactly the requested order
         env:
           HF_HOME: ${{ runner.temp }}/fleurs-hf-cache
@@ -105,8 +107,8 @@ jobs:
               "Identical pinned FLEURS Korean speech (3 clips), 100ms input pacing, GPU-free.",
               "Source ASR only: not proof of correct church translation.",
               "",
-              "| Model | Status | CER | WER | Full RTF | Peak RSS MB |",
-              "|---|---|---:|---:|---:|---:|",
+              "| Model | Status | CER | WER | Playback RTF | Inference RTF | Peak RSS MB |",
+              "|---|---|---:|---:|---:|---:|---:|",
           ]
           for model in ("sensevoice", "qwen3-0.6b", "zipformer-ko", "whispercpp-base", "qwen3-1.7b"):
               path = base / (model + ".json")
@@ -114,10 +116,11 @@ jobs:
                   row = json.loads(path.read_text(encoding="utf-8"))
                   lines.append(
                       f"| {model} | measured | {row['mean_cer']} | {row['mean_wer']} | "
-                      f"{row['mean_end_to_end_rtf']} | {row['resources']['rss_peak_mb']} |"
+                      f"{row['mean_end_to_end_rtf']} | {row['mean_inference_rtf']} | " 
+                      f"{row['resources']['rss_peak_mb']} |"
                   )
               else:
-                  lines.append(f"| {model} | no verified result — consult log | — | — | — | — |")
+                  lines.append(f"| {model} | no verified result — consult log | — | — | — | — | — |")
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
               f.write("\n".join(lines) + "\n")
           PY
