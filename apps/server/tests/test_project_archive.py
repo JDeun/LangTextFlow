@@ -274,7 +274,11 @@ def test_report_escapes_untrusted_markdown_syntax(
     untrusted: str, forbidden: str,
 ) -> None:
     rendered = _plain(untrusted)
-    assert forbidden not in rendered
+    if forbidden == "# synthetic":
+        # Markdown escaped leading hash is inert despite containing the substring.
+        assert rendered.startswith(r"\# synthetic")
+    else:
+        assert forbidden not in rendered
     assert "\\n" not in rendered
     assert "\\r" not in rendered
 

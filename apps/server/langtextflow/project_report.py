@@ -18,6 +18,16 @@ def _plain(value: object, *, limit: int = 300) -> str:
     return "".join("\\" + char if char in markdown_special else char for char in escaped)
 
 
+def _identifier(value: object) -> str:
+    """Preserve safe generated IDs inside Markdown code spans."""
+    identifier = str(value or "")
+    if identifier and len(identifier) <= 64 and all(
+        char.isascii() and (char.isalnum() or char in "-_") for char in identifier
+    ):
+        return identifier
+    return _plain(identifier, limit=64)
+
+
 def _timestamp(ms: int) -> str:
     seconds = max(0, ms // 1000)
     return f"{seconds // 3600:02d}:{(seconds // 60) % 60:02d}:{seconds % 60:02d}"
@@ -82,7 +92,7 @@ def build_project_report(
             except ValueError:
                 stale = True
             lines += [
-                f"- Summary version: `{_plain(summary['summary_id'], limit=64)}`",
+                f"- Summary version: `{_identifier(summary['summary_id'])}`",
                 f"- Summary source SHA-256: `{summary['transcript_sha256']}`",
                 (
                     "- Summary freshness: "
