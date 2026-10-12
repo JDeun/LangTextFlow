@@ -467,7 +467,7 @@ function OperatorApp() {
             <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
           </label>
           <label>
-            {locale === "ko" ? "행사 프로젝트" : locale === "ja" ? "イベントプロジェクト" : "Event project"}
+            {operatorCopy.projectLabel}
             <select
               data-testid="session-project-select"
               value={projects.some((project) => project.project_id === selectedProjectId)
@@ -475,7 +475,7 @@ function OperatorApp() {
               disabled={running}
               onChange={(event) => setSelectedProjectId(event.target.value || "all")}
             >
-              <option value="">{locale === "ko" ? "프로젝트 없이 진행" : locale === "ja" ? "プロジェクトなし" : "No project"}</option>
+              <option value="">{operatorCopy.projectNone}</option>
               {projects.map((project) => (
                 <option value={project.project_id} key={project.project_id}>{project.title}</option>
               ))}
