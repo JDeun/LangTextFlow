@@ -9,7 +9,10 @@ import pytest
 from fastapi import HTTPException
 
 from langtextflow.models import (
-    CaptionStage, SessionState, StartSessionRequest, TranscriptEvent,
+    CaptionStage,
+    SessionState,
+    StartSessionRequest,
+    TranscriptEvent,
 )
 from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.post_event_summary import transcript_source

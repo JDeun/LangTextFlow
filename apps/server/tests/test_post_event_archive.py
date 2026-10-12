@@ -282,6 +282,7 @@ def test_recording_upload_fsync_failure_never_creates_database_row(
     tmp_path, monkeypatch,
 ) -> None:
     from types import SimpleNamespace
+
     from langtextflow import post_event_api
 
     history, archive = _seed(tmp_path)
