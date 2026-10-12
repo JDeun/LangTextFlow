@@ -469,6 +469,7 @@ function OperatorApp() {
           <label>
             {locale === "ko" ? "행사 프로젝트" : locale === "ja" ? "イベントプロジェクト" : "Event project"}
             <select
+              data-testid="session-project-select"
               value={projects.some((project) => project.project_id === selectedProjectId)
                 ? selectedProjectId : ""}
               disabled={running}
