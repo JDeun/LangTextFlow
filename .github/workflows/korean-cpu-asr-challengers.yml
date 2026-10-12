@@ -1,0 +1,124 @@
+name: Korean CPU ASR challengers - sequential real speech
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/korean-cpu-asr-challengers.yml"
+      - "scripts/benchmark_cpu_asr_candidates.py"
+      - "scripts/provision_cpu_asr_candidate.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: korean-cpu-asr-challengers-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare-five:
+    name: Sequential FLEURS CPU ASR (five real models)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Record actual hardware limits
+        run: |
+          mkdir -p artifacts/cpu-asr
+          {
+            echo "commit=$GITHUB_SHA"
+            echo "CPU count: $(nproc)"
+            lscpu | grep -E 'Model name:|CPU\(s\):|Architecture:' || true
+            free -h
+            df -h .
+          } | tee artifacts/cpu-asr/runner-hardware.txt
+      - name: Install pinned ASR runtimes and test harness
+        run: |
+          python -m pip install "uv==0.12.13"
+          uv sync --locked --extra dev --extra benchmark
+          uv pip install "sherpa-onnx==1.13.8" "datasets==4.4.1" "soundfile==0.13.1"
+          uv run --no-sync pytest -q apps/server/tests/test_cpu_asr_candidates.py
+      - name: Evaluate five models in exactly the requested order
+        env:
+          HF_HOME: ${{ runner.temp }}/fleurs-hf-cache
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          set -uo pipefail
+          mkdir -p artifacts/cpu-asr
+          : > artifacts/cpu-asr/status.tsv
+          failures=0
+          for candidate in sensevoice qwen3-0.6b zipformer-ko whispercpp-base qwen3-1.7b; do
+            echo "::group::CPU ASR candidate $candidate"
+            model_dir="/tmp/ltf-asr-$candidate"
+            output="artifacts/cpu-asr/$candidate.json"
+            log="artifacts/cpu-asr/$candidate.log"
+            echo "Starting $candidate at $(date -u +%FT%TZ)"
+            echo "---" > "$log"
+            if timeout 1000 bash scripts/provision_cpu_asr_candidate.sh \
+              "$candidate" "$model_dir" >> "$log" 2>&1; then
+              cp "$model_dir/model-sha256.txt" \
+                "artifacts/cpu-asr/$candidate-model-sha256.txt" 2>/dev/null || true
+              cp "$model_dir/download-sha256.txt" \
+                "artifacts/cpu-asr/$candidate-download-sha256.txt" 2>/dev/null || true
+              cp "$model_dir/hf-revision.json" \
+                "artifacts/cpu-asr/$candidate-model-revision.json" 2>/dev/null || true
+              if timeout 1000 uv run --no-sync python -m scripts.benchmark_cpu_asr_candidates \
+                --candidate "$candidate" --model-dir "$model_dir" \
+                --threads 2 --pace realtime --output "$output" \
+                --whisper-cli /tmp/ltf-whispercpp/build/bin/whisper-cli \
+                >> "$log" 2>&1; then
+                printf '%s\tMEASURED\n' "$candidate" | tee -a artifacts/cpu-asr/status.tsv
+              else
+                printf '%s\tEVALUATION_FAILED\n' "$candidate" | tee -a artifacts/cpu-asr/status.tsv
+                failures=$((failures+1))
+              fi
+            else
+              printf '%s\tPROVISION_FAILED\n' "$candidate" | tee -a artifacts/cpu-asr/status.tsv
+              failures=$((failures+1))
+            fi
+            tail -n 25 "$log"
+            rm -rf "$model_dir" /tmp/ltf-whispercpp
+            df -h . | tail -n 1
+            echo "::endgroup::"
+          done
+          echo "All five attempted; failed=$failures"
+          test "$failures" -eq 0
+      - name: Publish measured outcomes, not theoretical model scores
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          base = Path("artifacts/cpu-asr")
+          lines = [
+              "## Five real Korean CPU ASR model experiments",
+              "Identical pinned FLEURS Korean speech (3 clips), 100ms input pacing, GPU-free.",
+              "Source ASR only: not proof of correct church translation.",
+              "",
+              "| Model | Status | CER | WER | Full RTF | Peak RSS MB |",
+              "|---|---|---:|---:|---:|---:|",
+          ]
+          for model in ("sensevoice", "qwen3-0.6b", "zipformer-ko", "whispercpp-base", "qwen3-1.7b"):
+              path = base / (model + ".json")
+              if path.is_file():
+                  row = json.loads(path.read_text(encoding="utf-8"))
+                  lines.append(
+                      f"| {model} | measured | {row['mean_cer']} | {row['mean_wer']} | "
+                      f"{row['mean_end_to_end_rtf']} | {row['resources']['rss_peak_mb']} |"
+                  )
+              else:
+                  lines.append(f"| {model} | no verified result — consult log | — | — | — | — |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("\n".join(lines) + "\n")
+          PY
+      - name: Upload real-model evidence, checksums, and failure logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: korean-cpu-asr-challenger-evidence
+          path: artifacts/cpu-asr/
+          if-no-files-found: error
+          retention-days: 14
