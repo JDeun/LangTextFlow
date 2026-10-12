@@ -1,7 +1,9 @@
 """Private post-event archive storage. Audio lives on disk, metadata in SQLite."""
 from __future__ import annotations
 
+import re
 import sqlite3
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -78,6 +80,34 @@ class PostEventArchive:
                 "WHERE status='running'",
                 (_now(),),
             )
+        self.cleanup_stale_partials()
+
+    def cleanup_stale_partials(self, *, older_than_seconds: int = 24 * 3600) -> int:
+        """Remove abandoned private WAV partials only after a generous grace period.
+
+        Does not touch complete WAV recordings or unknown files. In-progress
+        recordings are capped at four hours; 24h protects concurrent instances.
+        """
+        if older_than_seconds < 4 * 3600:
+            raise ValueError("partial cleanup grace period must be at least four hours")
+        cutoff = time.time() - older_than_seconds
+        removed = 0
+        if not self.audio_root.is_dir():
+            return removed
+        for candidate in self.audio_root.glob("*.wav.partial"):
+            if not re.fullmatch(r"[0-9a-f]{32}\\.wav\\.partial", candidate.name):
+                continue
+            try:
+                if candidate.is_symlink() or not candidate.is_file():
+                    continue
+                if candidate.stat().st_mtime >= cutoff:
+                    continue
+                candidate.unlink()
+                removed += 1
+            except OSError:
+                # A cleanup failure must not prevent the archive from starting.
+                continue
+        return removed
 
     def insert_recording(
         self,
