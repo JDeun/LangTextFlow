@@ -1,6 +1,12 @@
 name: Licensed FLEURS real-speech ASR (manual)
 
 on:
+  # Run a tiny real-model pilot when its benchmark implementation changes.
+  pull_request:
+    paths:
+      - "scripts/evaluate_fleurs_asr.py"
+      - ".github/workflows/real-speech-asr.yml"
+      - "apps/server/langtextflow/benchmark.py"
   workflow_dispatch:
     inputs:
       language:
@@ -34,12 +40,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: licensed-fleurs-asr-${{ github.ref }}-${{ inputs.language }}
+  group: licensed-fleurs-asr-${{ github.ref }}-${{ inputs.language || 'ko' }}
   cancel-in-progress: false
 
 jobs:
   real-speech-asr:
-    name: FLEURS ${{ inputs.language }} (${{ inputs.cpu_model }})
+    name: FLEURS ${{ inputs.language || 'ko' }} (${{ inputs.cpu_model || 'tiny' }})
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -61,9 +67,9 @@ jobs:
           LANGTEXTFLOW_FASTER_WHISPER_COMPUTE_TYPE: int8
         run: |
           uv run --no-sync python scripts/evaluate_fleurs_asr.py \
-            --language "${{ inputs.language }}" \
-            --samples "${{ inputs.samples }}" \
-            --model "${{ inputs.cpu_model }}" \
+            --language "${{ inputs.language || 'ko' }}" \
+            --samples "${{ inputs.samples || '3' }}" \
+            --model "${{ inputs.cpu_model || 'tiny' }}" \
             --output artifacts/fleurs-asr
       - name: Print comparable metrics in job summary
         if: success()
@@ -92,7 +98,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: licensed-fleurs-asr-${{ inputs.language }}-${{ inputs.cpu_model }}
+          name: licensed-fleurs-asr-${{ inputs.language || 'ko' }}-${{ inputs.cpu_model || 'tiny' }}
           path: |
             artifacts/fleurs-asr/summary.json
             artifacts/fleurs-asr/report-*.json
