@@ -282,20 +282,35 @@ class SessionRepository:
                 ),
             )
 
-    def list_sessions(self, limit: int = 50) -> list[SessionRecord]:
+    def list_sessions(
+        self, limit: int = 50, *, project_id: str | None = None,
+        unassigned: bool = False,
+    ) -> list[SessionRecord]:
         safe_limit = max(1, min(limit, 200))
+        # Filter in SQLite BEFORE LIMIT, so a project can find its sessions
+        # even when unrelated events have filled the newest 50 history rows.
+        if project_id is not None:
+            where = "WHERE ps.project_id = ?"
+            params: tuple[str | int, ...] = (project_id, safe_limit)
+        elif unassigned:
+            where = "WHERE ps.project_id IS NULL"
+            params = (safe_limit,)
+        else:
+            where = ""
+            params = (safe_limit,)
         with self._connect() as connection:
             rows = connection.execute(
-                """
+                f"""
                 SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
                 FROM sessions s
                 LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
                 LEFT JOIN transcript_segments t ON t.session_id = s.session_id
+                {where}
                 GROUP BY s.session_id
                 ORDER BY s.started_at DESC
                 LIMIT ?
                 """,
-                (safe_limit,),
+                params,
             ).fetchall()
         return [self._session_record(row) for row in rows]
 
