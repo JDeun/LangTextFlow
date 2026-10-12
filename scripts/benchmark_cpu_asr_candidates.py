@@ -130,7 +130,7 @@ def create_recognizer(name: str, root: Path, threads: int) -> Any:
             encoder=str(root / "encoder.int8.onnx"),
             decoder=str(root / "decoder.int8.onnx"),
             tokenizer=str(root / "tokenizer"),
-            max_new_tokens=256,
+            max_new_tokens=512,
             num_threads=threads,
             provider="cpu",
         )
@@ -166,30 +166,36 @@ def decode_sample(
     seconds = len(audio) / rate
     started = time.perf_counter()
     first_partial_ms: float | None = None
+    inference_seconds = 0.0
     if name == "zipformer-ko":
         stream = model.create_stream()
         for offset in range(0, len(audio), 1600):  # 100ms incremental frame
             frame = audio[offset:offset + 1600]
+            compute_started = time.perf_counter()
             stream.accept_waveform(rate, frame)
             while model.is_ready(stream):
                 model.decode_stream(stream)
             partial = model.get_result(stream)
+            inference_seconds += time.perf_counter() - compute_started
             if partial.strip() and first_partial_ms is None:
                 first_partial_ms = round((time.perf_counter() - started) * 1000, 1)
             if pace == "realtime":
                 target = started + (offset + len(frame)) / rate
                 if target > time.perf_counter():
                     time.sleep(target - time.perf_counter())
+        tail_started = time.perf_counter()
         stream.accept_waveform(rate, np.zeros(8000, dtype=np.float32))
         stream.input_finished()
         while model.is_ready(stream):
             model.decode_stream(stream)
         hypothesis = model.get_result(stream).strip()
+        inference_seconds += time.perf_counter() - tail_started
     else:
         # Offline recognizers see each complete utterance only at its end.
         # Realtime pacing is charged to overall caption lag, NOT inference RTF.
         if pace == "realtime":
             time.sleep(seconds)
+        compute_started = time.perf_counter()
         if name == "whispercpp-base":
             if whisper_cli is None or not whisper_cli.is_file():
                 raise FileNotFoundError("missing compiled whisper-cli")
@@ -213,6 +219,7 @@ def decode_sample(
             stream.accept_waveform(rate, audio)
             model.decode_stream(stream)
             hypothesis = stream.result.text.strip()
+        inference_seconds = time.perf_counter() - compute_started
     elapsed = time.perf_counter() - started
     return {
         "hypothesis": hypothesis,
@@ -223,10 +230,8 @@ def decode_sample(
             max(0.0, (elapsed - seconds) * 1000), 1
         ) if pace == "realtime" else None,
         "first_partial_ms": first_partial_ms,
-        "inference_rtf": (
-            None if pace == "realtime"
-            else round(elapsed / seconds, 4)
-        ),
+        "inference_seconds": round(inference_seconds, 4),
+        "inference_rtf": round(inference_seconds / seconds, 4),
         "streaming_kind": (
             "native_incremental" if name == "zipformer-ko"
             else "offline_utterance"
@@ -323,6 +328,9 @@ def evaluate(
         "mean_end_to_end_rtf": round(
             sum(row["end_to_end_rtf"] for row in samples) / len(samples), 4
         ),
+        "mean_inference_rtf": round(
+            sum(row["inference_rtf"] for row in samples) / len(samples), 4
+        ),
         "samples": samples,
         "notice": (
             "Real recorded speech, independent source transcript; not "
@@ -352,6 +360,7 @@ def main() -> None:
         "candidate": report["candidate"], "mean_cer": report["mean_cer"],
         "mean_wer": report["mean_wer"],
         "mean_end_to_end_rtf": report["mean_end_to_end_rtf"],
+        "mean_inference_rtf": report["mean_inference_rtf"],
         "rss_peak_mb": report["resources"]["rss_peak_mb"],
     }, ensure_ascii=False))
 
