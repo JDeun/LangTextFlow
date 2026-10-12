@@ -48,8 +48,8 @@ from .network import (
     websocket_origin_allowed,
 )
 from .preflight import SystemPreflight, run_preflight
-from .project_repository import ProjectAssignment, ProjectInput, ProjectRecord, ProjectRepository
 from .presets import CHURCH_GLOSSARY
+from .project_repository import ProjectAssignment, ProjectInput, ProjectRecord, ProjectRepository
 from .runtime import CaptionRuntime
 from .runtime_install import (
     RuntimeKind,
