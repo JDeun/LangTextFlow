@@ -17,8 +17,6 @@ import wave
 from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
-
 FLEURS_REVISION = "fdd74f7cdf01fc7641ab3072b6a38d364b3667f6"
 FLEURS_LICENSE = "https://creativecommons.org/licenses/by/4.0/"
 FLEURS_DATASET = "https://huggingface.co/datasets/google/fleurs"
@@ -27,6 +25,7 @@ CONFIGS = {"ko": "ko_kr", "en": "en_us"}
 
 
 def write_pcm_wav(audio: dict, destination: Path) -> tuple[float, str]:
+    import numpy as np
     import soundfile as sf
 
     raw = audio.get("bytes")
@@ -58,14 +57,14 @@ def evaluate(
     *,
     model: str = "tiny",
 ) -> dict:
-    from datasets import Audio, load_dataset
-
     if language not in CONFIGS:
         raise ValueError("language must be ko or en")
     if not 1 <= sample_count <= 8:
         raise ValueError("samples must be between 1 and 8")
     if model not in {"tiny", "base", "small"}:
         raise ValueError("CPU model must be tiny, base or small")
+
+    from datasets import Audio, load_dataset
 
     output.mkdir(parents=True, exist_ok=True)
     fixture_dir = output / "temporary-fixtures"
@@ -80,9 +79,11 @@ def evaluate(
     ).cast_column("audio", Audio(decode=False))
 
     rows = []
-    for sample in dataset:
+    for attempt, sample in enumerate(dataset):
         if len(rows) >= sample_count:
             break
+        if attempt >= 40:
+            raise RuntimeError("insufficient eligible audio among first 40 test samples")
         identifier = sample.get("id")
         text = str(sample.get("raw_transcription") or sample.get("transcription") or "").strip()
         if not text:
