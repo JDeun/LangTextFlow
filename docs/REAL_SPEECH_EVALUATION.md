@@ -2,6 +2,8 @@
 
 This workflow supplements — it does **not replace** — field acceptance with real microphones, mixed speaker acoustics, full 90-minute events or target GPU deployment.
 
+The workflow also performs a **minimal Korean, 3-clip, tiny-model real-speech pilot on PRs that change this benchmark implementation**. Full language/model/sample sweeps remain explicit manual runs; these PR checks execute only after an available GitHub runner starts them.
+
 **Dataset:** Google FLEURS, test split, `ko_kr` and `en_us`, pinned revision `fdd74f7cdf01fc7641ab3072b6a38d364b3667f6`.
 
 **License:** Creative Commons Attribution 4.0 ([CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)).
@@ -35,7 +37,7 @@ The benchmark language-contract fix in PR #84 is required: original and target l
 - Avoid downloading arbitrary YouTube content. This benchmark uses an explicitly attributed dataset instead.
 - No raw audio is persisted to CI artifacts or committed to Git.
 - Logs and JSON reports contain example ASR transcripts, which are licensed CC-BY and should retain attribution.
-- Each workflow is **manual** and bounded (sample count, audio length, model options and timeouts) to prevent unintentional heavy GPU/CPU costs.
+- Full manual workflows and implementation-change PR pilots are bounded (sample count, audio length, model options and timeouts) to prevent unintentional heavy GPU/CPU costs.
 - The FLEURS dataset download and first model bootstrap may take time. If the pinned revision is withdrawn, report failure rather than silently switching to a mutable dataset release.
 
 ## Next phases
