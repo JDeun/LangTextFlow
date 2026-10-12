@@ -1,12 +1,19 @@
 """Fail fast before optional dataset/model downloads in manual ASR evaluation."""
+from importlib.util import module_from_spec, spec_from_file_location
+from pathlib import Path
+
 import pytest
 
-from scripts.evaluate_fleurs_asr import (
-    CONFIGS,
-    FLEURS_LICENSE,
-    FLEURS_REVISION,
-    evaluate,
-)
+# The optional evaluation helper is a standalone script, not a Python package.
+SCRIPT = Path(__file__).resolve().parents[3] / "scripts" / "evaluate_fleurs_asr.py"
+SPEC = spec_from_file_location("fleurs_evaluation", SCRIPT)
+assert SPEC is not None and SPEC.loader is not None
+helper = module_from_spec(SPEC)
+SPEC.loader.exec_module(helper)
+CONFIGS = helper.CONFIGS
+FLEURS_LICENSE = helper.FLEURS_LICENSE
+FLEURS_REVISION = helper.FLEURS_REVISION
+evaluate = helper.evaluate
 
 
 def test_fixture_source_is_pinned_and_attributed() -> None:
