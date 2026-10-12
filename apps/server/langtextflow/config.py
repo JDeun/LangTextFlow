@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,6 +54,10 @@ class Settings(BaseSettings):
     max_audio_frame_bytes: int = Field(default=1024 * 1024, ge=4, le=8 * 1024 * 1024)
     asr_replay_seconds: float = Field(default=8.0, gt=0, le=120)
     asr_health_check_seconds: float = Field(default=0.25, gt=0, le=60)
+    # Explicit low-resource profile is opt-in; the normal defaults are unchanged.
+    resource_profile: Literal["standard", "low"] = "standard"
+    low_resource_whisper_model: Literal["tiny", "base", "small"] = "base"
+    low_resource_cpu_threads: int = Field(default=2, ge=1, le=16)
     faster_whisper_model: str = "small"
     faster_whisper_device: str = "auto"
     faster_whisper_compute_type: str = "default"
@@ -69,6 +74,14 @@ class Settings(BaseSettings):
     openai_compatible_api_key: str = ""
     openai_compatible_translation_model: str = ""
     openai_compatible_timeout_seconds: float = Field(default=20.0, gt=0)
+
+    @property
+    def active_whisper_model(self) -> str:
+        return (
+            self.low_resource_whisper_model
+            if self.resource_profile == "low"
+            else self.faster_whisper_model
+        )
 
     @field_validator("max_audio_frame_bytes")
     @classmethod

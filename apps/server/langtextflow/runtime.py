@@ -160,13 +160,16 @@ class CaptionRuntime:
         )
 
     def _faster_whisper_engine(self, publish=None) -> FasterWhisperStreamingAsrEngine:
+        low = self.settings.resource_profile == "low"
         return FasterWhisperStreamingAsrEngine(
             publish or self.pipeline.ingest,
-            model=self.settings.faster_whisper_model,
-            device=self.settings.faster_whisper_device,
-            compute_type=self.settings.faster_whisper_compute_type,
+            model=self.settings.active_whisper_model,
+            device="cpu" if low else self.settings.faster_whisper_device,
+            compute_type="int8" if low else self.settings.faster_whisper_compute_type,
+            cpu_threads=self.settings.low_resource_cpu_threads if low else None,
             chunk_seconds=self.settings.faster_whisper_chunk_seconds,
-            queue_chunks=self.settings.audio_queue_chunks,
+            queue_chunks=min(8, self.settings.audio_queue_chunks)
+            if low else self.settings.audio_queue_chunks,
             max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
 
@@ -191,6 +194,10 @@ class CaptionRuntime:
         if request.engine == "faster-whisper":
             return self._faster_whisper_engine()
         if request.engine == "auto":
+            # Low-resource installations never probe/load a 7B sidecar in Auto.
+            # Explicit "vibevoice" remains an intentional operator override.
+            if self.settings.resource_profile == "low":
+                return self._faster_whisper_engine()
             return ReplayFallbackAsrEngine(
                 self.pipeline.ingest,
                 [
