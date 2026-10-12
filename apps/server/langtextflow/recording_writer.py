@@ -149,13 +149,23 @@ class SessionRecordingWriter:
         try:
             if self._wave is not None:
                 self._wave.close()
-                self._wave = None
-        except Exception:
+        except (OSError, ValueError, wave.Error):
             self._failure = "recording header finalization failed"
         finally:
+            self._wave = None
             if self._stream is not None:
-                self._stream.close()
-                self._stream = None
+                try:
+                    # Complete WAV header and bytes before exposing metadata.
+                    self._stream.flush()
+                    os.fsync(self._stream.fileno())
+                except OSError:
+                    self._failure = "recording storage flush failed"
+                finally:
+                    try:
+                        self._stream.close()
+                    except OSError:
+                        self._failure = "recording storage close failed"
+                    self._stream = None
         if self._frames == 0 and self._failure is None:
             self._failure = "recording contains no audio frames"
         if self._failure is not None:
