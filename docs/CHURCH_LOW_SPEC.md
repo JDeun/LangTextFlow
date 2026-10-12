@@ -11,8 +11,11 @@ LangTextFlow는 교회에서 GPU 서버나 유료 API 구독 없이도 사용할
 
 1. Windows 또는 macOS에서 [개발자/소스 설치](../README.md#개발자--source-실행)에 따라
    Python 환경과 `faster-whisper` 의존성을 설치합니다.
-2. 저장소 최상위의 `.env.example` 파일을 `.env`로 복사합니다.
-3. 복사한 `.env` 파일 끝에 다음을 추가합니다.
+2. 앱을 열고 **PC 사양에 맞게 선택 → 저사양 CPU 모드**를 선택하면
+   환경변수 편집 없이도 해당 세션에서 CPU faster-whisper base/INT8를 사용할 수 있습니다.
+3. 설치 장비에서 저사양을 항상 강제하려는 관리자만 저장소 최상위의
+   `.env.example` 파일을 `.env`로 복사합니다.
+4. 복사한 `.env` 파일 끝에 다음을 추가합니다.
 
 ```dotenv
 LANGTEXTFLOW_RESOURCE_PROFILE=low
@@ -20,8 +23,8 @@ LANGTEXTFLOW_LOW_RESOURCE_WHISPER_MODEL=base
 LANGTEXTFLOW_LOW_RESOURCE_CPU_THREADS=2
 ```
 
-4. 앱을 실행한 후 초기 설정에서 **faster-whisper**가 준비되었는지 확인합니다.
-5. 모델이 없다면 모델 준비 화면에서 `base` 모델 다운로드를 명시적으로 실행합니다.
+5. 앱을 실행한 후 초기 설정에서 **faster-whisper**가 준비되었는지 확인합니다.
+6. 모델이 없다면 모델 준비 화면에서 `base` 모델 다운로드를 명시적으로 실행합니다.
    **행사 진행 중 다운로드가 시작되지 않게** 먼저 캐시를 확인하세요.
 
 저사양 `auto` 엔진은 VibeVoice 7B를 시작하지 않고 CPU faster-whisper로

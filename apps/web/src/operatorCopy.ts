@@ -16,6 +16,10 @@ export const OPERATOR_COPY: Record<Locale, {
   deterministicFallback: string;
   unavailable: string;
   unknown: string;
+  resourceLabel: string;
+  resourceStandard: string;
+  resourceLow: string;
+  resourceHelp: string;
 }> = {
   en: {
     rulesOnly: "Rule-based correction only",
@@ -33,6 +37,9 @@ export const OPERATOR_COPY: Record<Locale, {
     deterministicFallback: "deterministic fallback",
     unavailable: "unavailable",
     unknown: "unknown",
+    resourceLabel: "Hardware mode", resourceStandard: "Standard",
+    resourceLow: "Low-spec CPU (source captions)",
+    resourceHelp: "Avoids auto-starting 7B ASR and 4B translation. Translated captions require a separately verified lightweight translator.",
   },
   ko: {
     rulesOnly: "규칙 기반 보정만",
@@ -50,6 +57,9 @@ export const OPERATOR_COPY: Record<Locale, {
     deterministicFallback: "규칙 기반 fallback",
     unavailable: "사용 불가",
     unknown: "알 수 없음",
+    resourceLabel: "PC 사양에 맞게 선택", resourceStandard: "표준 모드",
+    resourceLow: "저사양 CPU 모드 (원문 자막)",
+    resourceHelp: "7B ASR·4B 번역 모델을 자동 실행하지 않습니다. 다국어 통역은 검증된 경량 번역기를 별도로 구성해야 합니다.",
   },
   ja: {
     rulesOnly: "ルールベース補正のみ",
@@ -67,5 +77,8 @@ export const OPERATOR_COPY: Record<Locale, {
     deterministicFallback: "ルールベース fallback",
     unavailable: "利用不可",
     unknown: "不明",
+    resourceLabel: "PC の性能", resourceStandard: "標準モード",
+    resourceLow: "低スペック CPU (原文字幕)",
+    resourceHelp: "7B ASR・4B 翻訳モデルの自動起動を避けます。翻訳字幕は別途軽量翻訳モデルの設定が必要です。",
   },
 };

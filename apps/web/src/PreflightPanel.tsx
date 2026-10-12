@@ -15,6 +15,7 @@ type MicrophoneState = "unchecked" | "checking" | "ready" | "error";
 
 interface PreflightPanelProps {
   engine: string;
+  resourceProfile: "standard" | "low";
   translationProvider: string;
   translationModel: string;
   onApplyRecommendation: (configuration: RecommendedConfiguration) => void;
@@ -33,6 +34,7 @@ function providerUsesModel(provider: string) {
 
 export function PreflightPanel({
   engine,
+  resourceProfile,
   translationProvider,
   translationModel,
   onApplyRecommendation,
@@ -56,6 +58,7 @@ export function PreflightPanel({
     try {
       const query = new URLSearchParams({
         engine,
+        resource_profile: resourceProfile,
         translation_provider: translationProvider,
       });
       if (providerUsesModel(translationProvider) && translationModel.trim()) {
@@ -72,7 +75,7 @@ export function PreflightPanel({
     } finally {
       if (requestId === requestIdRef.current) setLoading(false);
     }
-  }, [copy.failed, copy.http, engine, translationModel, translationProvider]);
+  }, [copy.failed, copy.http, engine, resourceProfile, translationModel, translationProvider]);
 
   const handleRepairCompleted = useCallback(() => {
     void load();
