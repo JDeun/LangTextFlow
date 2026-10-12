@@ -136,7 +136,13 @@ async def generate_summary(
                 payload = response.json()
                 options = payload.get("choices") or []
                 content = options[0].get("message", {}).get("content", "") if options else ""
-            return bounded_model_text(content, label="event summary", max_chars=15_000)
+            # Bound intermediate notes tightly so a 90-minute transcript reduces
+            # rather than expanding across successive map-reduce passes.
+            return bounded_model_text(
+                content,
+                label="event summary",
+                max_chars=15_000 if final else 2_500,
+            )
 
         # Long recordings use map-reduce; all requests remain async and bounded.
         if len(texts) == 1:
