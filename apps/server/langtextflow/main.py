@@ -553,9 +553,18 @@ async def assign_session_project(
 
 
 @app.get("/api/v1/history", response_model=list[SessionRecord])
-async def session_history(request: Request, limit: int = 50) -> list[SessionRecord]:
+async def session_history(
+    request: Request, limit: int = Query(default=50, ge=1, le=200),
+    project_id: str | None = Query(default=None, max_length=64),
+    unassigned: bool = False,
+) -> list[SessionRecord]:
     _require_operator(request)
-    return await asyncio.to_thread(runtime.history.list_sessions, limit)
+    if project_id is not None and unassigned:
+        raise HTTPException(status_code=400, detail="project_id and unassigned cannot be combined")
+    return await asyncio.to_thread(
+        runtime.history.list_sessions,
+        limit, project_id=project_id, unassigned=unassigned,
+    )
 
 
 @app.get("/api/v1/history/{session_id}", response_model=SessionDetail)
