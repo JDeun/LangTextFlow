@@ -194,6 +194,8 @@ function OperatorApp() {
   const [translationModel, setTranslationModel] = useState("translategemma:4b");
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [deviceId, setDeviceId] = useState("");
+  // Recording consent is always an explicit per-session choice (never persisted).
+  const [recordAudio, setRecordAudio] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -315,6 +317,7 @@ function OperatorApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          record_audio: recordAudio,
           source_language: sourceLanguage,
           target_languages: targetLanguages,
           engine,
@@ -447,6 +450,29 @@ function OperatorApp() {
             {t("session.title")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
           </label>
+          <label className="recording-opt-in">
+            <input
+              type="checkbox"
+              checked={recordAudio && needsAudio}
+              disabled={running || !needsAudio}
+              onChange={(event) => setRecordAudio(event.target.checked)}
+            />
+            <span>
+              {locale === "ko"
+                ? "행사 음성 녹음 저장(선택)"
+                : locale === "ja"
+                  ? "イベント音声を録音保存（任意）"
+                  : "Save the event audio recording (optional)"}
+            </span>
+          </label>
+          <small>
+            {locale === "ko"
+              ? "기본 비활성화입니다. 참가자 고지·동의를 확인한 뒤 선택하세요. 녹음은 기기 내부에 보관되며 종료 후 세션 기록에 연결됩니다."
+              : locale === "ja"
+                ? "初期状態はオフです。参加者への告知・同意を確認してから有効にしてください。録音はローカル保存されます。"
+                : "Off by default. Confirm participant notice/consent first. Audio stays on this device and is linked to the completed session."}
+          </small>
+          {session?.recording_error && <small role="alert">{session.recording_error}</small>}
           <label>
             {t("session.presenter")}
             <input
