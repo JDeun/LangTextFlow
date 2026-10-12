@@ -13,7 +13,6 @@ import os
 import sys
 import wave
 from array import array
-from pathlib import Path
 from uuid import uuid4
 
 from .post_event_archive import PostEventArchive
@@ -97,7 +96,8 @@ class SessionRecordingWriter:
         )
         stream = os.fdopen(fd, "wb")
         try:
-            writer = wave.open(stream, "wb")
+            # Writer remains open across async feed calls; closed by stop().
+            writer = wave.open(stream, "wb")  # noqa: SIM115
             writer.setnchannels(1)
             writer.setsampwidth(2)
             writer.setframerate(self.sample_rate)
