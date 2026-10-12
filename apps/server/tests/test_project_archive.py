@@ -14,6 +14,7 @@ from langtextflow.models import (
 from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.post_event_summary import transcript_source
 from langtextflow.project_archive import build_project_archive_manifest
+from langtextflow.project_report import build_project_report
 from langtextflow.project_repository import ProjectInput, ProjectRepository
 from langtextflow.session_repository import SessionRepository
 
@@ -176,3 +177,81 @@ def test_manifest_omits_sessions_reassigned_after_initial_page_query(
     )
     assert result["sessions"] == []
     assert history.get_session("moving-session").project_id == second.project_id
+
+
+
+def test_report_compiles_original_evidence_and_flags_stale_summary(tmp_path) -> None:
+    history, projects, archive = _seed(tmp_path)
+    project = projects.create(ProjectInput(title="Community <script>alert(1)</script>"))
+    private = projects.create(ProjectInput(title="Confidential"))
+    _session(history, project.project_id, "public-session", "첫 발표 원문")
+    _session(history, private.project_id, "private-session", "비공개 프로젝트 원문")
+    _, fingerprint = transcript_source(history.segments("public-session"))
+    initial = archive.begin_summary(
+        "public-session", language="ko", provider="ollama", model="test-local",
+        transcript_sha256=fingerprint, prompt_version="post-event-v1",
+    )
+    archive.finish_summary(
+        initial["summary_id"], content="AI가 쓴 <b>요약</b> [검토 전] 문장",
+    )
+    # The completed transcript changed after the summary was generated.
+    history.upsert_segment(
+        "public-session",
+        TranscriptEvent(
+            segment_id="speech", version=2, stage=CaptionStage.COMMITTED,
+            committed=True, source_language="ko",
+            text="금요일까지 후속 검토 <script>금지</script>.", start_ms=2500,
+        ),
+    )
+    report = build_project_report(projects, history, archive, project.project_id)
+    assert "STALE" in report
+    assert initial["summary_id"] in report
+    assert "00:00:02" in report
+    assert "speech" in report
+    assert "금요일까지 후속 검토" in report
+    assert "AI가 쓴 &lt;b&gt;요약&lt;/b&gt;" in report
+    assert "Community &lt;script&gt;" in report
+    assert "<script>" not in report
+    assert "<b>" not in report
+    assert "비공개 프로젝트 원문" not in report
+    assert "private-session" not in report
+    assert str(tmp_path) not in report
+
+    projects.assign("public-session", None)
+    unassigned = build_project_report(projects, history, archive, project.project_id)
+    assert "public-session" not in unassigned
+    assert "Sessions in this page: 0" in unassigned
+
+
+@pytest.mark.asyncio
+async def test_report_api_is_operator_only_bounded_and_downloadable(
+    tmp_path, monkeypatch,
+) -> None:
+    from langtextflow import main
+
+    history, projects, archive = _seed(tmp_path)
+    project = projects.create(ProjectInput(title="Conference materials"))
+    _session(history, project.project_id, "one", "행사 최종 전사")
+    monkeypatch.setattr(main, "project_repository", projects)
+    monkeypatch.setattr(main, "post_event_archive", archive)
+    monkeypatch.setattr(main, "runtime", SimpleNamespace(history=history))
+    local = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"), headers={})
+    remote = SimpleNamespace(client=SimpleNamespace(host="10.0.0.9"), headers={})
+    result = await main.download_project_report(
+        local, project.project_id, limit=10, offset=0,
+    )
+    assert result.status_code == 200
+    assert "text/markdown" in result.media_type
+    assert b"one" in result.body
+    assert "attachment" in result.headers["content-disposition"]
+    assert result.headers["cache-control"] == "no-store"
+    with pytest.raises(HTTPException) as denied:
+        await main.download_project_report(
+            remote, project.project_id, limit=10, offset=0,
+        )
+    assert denied.value.status_code == 403
+    with pytest.raises(HTTPException) as missing:
+        await main.download_project_report(local, "absent", limit=10, offset=0)
+    assert missing.value.status_code == 404
+    with pytest.raises(ValueError):
+        build_project_report(projects, history, archive, project.project_id, limit=26)
