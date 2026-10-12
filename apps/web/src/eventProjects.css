@@ -1,0 +1,16 @@
+.event-project-workspace { display:grid; gap:0.75rem; padding:1rem; border:1px solid var(--border, #d1d5db); border-radius:0.8rem; margin-bottom:1rem; min-width:0; }
+.event-project-header { display:flex; justify-content:space-between; gap:0.7rem; align-items:center; flex-wrap:wrap; }
+.event-project-header > div { display:grid; gap:0.25rem; }
+.event-project-header small { opacity:0.75; }
+.event-project-options { display:flex; flex-wrap:wrap; gap:0.5rem; }
+.event-project-options button { padding:0.35rem 0.65rem; border-radius:0.55rem; border:1px solid var(--border, #d1d5db); background:transparent; cursor:pointer; color:inherit; }
+.event-project-options button.selected { border-color:currentColor; font-weight:700; }
+.event-project-info { display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center; }
+.event-project-info p { width:100%; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
+.event-project-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr)); gap:0.65rem; }
+.event-project-form label { display:grid; gap:0.3rem; min-width:0; }
+.event-project-form label:has(textarea), .event-project-buttons { grid-column:1 / -1; }
+.event-project-form input, .event-project-form textarea, .event-project-form select { min-width:0; width:100%; }
+.event-project-buttons { display:flex; gap:0.65rem; flex-wrap:wrap; }
+.history-project-assign { display:grid; gap:0.3rem; font-size:0.85rem; min-width:160px; }
+.history-project-assign select { max-width:250px; width:100%; }
