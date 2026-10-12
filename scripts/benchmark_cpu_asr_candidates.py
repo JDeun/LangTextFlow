@@ -6,15 +6,12 @@ Separate ASR quality from translated caption quality and genuine online streamin
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import os
 import platform
 import subprocess
 import tempfile
 import threading
 import time
-import wave
 from pathlib import Path
 from typing import Any
 
@@ -253,6 +250,11 @@ def load_three_pinned_fleurs() -> list[dict[str, Any]]:
             break
         text = str(row.get("raw_transcription") or row.get("transcription") or "").strip()
         if text and isinstance(row.get("audio"), dict):
+            with tempfile.TemporaryDirectory(prefix="ltf-fleurs-filter-") as tmp:
+                try:
+                    write_pcm_wav(row["audio"], Path(tmp) / "check.wav")
+                except (ValueError, TypeError):
+                    continue
             selected.append({"id": row.get("id"), "text": text, "audio": row["audio"]})
     if len(selected) != 3:
         raise RuntimeError("expected 3 eligible Korean FLEURS samples")
