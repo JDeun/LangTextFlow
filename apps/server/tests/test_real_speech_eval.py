@@ -41,6 +41,18 @@ def test_invalid_config_rejected_without_dataset_download(
     assert not (tmp_path / "evaluation").exists()
 
 
+def test_pinned_parquet_source_avoids_legacy_dataset_scripts() -> None:
+    for language, config in CONFIGS.items():
+        uri = helper.fleurs_test_parquet_uri(language)
+        assert uri == (
+            f"hf://datasets/google/fleurs@{FLEURS_REVISION}/"
+            f"{config}/test-00000-of-00001.parquet"
+        )
+        assert "fleurs.py" not in uri
+    with pytest.raises(ValueError, match="language must be"):
+        helper.fleurs_test_parquet_uri("unknown")
+
+
 def test_audio_source_prefers_pinned_bytes_over_path(tmp_path) -> None:
     source = helper.audio_input({
         "bytes": b"fixture-audio", "path": str(tmp_path / "missing.wav"),
