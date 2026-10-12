@@ -23,9 +23,14 @@ _LANGUAGE_NAMES = {
 class OllamaTranslator(Translator):
     provider = "ollama"
 
-    def __init__(self, *, base_url: str, model: str) -> None:
+    def __init__(
+        self, *, base_url: str, model: str, request_timeout_seconds: float = 20.0
+    ) -> None:
+        if request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be positive")
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.request_timeout_seconds = request_timeout_seconds
 
     async def prepare(self) -> None:
         try:
@@ -69,7 +74,7 @@ class OllamaTranslator(Translator):
             context=context,
         )
         try:
-            async with httpx.AsyncClient(timeout=20.0) as client:
+            async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
                 response = await client.post(
                     f"{self.base_url}/api/chat",
                     json={

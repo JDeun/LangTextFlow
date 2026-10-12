@@ -113,6 +113,7 @@ def build_translator(
         return OllamaTranslator(
             base_url=settings.ollama_url,
             model=model or settings.ollama_translation_model,
+            request_timeout_seconds=settings.ollama_translation_timeout_seconds,
         )
     if provider == "openai-compatible":
         resolved_model = model or settings.openai_compatible_translation_model
