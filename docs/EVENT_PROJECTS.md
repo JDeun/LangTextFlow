@@ -90,3 +90,28 @@ the original archived session rather than creating a second copy of a transcript
 ASCII-oriented; sophisticated Korean morphological search, fuzzy matching,
 token ranking, and cross-session cited project-wide AI synthesis are deferred
 to issue #86. Search does not alone prove summary correctness.
+
+
+## Event archive index (manifest, separate stacked feature)
+
+After session archive and live-recording support are present, the operator-only
+`GET /api/v1/projects/{project_id}/archive?limit=25&offset=0` endpoint lists
+existing event sessions, latest session-summary **provenance**, audio recording
+IDs/lengths/SHA-256 hashes, and whether the *latest committed original transcript*
+still matches the summary's original input SHA-256. Maximum page size is 100
+sessions and maximum offset is 10,000.
+
+The Event Archive Index panel offers a paginated project view and **Export current
+page as JSON**. Export is metadata-only, without raw audio, transcript text,
+filesystem paths, provider API keys or hidden application configuration. A summary
+excerpt of at most 400 characters is included only for the local operator. The
+manifest records its generation timestamp and session references for auditability,
+not as a substitute for a backup.
+
+This view **does not generate a project-wide AI narrative**. It consolidates
+existing session outputs and flags stale inputs so that later project-level
+summarization can cite verified sources. Because session moves/deletions can happen
+while fetching an index, the manifest states a total count *at query time* rather
+than a transactionally frozen archive. No completeness guarantee for concurrent
+edits is implied. Project-level backup/export with binary media and full
+cross-session synthesis remain issue #86.
