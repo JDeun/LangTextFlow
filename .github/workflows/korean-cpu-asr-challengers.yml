@@ -86,6 +86,13 @@ jobs:
           done
           echo "All five attempted; failed=$failures"
           test "$failures" -eq 0
+      - name: Refuse cross-model rankings unless recordings/references match
+        if: always()
+        run: |
+          uv run --no-sync python -m scripts.compare_cpu_asr_candidates \
+            $(find artifacts/cpu-asr -maxdepth 1 -name '*.json' \
+                ! -name '*model-revision.json' -print | sort) \
+            --output artifacts/cpu-asr/comparison.json
       - name: Publish measured outcomes, not theoretical model scores
         if: always()
         run: |
