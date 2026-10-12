@@ -49,6 +49,7 @@ from .network import (
 )
 from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
+from .project_archive import build_project_archive_manifest
 from .project_repository import (
     ProjectAssignment,
     ProjectInput,
@@ -514,6 +515,29 @@ async def projects(request: Request) -> list[ProjectRecord]:
 async def create_project(request: Request, payload: ProjectInput) -> ProjectRecord:
     _require_operator(request)
     return await asyncio.to_thread(project_repository.create, payload)
+
+
+@app.get("/api/v1/projects/{project_id}/archive")
+async def project_archive_manifest(
+    request: Request,
+    project_id: str,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10000),
+) -> dict:
+    """Operator-only event index, with no original audio or raw transcript."""
+    _require_operator(request)
+    try:
+        return await asyncio.to_thread(
+            build_project_archive_manifest,
+            project_repository,
+            runtime.history,
+            post_event_archive,
+            project_id,
+            limit=limit,
+            offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "project not found") from exc
 
 
 @app.get("/api/v1/projects/{project_id}", response_model=ProjectRecord)
