@@ -87,11 +87,17 @@ export function SessionHistory({
 
   const refresh = useCallback(async () => {
     const requestId = ++refreshRequestRef.current;
-    const response = await fetch(`${apiUrl}/api/v1/history?limit=50`);
+    const params = new URLSearchParams({ limit: "200" });
+    if (selectedProjectId === "unassigned") {
+      params.set("unassigned", "true");
+    } else if (selectedProjectId !== "all") {
+      params.set("project_id", selectedProjectId);
+    }
+    const response = await fetch(`${apiUrl}/api/v1/history?${params}`);
     if (!response.ok) throw new Error(copy.loadFailed);
     const nextSessions = (await response.json()) as SessionRecord[];
     if (requestId === refreshRequestRef.current) setSessions(nextSessions);
-  }, [apiUrl, copy.loadFailed]);
+  }, [apiUrl, copy.loadFailed, selectedProjectId]);
 
   useEffect(() => {
     refresh().catch((reason: Error) => setError(reason.message));
