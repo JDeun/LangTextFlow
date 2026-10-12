@@ -19,6 +19,14 @@ Foreign keys cascade with session deletion. WAV bytes live in `<database-directo
 4. Choose **Generate / retry with local Ollama** to create a post-event summary. It defaults to the configured local `ollama_correction_model` (currently `qwen3.5:4b`); that model must be installed and reachable. No external provider is silently selected.
 5. The summary runs in an async job. The panel polls status; failure never changes or removes the original transcript. Generation is idempotent when the same transcript hash/provider/model/language/prompt version already has a completed result.
 
+## Automatic recording (stacked implementation)
+
+Live audio recording is available as an explicit **per-session opt-in** before starting a real ASR engine. The existing streaming `/ws/audio` float32 PCM is mirrored to a **bounded, asynchronous PCM16 WAV writer**; filesystem backpressure does not block live ASR. A complete recording is linked to `session_id` after stop and appears in the same Event archive panel. Recording defaults to off, and a demo/mock session cannot enable it.
+
+Failure behavior: if the recording queue overflows, storage is exhausted, or WAV finalization fails, the recorder discards incomplete audio and sets `SessionState.recording_error`, while the caption pipeline continues. The operator must check the recording status before publishing. Interrupted `.partial` recordings are not automatically represented as complete assets; safe startup recovery/retention policies remain #79.
+
+Recordings are local plaintext files with `0600` creation permissions (subject to platform filesystem semantics); **participant notice/consent is the operator's responsibility**. Browser controls do not persist recording opt-in across sessions. Imported WAV files remain supported.
+
 ## Operator-only API
 
 | Endpoint | Purpose |
