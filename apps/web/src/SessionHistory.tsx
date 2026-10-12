@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
 import { HISTORY_COPY } from "./historyCopy";
+import { captionForLanguage } from "./captionText";
 import { useI18n } from "./i18n";
 import type { SessionDetail, SessionRecord, TranscriptEvent } from "./types";
 
@@ -37,11 +38,6 @@ function sessionLanguages(session: SessionRecord) {
     session.source_language,
     ...session.target_languages.filter((language) => language !== session.source_language),
   ];
-}
-
-function segmentText(segment: TranscriptEvent, language: string) {
-  if (language === segment.source_language) return segment.text;
-  return segment.translations[language] || segment.text;
 }
 
 function matchesTranscript(segment: TranscriptEvent, query: string) {
@@ -376,7 +372,7 @@ export function SessionHistory({
                 </div>
                 <div className="history-transcript-copy">
                   {segment.speaker && <small className="history-speaker">{segment.speaker}</small>}
-                  <div>{segmentText(segment, detailLanguage)}</div>
+                  <div>{captionForLanguage(segment, detailLanguage, copy.untranslated)}</div>
                   {detailLanguage !== segment.source_language && segment.translations[detailLanguage] && <small className="history-source-text">{segment.text}</small>}
                 </div>
                 <div className="history-transcript-state">
