@@ -179,7 +179,9 @@ class PostEventArchive:
             )
         return self.summary_by_id(summary_id)
 
-    def finish_summary(self, summary_id: str, *, content: str = "", error: str | None = None) -> None:
+    def finish_summary(
+        self, summary_id: str, *, content: str = "", error: str | None = None
+    ) -> None:
         with self._connect() as conn:
             conn.execute(
                 "UPDATE session_summaries SET status=?, content=?, error=?, updated_at=? "
