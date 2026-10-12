@@ -1,0 +1,121 @@
+name: Church translation quality - Linux CPU baseline
+
+on:
+  pull_request:
+    paths:
+      - "benchmarks/church_translation_quality.v1.jsonl"
+      - "scripts/assess_church_translation.py"
+      - ".github/workflows/church-translation-quality.yml"
+      - "apps/server/langtextflow/translation/ollama.py"
+      - "apps/server/langtextflow/translation_benchmark.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: church-translation-cpu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  translation-quality:
+    name: TranslateGemma 4B - 4vCPU/16GB Linux CPU baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Record actual CPU/memory/disk
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          {
+            echo "Logical CPU count: $(nproc)"
+            lscpu | grep -E 'Model name:|CPU\(s\):|Architecture:' || true
+            free -h
+            df -h .
+          } | tee artifacts/church-translation-hardware.txt
+      - name: Set up locked benchmark environment
+        run: |
+          python -m pip install "uv==0.12.13"
+          uv sync --locked
+          uv pip install "sacrebleu==2.5.1"
+      - name: Start pinned Ollama Docker image without GPU
+        run: |
+          set -euo pipefail
+          docker run -d --name ltf-translation-ollama \
+            -p 127.0.0.1:11434:11434 \
+            -e OLLAMA_NUM_PARALLEL=1 \
+            -e OLLAMA_MAX_LOADED_MODELS=1 \
+            ollama/ollama:0.34.0
+          for i in $(seq 1 80); do
+            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs ltf-translation-ollama
+          exit 1
+      - name: Pull quantized TranslateGemma 4B and record model digest
+        run: |
+          set -euo pipefail
+          docker exec ltf-translation-ollama ollama pull translategemma:4b
+          curl --fail --silent http://127.0.0.1:11434/api/tags \
+            > artifacts/church-translation-model-manifest.json
+          docker exec ltf-translation-ollama ollama --version \
+            > artifacts/church-translation-ollama-version.txt
+      - name: Run real provider on twenty church-domain examples
+        env:
+          LANGTEXTFLOW_OLLAMA_URL: http://127.0.0.1:11434
+          LANGTEXTFLOW_OLLAMA_TRANSLATION_TIMEOUT_SECONDS: "180"
+        run: |
+          uv run --no-sync python -m langtextflow.translation_benchmark \
+            benchmarks/church_translation_quality.v1.jsonl \
+            --provider ollama --model translategemma:4b \
+            --repeats 1 \
+            --output artifacts/church-translation-inference.json
+      - name: Analyze chrF++, terminology, and per-item errors
+        run: |
+          uv run --no-sync python scripts/assess_church_translation.py \
+            artifacts/church-translation-inference.json \
+            benchmarks/church_translation_quality.v1.jsonl \
+            --output artifacts/church-translation-quality.json
+      - name: Print actual scores, never imply full field certification
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          quality_path = Path("artifacts/church-translation-quality.json")
+          message = [
+              "## CPU-only church-domain real translation baseline",
+              "- Runner: standard public Ubuntu GitHub-hosted (nominal 4 vCPU/16GB; actual info in artifact)",
+              "- Model: translategemma:4b, quantized; digest in model manifest artifact",
+              "- Corpus: synthetic authored examples, not independently human-certified",
+              "- Bilingual human semantic review and live ASR-to-translation acceptance remain required",
+          ]
+          if quality_path.is_file():
+              report = json.loads(quality_path.read_text(encoding="utf-8"))
+              message.extend([
+                  f"- Provisional status: {report['status']}",
+                  f"- Completed: {report['completed_cases']}/{report['total_cases']}",
+                  f"- Mean sentence chrF++: {report['mean_sentence_chrf_plus_plus']}",
+                  f"- Critical term accuracy: {report['terminology_accuracy']}",
+                  f"- Translation p95 latency: {report['latency_p95_ms']} ms",
+              ])
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write("\n".join(message) + "\n")
+          PY
+      - name: Upload quality, inference, and hardware evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: church-translation-cpu-baseline
+          path: artifacts/church-translation-*
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Diagnostics on failed execution
+        if: failure()
+        run: docker logs --tail 100 ltf-translation-ollama || true
