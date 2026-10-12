@@ -290,8 +290,8 @@ def test_report_escapes_untrusted_ai_summary_without_link_or_heading(tmp_path) -
         content="**Approved** [download](javascript:alert(1))",
     )
     report = build_project_report(projects, history, archive, project.project_id)
-    assert r"\\# Official event" in report
-    assert r"\\*\\*Approved\\*\\*" in report
-    assert r"\\[download\\]\\(javascript:alert\\(1\\)\\)" in report
+    assert r"\# Official event" in report
+    assert r"\*\*Approved\*\*" in report
+    assert r"\[download\]\(javascript:alert\(1\)\)" in report
     assert "[download](javascript:" not in report
     assert "summary (unreviewed)" in report
