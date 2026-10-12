@@ -13,10 +13,11 @@ import hashlib
 import json
 import time
 import wave
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from langtextflow.benchmark import pcm16le_to_f32le, percentile, quality_metrics
+from langtextflow.benchmark import MemoryTracker, pcm16le_to_f32le, percentile, quality_metrics
 from langtextflow.config import Settings
 from langtextflow.models import SessionContext, StartSessionRequest
 from langtextflow.runtime import CaptionRuntime
@@ -167,6 +168,15 @@ async def run_live(
     runtime = CaptionRuntime(settings)
     records: list[dict[str, Any]] = []
     started_at: float | None = None
+    memory = MemoryTracker(interval_seconds=2.0)
+    memory.start()
+
+    async def sample_process_memory() -> None:
+        while True:
+            memory.sample()
+            await asyncio.sleep(2.0)
+
+    memory_task = asyncio.create_task(sample_process_memory())
     original_publish = runtime._publish
 
     async def capture(event: Any) -> None:
@@ -239,6 +249,10 @@ async def run_live(
             except Exception as exc:
                 failure = failure or f"runtime shutdown: {exc}"
         await runtime.shutdown()
+        memory_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await memory_task
+        memory.sample(force=True)
     if started_at is None:
         raise RuntimeError(f"session failed before audio input: {failure}")
     wall_seconds = time.perf_counter() - started_at
@@ -263,6 +277,7 @@ async def run_live(
         "reference_transcript": reference,
         "asr_quality": asr_quality,
         "metrics": metrics, "telemetry": telemetry,
+        "python_process_rss": memory.report(),
         "stages": records,
         "notes": [
             "Real FLEURS read speech, NOT a church service or a microphone field test",
