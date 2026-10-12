@@ -43,10 +43,26 @@ def summarize_events(
     translations = [
         row for row in committed if str(row.get("translations", {}).get("en", "")).strip()
     ]
+    invalid = {
+        str(row["segment_id"]) for row in events
+        if isinstance(row.get("end_ms"), (int, float))
+        and (
+            row["end_ms"] < 0
+            or row["end_ms"] > audio_seconds * 1000 + 250
+            or row.get("start_ms", 0) is not None
+            and (
+                row.get("start_ms", 0) < 0
+                or row.get("start_ms", 0) > row["end_ms"]
+            )
+            or row["end_ms"] > row["received_ms"] + 250
+        )
+    }
     latencies = {
         stage: [
             max(0.0, row["received_ms"] - row["end_ms"])
-            for row in rows if isinstance(row.get("end_ms"), (int, float))
+            for row in rows
+            if isinstance(row.get("end_ms"), (int, float))
+            and str(row["segment_id"]) not in invalid
         ]
         for stage, rows in by_stage.items()
     }
@@ -68,6 +84,8 @@ def summarize_events(
         "translation_backlog_warning": (
             not committed or len(translations) != len(committed)
         ),
+        "invalid_timestamp_segment_ids": sorted(invalid),
+        "invalid_timestamp_count": len(invalid),
         # All acceptance depends on ASR quality, semantic review and live hardware.
         "field_ready": False,
     }
@@ -226,7 +244,11 @@ async def run_live(
     wall_seconds = time.perf_counter() - started_at
     metrics = summarize_events(records, audio_seconds, wall_seconds)
     asr_quality = quality_metrics(reference, metrics["asr_hypothesis"])
-    translated_text = metrics["translated_hypothesis"]
+    if metrics["invalid_timestamp_count"]:
+        failure = failure or (
+            f"out-of-bounds source timestamp in {metrics['invalid_timestamp_count']} "
+            "segments; lag cannot be trusted"
+        )
     report = {
         "schema_version": 1, "status": "measured" if not failure else "runtime-error",
         "error": failure,

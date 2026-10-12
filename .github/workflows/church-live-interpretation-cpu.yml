@@ -74,6 +74,17 @@ jobs:
           LANGTEXTFLOW_OLLAMA_URL: http://127.0.0.1:11434
           LANGTEXTFLOW_OLLAMA_TRANSLATION_TIMEOUT_SECONDS: "180"
         run: |
+          echo "timestamp,cpu_percent,container_memory" > artifacts/church-live/ollama-resource-samples.csv
+          (
+            while :; do
+              printf "%s," "$(date -u +%FT%TZ)" >> artifacts/church-live/ollama-resource-samples.csv
+              docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}}' ltf-live-ollama \
+                >> artifacts/church-live/ollama-resource-samples.csv || true
+              sleep 5
+            done
+          ) &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
           uv run --no-sync python -m scripts.evaluate_live_fleurs_translation \
             --samples 3 --model base --chunk-seconds 8 \
             --max-drain-seconds 240 --output artifacts/church-live
@@ -104,6 +115,7 @@ jobs:
                   f"- ASR p95 lag: {m['p95_lag_ms']['stable']} ms",
                   f"- Translation p95 lag: {m['p95_lag_ms']['translated']} ms",
                   f"- Whole pipeline processing RTF: {m['processing_rtf']}",
+                  f"- Impossible source timestamps: {m['invalid_timestamp_count']}",
                   "- **Field ready: no (requires live church audio, semantic review and soak)**",
               ])
           else:
@@ -119,6 +131,7 @@ jobs:
           path: |
             artifacts/church-live/*.json
             artifacts/church-live/*.txt
+            artifacts/church-live/*.csv
           if-no-files-found: warn
           retention-days: 14
       - name: Failure diagnostics

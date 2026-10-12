@@ -44,3 +44,16 @@ def test_actual_translated_committed_event_has_end_to_end_lag() -> None:
 def test_missing_or_invalid_audio_duration_is_not_a_pass() -> None:
     with pytest.raises(ValueError, match="positive"):
         summarize_events([], 0, 0.5)
+
+def test_out_of_bounds_source_time_is_not_falsely_low_latency() -> None:
+    rows = [
+        event("invalid", "stable", 2200),
+        event("invalid", "translated", 2500, "Faith is important."),
+    ]
+    for row in rows:
+        row["end_ms"] = 15000
+    summary = summarize_events(rows, 2, 2.5)
+    assert summary["invalid_timestamp_count"] == 1
+    assert summary["invalid_timestamp_segment_ids"] == ["invalid"]
+    assert summary["p95_lag_ms"]["translated"] is None
+    assert summary["field_ready"] is False
