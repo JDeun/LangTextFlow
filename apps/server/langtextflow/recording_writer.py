@@ -63,6 +63,7 @@ class SessionRecordingWriter:
         self._queue: asyncio.Queue[bytes | None] = asyncio.Queue(maxsize=queue_chunks)
         self._task: asyncio.Task[None] | None = None
         self._wave: wave.Wave_write | None = None
+        self._stream = None
         self._frames = 0
         self._failure: str | None = None
         self._closing = False
@@ -99,6 +100,7 @@ class SessionRecordingWriter:
             writer.setsampwidth(2)
             writer.setframerate(self.sample_rate)
             self._wave = writer
+            self._stream = stream
         except Exception:
             stream.close()
             self._partial.unlink(missing_ok=True)
@@ -148,6 +150,10 @@ class SessionRecordingWriter:
                 self._wave = None
         except Exception:
             self._failure = "recording header finalization failed"
+        finally:
+            if self._stream is not None:
+                self._stream.close()
+                self._stream = None
         if self._failure is not None or self._frames == 0:
             self._partial.unlink(missing_ok=True)
             return 0, ""
