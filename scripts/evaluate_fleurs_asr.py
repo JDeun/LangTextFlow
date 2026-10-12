@@ -24,14 +24,28 @@ MAX_SAMPLE_SECONDS = 20
 CONFIGS = {"ko": "ko_kr", "en": "en_us"}
 
 
+def audio_input(audio: dict) -> io.BytesIO | Path:
+    """Accept decoded-off HF audio bytes or an actual local fixture path.
+
+    Never fetch arbitrary audio URLs or guess a remote path: the dataset
+    streaming library is responsible for retrieving authorized audio.
+    """
+    raw = audio.get("bytes")
+    if isinstance(raw, (bytes, bytearray, memoryview)) and raw:
+        return io.BytesIO(raw)
+    path = audio.get("path")
+    if isinstance(path, str) and path and not path.startswith(("http:", "https:")):
+        candidate = Path(path)
+        if candidate.is_file():
+            return candidate
+    raise ValueError("FLEURS fixture must provide audio bytes or a local readable file")
+
+
 def write_pcm_wav(audio: dict, destination: Path) -> tuple[float, str]:
     import numpy as np
     import soundfile as sf
 
-    raw = audio.get("bytes")
-    if not isinstance(raw, bytes) or not raw:
-        raise ValueError("fixture audio bytes missing")
-    samples, rate = sf.read(io.BytesIO(raw), dtype="float32", always_2d=False)
+    samples, rate = sf.read(audio_input(audio), dtype="float32", always_2d=False)
     if rate != 16_000:
         raise ValueError(f"expected pinned FLEURS 16000 Hz, got {rate}")
     if samples.ndim == 2:
