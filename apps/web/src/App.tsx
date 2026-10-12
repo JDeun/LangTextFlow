@@ -26,6 +26,7 @@ import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
   CaptionDisplaySettings,
+  EventProject,
   ProductPreset,
   RecommendedConfiguration,
   ReferenceDocument,
@@ -195,6 +196,9 @@ function OperatorApp() {
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [deviceId, setDeviceId] = useState("");
   const [session, setSession] = useState<SessionState | null>(null);
+  const [projects, setProjects] = useState<EventProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("all");
+  const [projectLoadError, setProjectLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [onboardingOpen, setOnboardingOpen] = useState(
@@ -213,6 +217,18 @@ function OperatorApp() {
   const glossaryTargetLanguage = targetLanguages.includes(previewLanguage)
     ? previewLanguage
     : targetLanguages[0] || defaultTargetForSource(sourceLanguage);
+
+  async function refreshProjects(): Promise<void> {
+    const response = await fetch(`${API_URL}/api/v1/projects`);
+    if (!response.ok) throw new Error("Event project list unavailable");
+    const records = (await response.json()) as EventProject[];
+    setProjects(records);
+    setProjectLoadError("");
+  }
+
+  useEffect(() => {
+    void refreshProjects().catch((reason: Error) => setProjectLoadError(reason.message));
+  }, [historyRefreshToken]);
 
   useEffect(() => {
     if (!availablePreviewLanguages.includes(previewLanguage)) {
@@ -315,6 +331,9 @@ function OperatorApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          project_id: selectedProjectId !== "all" && selectedProjectId !== "unassigned"
+            ? selectedProjectId
+            : null,
           source_language: sourceLanguage,
           target_languages: targetLanguages,
           engine,
@@ -446,6 +465,21 @@ function OperatorApp() {
           <label>
             {t("session.title")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
+          </label>
+          <label>
+            {locale === "ko" ? "행사 프로젝트" : locale === "ja" ? "イベントプロジェクト" : "Event project"}
+            <select
+              value={projects.some((project) => project.project_id === selectedProjectId)
+                ? selectedProjectId : ""}
+              disabled={running}
+              onChange={(event) => setSelectedProjectId(event.target.value || "all")}
+            >
+              <option value="">{locale === "ko" ? "프로젝트 없이 진행" : locale === "ja" ? "プロジェクトなし" : "No project"}</option>
+              {projects.map((project) => (
+                <option value={project.project_id} key={project.project_id}>{project.title}</option>
+              ))}
+            </select>
+            {projectLoadError && <small role="alert">{projectLoadError}</small>}
           </label>
           <label>
             {t("session.presenter")}
@@ -738,6 +772,10 @@ function OperatorApp() {
             targetLanguage={previewLanguage}
             activeSessionId={running ? session?.session_id ?? null : null}
             refreshToken={historyRefreshToken}
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+            onProjectsChanged={refreshProjects}
           />
           </div>
         </section>
