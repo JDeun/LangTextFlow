@@ -95,10 +95,29 @@ async function pressEnter() {
 }
 
 async function setLocale(locale) {
-  await evaluate(`localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)}); location.reload(); true`);
+  // Exercise the real React onChange path. Modifying localStorage then
+  // immediately reloading races React's locale persistence effect.
   await waitFor(
-    () => evaluate(`document.readyState === "complete" && document.querySelector('[data-testid="locale-select"]')?.value === ${JSON.stringify(locale)}`),
-    `locale ${locale}`,
+    () => evaluate(`document.querySelector('[data-testid="locale-select"]') !== null`),
+    "locale control ready",
+  );
+  const dispatched = await evaluate(`(() => {
+    const select = document.querySelector('[data-testid="locale-select"]');
+    if (!(select instanceof HTMLSelectElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype, 'value',
+    )?.set;
+    if (!setter) return false;
+    setter.call(select, ${JSON.stringify(locale)});
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  if (!dispatched) throw new Error("locale selector cannot dispatch changes");
+  await waitFor(
+    () => evaluate(`document.documentElement.lang === ${JSON.stringify(locale)}
+      && document.querySelector('[data-testid="locale-select"]')?.value === ${JSON.stringify(locale)}
+      && localStorage.getItem('langtextflow:locale:v1') === ${JSON.stringify(locale)}`),
+    `locale ${locale} UI and persistence`,
   );
 }
 
