@@ -137,7 +137,11 @@ async def test_ollama_summary_is_real_provider_call_and_untrusted_guard(monkeypa
 
         async def post(self, url, **kwargs):
             requests.append((url, kwargs))
-            return httpx.Response(200, json={"message": {"content": "근거에 따른 행사 요약"}})
+            return httpx.Response(
+                200,
+                json={"message": {"content": "근거에 따른 행사 요약"}},
+                request=httpx.Request("POST", url),
+            )
 
     monkeypatch.setattr(post_event_summary.httpx, "AsyncClient", FakeClient)
     result = await generate_summary(
