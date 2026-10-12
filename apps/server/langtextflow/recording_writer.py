@@ -156,7 +156,9 @@ class SessionRecordingWriter:
             if self._stream is not None:
                 self._stream.close()
                 self._stream = None
-        if self._failure is not None or self._frames == 0:
+        if self._frames == 0 and self._failure is None:
+            self._failure = "recording contains no audio frames"
+        if self._failure is not None:
             self._partial.unlink(missing_ok=True)
             return 0, ""
         self._partial.replace(self._completed)
