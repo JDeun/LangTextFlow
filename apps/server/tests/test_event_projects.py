@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 
 from langtextflow.models import (
-    CaptionStage, SessionState, StartSessionRequest, TranscriptEvent,
+    CaptionStage,
+    SessionState,
+    StartSessionRequest,
+    TranscriptEvent,
 )
 from langtextflow.project_repository import ProjectInput, ProjectRepository
 from langtextflow.session_repository import SessionRepository
@@ -134,6 +137,7 @@ async def test_project_api_crud_and_operator_boundary(tmp_path, monkeypatch) -> 
     from types import SimpleNamespace
 
     from fastapi import HTTPException
+
     from langtextflow import main
 
     history, repository = _history(tmp_path)
@@ -206,7 +210,8 @@ def test_history_project_filter_is_applied_before_limit(tmp_path) -> None:
         _session(history, f"unassigned-{index:02d}")
     selected = history.list_sessions(limit=1, project_id=project.project_id)
     assert [item.session_id for item in selected] == ["target-session"]
-    assert [item.session_id for item in history.list_sessions(limit=1, unassigned=True)][0] != "target-session"
+    unassigned = history.list_sessions(limit=1, unassigned=True)
+    assert unassigned[0].session_id != "target-session"
     assert len(history.list_sessions(limit=200)) == 61
     assert len(history.list_sessions(limit=200, project_id=project.project_id)) == 1
     assert len(history.list_sessions(limit=200, unassigned=True)) == 60
