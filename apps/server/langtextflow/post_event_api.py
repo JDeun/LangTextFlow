@@ -25,6 +25,29 @@ from .storage_guard import StorageCapacityError, ensure_storage_capacity
 MAX_RECORDING_BYTES = 512 * 1024 * 1024
 
 
+def _validate_wav(path: Path) -> tuple[int, int, float]:
+    """Validate a bounded PCM WAV without reading a 90-minute file into RAM."""
+    with wave.open(str(path), "rb") as wav:
+        channels = wav.getnchannels()
+        sample_rate = wav.getframerate()
+        frames = wav.getnframes()
+        if wav.getcomptype() != "NONE" or wav.getsampwidth() != 2:
+            raise HTTPException(422, "expected 16-bit uncompressed PCM WAV")
+        if channels not in {1, 2} or not (8000 <= sample_rate <= 48000):
+            raise HTTPException(422, "unsupported WAV channels or sample rate")
+        if frames == 0 or frames / sample_rate > 4 * 60 * 60:
+            raise HTTPException(422, "recording length must be between 0 and 4 hours")
+        remaining = frames
+        while remaining:
+            batch = min(remaining, 8192)
+            raw = wav.readframes(batch)
+            if len(raw) != batch * channels * 2:
+                raise HTTPException(422, "incomplete WAV audio frames")
+            remaining -= batch
+        return channels, sample_rate, frames / sample_rate
+
+
+
 def install_post_event_routes(
     app: FastAPI,
     runtime: CaptionRuntime,
@@ -72,12 +95,15 @@ def install_post_event_routes(
                 raise HTTPException(400, "invalid content-length") from exc
             if size > MAX_RECORDING_BYTES:
                 raise HTTPException(413, "recording exceeds upload limit")
-        ensure_storage_capacity(
-            archive.audio_root,
-            required_bytes=min(int(declared_size or MAX_RECORDING_BYTES), MAX_RECORDING_BYTES),
-            reserve_bytes=settings.storage_reserve_mb * 1024 * 1024,
-            operation="store an event recording",
-        )
+        try:
+            ensure_storage_capacity(
+                archive.audio_root,
+                required_bytes=min(int(declared_size or MAX_RECORDING_BYTES), MAX_RECORDING_BYTES),
+                reserve_bytes=settings.storage_reserve_mb * 1024 * 1024,
+                operation="store an event recording",
+            )
+        except StorageCapacityError as exc:
+            raise HTTPException(507, "insufficient storage for recording") from exc
         filename = f"{uuid4().hex}.wav"
         path = archive.audio_root / filename
         total = 0
@@ -92,20 +118,10 @@ def install_post_event_routes(
                         raise HTTPException(413, "recording exceeds upload limit")
                     digest.update(part)
                     await asyncio.to_thread(output.write, part)
-            with wave.open(str(path), "rb") as wav:
-                channels = wav.getnchannels()
-                sample_rate = wav.getframerate()
-                samples = wav.getnframes()
-                if wav.getcomptype() != "NONE" or wav.getsampwidth() != 2:
-                    raise HTTPException(422, "expected 16-bit uncompressed PCM WAV")
-                if channels not in {1, 2} or not (8000 <= sample_rate <= 48000):
-                    raise HTTPException(422, "unsupported WAV channels or sample rate")
-                if samples == 0 or samples / sample_rate > 4 * 60 * 60:
-                    raise HTTPException(422, "recording length must be between 0 and 4 hours")
-                # Reject truncated payloads whose declared WAV frames are absent.
-                if len(wav.readframes(samples)) != samples * channels * 2:
-                    raise HTTPException(422, "incomplete WAV audio frames")
-                duration = samples / sample_rate
+            # Streaming WAV validation is performed off the ASGI event loop.
+            channels, sample_rate, duration = await asyncio.to_thread(
+                _validate_wav, path,
+            )
             return await asyncio.to_thread(
                 archive.insert_recording,
                 session_id,
