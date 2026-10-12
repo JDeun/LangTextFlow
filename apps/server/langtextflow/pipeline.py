@@ -147,6 +147,7 @@ class CaptionPipeline:
             return OllamaTranslator(
                 base_url=self.settings.ollama_url,
                 model=request.translation_model or self.settings.ollama_translation_model,
+                request_timeout_seconds=self.settings.ollama_translation_timeout_seconds,
             )
         if provider == "openai-compatible":
             return OpenAICompatibleTranslator(
