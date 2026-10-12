@@ -71,12 +71,17 @@ class PostEventArchive:
                 "CREATE INDEX IF NOT EXISTS idx_session_summaries "
                 "ON session_summaries(session_id, created_at DESC)"
             )
-            # Background tasks cannot survive process termination.
+            # Background tasks cannot survive process termination. Clear old
+            # running rows before creating the single-flight constraint.
             conn.execute(
                 "UPDATE session_summaries SET status='error', "
                 "error='Generation interrupted by application restart', updated_at=? "
                 "WHERE status='running'",
                 (_now(),),
+            )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_summary "
+                "ON session_summaries(session_id) WHERE status='running'"
             )
 
     def insert_recording(
