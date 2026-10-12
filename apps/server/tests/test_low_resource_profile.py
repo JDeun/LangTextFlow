@@ -99,3 +99,13 @@ def test_resource_profile_is_strictly_validated() -> None:
         Settings(_env_file=None, resource_profile="ultra")
     with pytest.raises(ValidationError):
         Settings(_env_file=None, low_resource_cpu_threads=0)
+
+
+def test_environment_can_enable_church_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LANGTEXTFLOW_RESOURCE_PROFILE", "low")
+    monkeypatch.setenv("LANGTEXTFLOW_LOW_RESOURCE_WHISPER_MODEL", "tiny")
+    monkeypatch.setenv("LANGTEXTFLOW_LOW_RESOURCE_CPU_THREADS", "1")
+    settings = Settings(_env_file=None)
+    assert settings.resource_profile == "low"
+    assert settings.active_whisper_model == "tiny"
+    assert settings.low_resource_cpu_threads == 1
