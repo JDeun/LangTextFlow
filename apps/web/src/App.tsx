@@ -660,6 +660,19 @@ function OperatorApp() {
           {session?.persistence_error && (
             <div className="warning-box">{t("live.persistenceWarning")}: {session.persistence_error}</div>
           )}
+          {session?.recording_enabled && (
+            <div className="warning-box" role="status">
+              {session.recording_error
+                ? `${locale === "ko" ? "녹음 실패" : locale === "ja" ? "録音失敗" : "Recording failed"}: ${session.recording_error}`
+                : running
+                  ? (locale === "ko" ? "음성 녹음 중 — 종료 후 세션 기록에 보관됩니다."
+                    : locale === "ja" ? "録音中 — 終了後にセッション記録へ保存します。"
+                      : "Recording audio — saved to session history after stop.")
+                  : (locale === "ko" ? "녹음 세션 종료 — 기록에서 확인하세요."
+                    : locale === "ja" ? "録音終了 — セッション履歴で確認してください。"
+                      : "Recording session ended — check the archive.")}
+            </div>
+          )}
           <button
             className={running ? "stop-button" : "start-button"}
             data-testid="session-toggle"
