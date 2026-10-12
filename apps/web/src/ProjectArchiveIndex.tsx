@@ -58,7 +58,7 @@ const LABELS: Record<Locale, {
   none: string; transcript: string; recording: string; summary: string;
   stale: string; current: string; absent: string; running: string;
   page: string; previous: string; next: string; export: string;
-  open: string; failure: string; interrupted: string;
+  open: string; failure: string; interrupted: string; report: string;
 }> = {
   ko: {
     title: "행사 아카이브 목록", sub: "세션별 녹음·요약 현황과 전사문 최신성을 확인합니다.",
@@ -68,7 +68,7 @@ const LABELS: Record<Locale, {
     absent: "없음", running: "생성 중", page: "세션",
     previous: "이전", next: "다음", export: "현재 페이지 JSON 저장",
     open: "세션 열기", failure: "아카이브 정보를 불러오지 못했습니다.",
-    interrupted: "중단된 세션",
+    interrupted: "중단된 세션", report: "현재 페이지 근거 보고서(Markdown)",
   },
   en: {
     title: "Event archive index", sub: "Review recordings, summaries and transcript freshness for each session.",
@@ -78,7 +78,7 @@ const LABELS: Record<Locale, {
     absent: "None", running: "Generating", page: "Sessions",
     previous: "Previous", next: "Next", export: "Export current page as JSON",
     open: "Open session", failure: "Could not load event archive.",
-    interrupted: "Interrupted session",
+    interrupted: "Interrupted session", report: "Download cited report (Markdown)",
   },
   ja: {
     title: "イベントアーカイブ一覧", sub: "セッションごとの録音・要約・原文の更新状態を確認します。",
@@ -88,7 +88,7 @@ const LABELS: Record<Locale, {
     absent: "なし", running: "生成中", page: "セッション",
     previous: "前へ", next: "次へ", export: "表示ページをJSON保存",
     open: "セッションを開く", failure: "アーカイブを読み込めませんでした。",
-    interrupted: "中断セッション",
+    interrupted: "中断セッション", report: "表示ページの根拠レポート(Markdown)",
   },
 };
 
@@ -152,6 +152,15 @@ export function ProjectArchiveIndex({ apiUrl, projectId, locale, onOpenSession }
         <div className="event-project-buttons">
           <button type="button" className="secondary-button" onClick={() => setRefresh(value => value + 1)}>{t.retry}</button>
           <button type="button" className="secondary-button" disabled={!snapshot || loading} onClick={exportJson}>{t.export}</button>
+          {snapshot && !loading && (
+            <a
+              className="secondary-button"
+              href={`${apiUrl}/api/v1/projects/${encodeURIComponent(projectId)}/report?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`}
+              download="event-project-report.md"
+            >
+              {t.report}
+            </a>
+          )}
         </div>
       </div>
       {loading && <p role="status">{t.loading}…</p>}
