@@ -385,6 +385,7 @@ function OperatorApp() {
             }).catch(() => null);
             if (stopResponse?.ok) {
               setSession((await stopResponse.json()) as SessionState);
+              setRecordAudio(false);
             }
           })();
         });
@@ -396,6 +397,7 @@ function OperatorApp() {
       captureRef.current = null;
       await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" }).catch(() => undefined);
       setSession(null);
+      setRecordAudio(false);
       setError(reason instanceof Error ? reason.message : t("error.startFailed"));
     } finally {
       setBusy(false);
@@ -411,6 +413,8 @@ function OperatorApp() {
       const response = await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
       if (!response.ok) throw new Error(await response.text());
       setSession((await response.json()) as SessionState);
+      // Explicit consent is scoped to one session; never carry it to the next event.
+      setRecordAudio(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("error.stopFailed"));
     } finally {
