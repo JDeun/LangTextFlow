@@ -317,7 +317,7 @@ function OperatorApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          record_audio: recordAudio,
+          record_audio: recordAudio && needsAudio,
           source_language: sourceLanguage,
           target_languages: targetLanguages,
           engine,
