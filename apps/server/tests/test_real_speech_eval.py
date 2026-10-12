@@ -1,4 +1,5 @@
 """Fail fast before optional dataset/model downloads in manual ASR evaluation."""
+import io
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 
@@ -38,3 +39,31 @@ def test_invalid_config_rejected_without_dataset_download(
     with pytest.raises(ValueError, match=message):
         evaluate(language, samples, tmp_path / "evaluation", model=model)
     assert not (tmp_path / "evaluation").exists()
+
+
+def test_audio_source_prefers_pinned_bytes_over_path(tmp_path) -> None:
+    source = helper.audio_input({
+        "bytes": b"fixture-audio", "path": str(tmp_path / "missing.wav"),
+    })
+    assert isinstance(source, io.BytesIO)
+    assert source.read() == b"fixture-audio"
+
+
+def test_audio_source_accepts_local_streaming_cache_path(tmp_path) -> None:
+    cache = tmp_path / "fleurs.wav"
+    cache.write_bytes(b"local-fixture")
+    assert helper.audio_input({"bytes": None, "path": str(cache)}) == cache
+
+
+@pytest.mark.parametrize(
+    "audio",
+    [
+        {"path": "https://other-site.example/recording.wav", "bytes": None},
+        {"path": "http://localhost/private", "bytes": None},
+        {"path": "/path/that/does/not/exist.wav", "bytes": None},
+        {"path": None, "bytes": None},
+    ],
+)
+def test_audio_source_does_not_fetch_untrusted_remote_paths(audio) -> None:
+    with pytest.raises(ValueError, match="local readable file"):
+        helper.audio_input(audio)
