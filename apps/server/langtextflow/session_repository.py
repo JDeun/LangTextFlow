@@ -287,31 +287,45 @@ class SessionRepository:
         unassigned: bool = False,
     ) -> list[SessionRecord]:
         safe_limit = max(1, min(limit, 200))
-        # Filter in SQLite BEFORE LIMIT, so a project can find its sessions
-        # even when unrelated events have filled the newest 50 history rows.
+        # Choose a complete static SQL statement, keeping the filter before LIMIT.
+        # User-controlled project IDs only enter through SQLite bound parameters.
         if project_id is not None:
-            where = "WHERE ps.project_id = ?"
-            params: tuple[str | int, ...] = (project_id, safe_limit)
-        elif unassigned:
-            where = "WHERE ps.project_id IS NULL"
-            params = (safe_limit,)
-        else:
-            where = ""
-            params = (safe_limit,)
-        with self._connect() as connection:
-            rows = connection.execute(
-                f"""
+            query = """
                 SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
                 FROM sessions s
                 LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
                 LEFT JOIN transcript_segments t ON t.session_id = s.session_id
-                {where}
+                WHERE ps.project_id = ?
                 GROUP BY s.session_id
-                ORDER BY s.started_at DESC
+                ORDER BY s.started_at DESC, s.session_id DESC
                 LIMIT ?
-                """,
-                params,
-            ).fetchall()
+                """
+            params: tuple[str | int, ...] = (project_id, safe_limit)
+        elif unassigned:
+            query = """
+                SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
+                FROM sessions s
+                LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
+                LEFT JOIN transcript_segments t ON t.session_id = s.session_id
+                WHERE ps.project_id IS NULL
+                GROUP BY s.session_id
+                ORDER BY s.started_at DESC, s.session_id DESC
+                LIMIT ?
+                """
+            params = (safe_limit,)
+        else:
+            query = """
+                SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
+                FROM sessions s
+                LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
+                LEFT JOIN transcript_segments t ON t.session_id = s.session_id
+                GROUP BY s.session_id
+                ORDER BY s.started_at DESC, s.session_id DESC
+                LIMIT ?
+                """
+            params = (safe_limit,)
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
         return [self._session_record(row) for row in rows]
 
     def get_session(self, session_id: str) -> SessionDetail | None:

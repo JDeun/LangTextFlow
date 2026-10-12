@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 
 from langtextflow.models import (
-    CaptionStage, SessionState, StartSessionRequest, TranscriptEvent,
+    CaptionStage,
+    SessionState,
+    StartSessionRequest,
+    TranscriptEvent,
 )
 from langtextflow.project_repository import ProjectInput, ProjectRepository
 from langtextflow.session_repository import SessionRepository
@@ -134,6 +137,7 @@ async def test_project_api_crud_and_operator_boundary(tmp_path, monkeypatch) -> 
     from types import SimpleNamespace
 
     from fastapi import HTTPException
+
     from langtextflow import main
 
     history, repository = _history(tmp_path)
@@ -206,7 +210,28 @@ def test_history_project_filter_is_applied_before_limit(tmp_path) -> None:
         _session(history, f"unassigned-{index:02d}")
     selected = history.list_sessions(limit=1, project_id=project.project_id)
     assert [item.session_id for item in selected] == ["target-session"]
-    assert [item.session_id for item in history.list_sessions(limit=1, unassigned=True)][0] != "target-session"
+    remaining = history.list_sessions(limit=1, unassigned=True)
+    assert remaining[0].session_id != "target-session"
     assert len(history.list_sessions(limit=200)) == 61
     assert len(history.list_sessions(limit=200, project_id=project.project_id)) == 1
     assert len(history.list_sessions(limit=200, unassigned=True)) == 60
+
+@pytest.mark.parametrize(
+    "malicious_project_id",
+    ["' OR 1=1 --", "'; DROP TABLE sessions; --", "project' UNION SELECT * FROM sessions --"],
+)
+def test_project_listing_uses_bound_ids_without_cross_project_leakage(
+    tmp_path, malicious_project_id: str,
+) -> None:
+    history, repository = _history(tmp_path)
+    project = repository.create(ProjectInput(title="private project"))
+    _session(history, "private-session", project.project_id)
+    _session(history, "unassigned-session")
+
+    assert history.list_sessions(project_id=malicious_project_id) == []
+    assert [item.session_id for item in history.list_sessions(project_id=project.project_id)] == [
+        "private-session",
+    ]
+    assert {item.session_id for item in history.list_sessions()} == {
+        "private-session", "unassigned-session",
+    }
