@@ -48,6 +48,7 @@ from .network import (
     websocket_origin_allowed,
 )
 from .preflight import SystemPreflight, run_preflight
+from .project_repository import ProjectAssignment, ProjectInput, ProjectRecord, ProjectRepository
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
 from .runtime_install import (
@@ -65,6 +66,7 @@ model_cache_root.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(model_cache_root / "huggingface"))
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
+project_repository = ProjectRepository(settings.database_path)
 model_setup_manager = ModelSetupManager(settings)
 model_cache_manager = ModelCacheManager(settings)
 runtime_provision_manager = RuntimeProvisionManager(settings)
@@ -492,6 +494,62 @@ async def realtime_metrics(request: Request) -> RealtimeMetrics:
 async def get_captions(request: Request) -> list[TranscriptEvent]:
     _require_operator(request)
     return runtime.store.snapshot()
+
+
+@app.get("/api/v1/projects", response_model=list[ProjectRecord])
+async def projects(request: Request) -> list[ProjectRecord]:
+    _require_operator(request)
+    return await asyncio.to_thread(project_repository.list)
+
+
+@app.post("/api/v1/projects", response_model=ProjectRecord, status_code=201)
+async def create_project(request: Request, payload: ProjectInput) -> ProjectRecord:
+    _require_operator(request)
+    return await asyncio.to_thread(project_repository.create, payload)
+
+
+@app.get("/api/v1/projects/{project_id}", response_model=ProjectRecord)
+async def project_detail(request: Request, project_id: str) -> ProjectRecord:
+    _require_operator(request)
+    project = await asyncio.to_thread(project_repository.get, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.put("/api/v1/projects/{project_id}", response_model=ProjectRecord)
+async def update_project(
+    request: Request, project_id: str, payload: ProjectInput,
+) -> ProjectRecord:
+    _require_operator(request)
+    project = await asyncio.to_thread(project_repository.update, project_id, payload)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.delete("/api/v1/projects/{project_id}", status_code=204)
+async def delete_project(request: Request, project_id: str) -> Response:
+    _require_operator(request)
+    deleted = await asyncio.to_thread(project_repository.delete, project_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="project not found")
+    return Response(status_code=204)
+
+
+@app.put("/api/v1/history/{session_id}/project", response_model=SessionDetail)
+async def assign_session_project(
+    request: Request, session_id: str, payload: ProjectAssignment,
+) -> SessionDetail:
+    _require_operator(request)
+    try:
+        await asyncio.to_thread(project_repository.assign, session_id, payload.project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    result = await asyncio.to_thread(runtime.history.get_session, session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return result
 
 
 @app.get("/api/v1/history", response_model=list[SessionRecord])
