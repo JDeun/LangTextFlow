@@ -84,7 +84,10 @@ def build_project_report(
             lines += [
                 f"- Summary version: `{_plain(summary['summary_id'], limit=64)}`",
                 f"- Summary source SHA-256: `{summary['transcript_sha256']}`",
-                f"- Summary freshness: {'STALE — re-review required' if stale else 'source revision unchanged — NOT fact-checked'}",
+                (
+                    "- Summary freshness: "
+                    + ("STALE — re-review required" if stale else "source revision unchanged — NOT fact-checked")
+                ),
                 f"- Summary status: {summary['status']}",
             ]
             if summary["status"] == "completed":
@@ -107,7 +110,9 @@ def build_project_report(
                     f"{_plain(segment.text, limit=380)}"
                 )
             if len(committed) > 3:
-                lines.append(f"- … {len(committed) - 3} more committed segments in the session archive")
+                lines.append(
+                    f"- … {len(committed) - 3} more committed segments in the session archive"
+                )
         lines += [
             "",
             "Source: use the session ID and segment ID to review complete original captions.",
