@@ -127,3 +127,72 @@ def test_invalid_project_title_rejected(bad: str) -> None:
 
     with pytest.raises(ValidationError):
         ProjectInput(title=bad)
+
+
+@pytest.mark.asyncio
+async def test_project_api_crud_and_operator_boundary(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+    from langtextflow import main
+
+    history, repository = _history(tmp_path)
+    monkeypatch.setattr(main, "project_repository", repository)
+    monkeypatch.setattr(
+        main, "runtime",
+        SimpleNamespace(history=history, state=SessionState(running=False)),
+    )
+    local = SimpleNamespace(
+        client=SimpleNamespace(host="127.0.0.1"), headers={},
+    )
+    remote = SimpleNamespace(
+        client=SimpleNamespace(host="192.168.1.50"), headers={},
+    )
+    created = await main.create_project(local, ProjectInput(title="API event"))
+    assert created.session_count == 0
+    assert (await main.projects(local))[0].project_id == created.project_id
+    _session(history, "api-session")
+    detail = await main.assign_session_project(
+        local, "api-session",
+        main.ProjectAssignment(project_id=created.project_id),
+    )
+    assert detail.project_id == created.project_id
+    with pytest.raises(HTTPException) as error:
+        await main.projects(remote)
+    assert error.value.status_code == 403
+    with pytest.raises(HTTPException) as error:
+        await main.assign_session_project(
+            local, "api-session",
+            main.ProjectAssignment(project_id="no-project"),
+        )
+    assert error.value.status_code == 404
+    await main.delete_project(local, created.project_id)
+    assert history.get_session("api-session").project_id is None
+    assert history.segments("api-session")[0].text == "행사 내용"
+
+
+@pytest.mark.asyncio
+async def test_invalid_project_does_not_interrupt_live_session(tmp_path) -> None:
+    from langtextflow.config import Settings
+    from langtextflow.runtime import CaptionRuntime
+
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "runtime.db")))
+    await runtime.initialize()
+    live = await runtime.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        engine="mock", translation_provider="none",
+    ))
+    assert live.running is True
+    session_id = live.session_id
+    try:
+        with pytest.raises(ValueError, match="project not found"):
+            await runtime.start(StartSessionRequest(
+                project_id="missing",
+                source_language="ko", target_languages=["en"],
+                engine="mock", translation_provider="none",
+            ))
+        assert runtime.state.running is True
+        assert runtime.state.session_id == session_id
+    finally:
+        await runtime.stop()
+        await runtime.shutdown()
