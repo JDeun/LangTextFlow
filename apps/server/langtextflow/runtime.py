@@ -309,16 +309,22 @@ class CaptionRuntime:
                 await self._provider_changed(str(active_provider))
             self.state.audio_sample_rate = engine.sample_rate
             if request.record_audio:
+                # Recording is optional: storage failure must never prevent captions.
                 if self.state.persistence_error is not None:
-                    raise RuntimeError("cannot record without a persisted session")
-                writer = SessionRecordingWriter(
-                    self.archive,
-                    session_id=self.state.session_id,
-                    sample_rate=engine.sample_rate,
-                    reserve_bytes=self.settings.storage_reserve_mb * 1024 * 1024,
-                )
-                await writer.start()
-                self._recorder = writer
+                    self.state.recording_error = "recording unavailable: session not persisted"
+                else:
+                    try:
+                        writer = SessionRecordingWriter(
+                            self.archive,
+                            session_id=self.state.session_id,
+                            sample_rate=engine.sample_rate,
+                            reserve_bytes=self.settings.storage_reserve_mb * 1024 * 1024,
+                        )
+                        await writer.start()
+                        self._recorder = writer
+                    except Exception:
+                        # Never include filesystem paths or credentials in client errors.
+                        self.state.recording_error = "recording unavailable: storage initialization failed"
             self.state.running = True
             self._refresh_queue_metrics()
         except Exception:
@@ -413,15 +419,17 @@ class CaptionRuntime:
         self.metrics.audio_rms_dbfs = dbfs
         self.metrics.voice_active = voice_active
 
+        # Mirror accepted audio before awaiting ASR: a concurrent stop or provider
+        # exception must not silently drop the last captured PCM chunk.
+        recorder = self._recorder
+        if recorder is not None:
+            recorder.offer(pcm_f32le)
+            if recorder.error is not None:
+                self.state.recording_error = recorder.error
+
         started = time.perf_counter()
         try:
             await engine.feed_audio(pcm_f32le)
-            # A slow disk must never block or backpressure realtime ASR.
-            recorder = self._recorder
-            if recorder is not None and self.state.running:
-                recorder.offer(pcm_f32le)
-                if recorder.error is not None:
-                    self.state.recording_error = recorder.error
         finally:
             self._refresh_queue_metrics()
         enqueue_wait_ms = round((time.perf_counter() - started) * 1000.0, 1)
