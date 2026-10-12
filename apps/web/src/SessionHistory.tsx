@@ -351,14 +351,14 @@ export function SessionHistory({
               </div>
               <div className="history-actions">
                 <label className="history-project-assign">
-                  {locale === "ko" ? "소속 행사" : locale === "ja" ? "所属イベント" : "Project"}
+                  {copy.projectLabel}
                   <select
-                    aria-label={locale === "ko" ? "세션 소속 프로젝트" : locale === "ja" ? "セッションのプロジェクト" : "Session project"}
+                    aria-label={copy.projectAria}
                     value={session.project_id || ""}
                     disabled={busyId === session.session_id}
                     onChange={(event) => void assignProject(session, event.target.value)}
                   >
-                    <option value="">{locale === "ko" ? "미분류" : locale === "ja" ? "未分類" : "Unassigned"}</option>
+                    <option value="">{copy.projectUnassigned}</option>
                     {projects.map((project) => (
                       <option key={project.project_id} value={project.project_id}>
                         {project.title}
