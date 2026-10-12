@@ -34,7 +34,7 @@ case "$candidate" in
     exit 0
     ;;
   qwen3-1.7b)
-    python - "$output_dir" <<'PY'
+    uv run --no-sync python - "$output_dir" <<'PY'
 import json
 import sys
 from huggingface_hub import HfApi, snapshot_download
