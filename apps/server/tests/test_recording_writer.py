@@ -70,7 +70,21 @@ async def test_invalid_recorder_input_never_persists_incomplete_media(tmp_path) 
         archive, session_id="session-1", sample_rate=16000, reserve_bytes=0,
     )
     await writer.start()
-    writer.offer(b"wrong length")
+    writer.offer(b"malformed")  # 9 bytes: not divisible by 4 for float32 PCM
+    assert await writer.stop() is None
+    assert writer.error is not None
+    assert archive.recordings("session-1") == []
+    assert list(archive.audio_root.glob("*.partial")) == []
+
+
+@pytest.mark.asyncio
+async def test_nan_recorder_frame_never_creates_a_saved_recording(tmp_path) -> None:
+    archive = _archive(tmp_path)
+    writer = SessionRecordingWriter(
+        archive, session_id="session-1", sample_rate=16000, reserve_bytes=0,
+    )
+    await writer.start()
+    writer.offer(struct.pack("<f", float("nan")))
     assert await writer.stop() is None
     assert writer.error is not None
     assert archive.recordings("session-1") == []

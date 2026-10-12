@@ -16,6 +16,7 @@ import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { LiveCaption } from "./LiveCaption";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { OPERATOR_COPY } from "./operatorCopy";
+import { RECORDING_COPY } from "./recordingCopy";
 import { PreflightPanel } from "./PreflightPanel";
 import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
 import { SessionHistory } from "./SessionHistory";
@@ -174,6 +175,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
 function OperatorApp() {
   const { locale, t } = useI18n();
   const operatorCopy = OPERATOR_COPY[locale];
+  const recordingCopy = RECORDING_COPY[locale];
   const { connected, segments, terminalError } = useCaptionSocket();
   const captureRef = useRef<AudioCaptureController | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState("ko");
@@ -487,19 +489,11 @@ function OperatorApp() {
               onChange={(event) => setRecordAudio(event.target.checked)}
             />
             <span>
-              {locale === "ko"
-                ? "행사 음성 녹음 저장(선택)"
-                : locale === "ja"
-                  ? "イベント音声を録音保存（任意）"
-                  : "Save the event audio recording (optional)"}
+              {recordingCopy.label}
             </span>
           </label>
           <small>
-            {locale === "ko"
-              ? "기본 비활성화입니다. 참가자 고지·동의를 확인한 뒤 선택하세요. 녹음은 기기 내부에 보관되며 종료 후 세션 기록에 연결됩니다."
-              : locale === "ja"
-                ? "初期状態はオフです。参加者への告知・同意を確認してから有効にしてください。録音はローカル保存されます。"
-                : "Off by default. Confirm participant notice/consent first. Audio stays on this device and is linked to the completed session."}
+            {recordingCopy.help}
           </small>
           {session?.recording_error && <small role="alert">{session.recording_error}</small>}
           <label>
@@ -692,14 +686,10 @@ function OperatorApp() {
           {session?.recording_enabled && (
             <div className="warning-box" role="status">
               {session.recording_error
-                ? `${locale === "ko" ? "녹음 실패" : locale === "ja" ? "録音失敗" : "Recording failed"}: ${session.recording_error}`
+                ? `${recordingCopy.failed}: ${session.recording_error}`
                 : running
-                  ? (locale === "ko" ? "음성 녹음 중 — 종료 후 세션 기록에 보관됩니다."
-                    : locale === "ja" ? "録音中 — 終了後にセッション記録へ保存します。"
-                      : "Recording audio — saved to session history after stop.")
-                  : (locale === "ko" ? "녹음 세션 종료 — 기록에서 확인하세요."
-                    : locale === "ja" ? "録音終了 — セッション履歴で確認してください。"
-                      : "Recording session ended — check the archive.")}
+                  ? recordingCopy.active
+                  : recordingCopy.ended}
             </div>
           )}
           <button
