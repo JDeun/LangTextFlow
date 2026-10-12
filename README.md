@@ -64,7 +64,7 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 세션 기록 화면에서 녹음을 가져와 재생하고, 로컬 Ollama를 통해 원문 전사 기반 요약을 생성할 수 있습니다.
 
 > [!WARNING]
-> 현재 WAV 녹음은 **수동 가져오기만 지원**합니다. 앱 내부 자동 녹음, 녹음/전사 타임라인 정렬, AI 요약의 사람 검수/승인, 실제 현장 품질 검증은 진행 중입니다.
+> 실제 음성 입력 세션에서는 매번 명시적으로 동의한 경우에만 PCM16 WAV 자동 녹음을 시도합니다. 종료된 세션에 별도로 WAV 파일을 가져오는 기능도 지원합니다. 녹음 실패 시에도 자막 처리 경로는 유지됩니다. 녹음/전사 타임라인 정렬, AI 요약의 사람 검수/승인, 실제 현장 품질 검증은 아직 진행 중입니다.
 > 세부 범위는 [Post-event archive](docs/POST_EVENT_ARCHIVE.md)와 이슈 [#78](https://github.com/JDeun/LangTextFlow/issues/78)–[#81](https://github.com/JDeun/LangTextFlow/issues/81)을 확인하십시오.
 
 ## 현재 지원 범위
