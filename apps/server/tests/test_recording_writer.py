@@ -272,3 +272,31 @@ async def test_fsync_error_discards_uncommitted_recording(tmp_path, monkeypatch)
     assert archive.recordings("session-1") == []
     assert list(archive.audio_root.glob("*.partial")) == []
     assert list(archive.audio_root.glob("*.wav")) == []
+
+
+def test_restart_reclaims_only_old_abandoned_partial_wavs(tmp_path) -> None:
+    import os
+    import time
+
+    archive = _archive(tmp_path)
+    root = archive.audio_root
+    old_partial = root / ("a" * 32 + ".wav.partial")
+    recent_partial = root / ("b" * 32 + ".wav.partial")
+    unknown_file = root / "operator-notes.wav.partial"
+    complete = root / ("c" * 32 + ".wav")
+    for path in (old_partial, recent_partial, unknown_file, complete):
+        path.write_bytes(b"private test recording")
+    old_time = time.time() - 30 * 3600
+    os.utime(old_partial, (old_time, old_time))
+    os.utime(unknown_file, (old_time, old_time))
+    os.utime(complete, (old_time, old_time))
+
+    # Startup must leave in-progress sessions and completed recordings intact.
+    archive.initialize()
+    assert not old_partial.exists()
+    assert recent_partial.exists()
+    assert unknown_file.exists()
+    assert complete.exists()
+    assert archive.cleanup_stale_partials() == 0
+    with pytest.raises(ValueError):
+        archive.cleanup_stale_partials(older_than_seconds=10)
