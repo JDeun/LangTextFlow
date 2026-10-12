@@ -24,6 +24,16 @@ MAX_SAMPLE_SECONDS = 20
 CONFIGS = {"ko": "ko_kr", "en": "en_us"}
 
 
+def fleurs_test_parquet_uri(language: str) -> str:
+    """Select only verified FLEURS language/test parquet from the pinned revision."""
+    if language not in CONFIGS:
+        raise ValueError("language must be ko or en")
+    return (
+        f"hf://datasets/google/fleurs@{FLEURS_REVISION}/"
+        f"{CONFIGS[language]}/test-00000-of-00001.parquet"
+    )
+
+
 def audio_input(audio: dict) -> io.BytesIO | Path:
     """Accept decoded-off HF audio bytes or an actual local fixture path.
 
@@ -86,10 +96,7 @@ def evaluate(
 
     # Datasets >=4 rejects legacy dataset loader scripts (fleurs.py).
     # Access only the verified parquet fixture at the pinned HF revision.
-    parquet_path = (
-        f"hf://datasets/google/fleurs@{FLEURS_REVISION}/"
-        f"{CONFIGS[language]}/test-00000-of-00001.parquet"
-    )
+    parquet_path = fleurs_test_parquet_uri(language)
     dataset = load_dataset(
         "parquet",
         data_files={"test": parquet_path},
