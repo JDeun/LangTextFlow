@@ -1,6 +1,7 @@
 """Cross-session project search: exact evidence, scoping, paging, and access control."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -8,11 +9,45 @@ from fastapi import HTTPException
 
 from langtextflow.models import (
     CaptionStage,
+    SessionState,
+    StartSessionRequest,
     TranscriptEvent,
 )
-from langtextflow.project_repository import ProjectInput
+from langtextflow.project_repository import ProjectInput, ProjectRepository
+from langtextflow.session_repository import SessionRepository
 
-from test_event_projects import _history, _session
+
+def _history(tmp_path):
+    history = SessionRepository(str(tmp_path / "app.db"))
+    history.initialize()
+    return history, ProjectRepository(str(tmp_path / "app.db"))
+
+
+def _session(history: SessionRepository, session_id: str, project_id: str) -> None:
+    state = SessionState(
+        session_id=session_id,
+        join_code="ABC123",
+        engine="mock",
+        started_at=datetime.now(UTC),
+    )
+    history.create_session(
+        state,
+        StartSessionRequest(
+            project_id=project_id,
+            source_language="ko",
+            target_languages=["en"],
+            engine="mock",
+        ),
+    )
+    history.upsert_segment(
+        session_id,
+        TranscriptEvent(
+            segment_id="original", version=1, stage=CaptionStage.COMMITTED,
+            source_language="ko", text="행사 내용",
+            start_ms=0, committed=True,
+        ),
+    )
+    history.mark_ended(session_id)
 
 
 def _commit(history, session_id: str, *, text: str, translation: str = "") -> None:
