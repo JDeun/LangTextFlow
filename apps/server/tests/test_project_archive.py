@@ -14,7 +14,7 @@ from langtextflow.models import (
 from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.post_event_summary import transcript_source
 from langtextflow.project_archive import build_project_archive_manifest
-from langtextflow.project_report import build_project_report
+from langtextflow.project_report import _plain, build_project_report
 from langtextflow.project_repository import ProjectInput, ProjectRepository
 from langtextflow.session_repository import SessionRepository
 
@@ -255,3 +255,43 @@ async def test_report_api_is_operator_only_bounded_and_downloadable(
     assert missing.value.status_code == 404
     with pytest.raises(ValueError):
         build_project_report(projects, history, archive, project.project_id, limit=26)
+
+
+@pytest.mark.parametrize(
+    ("untrusted", "forbidden"),
+    [
+        ("**model claims approval**", "**model"),
+        ("[click](javascript:alert(1))", "[click]("),
+        ("# synthetic official heading", "# synthetic"),
+        ("`model generated evidence`", "`model generated evidence`"),
+        ("<img src=x onerror=alert(1)>", "<img"),
+    ],
+)
+def test_report_escapes_untrusted_markdown_syntax(
+    untrusted: str, forbidden: str,
+) -> None:
+    rendered = _plain(untrusted)
+    assert forbidden not in rendered
+    assert "\\n" not in rendered
+    assert "\\r" not in rendered
+
+
+def test_report_escapes_untrusted_ai_summary_without_link_or_heading(tmp_path) -> None:
+    history, projects, archive = _seed(tmp_path)
+    project = projects.create(ProjectInput(title="# Official event"))
+    _session(history, project.project_id, "event-1", "[danger](javascript:alert(1))")
+    _, original_hash = transcript_source(history.segments("event-1"))
+    summary = archive.begin_summary(
+        "event-1", language="ko", provider="ollama", model="local",
+        transcript_sha256=original_hash, prompt_version="post-event-v1",
+    )
+    archive.finish_summary(
+        summary["summary_id"],
+        content="**Approved** [download](javascript:alert(1))",
+    )
+    report = build_project_report(projects, history, archive, project.project_id)
+    assert r"\\# Official event" in report
+    assert r"\\*\\*Approved\\*\\*" in report
+    assert r"\\[download\\]\\(javascript:alert\\(1\\)\\)" in report
+    assert "[download](javascript:" not in report
+    assert "summary (unreviewed)" in report
