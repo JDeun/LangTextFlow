@@ -53,6 +53,8 @@ class SessionRecordingWriter:
     ) -> None:
         if not 8_000 <= sample_rate <= 48_000:
             raise ValueError("unsupported recording sample rate")
+        if not 1 <= queue_chunks <= 1024:
+            raise ValueError("recording queue must have 1–1024 chunks")
         self.archive = archive
         self.session_id = session_id
         self.sample_rate = sample_rate
