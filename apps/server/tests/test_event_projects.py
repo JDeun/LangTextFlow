@@ -8,7 +8,10 @@ from pathlib import Path
 import pytest
 
 from langtextflow.models import (
-    CaptionStage, SessionState, StartSessionRequest, TranscriptEvent,
+    CaptionStage,
+    SessionState,
+    StartSessionRequest,
+    TranscriptEvent,
 )
 from langtextflow.project_repository import ProjectInput, ProjectRepository
 from langtextflow.session_repository import SessionRepository
@@ -134,6 +137,7 @@ async def test_project_api_crud_and_operator_boundary(tmp_path, monkeypatch) -> 
     from types import SimpleNamespace
 
     from fastapi import HTTPException
+
     from langtextflow import main
 
     history, repository = _history(tmp_path)
