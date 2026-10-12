@@ -166,3 +166,84 @@ async def test_recording_requires_real_audio_and_never_interrupts_mock_live(tmp_
     finally:
         await runtime.stop()
         await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_disk_setup_error_never_blocks_live_asr(tmp_path, monkeypatch) -> None:
+    """A full/unwritable disk must disable only recording, not the captions."""
+    class FakeAudioEngine:
+        accepts_audio = True
+        sample_rate = 16000
+        queue_depth = 0
+        queue_capacity = 16
+        failure = None
+        async def start(self, request):
+            return None
+        async def feed_audio(self, pcm):
+            assert pcm
+        async def end_audio(self):
+            return None
+        async def stop(self):
+            return None
+
+    async def disk_denied(self):
+        raise OSError("simulated disk unavailable")
+
+    monkeypatch.setattr(SessionRecordingWriter, "start", disk_denied)
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "bad-storage.db")))
+    monkeypatch.setattr(runtime, "_build_engine", lambda _: FakeAudioEngine())
+    try:
+        state = await runtime.start(StartSessionRequest(
+            record_audio=True, source_language="ko",
+            target_languages=["en"], engine="mock",
+            translation_provider="none",
+        ))
+        assert state.running is True
+        assert state.recording_enabled is True
+        assert "storage initialization failed" in (state.recording_error or "")
+        await runtime.feed_audio(struct.pack("<f", 0.25) * 64)
+        assert runtime.metrics.audio_frames_received == 1
+        assert runtime.archive.recordings(state.session_id) == []
+    finally:
+        await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_asr_provider_failure_does_not_discard_previously_received_audio(
+    tmp_path, monkeypatch,
+) -> None:
+    class FailingAudioEngine:
+        accepts_audio = True
+        sample_rate = 16000
+        queue_depth = 0
+        queue_capacity = 16
+        failure = None
+        async def start(self, request):
+            return None
+        async def feed_audio(self, pcm):
+            raise RuntimeError("simulated ASR unavailable")
+        async def end_audio(self):
+            return None
+        async def stop(self):
+            return None
+
+    runtime = CaptionRuntime(Settings(
+        database_path=str(tmp_path / "provider-failed.db"),
+        storage_reserve_mb=64,
+    ))
+    monkeypatch.setattr(runtime, "_build_engine", lambda _: FailingAudioEngine())
+    try:
+        state = await runtime.start(StartSessionRequest(
+            record_audio=True, source_language="ko",
+            target_languages=["en"], engine="mock",
+            translation_provider="none",
+        ))
+        with pytest.raises(RuntimeError, match="simulated ASR"):
+            await runtime.feed_audio(struct.pack("<f", 0.2) * 320)
+        ended = await runtime.stop()
+        assert ended.recording_error is None
+        recordings = runtime.archive.recordings(state.session_id)
+        assert len(recordings) == 1
+        assert recordings[0]["duration_seconds"] == pytest.approx(320 / 16000)
+    finally:
+        await runtime.shutdown()
