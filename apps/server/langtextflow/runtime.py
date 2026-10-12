@@ -330,7 +330,9 @@ class CaptionRuntime:
                         self._recorder = writer
                     except Exception:
                         # Never include filesystem paths or credentials in client errors.
-                        self.state.recording_error = "recording unavailable: storage initialization failed"
+                        self.state.recording_error = (
+                            "recording unavailable: storage initialization failed"
+                        )
             self.state.running = True
             self._refresh_queue_metrics()
         except Exception:
