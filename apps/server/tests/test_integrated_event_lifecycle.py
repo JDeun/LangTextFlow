@@ -300,7 +300,11 @@ def test_summary_api_uses_completed_original_transcript_and_is_idempotent(
         assert archive.summary_by_id(first_id)["content"] == "원문에 기반한 행사 요약 초안"
         for _ in range(50):
             update = client.get(path + "/archive").json()
-            if update["summary"] and update["summary"]["status"] == "completed" and not update["summary_stale"]:
+            if (
+                update["summary"]
+                and update["summary"]["status"] == "completed"
+                and not update["summary_stale"]
+            ):
                 break
             time.sleep(0.01)
         assert update["summary"]["summary_id"] == new_summary.json()["summary_id"]
