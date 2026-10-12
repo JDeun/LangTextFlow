@@ -67,3 +67,26 @@ API: `GET /api/v1/projects/{project_id}/search?q=term&limit=50&offset=0`
 - Project-wide AI synthesis and source-grounded multi-session summaries remain a separate follow-up under #86; an AI response is never treated as original transcript evidence.
 
 All search results are dynamic views; session reassignment/detachment immediately changes the scope of subsequent searches without duplicating transcript content.
+
+
+## Project-wide transcript search (stacked PR)
+
+Select an event project in Session History, then use **Search event transcripts**.
+The search considers only latest **committed** source segments and their existing
+language translations, returning independent matches with `session_id`,
+`segment_id`, speaker and millisecond offsets. Search results link back to
+the original archived session rather than creating a second copy of a transcript.
+
+- `GET /api/v1/projects/{project_id}/search?q=term&limit=50&offset=0`
+- Requires the existing loopback-only operator API guard; not an audience route.
+- Query length 2–128 characters; literal `%` / `_` are escaped and values are
+  SQL parameters. Max 100 results per page and 10,000 offset.
+- SQLite JSON1 searches translation **values** rather than keys. The initial
+  index is bounded SQL scan within one project's sessions, not embedding search.
+- Deleting or reassigning a session immediately removes it from the old project's
+  search scope without changing transcript records.
+
+**Limitations:** SQLite's built-in case-insensitive LIKE behavior is
+ASCII-oriented; sophisticated Korean morphological search, fuzzy matching,
+token ranking, and cross-session cited project-wide AI synthesis are deferred
+to issue #86. Search does not alone prove summary correctness.
