@@ -215,3 +215,23 @@ def test_history_project_filter_is_applied_before_limit(tmp_path) -> None:
     assert len(history.list_sessions(limit=200)) == 61
     assert len(history.list_sessions(limit=200, project_id=project.project_id)) == 1
     assert len(history.list_sessions(limit=200, unassigned=True)) == 60
+
+@pytest.mark.parametrize(
+    "malicious_project_id",
+    ["' OR 1=1 --", "'; DROP TABLE sessions; --", "project' UNION SELECT * FROM sessions --"],
+)
+def test_project_listing_uses_bound_ids_without_cross_project_leakage(
+    tmp_path, malicious_project_id: str,
+) -> None:
+    history, repository = _history(tmp_path)
+    project = repository.create(ProjectInput(title="private project"))
+    _session(history, "private-session", project.project_id)
+    _session(history, "unassigned-session")
+
+    assert history.list_sessions(project_id=malicious_project_id) == []
+    assert [item.session_id for item in history.list_sessions(project_id=project.project_id)] == [
+        "private-session",
+    ]
+    assert {item.session_id for item in history.list_sessions()} == {
+        "private-session", "unassigned-session",
+    }
