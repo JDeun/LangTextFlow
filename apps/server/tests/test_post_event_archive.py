@@ -203,3 +203,33 @@ def test_archive_http_wav_upload_and_security(tmp_path) -> None:
         active.session_id = "s-1"
         active.running = True
         assert client.get("/api/v1/history/s-1/archive").status_code == 409
+
+
+def test_recording_path_rejects_symlink_even_to_managed_audio(tmp_path) -> None:
+    """A symlink may point INSIDE the audio root and must still be rejected."""
+    history, archive = _seed(tmp_path)
+    owned = archive.audio_root / "original.wav"
+    owned.write_bytes(_wav())
+    link = archive.audio_root / "link.wav"
+    try:
+        link.symlink_to(owned)
+    except (NotImplementedError, OSError) as exc:
+        pytest.skip(f"symlinks unavailable on this platform: {exc}")
+    record = archive.insert_recording(
+        "s-1", filename="link.wav", size_bytes=owned.stat().st_size,
+        sha256="d" * 64, duration_seconds=1.0, sample_rate=16000, channels=1,
+    )
+    assert archive.recording_path("s-1", record["recording_id"]) is None
+    assert history.get_session("s-1") is not None
+
+
+def test_recording_path_is_session_scoped(tmp_path) -> None:
+    history, archive = _seed(tmp_path)
+    raw_path = archive.audio_root / "owned.wav"
+    raw_path.write_bytes(_wav())
+    record = archive.insert_recording(
+        "s-1", filename="owned.wav", size_bytes=raw_path.stat().st_size,
+        sha256="e" * 64, duration_seconds=1.0, sample_rate=16000, channels=1,
+    )
+    assert archive.recording_path("not-this-session", record["recording_id"]) is None
+    assert archive.recording_path("s-1", record["recording_id"]) == raw_path
