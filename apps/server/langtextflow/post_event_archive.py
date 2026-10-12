@@ -80,6 +80,10 @@ class PostEventArchive:
                 "WHERE status='running'",
                 (_now(),),
             )
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_summary "
+                "ON session_summaries(session_id) WHERE status='running'"
+            )
         self.cleanup_stale_partials()
 
     def cleanup_stale_partials(self, *, older_than_seconds: int = 24 * 3600) -> int:

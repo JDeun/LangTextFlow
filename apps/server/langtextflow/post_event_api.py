@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import sqlite3
 import wave
 from pathlib import Path
 from uuid import uuid4
@@ -191,15 +192,24 @@ def install_post_event_routes(
             and previous["prompt_version"] == PROMPT_VERSION
         ):
             return previous
-        record = await asyncio.to_thread(
-            archive.begin_summary,
-            session_id,
-            language=payload.language,
-            provider=payload.provider,
-            model=model,
-            transcript_sha256=revision,
-            prompt_version=PROMPT_VERSION,
-        )
+        try:
+            record = await asyncio.to_thread(
+                archive.begin_summary,
+                session_id,
+                language=payload.language,
+                provider=payload.provider,
+                model=model,
+                transcript_sha256=revision,
+                prompt_version=PROMPT_VERSION,
+            )
+        except sqlite3.IntegrityError as exc:
+            # The SQLite partial unique index closes the race between the
+            # previous "running" check and two concurrent POST requests.
+            if "UNIQUE constraint failed: session_summaries.session_id" in str(exc):
+                raise HTTPException(409, "summary generation already running") from exc
+            if "FOREIGN KEY constraint failed" in str(exc):
+                raise HTTPException(404, "session not found") from exc
+            raise
 
         async def worker() -> None:
             try:
