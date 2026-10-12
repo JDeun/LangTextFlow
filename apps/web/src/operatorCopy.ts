@@ -16,6 +16,8 @@ export const OPERATOR_COPY: Record<Locale, {
   deterministicFallback: string;
   unavailable: string;
   unknown: string;
+  projectLabel: string;
+  projectNone: string;
 }> = {
   en: {
     rulesOnly: "Rule-based correction only",
@@ -33,6 +35,7 @@ export const OPERATOR_COPY: Record<Locale, {
     deterministicFallback: "deterministic fallback",
     unavailable: "unavailable",
     unknown: "unknown",
+    projectLabel: "Event project", projectNone: "No project",
   },
   ko: {
     rulesOnly: "규칙 기반 보정만",
@@ -50,6 +53,7 @@ export const OPERATOR_COPY: Record<Locale, {
     deterministicFallback: "규칙 기반 fallback",
     unavailable: "사용 불가",
     unknown: "알 수 없음",
+    projectLabel: "행사 프로젝트", projectNone: "프로젝트 없이 진행",
   },
   ja: {
     rulesOnly: "ルールベース補正のみ",
@@ -67,5 +71,6 @@ export const OPERATOR_COPY: Record<Locale, {
     deterministicFallback: "ルールベース fallback",
     unavailable: "利用不可",
     unknown: "不明",
+    projectLabel: "イベントプロジェクト", projectNone: "プロジェクトなし",
   },
 };
