@@ -50,3 +50,20 @@ cd apps/web && npm ci && npm test && npm run build
 ```
 
 A green exact-commit CI, security audit, and browser E2E are required before merge; test files being present does not establish that they passed.
+
+## Cross-session transcript search (incremental project knowledge layer)
+
+When a project is selected in **Session History**, **Search event transcripts** searches that project's **committed source captions and translated caption values** across all linked sessions. Each hit carries immutable `session_id`, `segment_id`, source timestamp, language and original text for evidence inspection. Choosing a hit opens its originating session and filters transcript entries.
+
+API: `GET /api/v1/projects/{project_id}/search?q=term&limit=50&offset=0`
+
+- The query is 2–128 characters; `limit` is 1–100, and `offset` is 0–10,000.
+- All strings use SQL-bound parameters. Literal `%`, `_` and `!` are escaped; users cannot introduce SQL LIKE wildcards.
+- Searches only rows with `committed=1`. Uncommitted/provisional speech is intentionally excluded.
+- Query joins through `project_sessions` before inspecting transcript text, preventing retrieval from another event.
+- Translation JSON is searched through SQLite JSON1 **values**; language keys alone cannot trigger false positives.
+- As with every operator endpoint, browser Origins and loopback-only restrictions apply; audience join codes grant no search access.
+- Keyword matching uses SQLite LIKE semantics (ASCII case-insensitive by default); this is **not** multilingual semantic search or vector retrieval.
+- Project-wide AI synthesis and source-grounded multi-session summaries remain a separate follow-up under #86; an AI response is never treated as original transcript evidence.
+
+All search results are dynamic views; session reassignment/detachment immediately changes the scope of subsequent searches without duplicating transcript content.
