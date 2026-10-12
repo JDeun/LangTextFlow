@@ -211,6 +211,31 @@ function OperatorApp() {
     [sourceLanguage, targetLanguages],
   );
   const historyRefreshToken = `${session?.session_id ?? "none"}:${running}`;
+  // The recorder may fail while ASR continues; surface its health promptly.
+  // Poll only the local operator state and only for opted-in live sessions.
+  useEffect(() => {
+    const sessionId = session?.session_id;
+    if (!running || !session?.recording_enabled || !sessionId) return;
+    let closed = false;
+    const refreshRecordingHealth = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/state`);
+        if (!response.ok) return;
+        const next = (await response.json()) as SessionState;
+        if (closed || next.session_id !== sessionId) return;
+        setSession((current) => {
+          if (!current?.running || current.session_id !== sessionId) return current;
+          if (current.recording_error === next.recording_error) return current;
+          return { ...current, recording_error: next.recording_error };
+        });
+      } catch {
+        // A transient status poll failure must not affect live audio processing.
+      }
+    };
+    const timer = window.setInterval(() => void refreshRecordingHealth(), 2500);
+    return () => { closed = true; window.clearInterval(timer); };
+  }, [running, session?.recording_enabled, session?.session_id]);
+
   const needsAudio = engine !== "mock";
   const glossaryTargetLanguage = targetLanguages.includes(previewLanguage)
     ? previewLanguage
