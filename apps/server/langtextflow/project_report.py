@@ -86,7 +86,11 @@ def build_project_report(
                 f"- Summary source SHA-256: `{summary['transcript_sha256']}`",
                 (
                     "- Summary freshness: "
-                    + ("STALE — re-review required" if stale else "source revision unchanged — NOT fact-checked")
+                    + (
+                        "STALE — re-review required"
+                        if stale
+                        else "source revision unchanged — NOT fact-checked"
+                    )
                 ),
                 f"- Summary status: {summary['status']}",
             ]
