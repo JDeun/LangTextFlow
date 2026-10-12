@@ -143,10 +143,15 @@ class PostEventArchive:
         if Path(name).name != name or not name.endswith(".wav"):
             return None
         root = self.audio_root.resolve()
-        candidate = (root / name).resolve()
-        if candidate.parent != root or not candidate.is_file() or candidate.is_symlink():
+        candidate = root / name
+        # Check the raw entry before resolving; Path.resolve() follows symlinks.
+        # A link to another managed recording must not bypass session ownership.
+        if candidate.is_symlink():
             return None
-        return candidate
+        resolved = candidate.resolve()
+        if resolved.parent != root or not resolved.is_file():
+            return None
+        return resolved
 
     def recording_paths_for_session(self, session_id: str) -> list[Path]:
         with self._connect() as conn:
