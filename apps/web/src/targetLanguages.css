@@ -125,13 +125,13 @@
 .target-language-selector.compact .target-language-chips {
   /* Ensure every language button has an accessible touch target, even when
      the onboarding wizard is displayed in a narrow desktop viewport. */
-  grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
 }
 
 .target-language-selector.compact .target-language-chips button {
   display: flex;
   justify-content: center;
-  min-width: 40px;
+  min-width: 44px;
   min-height: 44px;
   padding: 5px;
   text-align: center;
