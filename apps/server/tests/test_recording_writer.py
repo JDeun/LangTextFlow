@@ -249,3 +249,26 @@ async def test_asr_provider_failure_does_not_discard_previously_received_audio(
         assert recordings[0]["duration_seconds"] == pytest.approx(320 / 16000)
     finally:
         await runtime.shutdown()
+
+
+
+@pytest.mark.asyncio
+async def test_fsync_error_discards_uncommitted_recording(tmp_path, monkeypatch) -> None:
+    from langtextflow import recording_writer
+
+    archive = _archive(tmp_path)
+    writer = SessionRecordingWriter(
+        archive, session_id="session-1", sample_rate=16000, reserve_bytes=0,
+    )
+    await writer.start()
+    writer.offer(struct.pack("<f", 0.1) * 320)
+
+    def failed_fsync(fd):
+        raise OSError("simulated storage flush failure")
+
+    monkeypatch.setattr(recording_writer.os, "fsync", failed_fsync)
+    assert await writer.stop() is None
+    assert "flush failed" in (writer.error or "")
+    assert archive.recordings("session-1") == []
+    assert list(archive.audio_root.glob("*.partial")) == []
+    assert list(archive.audio_root.glob("*.wav")) == []
