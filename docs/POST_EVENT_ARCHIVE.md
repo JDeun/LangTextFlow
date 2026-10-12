@@ -45,9 +45,11 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
   duration, codec and size are then registered in SQLite.
 - Recording failures that occur mid-session are surfaced through a scoped
   operator-state poll; no new audience API or permission is introduced.
-- A power loss may leave an **unregistered partial file**. Do not publish or
-  automatically treat these as complete; interrupted file recovery and
-  retention governance remain tracked in #79.
+- A power loss may leave an **unregistered partial file**. On subsequent
+  startup, only server-generated UUID-named partials older than 24 hours are
+  reclaimed. Completed WAVs and newer/unknown files are preserved. Partial
+  files are never advertised as complete; finalized-but-unindexed WAV recovery
+  and broader retention governance remain tracked in #79.
 - Session timestamps and audio frames currently lack independently verified
   sample-accurate seek alignment. Do not imply that clicking a caption seeks
   to that exact recorded word until alignment verification is implemented.
