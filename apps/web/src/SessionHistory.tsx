@@ -104,21 +104,21 @@ export function SessionHistory({
 
   const filteredSessions = useMemo(() => {
     const query = sessionQuery.trim().toLocaleLowerCase();
-    if (!query) return sessions;
     return sessions.filter((session) => {
       if (selectedProjectId === "unassigned" && session.project_id) return false;
       if (selectedProjectId !== "all" && selectedProjectId !== "unassigned" &&
           session.project_id !== selectedProjectId) return false;
+      if (!query) return true;
       return [
-      session.title,
-      session.notes,
-      session.presenter || "",
-      session.engine,
-      session.translation_provider,
-      session.preset,
-      session.source_language,
-      session.interrupted ? `interrupted ${copy.recovered}` : "",
-      ...session.target_languages,
+        session.title,
+        session.notes,
+        session.presenter || "",
+        session.engine,
+        session.translation_provider,
+        session.preset,
+        session.source_language,
+        session.interrupted ? `interrupted ${copy.recovered}` : "",
+        ...session.target_languages,
       ].join("\n").toLocaleLowerCase().includes(query);
     });
   }, [copy.recovered, sessionQuery, sessions, selectedProjectId]);
