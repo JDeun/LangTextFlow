@@ -81,13 +81,19 @@ jobs:
       - name: Python vulnerability audit and CycloneDX SBOM
         run: |
           mkdir -p artifacts
-          uv run pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json
+          if ! uv run pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json; then
+            echo "::group::Python vulnerability details (package, version, advisory)"
+            uv run pip-audit --format columns || true
+            echo "::endgroup::"
+            exit 1
+          fi
       - name: Upload Python SBOM
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: python-sbom
           path: artifacts/python-sbom.cdx.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
       - name: Python static security scan
         run: uv run bandit -r apps/server/langtextflow -ll -s B615
