@@ -177,6 +177,7 @@ async def test_disk_setup_error_never_blocks_live_asr(tmp_path, monkeypatch) -> 
         queue_depth = 0
         queue_capacity = 16
         failure = None
+        running = True
         async def start(self, request):
             return None
         async def feed_audio(self, pcm):
@@ -218,6 +219,7 @@ async def test_asr_provider_failure_does_not_discard_previously_received_audio(
         queue_depth = 0
         queue_capacity = 16
         failure = None
+        running = True
         async def start(self, request):
             return None
         async def feed_audio(self, pcm):
