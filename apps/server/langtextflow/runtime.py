@@ -258,6 +258,12 @@ class CaptionRuntime:
 
     async def _start_unlocked(self, request: StartSessionRequest) -> SessionState:
         await self.initialize()
+        # Validate before stopping a running session: an invalid project must not
+        # interrupt a live event or create an unassigned session by accident.
+        if request.project_id is not None and not await asyncio.to_thread(
+            self.history.project_exists, request.project_id,
+        ):
+            raise ValueError("project not found")
         if self.state.running:
             await self._stop_unlocked()
 
