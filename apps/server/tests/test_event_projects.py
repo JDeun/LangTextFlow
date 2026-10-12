@@ -84,7 +84,7 @@ def test_unknown_project_rolls_back_new_session_insertion(tmp_path) -> None:
         _session(history, "invalid-session", "nonexistent-project")
     assert history.get_session("invalid-session") is None
     assert history.list_sessions() == []
-    with pytest.raises(KeyError, match="project not found"):
+    with pytest.raises(KeyError, match="session not found"):
         repository.assign("absent", "nonexistent")
     _session(history, "valid-session")
     with pytest.raises(KeyError, match="project not found"):
