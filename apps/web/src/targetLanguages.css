@@ -129,8 +129,9 @@
 .target-language-selector.compact .target-language-chips button {
   display: flex;
   justify-content: center;
-  min-height: 34px;
-  padding: 5px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px 6px;
   text-align: center;
 }
 
