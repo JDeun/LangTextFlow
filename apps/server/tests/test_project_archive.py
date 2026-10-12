@@ -154,3 +154,25 @@ async def test_archive_manifest_api_is_operator_only_and_rejects_unknown_project
     assert missing.value.status_code == 404
     with pytest.raises(ValueError, match="pagination"):
         projects.session_ids(project.project_id, limit=0)
+
+
+def test_manifest_omits_sessions_reassigned_after_initial_page_query(
+    tmp_path, monkeypatch,
+) -> None:
+    history, projects, archive = _seed(tmp_path)
+    first = projects.create(ProjectInput(title="Original event"))
+    second = projects.create(ProjectInput(title="New owner"))
+    _session(history, first.project_id, "moving-session", "관리 대상 원문")
+    original_ids = projects.session_ids
+
+    def move_after_listing(project_id, *, limit=25, offset=0):
+        ids = original_ids(project_id, limit=limit, offset=offset)
+        projects.assign("moving-session", second.project_id)
+        return ids
+
+    monkeypatch.setattr(projects, "session_ids", move_after_listing)
+    result = build_project_archive_manifest(
+        projects, history, archive, first.project_id,
+    )
+    assert result["sessions"] == []
+    assert history.get_session("moving-session").project_id == second.project_id
