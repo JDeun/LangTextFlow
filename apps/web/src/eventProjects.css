@@ -26,3 +26,12 @@
 .project-transcript-results li p { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; }
 .project-transcript-results li button { justify-self:start; }
 .project-transcript-result-meta { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:baseline; }
+
+
+.project-archive-index { margin: 0.6rem 0 1rem; padding: 0.9rem; display:grid; gap:0.7rem; border:1px solid var(--border, #d1d5db); border-radius:0.8rem; }
+.project-archive-header { display:flex; justify-content:space-between; align-items:center; gap:0.7rem; flex-wrap:wrap; }
+.project-archive-header h3 { margin:0 0 0.25rem; }
+.project-archive-list { list-style:none; padding:0; margin:0; display:grid; gap:0.6rem; }
+.project-archive-list li { border:1px solid var(--border, #d1d5db); border-radius:0.55rem; padding:0.65rem; display:flex; justify-content:space-between; gap:0.6rem; align-items:center; flex-wrap:wrap; min-width:0; }
+.project-archive-list strong { overflow-wrap:anywhere; }
+.project-archive-status { font-size:0.85rem; }
