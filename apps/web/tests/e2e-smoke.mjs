@@ -185,6 +185,40 @@ await waitFor(
   "operator caption socket connection",
 );
 
+// A real Project API/UI contract: select the event before starting the live session.
+const projectResponse = await fetch("http://127.0.0.1:8000/api/v1/projects", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    title: "Browser E2E conference",
+    description: "Project/session grouping acceptance",
+    event_date: "2026-10-12",
+    location: "Test venue",
+    status: "planning",
+  }),
+});
+if (projectResponse.status !== 201) {
+  throw new Error(`project creation failed: ${projectResponse.status} ${await projectResponse.text()}`);
+}
+const eventProject = await projectResponse.json();
+await navigate("http://127.0.0.1:5173/");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="session-project-select"] option[value="${eventProject.project_id}"]') !== null`),
+  "new event project in operator setup",
+);
+const projectSelected = await evaluate(`(() => {
+  const select = document.querySelector('[data-testid="session-project-select"]');
+  if (!select) return false;
+  select.value = ${JSON.stringify(eventProject.project_id)};
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`);
+if (!projectSelected) throw new Error("event project was not selectable");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="session-project-select"]')?.value === ${JSON.stringify(eventProject.project_id)}`),
+  "selected project for the next session",
+);
+
 const engineChanged = await evaluate(`(() => {
   const select = document.querySelector('[data-testid="engine-select"]');
   if (!select) return false;
@@ -225,6 +259,15 @@ if (!state.running || !state.join_code || !state.session_id) {
   throw new Error(`invalid running state: ${JSON.stringify(state)}`);
 }
 
+const savedSessionResponse = await fetch(
+  `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}`,
+);
+if (!savedSessionResponse.ok) throw new Error("new session history not available");
+const savedSession = await savedSessionResponse.json();
+if (savedSession.project_id !== eventProject.project_id) {
+  throw new Error("new session was not atomically associated with the selected project");
+}
+
 await navigate(`http://127.0.0.1:5173/audience/${state.join_code}`);
 await waitFor(
   () => evaluate(`document.body.innerText.includes("LIVE") && document.documentElement.lang === "ko"`),
@@ -245,6 +288,21 @@ const stopResponse = await fetch("http://127.0.0.1:8000/api/v1/session/stop", { 
 if (!stopResponse.ok) throw new Error(`session stop failed: ${stopResponse.status}`);
 const stopped = await stopResponse.json();
 if (stopped.running) throw new Error("session remained running after stop");
+
+// Move/detach must not delete or rewrite the original session.
+const sessionProjectUrl = `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}/project`;
+for (const projectId of [null, eventProject.project_id]) {
+  const linked = await fetch(sessionProjectUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId }),
+  });
+  if (!linked.ok) throw new Error(`project relinking failed: ${linked.status}`);
+  const updated = await linked.json();
+  if (updated.project_id !== projectId || updated.session_id !== state.session_id) {
+    throw new Error("project reassignment changed the wrong session");
+  }
+}
 
 await navigate("http://127.0.0.1:5173/");
 await waitFor(
@@ -278,4 +336,4 @@ for (const format of ["srt", "vtt", "txt", "json"]) {
 }
 
 socket.close();
-console.log("browser E2E smoke passed: onboarding, locale/layout, keyboard start, audience, stop, history and exports");
+console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history and exports");
