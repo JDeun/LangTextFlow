@@ -20,7 +20,6 @@ from langtextflow.models import (
 from langtextflow.post_event_api import install_post_event_routes
 from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.post_event_summary import (
-    SummaryRequest,
     chunks,
     generate_summary,
     transcript_source,
