@@ -105,8 +105,13 @@ export function SessionHistory({
   }, [refresh, refreshToken]);
 
   useEffect(() => {
+    // A slow detail request for the previous project must not reopen an
+    // unrelated transcript after the operator switches event workspaces.
+    detailRequestRef.current += 1;
+    setDetailBusy(false);
     setSelected(null);
     setSegments([]);
+    setTranscriptQuery("");
   }, [selectedProjectId]);
 
   const filteredSessions = useMemo(() => {
