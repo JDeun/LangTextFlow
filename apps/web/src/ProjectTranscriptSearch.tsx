@@ -132,8 +132,13 @@ export function ProjectTranscriptSearch({
           aria-label={copy.heading}
           placeholder={copy.placeholder}
           onChange={(event) => {
+            // Invalidate in-flight searches before showing results for a new query.
+            requestRef.current += 1;
             setQuery(event.target.value);
             setSubmitted(false);
+            setBusy(false);
+            setMatches([]);
+            setHasMore(false);
           }}
         />
         <button type="submit" disabled={busy || query.trim().length < 2}>
