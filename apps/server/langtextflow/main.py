@@ -49,6 +49,7 @@ from .network import (
 )
 from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
+from .presets import CHURCH_GLOSSARY
 from .project_repository import (
     ProjectAssignment,
     ProjectInput,
@@ -56,7 +57,6 @@ from .project_repository import (
     ProjectRepository,
     ProjectTranscriptMatch,
 )
-from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
 from .runtime_install import (
     RuntimeKind,
