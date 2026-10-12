@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import html
-import re
 
 from .post_event_archive import PostEventArchive
 from .post_event_summary import transcript_source
@@ -15,7 +14,8 @@ def _plain(value: object, *, limit: int = 300) -> str:
     """Render untrusted titles/transcript/model output as inert Markdown text."""
     normalized = " ".join(str(value or "").split())[:limit]
     escaped = html.escape(normalized, quote=False)
-    return re.sub(r"([\\\\\[\]])", r"\\\1", escaped)
+    markdown_special = set("\\`*_{}[]()#+-.!>|~")
+    return "".join("\\" + char if char in markdown_special else char for char in escaped)
 
 
 def _timestamp(ms: int) -> str:
