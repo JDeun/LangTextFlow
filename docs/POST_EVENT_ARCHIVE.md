@@ -27,6 +27,31 @@ Failure behavior: if the recording queue overflows, storage is exhausted, or WAV
 
 Recordings are local plaintext files with `0600` creation permissions (subject to platform filesystem semantics); **participant notice/consent is the operator's responsibility**. Browser controls do not persist recording opt-in across sessions. Imported WAV files remain supported.
 
+
+## Optional live recording (stacked PR #92)
+
+- Recording remains **off by default** and must be opted into for each new
+  microphone-enabled session, after informing participants and obtaining
+  required consent. The choice resets when a session ends or aborts.
+- A bounded in-memory queue copies PCM frames from the operator-only audio
+  stream to a separate asynchronous WAV writer. Files are private,
+  single-channel PCM16 and linked to the immutable `session_id`.
+- A disk initialization error does not stop live captioning; the operator
+  sees a distinct recording failure status. Disk flush errors or audio queue
+  overflow invalidate the recording and prevent incomplete files being
+  presented as successful.
+- The recording is written first as a private `*.wav.partial` and only
+  promoted to `*.wav` after finalization and disk flush. Its SHA-256,
+  duration, codec and size are then registered in SQLite.
+- Recording failures that occur mid-session are surfaced through a scoped
+  operator-state poll; no new audience API or permission is introduced.
+- A power loss may leave an **unregistered partial file**. Do not publish or
+  automatically treat these as complete; interrupted file recovery and
+  retention governance remain tracked in #79.
+- Session timestamps and audio frames currently lack independently verified
+  sample-accurate seek alignment. Do not imply that clicking a caption seeks
+  to that exact recorded word until alignment verification is implemented.
+
 ## Operator-only API
 
 | Endpoint | Purpose |
