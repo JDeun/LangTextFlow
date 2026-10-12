@@ -219,6 +219,15 @@ await waitFor(
   "selected project for the next session",
 );
 
+// Consent is explicitly opt-in and must remain unavailable in demo-only mode.
+const defaultRecordingDisabled = await evaluate(`(() => {
+  const input = document.querySelector('.recording-opt-in input[type="checkbox"]');
+  return Boolean(input) && !input.checked;
+})()`);
+if (!defaultRecordingDisabled) {
+  throw new Error("recording consent must be off for a new session");
+}
+
 const engineChanged = await evaluate(`(() => {
   const select = document.querySelector('[data-testid="engine-select"]');
   if (!select) return false;
@@ -227,6 +236,14 @@ const engineChanged = await evaluate(`(() => {
   return true;
 })()`);
 if (!engineChanged) throw new Error("ASR engine selector not found");
+
+await waitFor(
+  () => evaluate(`(() => {
+    const input = document.querySelector('.recording-opt-in input[type="checkbox"]');
+    return Boolean(input) && !input.checked && input.disabled;
+  })()`),
+  "recording consent must be disabled for mock demo engine",
+);
 
 await waitFor(
   () => evaluate(`(() => {

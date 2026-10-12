@@ -195,6 +195,8 @@ function OperatorApp() {
   const [translationModel, setTranslationModel] = useState("translategemma:4b");
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [deviceId, setDeviceId] = useState("");
+  // Recording consent is always an explicit per-session choice (never persisted).
+  const [recordAudio, setRecordAudio] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
   const [projects, setProjects] = useState<EventProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("all");
@@ -213,6 +215,31 @@ function OperatorApp() {
     [sourceLanguage, targetLanguages],
   );
   const historyRefreshToken = `${session?.session_id ?? "none"}:${running}`;
+  // The recorder may fail while ASR continues; surface its health promptly.
+  // Poll only the local operator state and only for opted-in live sessions.
+  useEffect(() => {
+    const sessionId = session?.session_id;
+    if (!running || !session?.recording_enabled || !sessionId) return;
+    let closed = false;
+    const refreshRecordingHealth = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/v1/state`);
+        if (!response.ok) return;
+        const next = (await response.json()) as SessionState;
+        if (closed || next.session_id !== sessionId) return;
+        setSession((current) => {
+          if (!current?.running || current.session_id !== sessionId) return current;
+          if (current.recording_error === next.recording_error) return current;
+          return { ...current, recording_error: next.recording_error };
+        });
+      } catch {
+        // A transient status poll failure must not affect live audio processing.
+      }
+    };
+    const timer = window.setInterval(() => void refreshRecordingHealth(), 2500);
+    return () => { closed = true; window.clearInterval(timer); };
+  }, [running, session?.recording_enabled, session?.session_id]);
+
   const needsAudio = engine !== "mock";
   const glossaryTargetLanguage = targetLanguages.includes(previewLanguage)
     ? previewLanguage
@@ -334,6 +361,7 @@ function OperatorApp() {
           project_id: selectedProjectId !== "all" && selectedProjectId !== "unassigned"
             ? selectedProjectId
             : null,
+          record_audio: recordAudio && needsAudio,
           source_language: sourceLanguage,
           target_languages: targetLanguages,
           engine,
@@ -376,6 +404,7 @@ function OperatorApp() {
             }).catch(() => null);
             if (stopResponse?.ok) {
               setSession((await stopResponse.json()) as SessionState);
+              setRecordAudio(false);
             }
           })();
         });
@@ -387,6 +416,7 @@ function OperatorApp() {
       captureRef.current = null;
       await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" }).catch(() => undefined);
       setSession(null);
+      setRecordAudio(false);
       setError(reason instanceof Error ? reason.message : t("error.startFailed"));
     } finally {
       setBusy(false);
@@ -402,6 +432,8 @@ function OperatorApp() {
       const response = await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
       if (!response.ok) throw new Error(await response.text());
       setSession((await response.json()) as SessionState);
+      // Explicit consent is scoped to one session; never carry it to the next event.
+      setRecordAudio(false);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : t("error.stopFailed"));
     } finally {
@@ -466,6 +498,29 @@ function OperatorApp() {
             {t("session.title")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
           </label>
+          <label className="recording-opt-in">
+            <input
+              type="checkbox"
+              checked={recordAudio && needsAudio}
+              disabled={running || !needsAudio}
+              onChange={(event) => setRecordAudio(event.target.checked)}
+            />
+            <span>
+              {locale === "ko"
+                ? "행사 음성 녹음 저장(선택)"
+                : locale === "ja"
+                  ? "イベント音声を録音保存（任意）"
+                  : "Save the event audio recording (optional)"}
+            </span>
+          </label>
+          <small>
+            {locale === "ko"
+              ? "기본 비활성화입니다. 참가자 고지·동의를 확인한 뒤 선택하세요. 녹음은 기기 내부에 보관되며 종료 후 세션 기록에 연결됩니다."
+              : locale === "ja"
+                ? "初期状態はオフです。参加者への告知・同意を確認してから有効にしてください。録音はローカル保存されます。"
+                : "Off by default. Confirm participant notice/consent first. Audio stays on this device and is linked to the completed session."}
+          </small>
+          {session?.recording_error && <small role="alert">{session.recording_error}</small>}
           <label>
             {locale === "ko" ? "행사 프로젝트" : locale === "ja" ? "イベントプロジェクト" : "Event project"}
             <select
@@ -668,6 +723,19 @@ function OperatorApp() {
           )}
           {session?.persistence_error && (
             <div className="warning-box">{t("live.persistenceWarning")}: {session.persistence_error}</div>
+          )}
+          {session?.recording_enabled && (
+            <div className="warning-box" role="status">
+              {session.recording_error
+                ? `${locale === "ko" ? "녹음 실패" : locale === "ja" ? "録音失敗" : "Recording failed"}: ${session.recording_error}`
+                : running
+                  ? (locale === "ko" ? "음성 녹음 중 — 종료 후 세션 기록에 보관됩니다."
+                    : locale === "ja" ? "録音中 — 終了後にセッション記録へ保存します。"
+                      : "Recording audio — saved to session history after stop.")
+                  : (locale === "ko" ? "녹음 세션 종료 — 기록에서 확인하세요."
+                    : locale === "ja" ? "録音終了 — セッション履歴で確認してください。"
+                      : "Recording session ended — check the archive.")}
+            </div>
           )}
           <button
             className={running ? "stop-button" : "start-button"}
