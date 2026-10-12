@@ -274,3 +274,35 @@ def test_summary_api_uses_completed_original_transcript_and_is_idempotent(
             json={"language": "ko", "provider": "openai-compatible", "model": "cloud"},
         )
         assert denied.status_code == 400
+
+        # Revision safety: a corrected committed source invalidates the
+        # previously completed summary without destroying that historical draft.
+        history.upsert_segment(
+            sid,
+            TranscriptEvent(
+                segment_id="evidence-1", version=2,
+                source_language="ko",
+                text="새로운 목표를 공유했습니다. 추가 검토가 필요합니다.",
+                translations={"en": "The new goals require further review."},
+                committed=True, stage=CaptionStage.COMMITTED,
+                start_ms=500, end_ms=3200,
+            ),
+        )
+        stale = client.get(path + "/archive")
+        assert stale.status_code == 200
+        assert stale.json()["summary_stale"] is True
+        new_summary = client.post(
+            path + "/summary",
+            json={"language": "ko", "provider": "ollama", "model": "local-fixture"},
+        )
+        assert new_summary.status_code == 202
+        assert new_summary.json()["summary_id"] != first_id
+        assert archive.summary_by_id(first_id)["content"] == "원문에 기반한 행사 요약 초안"
+        for _ in range(50):
+            update = client.get(path + "/archive").json()
+            if update["summary"] and update["summary"]["status"] == "completed" and not update["summary_stale"]:
+                break
+            time.sleep(0.01)
+        assert update["summary"]["summary_id"] == new_summary.json()["summary_id"]
+        assert update["summary_stale"] is False
+        assert len(calls) == 2
