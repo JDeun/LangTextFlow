@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import io
+import sqlite3
 import wave
 from datetime import UTC, datetime
 
@@ -233,3 +234,44 @@ def test_recording_path_is_session_scoped(tmp_path) -> None:
     )
     assert archive.recording_path("not-this-session", record["recording_id"]) is None
     assert archive.recording_path("s-1", record["recording_id"]) == raw_path
+
+
+
+def test_running_summary_is_single_flight_and_retryable(tmp_path) -> None:
+    """An atomic DB constraint prevents duplicate LLM work under concurrent POST."""
+    _, archive = _seed(tmp_path)
+    params = {
+        "language": "ko",
+        "provider": "ollama",
+        "model": "test",
+        "transcript_sha256": "f" * 64,
+        "prompt_version": "post-event-v1",
+    }
+    initial = archive.begin_summary("s-1", **params)
+    assert initial["status"] == "running"
+    with pytest.raises(
+        sqlite3.IntegrityError,
+        match="UNIQUE constraint failed: session_summaries.session_id",
+    ):
+        archive.begin_summary("s-1", **params)
+    archive.finish_summary(initial["summary_id"], content="검토 전 초안")
+    retried = archive.begin_summary("s-1", **params)
+    assert retried["summary_id"] != initial["summary_id"]
+    archive.finish_summary(retried["summary_id"], error="timeout")
+    assert archive.latest_summary("s-1")["status"] == "error"
+
+
+def test_running_summary_single_flight_survives_restart_migration(tmp_path) -> None:
+    _, archive = _seed(tmp_path)
+    row = archive.begin_summary(
+        "s-1", language="ko", provider="ollama", model="test",
+        transcript_sha256="f" * 64, prompt_version="post-event-v1",
+    )
+    # Restart must mark abandoned work failed before re-establishing the index.
+    archive.initialize()
+    assert archive.summary_by_id(row["summary_id"])["status"] == "error"
+    next_row = archive.begin_summary(
+        "s-1", language="ko", provider="ollama", model="test",
+        transcript_sha256="f" * 64, prompt_version="post-event-v1",
+    )
+    assert next_row["status"] == "running"
