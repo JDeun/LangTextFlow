@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -323,6 +324,7 @@ class StartSessionRequest(BaseModel):
         max_length=MAX_TARGET_LANGUAGES,
     )
     engine: str = Field(default="mock", max_length=40)
+    resource_profile: Literal["standard", "low"] = "standard"
     correction_provider: str = Field(default="none", max_length=80)
     correction_model: str | None = Field(default=None, max_length=200)
     translation_provider: str = Field(default="none", max_length=80)

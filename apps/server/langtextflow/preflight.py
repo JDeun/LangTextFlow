@@ -641,7 +641,9 @@ async def run_preflight(
     translation_model: str | None = None,
     engine: str = "auto",
     translation_provider: str = "ollama",
+    resource_profile: str = "standard",
 ) -> SystemPreflight:
+    low = settings.resource_profile == "low" or resource_profile == "low"
     ollama_model = (
         translation_model
         if translation_provider == "ollama" and translation_model
@@ -654,7 +656,10 @@ async def run_preflight(
     )
     nvidia, whisper, vibevoice, ollama, openai_compatible = await asyncio.gather(
         asyncio.to_thread(_nvidia_check),
-        asyncio.to_thread(_faster_whisper_checks, settings.active_whisper_model),
+        asyncio.to_thread(
+            _faster_whisper_checks,
+            settings.low_resource_whisper_model if low else settings.faster_whisper_model,
+        ),
         _vibevoice_check(settings),
         _ollama_checks(settings, ollama_model),
         _openai_compatible_checks(settings, openai_model),
@@ -700,7 +705,7 @@ async def run_preflight(
         checks,
         engine=engine,
         translation_provider=translation_provider,
-        low_resource=settings.resource_profile == "low",
+        low_resource=low,
     )
     selected_model: str | None = None
     if translation_provider == "ollama":
@@ -725,6 +730,6 @@ async def run_preflight(
             checks,
             model=ollama_model,
             openai_model=openai_model or None,
-            low_resource=settings.resource_profile == "low",
+            low_resource=low,
         ),
     )

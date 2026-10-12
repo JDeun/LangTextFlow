@@ -159,11 +159,13 @@ class CaptionRuntime:
             max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
 
-    def _faster_whisper_engine(self, publish=None) -> FasterWhisperStreamingAsrEngine:
-        low = self.settings.resource_profile == "low"
+    def _faster_whisper_engine(
+        self, publish=None, *, low_resource: bool | None = None,
+    ) -> FasterWhisperStreamingAsrEngine:
+        low = self.settings.resource_profile == "low" if low_resource is None else low_resource
         return FasterWhisperStreamingAsrEngine(
             publish or self.pipeline.ingest,
-            model=self.settings.active_whisper_model,
+            model=self.settings.low_resource_whisper_model if low else self.settings.faster_whisper_model,
             device="cpu" if low else self.settings.faster_whisper_device,
             compute_type="int8" if low else self.settings.faster_whisper_compute_type,
             cpu_threads=self.settings.low_resource_cpu_threads if low else None,
@@ -187,17 +189,18 @@ class CaptionRuntime:
         self._refresh_queue_metrics()
 
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
+        low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         if request.engine == "mock":
             return MockStreamingAsrEngine(self.pipeline.ingest)
         if request.engine == "vibevoice":
             return self._vibevoice_engine()
         if request.engine == "faster-whisper":
-            return self._faster_whisper_engine()
+            return self._faster_whisper_engine(low_resource=low)
         if request.engine == "auto":
             # Low-resource installations never probe/load a 7B sidecar in Auto.
             # Explicit "vibevoice" remains an intentional operator override.
-            if self.settings.resource_profile == "low":
-                return self._faster_whisper_engine()
+            if low:
+                return self._faster_whisper_engine(low_resource=True)
             return ReplayFallbackAsrEngine(
                 self.pipeline.ingest,
                 [

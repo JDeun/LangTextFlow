@@ -109,3 +109,25 @@ def test_environment_can_enable_church_profile(monkeypatch: pytest.MonkeyPatch) 
     assert settings.resource_profile == "low"
     assert settings.active_whisper_model == "tiny"
     assert settings.low_resource_cpu_threads == 1
+
+
+
+def test_operator_selecting_low_profile_works_without_environment_variable(tmp_path) -> None:
+    settings = Settings(
+        _env_file=None, database_path=str(tmp_path / "session.sqlite"),
+        resource_profile="standard",
+    )
+    runtime = CaptionRuntime(settings)
+    engine = runtime._build_engine(
+        StartSessionRequest(engine="auto", resource_profile="low")
+    )
+    assert type(engine) is FasterWhisperStreamingAsrEngine
+    assert engine.device == "cpu"
+    assert engine.model_name == "base"
+    assert engine.compute_type == "int8"
+    assert engine.queue_capacity == 8
+
+
+def test_bad_per_session_resource_profile_is_rejected() -> None:
+    with pytest.raises(ValidationError):
+        StartSessionRequest(resource_profile="unverified")

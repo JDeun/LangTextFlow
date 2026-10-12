@@ -288,6 +288,7 @@ async def system_preflight(
     engine: str = "auto",
     translation_provider: str = "ollama",
     translation_model: str | None = None,
+    resource_profile: str = "standard",
 ) -> SystemPreflight:
     _require_operator(request)
     return await run_preflight(
@@ -295,6 +296,7 @@ async def system_preflight(
         translation_model,
         engine=engine,
         translation_provider=translation_provider,
+        resource_profile=resource_profile,
     )
 
 
