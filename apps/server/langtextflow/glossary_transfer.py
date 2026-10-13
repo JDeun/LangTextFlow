@@ -56,6 +56,7 @@ def export_glossary(
             output,
             fieldnames=[
                 "term",
+                "source_language",
                 "aliases_json",
                 "translations_json",
                 "category",
@@ -69,6 +70,7 @@ def export_glossary(
             writer.writerow(
                 {
                     "term": _csv_safe_text(entry["term"]),
+                    "source_language": entry["source_language"],
                     "aliases_json": json.dumps(entry["aliases"], ensure_ascii=False),
                     "translations_json": json.dumps(
                         entry["translations"],
@@ -101,7 +103,7 @@ def parse_glossary_import(payload: GlossaryImportRequest) -> list[GlossaryEntry]
         )
 
     entries: list[GlossaryEntry] = []
-    seen_terms: set[str] = set()
+    seen_terms: set[tuple[str, str]] = set()
     for index, raw in enumerate(raw_entries, start=1):
         normalized = dict(raw)
         term = str(normalized.get("term", "")).strip()
@@ -113,9 +115,11 @@ def parse_glossary_import(payload: GlossaryImportRequest) -> list[GlossaryEntry]
         except ValidationError as exc:
             raise ValueError(f"invalid glossary entry at row {index}: {exc}") from exc
 
-        key = entry.term.casefold()
+        key = (entry.source_language, entry.term.casefold())
         if key in seen_terms:
-            raise ValueError(f"duplicate term in import: {entry.term}")
+            raise ValueError(
+                f"duplicate term in import: {entry.source_language}:{entry.term}"
+            )
         seen_terms.add(key)
         entries.append(entry)
     return entries
@@ -130,6 +134,7 @@ def glossary_export_media_type(transfer_format: GlossaryTransferFormat) -> str:
 def _portable_entry(record: GlossaryRecord) -> dict[str, Any]:
     return {
         "term": record.term,
+        "source_language": record.source_language,
         "aliases": list(record.aliases),
         "translations": dict(record.translations),
         "category": record.category,
@@ -192,6 +197,7 @@ def _parse_csv(content: str) -> list[dict[str, Any]]:
             rows.append(
                 {
                     "term": term,
+                    "source_language": (row.get("source_language") or "ko").strip(),
                     "aliases": _json_cell(row.get("aliases_json"), [], "aliases_json", index),
                     "translations": _json_cell(
                         row.get("translations_json"),
