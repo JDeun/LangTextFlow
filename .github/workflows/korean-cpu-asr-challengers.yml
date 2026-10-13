@@ -41,7 +41,7 @@ jobs:
           uv sync --locked --extra dev --extra benchmark
           uv pip install "sherpa-onnx==1.13.8" "datasets==4.4.1" \
             "soundfile==0.13.1" "huggingface-hub==0.35.3"
-          uv run --no-sync pytest -q apps/server/tests/test_cpu_asr_candidates.py \
+          uv run --no-sync python -m pytest -q apps/server/tests/test_cpu_asr_candidates.py \
             apps/server/tests/test_compare_cpu_asr_candidates.py
       - name: Evaluate five models in exactly the requested order
         env:
