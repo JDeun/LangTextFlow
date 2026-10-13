@@ -102,7 +102,8 @@ async def test_persistence_disk_full_is_degraded_without_stopping_live_session(
 
         assert runtime.state.running is True
         assert runtime.state.persistence_error is not None
-        assert "disk is full" in runtime.state.persistence_error
+        assert "storage unavailable" in runtime.state.persistence_error
+        assert "disk is full" not in runtime.state.persistence_error
         assert runtime.store.snapshot(), "live in-memory captions must survive persistence failure"
     finally:
         await runtime.stop()

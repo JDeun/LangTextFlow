@@ -204,6 +204,78 @@ await waitFor(
   "operator caption socket connection",
 );
 
+// Standalone operator glossary deep link: bilingual create/edit/persist and back navigation.
+const glossaryCreated = await fetch("http://127.0.0.1:8000/api/v1/glossary", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    term: "강연자료 E2E", aliases: ["자료 E2E"],
+    translations: { en: "lecture notes" }, category: "lecture",
+    presets: ["lecture"], boost: 1.4, enabled: true,
+  }),
+});
+if (glossaryCreated.status !== 201) {
+  throw new Error("Glossary E2E entry creation failed");
+}
+const glossaryRecord = await glossaryCreated.json();
+await evaluate(`document.querySelector('[data-testid="glossary-nav"]')?.click(); true`);
+await waitFor(
+  () => evaluate(`location.hash === "#/glossary"
+    && document.querySelector('[data-testid="glossary-manager"]')?.innerText.includes("강연자료 E2E")`),
+  "standalone bilingual glossary page",
+);
+const startedGlossaryEdit = await evaluate(`(() => {
+  const row = Array.from(document.querySelectorAll('.glossary-item')).find(
+    (el) => el.textContent.includes('강연자료 E2E'),
+  );
+  if (!row) return false;
+  row.querySelector('[data-testid="glossary-edit"]')?.click();
+  return true;
+})()`);
+if (!startedGlossaryEdit) throw new Error("Glossary edit action not accessible");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="glossary-term"]')?.value === "강연자료 E2E"`),
+  "glossary edit prefill",
+);
+const changedJapanese = await evaluate(`(() => {
+  const field = document.querySelector('[data-testid="glossary-translation-ja"]');
+  const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  if (!field || !set) return false;
+  set.call(field, '講演資料');
+  field.dispatchEvent(new Event('input', { bubbles: true }));
+  return true;
+})()`);
+if (!changedJapanese) throw new Error("Glossary Japanese field change failed");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="glossary-translation-ja"]')?.value === '講演資料'`),
+  "glossary Japanese React state",
+);
+await evaluate(`document.querySelector('[data-testid="glossary-save"]')?.click(); true`);
+await waitFor(async () => {
+  const response = await fetch("http://127.0.0.1:8000/api/v1/glossary");
+  if (!response.ok) return false;
+  const entry = (await response.json()).find((row) => row.id === glossaryRecord.id);
+  return entry?.translations.en === "lecture notes"
+    && entry?.translations.ja === "講演資料"
+    && entry?.presets?.[0] === "lecture";
+}, "glossary bilingual update persisted");
+await navigate("http://127.0.0.1:5173/#/glossary");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="glossary-workspace"]')
+    && document.body.innerText.includes("講演資料")`),
+  "glossary deep link reload persistence",
+);
+await evaluate(`document.querySelector('.glossary-workspace-page nav button')?.click(); true`);
+await waitFor(
+  () => evaluate(`location.hash === '' && !!document.querySelector('[data-testid="session-toggle"]')`),
+  "glossary back to live",
+);
+const deletedGlossary = await fetch(
+  `http://127.0.0.1:8000/api/v1/glossary/${encodeURIComponent(glossaryRecord.id)}`,
+  { method: "DELETE" },
+);
+if (deletedGlossary.status !== 204) throw new Error("Glossary E2E cleanup failed");
+
 // Consent is explicitly opt-in and must remain unavailable in demo-only mode.
 const defaultRecordingDisabled = await evaluate(`(() => {
   const input = document.querySelector('.recording-opt-in input[type="checkbox"]');
@@ -418,5 +490,40 @@ for (const format of ["srt", "vtt", "txt", "json"]) {
   await exportResponse.arrayBuffer();
 }
 
+// #131: actual browser/HTTP/WS flow with a declared EN source and requested KO
+// captions but no translation provider. Mock words exercise the UI routing,
+// NOT English ASR accuracy.
+const missionaryStart = await fetch("http://127.0.0.1:8000/api/v1/session/start", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    engine: "mock",
+    source_language: "en",
+    target_languages: ["ko"],
+    correction_provider: "none",
+    translation_provider: "none",
+  }),
+});
+if (!missionaryStart.ok) {
+  throw new Error("missionary-language route smoke start failed: " + missionaryStart.status);
+}
+const missionaryState = await missionaryStart.json();
+try {
+  await navigate("http://127.0.0.1:5173/audience/" + missionaryState.join_code + "?lang=ko");
+  await waitFor(
+    () => evaluate("(() => { const item = document.querySelector('.audience-transcript article span'); const live = document.querySelector('.audience-caption'); return Boolean(item && live) && /한국어 번역 중|한국어 번역을 사용할 수 없습니다/.test(item.textContent || '') && !/하나님이 세상을|요한 보금/.test(live.textContent || ''); })()"),
+    "English-source transcript never presented as Korean audience translation",
+  );
+  const selectedSource = await evaluate("(() => { const select = document.querySelector('.audience-language select'); if (!(select instanceof HTMLSelectElement)) return false; const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set; if (!setter) return false; setter.call(select, 'en'); select.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+  if (!selectedSource) throw new Error("source caption selection unavailable");
+  await waitFor(
+    () => evaluate("(() => { const text = document.querySelector('.audience-transcript article span')?.textContent || ''; return document.querySelector('.audience-language select')?.value === 'en' && (text.includes('요한 보금') || text.includes('하나님이 세상을') || text.includes('복음의 의미')); })()"),
+    "explicit source selection shows the original mock transcript",
+  );
+} finally {
+  const stop = await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });
+  if (!stop.ok) throw new Error("missionary-language smoke cleanup failed");
+}
+
 socket.close();
-console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history and exports");
+console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history, exports and no wrong-language fallback");

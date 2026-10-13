@@ -5,7 +5,18 @@ import socket
 from ipaddress import IPv4Address, ip_address, ip_network
 from urllib.parse import urlparse
 
-_SHARED = ip_network("100.64.0.0/10")
+# Only advertised LAN subnets and carrier-grade NAT (including Tailscale).
+# IPv4Address.is_private also covers link-local, unspecified, benchmark and
+# reserved ranges; these cannot be used as audience-facing LAN endpoints.
+_AUDIENCE_NETWORKS = tuple(
+    ip_network(cidr)
+    for cidr in (
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "100.64.0.0/10",
+    )
+)
 
 
 def _allowed(address: str) -> bool:
@@ -13,9 +24,9 @@ def _allowed(address: str) -> bool:
         parsed = ip_address(address)
     except ValueError:
         return False
-    return isinstance(parsed, IPv4Address) and (
-        parsed.is_private or parsed in _SHARED
-    ) and not parsed.is_loopback
+    return isinstance(parsed, IPv4Address) and any(
+        parsed in network for network in _AUDIENCE_NETWORKS
+    )
 
 
 def local_ipv4_addresses() -> list[str]:

@@ -13,10 +13,30 @@ def _timestamp(milliseconds: int, separator: str) -> str:
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}{separator}{millis:03d}"
 
 
+# Text exports must enforce the same language contract as the live surfaces.
+# A missing target translation must never be replaced by the source transcript.
+_MISSING_TRANSLATIONS = {
+    "ko": ("한국어 번역 중…", "한국어 번역을 사용할 수 없습니다."),
+    "en": ("Translating into English…", "English translation unavailable."),
+    "ja": ("日本語に翻訳中…", "日本語訳を利用できません。"),
+}
+_UNKNOWN_TRANSLATION = (
+    "Translation pending.", "Translation unavailable."
+)
+
+
 def _caption_text(event: TranscriptEvent, language: str | None) -> str:
-    if language and event.translations.get(language):
-        return event.translations[language]
-    return event.text
+    if language is None or language == event.source_language:
+        return event.text
+    translated = event.translations.get(language, "").strip()
+    if translated:
+        return translated
+    pending, unavailable = _MISSING_TRANSLATIONS.get(
+        language, _UNKNOWN_TRANSLATION
+    )
+    # A committed segment has no successful target translation. Do not
+    # label the failure as a specific provider error without provenance.
+    return unavailable if event.committed else pending
 
 
 def _subtitle_text(event: TranscriptEvent, language: str | None) -> str:
