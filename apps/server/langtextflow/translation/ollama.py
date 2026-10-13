@@ -121,8 +121,8 @@ class OllamaTranslator(Translator):
         if candidate.startswith(("{", "[")):
             try:
                 parsed = json.loads(candidate)
-            except json.JSONDecodeError:
-                raise ValueError("Ollama translation emitted malformed structured text")
+            except json.JSONDecodeError as exc:
+                raise ValueError("Ollama translation emitted malformed structured text") from exc
             if isinstance(parsed, dict) and set(parsed) == {"translation"}:
                 return bounded_model_text(parsed["translation"], label="Ollama translation")
             raise ValueError("Ollama translation returned a context envelope, not a caption")
