@@ -4,7 +4,7 @@
   margin: 0 auto;
 }
 .glossary-workspace-panel h1 { margin: 0; font-size: 22px; }
-.glossary-workspace-panel > p { color: #98a6b6; line-height: 1.55; }
+.glossary-workspace-panel > p { color: #435365; line-height: 1.55; }
 .glossary-workspace-page .glossary-manager { margin-top: 18px; }
 .glossary-workspace-page .glossary-list { max-height: none; overflow: visible; }
 .glossary-workspace-page .glossary-item { align-items: center; }
@@ -24,7 +24,15 @@
   gap: 6px 18px;
   min-width: 0;
 }
-.glossary-preset-scope legend { padding: 0 6px; color: #9caaba; font-size: 12px; }
+.glossary-preset-scope legend { padding: 0 6px; color: #465767; font-size: 12px; }
+/* Accessibility: helper copy must meet 4.5:1 contrast on actual
+   glossary page surfaces, including the dark import/export box. */
+.glossary-workspace-page .glossary-heading > div > small {
+  color: #435365;
+}
+.glossary-workspace-page .glossary-transfer > small {
+  color: #cad4df;
+}
 .glossary-page-link { width: 100%; min-height: 44px; }
 @media (max-width: 640px) {
   .glossary-workspace-page .topbar { flex-wrap: wrap; gap: 12px; }
