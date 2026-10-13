@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "updated_on": "2026-10-13",
+  "hardware_target": "GitHub Actions hosted Ubuntu CPU",
+  "language_priority": [
+    "en->ko",
+    "ja->ko",
+    "ko->en",
+    "ko->ja",
+    "en->ja",
+    "ja->en"
+  ],
+  "validation_contract": {
+    "no_production_ranking_without_glossary_ablation": true,
+    "requires_same_audio_and_glossary_snapshot": true,
+    "metrics": [
+      "cer_wer",
+      "chrf_plus_plus",
+      "source_target_terminology_recall",
+      "critical_negation_number_bible_reference_review",
+      "e2e_p95_ms",
+      "processing_rtf",
+      "peak_co_resident_rss_mb"
+    ],
+    "no_inference_of_streaming_from_utterance_replay": true,
+    "model_revision_sha_required_at_run": true,
+    "license_review_before_download": true
+  },
+  "models": [
+    {
+      "model_id": "Qwen/Qwen3-ASR-0.6B",
+      "kind": "asr",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "source": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B",
+        "license": "permissive"
+      },
+      "execution": "existing_cpu_utterance_baseline",
+      "glossary": "hotword_ablation_not_yet_verified",
+      "priority": 1
+    },
+    {
+      "model_id": "FunAudioLLM/Fun-ASR-MLT-Nano-2512",
+      "kind": "asr",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-MLT-Nano-2512",
+        "license": "permissive"
+      },
+      "execution": "planned_cpu_provision_and_adapter",
+      "glossary": "hotword_ablation_not_yet_verified",
+      "priority": 1
+    },
+    {
+      "model_id": "facebook/m2m100_418M",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "mit",
+        "status": "model_card_verified",
+        "source": "https://huggingface.co/facebook/m2m100_418M",
+        "license": "permissive"
+      },
+      "execution": "existing_ct2_cpu_experiment",
+      "glossary": "experimental_beam4_candidate_rerank_not_constrained",
+      "priority": 1
+    },
+    {
+      "model_id": "Helsinki-NLP/opus-mt-ko-en",
+      "kind": "mt",
+      "source_languages": [
+        "ko"
+      ],
+      "pairs": [
+        "ko->en"
+      ],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "source": "https://huggingface.co/Helsinki-NLP/opus-mt-ko-en",
+        "license": "permissive"
+      },
+      "execution": "existing_directional_ct2_experiment",
+      "glossary": "not_integrated",
+      "priority": 2
+    },
+    {
+      "model_id": "google/madlad400-3b-mt",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "source": "https://huggingface.co/google/madlad400-3b-mt",
+        "license": "permissive"
+      },
+      "execution": "planned_cpu_feasibility_prototype",
+      "glossary": "not_integrated",
+      "priority": 2
+    },
+    {
+      "model_id": "facebook/mbart-large-50-many-to-many-mmt",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "unknown",
+        "status": "pending_explicit_permission",
+        "source": "https://huggingface.co/facebook/mbart-large-50-many-to-many-mmt",
+        "license": "unknown"
+      },
+      "execution": "blocked_pending_license",
+      "glossary": "not_integrated",
+      "priority": 3
+    },
+    {
+      "model_id": "tencent/HY-MT1.5-1.8B",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "tencent-hy-community",
+        "status": "territory_excluded",
+        "source": "https://huggingface.co/tencent/HY-MT1.5-1.8B/blob/main/License.txt",
+        "license": "south_korea_excluded"
+      },
+      "execution": "excluded_for_korean_deployment",
+      "glossary": "not_evaluated",
+      "priority": 99
+    }
+  ]
+}
