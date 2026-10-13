@@ -16,4 +16,4 @@ tauri-build = "=2.7.1"
 [dependencies]
 tauri = "=2.11.6"
 tauri-plugin-shell = "=2.3.6"
-tauri-plugin-updater = "=2.11.0"
+tauri-plugin-updater = "=2.12.0"
