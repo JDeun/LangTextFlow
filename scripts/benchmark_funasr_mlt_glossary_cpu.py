@@ -18,7 +18,9 @@ from typing import Any
 from langtextflow.benchmark import quality_metrics
 from scripts.benchmark_cpu_asr_candidates import ResourceSamples
 from scripts.compare_multilingual_m2m100_cpu import (
-    LANGUAGES, load_fleurs_samples, percentile,
+    LANGUAGES,
+    load_fleurs_samples,
+    percentile,
 )
 from scripts.evaluate_fleurs_asr import FLEURS_REVISION, write_pcm_wav
 from scripts.glossary_cpu_contract import load_glossary_snapshot
