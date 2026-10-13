@@ -2,6 +2,8 @@ name: CI
 
 on:
   push:
+    branches: [main]
+  # Include stacked PRs targeting feature branches, not only main.
   pull_request:
 
 permissions:
@@ -79,13 +81,19 @@ jobs:
       - name: Python vulnerability audit and CycloneDX SBOM
         run: |
           mkdir -p artifacts
-          uv run pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json
+          if ! uv run pip-audit --format cyclonedx-json --output artifacts/python-sbom.cdx.json; then
+            echo "::group::Python vulnerability details (package, version, advisory)"
+            uv run pip-audit --format columns || true
+            echo "::endgroup::"
+            exit 1
+          fi
       - name: Upload Python SBOM
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: python-sbom
           path: artifacts/python-sbom.cdx.json
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
       - name: Python static security scan
         run: uv run bandit -r apps/server/langtextflow -ll -s B615
@@ -98,7 +106,7 @@ jobs:
         working-directory: apps/web
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
           cache: npm
@@ -120,7 +128,7 @@ jobs:
           mkdir -p ../../artifacts
           npm sbom --sbom-format cyclonedx > ../../artifacts/frontend-sbom.cdx.json
       - name: Upload frontend SBOM
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: frontend-sbom
           path: artifacts/frontend-sbom.cdx.json
@@ -140,7 +148,7 @@ jobs:
         run: python -m pip install "uv==0.12.13"
       - name: Sync locked backend dependencies
         run: uv sync --locked --extra dev
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
           cache: npm
@@ -156,7 +164,7 @@ jobs:
         run: bash scripts/run_browser_e2e.sh
       - name: Upload UI smoke screenshots
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ui-smoke-screenshots
           path: artifacts/*.png
@@ -188,7 +196,7 @@ jobs:
           apps/server/tests/test_network.py
           apps/server/tests/test_mdns.py
           apps/server/tests/test_runtime_lifecycle.py
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
           cache: npm

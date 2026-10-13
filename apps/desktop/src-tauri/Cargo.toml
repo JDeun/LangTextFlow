@@ -11,9 +11,9 @@ name = "langtextflow_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = "=2.6.3"
+tauri-build = "=2.7.1"
 
 [dependencies]
-tauri = "=2.11.5"
+tauri = "=2.11.6"
 tauri-plugin-shell = "=2.3.6"
 tauri-plugin-updater = "=2.12.0"
