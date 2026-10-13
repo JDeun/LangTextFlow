@@ -30,6 +30,8 @@ export interface CaptionDisplaySettings {
 
 export interface GlossaryEntry {
   term: string;
+  // Older exports and callers may omit this; backend assumes ko for legacy records.
+  source_language?: string;
   aliases: string[];
   translations: Record<string, string>;
   category: string;
