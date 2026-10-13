@@ -10,9 +10,9 @@ import json
 import platform
 import subprocess
 import tempfile
-from contextlib import suppress
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
