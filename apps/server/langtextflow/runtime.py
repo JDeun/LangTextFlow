@@ -306,7 +306,7 @@ class CaptionRuntime:
         )
         try:
             await asyncio.to_thread(self.history.create_session, self.state, request)
-        except Exception as exc:
+        except Exception:
             self.state.persistence_error = _PERSISTENCE_FAILURE
         self._start_persistence_worker()
         try:
