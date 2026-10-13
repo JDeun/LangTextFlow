@@ -134,8 +134,9 @@ jobs:
               "The audio replay is offline by utterance, NOT native Qwen streaming.",
               "Glossary is SOURCE-SCOPED. MT baseline vs beam-4 terminology-assisted candidate rerank.",
               "Missing terms remain missing; no forced word replacement or semantic certification.",
-              "| Direction | Safe text | chrF++ | MT p95 | Glossary baseline -> assisted | Real speech |",
-              "|---|---:|---:|---:|---:|---:|",
+              "Audio glossary status may be NOT EXERCISED: successful FLEURS run is NOT a glossary field pass.",
+              "| Direction | Safe text | chrF++ | MT p95 | Glossary baseline -> assisted | Real speech | Audio glossary |",
+              "|---|---:|---:|---:|---:|---:|---|",
           ]
           tx, ax = base/"text-six-directions.json", base/"real-audio-six-directions.json"
           text = json.loads(tx.read_text()) if tx.is_file() else {}
@@ -148,6 +149,7 @@ jobs:
                   report = text.get("per_direction", {}).get(label, {})
                   spoken = audio.get("per_source", {}).get(source, {})
                   count = spoken.get("translated_coverage", {}).get(target)
+                  glossary_audio = audio.get("glossary_audio_coverage", {}).get(label, {})
                   lines.append(
                       f"| {label} | {report.get('valid','-')}/{report.get('cases','-')} "
                       f"| {report.get('mean_sentence_chrf_plus_plus','-')} "
@@ -155,7 +157,9 @@ jobs:
                       f"| {report.get('glossary_baseline_matched','-')} -> "
                       f"{report.get('glossary_assisted_matched','-')} / "
                       f"{report.get('glossary_relevant','-')} "
-                      f"| {count if count is not None else '-'} / 3 |"
+                      f"| {count if count is not None else '-'} / 3 "
+                      f"| {glossary_audio.get('status', 'NO RESULT')} "
+                      f"({glossary_audio.get('observed_relevant_terms', '-')} terms) |"
                   )
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
               f.write("\n".join(lines)+"\n")
