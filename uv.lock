@@ -831,7 +831,7 @@ whisper = [
 requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7,<2" },
     { name = "defusedxml", specifier = ">=0.7.1,<1" },
-    { name = "fastapi", specifier = ">=0.141,<0.142" },
+    { name = "fastapi", specifier = ">=0.141,<0.143" },
     { name = "faster-whisper", marker = "extra == 'whisper'", specifier = ">=1.2.1,<2" },
     { name = "httpx", specifier = ">=0.28,<1" },
     { name = "httpx2", marker = "extra == 'dev'", specifier = ">=2.12,<3" },
