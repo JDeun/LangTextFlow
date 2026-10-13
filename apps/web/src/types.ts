@@ -123,6 +123,8 @@ export interface SessionState {
   context: SessionContext | null;
   audio_required: boolean;
   audio_sample_rate: number | null;
+  recording_enabled: boolean;
+  recording_error: string | null;
   correction_status: CorrectionStatus;
   translation_status: TranslationStatus;
   persistence_error: string | null;
