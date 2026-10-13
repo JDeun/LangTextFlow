@@ -63,7 +63,8 @@ class CandidateCatalogTest(unittest.TestCase):
         models = {item["model_id"]: item for item in self.data["models"]}
         self.assertTrue(licensed_for_research(models["google/madlad400-3b-mt"]))
         self.assertFalse(glossary_ablation_available(models["google/madlad400-3b-mt"]))
-        self.assertTrue(glossary_ablation_available(models["facebook/m2m100_418M"]))
+        # The real intervention is on unmerged stacked PR #135, NOT this branch.
+        self.assertFalse(glossary_ablation_available(models["facebook/m2m100_418M"]))
 
 
 if __name__ == "__main__":
