@@ -72,6 +72,8 @@ class CaptionDisplaySettings(BaseModel):
 
 class GlossaryEntry(BaseModel):
     term: str = Field(min_length=1, max_length=160)
+    # Legacy rows default to Korean; existing general-purpose terms require operator review.
+    source_language: str = Field(default="ko", min_length=2, max_length=16)
     aliases: list[str] = Field(default_factory=list, max_length=MAX_GLOSSARY_ALIASES)
     translations: dict[str, str] = Field(
         default_factory=dict,
@@ -88,6 +90,18 @@ class GlossaryEntry(BaseModel):
         normalized = value.strip()
         if not normalized:
             raise ValueError("glossary text cannot be empty")
+        return normalized
+
+    @field_validator("source_language")
+    @classmethod
+    def normalize_glossary_source_language(cls, value: str) -> str:
+        normalized = value.strip().lower().replace("_", "-")
+        if not normalized.isascii() or not all(
+            part.isalnum() for part in normalized.split("-")
+        ):
+            raise ValueError("glossary source language must be an ASCII language tag")
+        if not 2 <= len(normalized) <= 16:
+            raise ValueError("glossary source language must be 2-16 characters")
         return normalized
 
     @field_validator("aliases")
