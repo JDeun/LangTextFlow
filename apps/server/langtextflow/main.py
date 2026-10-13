@@ -762,6 +762,7 @@ def list_glossary(request: Request) -> list[GlossaryRecord]:
 async def glossary_recommendations(
     request: Request,
     session_limit: int = Query(default=20, ge=1, le=100),
+    source_language: str = Query(default="ko", min_length=2, max_length=16),
     limit: int = Query(default=30, ge=1, le=100),
     min_occurrences: int = Query(default=2, ge=2, le=50),
 ) -> list[GlossaryRecommendation]:
@@ -771,6 +772,7 @@ async def glossary_recommendations(
         runtime.history,
         glossary_repository,
         session_limit=session_limit,
+        source_language=source_language.strip().lower(),
         limit=limit,
         min_occurrences=min_occurrences,
     )
