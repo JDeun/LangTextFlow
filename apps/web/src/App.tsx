@@ -192,18 +192,25 @@ function OperatorApp() {
   const [preset, setPreset] = useState<ProductPreset>("church");
   const [hotwords, setHotwords] = useState(DEFAULT_KOREAN_HOTWORDS);
   const [workspacePage, setWorkspacePage] = useState<"home" | "glossary">(
-    () => window.location.pathname === "/glossary" ? "glossary" : "home",
+    () => window.location.hash === "#/glossary" ? "glossary" : "home",
   );
   useEffect(() => {
     const onPopState = () => {
-      setWorkspacePage(window.location.pathname === "/glossary" ? "glossary" : "home");
+      setWorkspacePage(window.location.hash === "#/glossary" ? "glossary" : "home");
     };
     window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    window.addEventListener("hashchange", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("hashchange", onPopState);
+    };
   }, []);
   function switchWorkspace(page: "home" | "glossary") {
-    const url = page === "glossary" ? "/glossary" : "/";
-    if (window.location.pathname !== url) window.history.pushState({}, "", url);
+    // Hash routing also works for packaged Tauri/file:// assets without rewrites.
+    const hash = page === "glossary" ? "#/glossary" : "";
+    if (window.location.hash !== hash) {
+      window.history.pushState({}, "", `${window.location.pathname}${window.location.search}${hash}`);
+    }
     setWorkspacePage(page);
   }
   const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);

@@ -220,7 +220,7 @@ if (glossaryCreated.status !== 201) {
 const glossaryRecord = await glossaryCreated.json();
 await evaluate(`document.querySelector('[data-testid="glossary-nav"]')?.click(); true`);
 await waitFor(
-  () => evaluate(`location.pathname === "/glossary"
+  () => evaluate(`location.hash === "#/glossary"
     && document.querySelector('[data-testid="glossary-manager"]')?.innerText.includes("강연자료 E2E")`),
   "standalone bilingual glossary page",
 );
@@ -259,7 +259,7 @@ await waitFor(async () => {
     && entry?.translations.ja === "講演資料"
     && entry?.presets?.[0] === "lecture";
 }, "glossary bilingual update persisted");
-await navigate("http://127.0.0.1:5173/glossary");
+await navigate("http://127.0.0.1:5173/#/glossary");
 await waitFor(
   () => evaluate(`document.querySelector('[data-testid="glossary-workspace"]')
     && document.body.innerText.includes("講演資料")`),
@@ -267,7 +267,7 @@ await waitFor(
 );
 await evaluate(`document.querySelector('.glossary-workspace-page nav button')?.click(); true`);
 await waitFor(
-  () => evaluate(`location.pathname === '/' && !!document.querySelector('[data-testid="session-toggle"]')`),
+  () => evaluate(`location.hash === '' && !!document.querySelector('[data-testid="session-toggle"]')`),
   "glossary back to live",
 );
 const deletedGlossary = await fetch(

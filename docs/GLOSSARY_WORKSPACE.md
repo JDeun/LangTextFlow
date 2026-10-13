@@ -6,7 +6,7 @@ sessions and filtered by preset. Operator access is required by the API.
 
 ## Access and editing
 
-Use the glossary navigation item in the operator's top bar or the shortcut
+Use the glossary navigation item (at `/#/glossary`, compatible with packaged desktop assets) in the operator's top bar or the shortcut
 under Setup → Context. The dedicated workspace displays all saved terms,
 imports/exports and suggestions. Returning to the live view via the in-app
 button does not reload the React application or interrupt an active session.

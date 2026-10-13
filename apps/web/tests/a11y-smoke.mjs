@@ -122,7 +122,7 @@ await waitFor(() => evaluate(`document.querySelector('[data-testid="session-togg
 await assertAccessible("operator");
 
 // The glossary is a separately addressable operator workspace, not audience UI.
-await navigate("http://127.0.0.1:5173/glossary");
+await navigate("http://127.0.0.1:5173/#/glossary");
 await waitFor(
   () => evaluate(`document.querySelector('[data-testid="glossary-workspace"]') !== null`),
   "glossary workspace",
