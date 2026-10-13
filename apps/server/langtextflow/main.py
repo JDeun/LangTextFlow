@@ -815,7 +815,10 @@ def glossary_import(request: Request, payload: GlossaryImportRequest) -> Glossar
 @app.post("/api/v1/glossary", response_model=GlossaryRecord, status_code=201)
 def create_glossary(request: Request, entry: GlossaryEntry) -> GlossaryRecord:
     _require_operator(request)
-    return glossary_repository.create(entry)
+    try:
+        return glossary_repository.create(entry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.put("/api/v1/glossary/{record_id}", response_model=GlossaryRecord)
@@ -825,7 +828,10 @@ def update_glossary(
     entry: GlossaryEntry,
 ) -> GlossaryRecord:
     _require_operator(request)
-    record = glossary_repository.update(record_id, entry)
+    try:
+        record = glossary_repository.update(record_id, entry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if record is None:
         raise HTTPException(status_code=404, detail="glossary entry not found")
     return record
