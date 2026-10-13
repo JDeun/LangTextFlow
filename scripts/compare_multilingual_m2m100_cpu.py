@@ -381,6 +381,8 @@ def audio_evaluation(
     return {
         "mode": "real_audio", "mt_model": MODEL,
         "asr_model": "Qwen3-ASR-0.6B INT8",
+        "asr_glossary_inference_bias_applied": False,
+        "asr_glossary_inference_bias_status": "not_integrated_with_qwen3_asr_adapter",
         "dataset": "google/fleurs", "revision": FLEURS_REVISION,
         "source_languages": LANGUAGES,
         "glossary_snapshot_sha256": glossary_digest,
