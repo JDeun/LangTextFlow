@@ -4,6 +4,7 @@ import {
   sourceTextStyle,
   type CaptionSurface,
 } from "./displaySettings";
+import { captionTextForLanguage } from "./captionLanguage";
 import type { CaptionDisplaySettings, TranscriptEvent } from "./types";
 
 interface LiveCaptionProps {
@@ -14,11 +15,6 @@ interface LiveCaptionProps {
   primaryClassName: string;
   sourceClassName?: string;
   emptyText?: string;
-}
-
-function textForLanguage(segment: TranscriptEvent, language: string) {
-  if (language === segment.source_language) return segment.text;
-  return segment.translations[language] || segment.text;
 }
 
 export function LiveCaption({
@@ -64,7 +60,7 @@ export function LiveCaption({
     && language !== segment.source_language
     && segment.translations[language],
   );
-  const primaryText = segment && visible ? textForLanguage(segment, language) : emptyText;
+  const primaryText = segment && visible ? captionTextForLanguage(segment, language, emptyText) : emptyText;
 
   return (
     <>

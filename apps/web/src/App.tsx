@@ -7,6 +7,7 @@ import {
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
 import { ContextDocumentManager } from "./ContextDocumentManager";
+import { captionTextForLanguage as displayCaption } from "./captionLanguage";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
@@ -40,12 +41,6 @@ const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lect
 
 const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 const DISPLAY_SETTINGS_STORAGE_KEY = "langtextflow:display:v1";
-
-function displayCaption(segment: TranscriptEvent | undefined, language: string, emptyText = "") {
-  if (!segment) return emptyText;
-  if (language === segment.source_language) return segment.text;
-  return segment.translations[language] || segment.text;
-}
 
 function splitHotwords(value: string) {
   return value
