@@ -64,7 +64,11 @@ def snapshot_hashes(folder: Path) -> dict[str, str]:
         if not path.is_file():
             continue
         relative = path.relative_to(folder).as_posix()
-        hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1 << 20), b""):
+                digest.update(chunk)
+        hashes[relative] = digest.hexdigest()
     return hashes
 
 
@@ -95,7 +99,7 @@ def decode(
 
 def evaluate_samples(
     model: Any, samples: list[dict[str, Any]], source_language: str,
-    glossary_entries: list[dict[str, Any]], output_dir: Path,
+    glossary_entries: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Paired samples: identical audio/hash with and without source glossary."""
     if source_language not in LANGUAGES:
@@ -198,7 +202,6 @@ def main() -> None:
         measured = {
             source: evaluate_samples(
                 model, load_fleurs_samples(source), source, entries,
-                args.output.parent,
             )
             for source in ("en", "ja", "ko")
         }
