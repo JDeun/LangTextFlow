@@ -12,9 +12,6 @@ import pytest
 
 from langtextflow import preflight
 from langtextflow.config import Settings
-REAL_ASYNC_CLIENT = httpx.AsyncClient
-
-
 from langtextflow.preflight import (
     CheckStatus,
     _blocking_checks,
@@ -22,6 +19,8 @@ from langtextflow.preflight import (
     _openai_compatible_checks,
     _vibevoice_check,
 )
+
+REAL_ASYNC_CLIENT = httpx.AsyncClient
 
 
 def _mock_http(
