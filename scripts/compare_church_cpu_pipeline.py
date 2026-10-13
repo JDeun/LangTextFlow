@@ -180,7 +180,15 @@ def real_audio_benchmark(
         "target_language": "en", "asr_model": asr_name,
         "audio_seconds": round(audio_seconds, 3),
         "experiment_wall_seconds": round(elapsed, 3),
+        # A paced offline utterance *always* takes at least the audio length.
+        # Report inference-only capacity separately from visible replay delay.
         "sequential_replay_rtf": round(elapsed / audio_seconds, 4),
+        "inference_workload_rtf": round(
+            (
+                sum(row["asr_inference_seconds"] for row in rows)
+                + sum(row["mt_inference_ms"] for row in rows) / 1000
+            ) / audio_seconds, 4
+        ),
         "estimated_translation_lag_p95_ms": percentile(
             [x["estimated_translation_lag_ms"] for x in rows], 0.95
         ),
