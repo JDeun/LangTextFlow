@@ -35,7 +35,13 @@ def test_equivalent_audio_supports_quality_and_speed_comparison() -> None:
     assert comparison["per_sample"][0]["id"] == "1883"
 
 
-@pytest.mark.parametrize("mutation", ["revision", "language", "id", "sha256_pcm16", "reference_characters", "audio_duration_seconds"])
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "revision", "language", "id",
+        "sha256_pcm16", "reference_characters", "audio_duration_seconds",
+    ],
+)
 def test_mismatched_audio_or_reference_is_rejected(mutation: str) -> None:
     candidate = run(30)
     if mutation in ("revision", "language"):
