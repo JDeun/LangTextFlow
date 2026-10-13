@@ -11,12 +11,12 @@ entry, or import/export the complete data as JSON/CSV.
 
 - **66 biblical books** (39 OT + 27 NT) in Korean canonical forms, standard
   English titles and Japanese book names from Japan Bible Society.
-- **73 common sermon concepts**: gospel, salvation, faith, grace, atonement,
+- **74 common sermon concepts**: gospel, salvation, faith, grace, atonement,
   Scripture, worship, baptism, communion, scripture references, etc.
-- **18 common names and places**: Abraham, Moses, David, Mary, Peter, Paul,
+- **17 common names and places**: Abraham, Moses, David, Mary, Peter, Paul,
   Galilee, Jerusalem, Bethlehem and others.
 
-Total **157 entries** (66 books, 73 concepts, 18 names/places); two
+Total **157 entries** (66 books, 74 concepts, 17 names/places); two
 ambiguous Korean terms were omitted rather than hard-coding risky meanings. Edit theological terms before deployment: 
 `baptism` (`침례` versus `세례`), `Communion/Lord's Supper`, God/lord names,
 and word choices may vary by denomination, Japanese Bible edition, and
