@@ -149,8 +149,8 @@ def main() -> None:
     rows = report(document)
     if args.json:
         print(json.dumps(rows, ensure_ascii=False, indent=2))
-    else:
-        for row in rows:
+        return
+    for row in rows:
             print(
                 f"{row['model_id']}: license_ok={row['license_research_eligible']} "
                 f"glossary_ab_wired={row['glossary_ablation_wired']} "
