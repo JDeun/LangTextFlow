@@ -27,7 +27,7 @@ export function newGlossaryDraft(preset: ProductPreset, sourceLanguage = "ko"): 
 export function existingGlossaryDraft(entry: GlossaryRecord): GlossaryDraft {
   return {
     term: entry.term, sourceLanguage: entry.source_language ?? "ko",
-    aliases: entry.aliases.join(", ",
+    aliases: entry.aliases.join(", "),
     ko: entry.translations.ko ?? "",
     en: entry.translations.en ?? "", ja: entry.translations.ja ?? "",
     category: entry.category, presets: [...entry.presets],
