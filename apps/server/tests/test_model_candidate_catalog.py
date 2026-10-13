@@ -6,7 +6,10 @@ import json
 import unittest
 
 from scripts.check_model_candidate_catalog import (
-    CATALOG, glossary_ablation_available, licensed_for_research, report,
+    CATALOG,
+    glossary_ablation_available,
+    licensed_for_research,
+    report,
     validate_catalog,
 )
 
