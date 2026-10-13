@@ -1,4 +1,4 @@
-# Operator glossary workspace (English and Japanese)
+# Operator glossary workspace (Korean, English and Japanese)
 
 The **Glossary** is a persistent SQLite-backed term dictionary, not the free-form
 ASR hotword textarea or session reference documents. It is shared between
@@ -13,15 +13,15 @@ button does not reload the React application or interrupt an active session.
 
 For every term the editor manages:
 
-- Korean source/canonical term and ASR misrecognition aliases
-- Both **English (en)** and **Japanese (ja)** translations
+- Canonical source term (currently **without explicit source-language metadata**) and ASR misrecognition aliases
+- **Korean (ko)**, **English (en)** and **Japanese (ja)** target translations
 - Category, relevance boost (0–20), enabled flag
 - Global scope or one/multiple preset scopes (`general`, `church`,
   `conference`, `lecture`)
 
 Select **Edit** to modify an existing record. PUT keeps the database ID and
-creation time. Editing either target language preserves all *other* existing
-translation languages; emptying en/ja deletes only that mapping. The **Cancel**
+creation time. Editing KO/EN/JA target fields preserves all *other* stored language
+translations; clearing one field deletes only that target mapping. The **Cancel**
 button discards the draft; deleting remains an explicit separate operation.
 JSON and CSV round-trip the full set of mapped languages and presets.
 
@@ -60,3 +60,13 @@ terms but should also report ordinary semantic translation fidelity and
 source ASR errors. The initial hardware target for model ranking is the
 **GitHub Actions Linux CPU runner**, not 4GB/8GB physical machines; long
 continuous soundboard tests are a later acceptance gate.
+
+## Foreign-language source terms are tracked separately
+
+Adding Korean target translations to the editor does **not** yet make the
+runtime glossary source-language-aware. For an English or Japanese missionary
+sermon, a term should carry its recognized **source language** and be filtered
+at session start. That SQLite migration, prompt behavior, and safe language
+switch are tracked under [#130](https://github.com/JDeun/LangTextFlow/issues/130)
+(and the broader #122 provider-neutral glossary behavior). **Do not claim
+foreign-language glossary correctness from the UI fields alone.**
