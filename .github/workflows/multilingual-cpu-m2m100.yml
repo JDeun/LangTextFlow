@@ -58,7 +58,7 @@ jobs:
           HF_HUB_DISABLE_TELEMETRY: "1"
         run: |
           set -euo pipefail
-          mkdir -p /tmp/ltf-m2m100-hf /tmp/ltf-m2m100-ct2
+          mkdir -p /tmp/ltf-m2m100-hf
           uv run --no-sync python - <<'PY'
           import json
           from pathlib import Path
