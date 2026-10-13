@@ -70,3 +70,28 @@ at session start. That SQLite migration, prompt behavior, and safe language
 switch are tracked under [#130](https://github.com/JDeun/LangTextFlow/issues/130)
 (and the broader #122 provider-neutral glossary behavior). **Do not claim
 foreign-language glossary correctness from the UI fields alone.**
+
+
+## Per-term language identity (source-language migration, #130)
+
+The operator selects a **source/spoken language** for each canonical term.
+English sermon "grace" → Korean "은혜" is a separate glossary row from
+Korean sermon "은혜" → English "grace" or Japanese sermon "恵み" → Korean "은혜".
+Aliases apply only to their source language.
+
+The existing SQLite table gains `source_language TEXT NOT NULL DEFAULT 'ko'`
+via an idempotent migration. Legacy records retain their IDs, timestamps and
+translations and are assigned **Korean as a conservative compatibility default**.
+Review old imported technical/general English terms and explicitly change their
+source language; the migration **does not infer** source identity from spelling.
+
+At session creation, only rows matching the selected input language and preset
+are snapshotted to `SessionContext.glossary`. The session does not change when
+an operator edits a glossary record. JSON/CSV exports now include
+`source_language`; v1 legacy files without it import as Korean, and duplicate
+terms across different source languages are permitted.
+
+Caution: manually selecting a source language is currently necessary; automatic
+language identification, code-switching and constrained decoding have not been
+certified for actual missionary sermons. Language-tagged terminology fixes
+cross-language ASR hints but cannot establish semantic MT fidelity on its own.
