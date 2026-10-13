@@ -21,6 +21,7 @@ from .post_event_summary import (
     transcript_source,
 )
 from .runtime import CaptionRuntime
+from .summary_evidence import validate_summary_citations
 from .storage_guard import StorageCapacityError, ensure_storage_capacity
 
 MAX_RECORDING_BYTES = 512 * 1024 * 1024
@@ -231,6 +232,10 @@ def install_post_event_routes(
                     model=model, settings=settings,
                     allow_external_provider=payload.allow_external_provider,
                 )
+                # Never persist a model-drafted summary as "completed" when
+                # its citations are missing, fabricated, or retimed. Validation
+                # concerns reference identity only, not semantic correctness.
+                validate_summary_citations(source, content)
                 await asyncio.to_thread(
                     archive.finish_summary, record["summary_id"], content=content,
                 )
