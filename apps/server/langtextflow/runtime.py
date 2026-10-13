@@ -150,7 +150,7 @@ class CaptionRuntime:
                         session_id,
                         event,
                     )
-                except Exception as exc:
+                except Exception:
                     if self.state.session_id == session_id:
                         self.state.persistence_error = _PERSISTENCE_FAILURE
             finally:
@@ -185,7 +185,7 @@ class CaptionRuntime:
                     self.state.session_id,
                     provider,
                 )
-            except Exception as exc:
+            except Exception:
                 self.state.persistence_error = _PERSISTENCE_FAILURE
         self._refresh_queue_metrics()
 
@@ -352,7 +352,7 @@ class CaptionRuntime:
             if self.state.session_id and self.state.persistence_error is None:
                 try:
                     await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
-                except Exception as exc:
+                except Exception:
                     self.state.persistence_error = _PERSISTENCE_FAILURE
             await self.hub.close_all(reason="caption session failed to start")
             raise
@@ -400,7 +400,7 @@ class CaptionRuntime:
         if was_running and session_id:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
-            except Exception as exc:
+            except Exception:
                 self.state.persistence_error = _PERSISTENCE_FAILURE
 
         await self.hub.close_all(reason="caption session stopped")
