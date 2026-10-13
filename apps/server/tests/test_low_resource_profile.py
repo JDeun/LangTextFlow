@@ -9,7 +9,10 @@ from langtextflow.asr.faster_whisper import FasterWhisperStreamingAsrEngine
 from langtextflow.config import Settings
 from langtextflow.models import StartSessionRequest
 from langtextflow.preflight import (
-    CheckStatus, PreflightCheck, _blocking_checks, _recommended_configuration,
+    CheckStatus,
+    PreflightCheck,
+    _blocking_checks,
+    _recommended_configuration,
 )
 from langtextflow.runtime import CaptionRuntime
 
