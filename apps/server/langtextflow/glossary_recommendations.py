@@ -30,6 +30,7 @@ def recommend_glossary_terms(
     glossary: GlossaryRepository,
     *,
     session_limit: int = 20,
+    source_language: str = "ko",
     limit: int = 30,
     min_occurrences: int = 2,
 ) -> list[GlossaryRecommendation]:
@@ -39,7 +40,7 @@ def recommend_glossary_terms(
 
     existing = {
         term.casefold()
-        for record in glossary.list()
+        for record in glossary.list() if record.source_language == source_language
         for term in [record.term, *record.aliases]
         if term.strip()
     }
@@ -47,7 +48,11 @@ def recommend_glossary_terms(
     session_counts: Counter[str] = Counter()
     display: dict[str, str] = {}
 
-    for session in history.list_sessions(session_limit):
+    sessions = [
+        session for session in history.list_sessions(max(session_limit, 100))
+        if session.source_language == source_language
+    ][:session_limit]
+    for session in sessions:
         seen: set[str] = set()
         for event in history.segments(session.session_id):
             if not event.text:
