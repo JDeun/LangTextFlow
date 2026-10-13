@@ -48,9 +48,9 @@ def acceptable_output(source: str, hypothesis: str) -> bool:
         return False
     if result.startswith("{") or result.startswith("["):
         return False
-    if any(token in result for token in ('"session_title"', '"source_text"', '"context"')):
-        return False
-    return True
+    return not any(
+        token in result for token in ('"session_title"', '"source_text"', '"context"')
+    )
 
 
 def validate_fixtures(path: Path) -> tuple[list[dict[str, Any]], str]:
