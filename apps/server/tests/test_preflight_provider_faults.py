@@ -12,6 +12,9 @@ import pytest
 
 from langtextflow import preflight
 from langtextflow.config import Settings
+REAL_ASYNC_CLIENT = httpx.AsyncClient
+
+
 from langtextflow.preflight import (
     CheckStatus,
     _blocking_checks,
@@ -26,7 +29,7 @@ def _mock_http(
     responder: Callable[[httpx.Request], httpx.Response],
 ) -> list[httpx.Request]:
     requests: list[httpx.Request] = []
-    original = httpx.AsyncClient
+    original = REAL_ASYNC_CLIENT
 
     def wrapped(*args: object, **kwargs: object) -> httpx.AsyncClient:
         def handler(request: httpx.Request) -> httpx.Response:
@@ -44,19 +47,39 @@ def _mock_http(
     [],
     "ready",
     {"error": "proxy"},
+    {},
+    {"sample_rate": 0, "chunk_seconds": 2},
+    {"sample_rate": 16000, "chunk_seconds": 0.01},
+    {"sample_rate": 16000, "chunk_seconds": "not-a-number"},
+    {"sample_rate": -1},
+    {"sample_rate": 16000, "chunk_seconds": 100},
 ])
 async def test_vibevoice_http_200_nonobject_cannot_be_ready(
     monkeypatch: pytest.MonkeyPatch, invalid: object,
 ) -> None:
     _mock_http(monkeypatch, lambda _: httpx.Response(200, json=invalid))
     status = await _vibevoice_check(Settings())
-    if isinstance(invalid, dict):
-        # A dict response is accepted as a sidecar config even when empty;
-        # stricter semantic health/readiness is a separate compatibility gate.
-        assert status.status is CheckStatus.READY
-    else:
-        assert status.status is CheckStatus.MISSING
+    assert status.status is CheckStatus.MISSING
+    assert status.details["error"]
+    if not isinstance(invalid, dict):
         assert "JSON object" in status.details["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("config,seconds", [
+    ({"sample_rate": 16000}, 2.0),
+    ({"sample_rate": 16000, "chunk_seconds": 4.0}, 4.0),
+])
+async def test_valid_vibevoice_config_matches_actual_streaming_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    config: dict[str, object],
+    seconds: float,
+) -> None:
+    _mock_http(monkeypatch, lambda _: httpx.Response(200, json=config))
+    check = await _vibevoice_check(Settings())
+    assert check.status is CheckStatus.READY
+    assert check.details["sample_rate"] == 16000
+    assert check.details["chunk_seconds"] == seconds
 
 
 @pytest.mark.asyncio
