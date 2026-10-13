@@ -21,10 +21,12 @@ from langtextflow.benchmark import MemoryTracker, pcm16le_to_f32le, percentile, 
 from langtextflow.config import Settings
 from langtextflow.models import SessionContext, StartSessionRequest
 from langtextflow.runtime import CaptionRuntime
-
 from scripts.evaluate_fleurs_asr import (
-    FLEURS_DATASET, FLEURS_LICENSE, FLEURS_REVISION,
-    fleurs_test_parquet_uri, write_pcm_wav,
+    FLEURS_DATASET,
+    FLEURS_LICENSE,
+    FLEURS_REVISION,
+    fleurs_test_parquet_uri,
+    write_pcm_wav,
 )
 
 
@@ -281,7 +283,8 @@ async def run_live(
         "stages": records,
         "notes": [
             "Real FLEURS read speech, NOT a church service or a microphone field test",
-            "English output has NO human translated gold reference: only coverage and lag are measured here",
+            "English output has NO human translated gold reference: "
+            "only coverage and lag are measured here",
             "Quality of translation model on supplied correct text measured separately in PR #108",
             "This run is not proof of acceptable p95 live interpretation latency",
             "End-to-end inference competes for the same CPU and RAM; no GPU assumed",
