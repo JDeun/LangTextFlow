@@ -164,3 +164,36 @@ def test_json_csv_round_trip_source_language_and_legacy_import(tmp_path) -> None
     )
     assert count == (1, 0, 0)
     assert len(repo.list()) == 2
+
+
+
+def test_bulk_korean_church_seed_never_becomes_foreign_source_hotwords(tmp_path) -> None:
+    """157 KO canonical terms must not bias EN/JA recognition by accident."""
+    from langtextflow.church_glossary_seed import CHURCH_GLOSSARY
+
+    repo = GlossaryRepository(str(tmp_path / "bulk-source-scope.db"))
+    repo.initialize()
+    seeded = repo.seed(CHURCH_GLOSSARY)
+    assert len(seeded) == 157
+    assert len(repo.active_for(ProductPreset.CHURCH, "ko")) == 157
+    assert repo.active_for(ProductPreset.CHURCH, "en") == []
+    assert repo.active_for(ProductPreset.CHURCH, "ja") == []
+
+    # Foreign canonical terms are explicit independent operator decisions.
+    english = repo.create(GlossaryEntry(
+        source_language="en", term="Holy Spirit",
+        aliases=["Spirit of God"], translations={"ko": "성령"},
+        presets=[ProductPreset.CHURCH],
+    ))
+    japanese = repo.create(GlossaryEntry(
+        source_language="ja", term="聖霊",
+        aliases=["せいれい"], translations={"ko": "성령"},
+        presets=[ProductPreset.CHURCH],
+    ))
+    assert [item.id for item in repo.active_for(ProductPreset.CHURCH, "en")] == [
+        english.id
+    ]
+    assert [item.id for item in repo.active_for(ProductPreset.CHURCH, "ja")] == [
+        japanese.id
+    ]
+    assert len(repo.active_for(ProductPreset.CHURCH, "ko")) == 157
