@@ -96,8 +96,7 @@ class SessionRecordingWriter:
         )
         stream = os.fdopen(fd, "wb")
         try:
-            # Writer remains open across async feed calls; closed by stop().
-            writer = wave.open(stream, "wb")  # noqa: SIM115
+            writer = wave.open(stream, "wb")  # noqa: SIM115 - closed on stop()
             writer.setnchannels(1)
             writer.setsampwidth(2)
             writer.setframerate(self.sample_rate)

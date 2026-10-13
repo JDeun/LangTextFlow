@@ -26,7 +26,6 @@ interface Summary {
 interface Archive {
   recordings: Recording[];
   summary: Summary | null;
-  summary_stale: boolean;
 }
 
 
@@ -38,9 +37,7 @@ interface Props {
 
 export function PostEventPanel({ apiUrl, session, locale }: Props) {
   const copy = POST_EVENT_COPY[locale];
-  const [archive, setArchive] = useState<Archive>({
-    recordings: [], summary: null, summary_stale: false,
-  });
+  const [archive, setArchive] = useState<Archive>({ recordings: [], summary: null });
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -165,9 +162,6 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
       </button>
       {archive.summary?.status === "running" && <p role="status">{copy.generating}</p>}
       {archive.summary?.status === "error" && <p role="alert">{archive.summary.error || copy.failure}</p>}
-      {archive.summary?.status === "completed" && archive.summary_stale && (
-        <p role="alert" className="error-box">{copy.stale}</p>
-      )}
       {archive.summary?.status === "completed" && (
         <div className="history-post-summary">
           <small>{archive.summary.model} · {archive.summary.language.toUpperCase()}</small>

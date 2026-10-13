@@ -95,10 +95,29 @@ async function pressEnter() {
 }
 
 async function setLocale(locale) {
-  await evaluate(`localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)}); location.reload(); true`);
+  // Exercise the real React onChange path. Modifying localStorage then
+  // immediately reloading races React's locale persistence effect.
   await waitFor(
-    () => evaluate(`document.readyState === "complete" && document.querySelector('[data-testid="locale-select"]')?.value === ${JSON.stringify(locale)}`),
-    `locale ${locale}`,
+    () => evaluate(`document.querySelector('[data-testid="locale-select"]') !== null`),
+    "locale control ready",
+  );
+  const dispatched = await evaluate(`(() => {
+    const select = document.querySelector('[data-testid="locale-select"]');
+    if (!(select instanceof HTMLSelectElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype, 'value',
+    )?.set;
+    if (!setter) return false;
+    setter.call(select, ${JSON.stringify(locale)});
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  if (!dispatched) throw new Error("locale selector cannot dispatch changes");
+  await waitFor(
+    () => evaluate(`document.documentElement.lang === ${JSON.stringify(locale)}
+      && document.querySelector('[data-testid="locale-select"]')?.value === ${JSON.stringify(locale)}
+      && localStorage.getItem('langtextflow:locale:v1') === ${JSON.stringify(locale)}`),
+    `locale ${locale} UI and persistence`,
   );
 }
 
@@ -185,6 +204,15 @@ await waitFor(
   "operator caption socket connection",
 );
 
+// Consent is explicitly opt-in and must remain unavailable in demo-only mode.
+const defaultRecordingDisabled = await evaluate(`(() => {
+  const input = document.querySelector('.recording-opt-in input[type="checkbox"]');
+  return Boolean(input) && !input.checked;
+})()`);
+if (!defaultRecordingDisabled) {
+  throw new Error("recording consent must be off for a new session");
+}
+
 // A real Project API/UI contract: select the event before starting the live session.
 const projectResponse = await fetch("http://127.0.0.1:8000/api/v1/projects", {
   method: "POST",
@@ -218,15 +246,6 @@ await waitFor(
   () => evaluate(`document.querySelector('[data-testid="session-project-select"]')?.value === ${JSON.stringify(eventProject.project_id)}`),
   "selected project for the next session",
 );
-
-// Consent is explicitly opt-in and must remain unavailable in demo-only mode.
-const defaultRecordingDisabled = await evaluate(`(() => {
-  const input = document.querySelector('.recording-opt-in input[type="checkbox"]');
-  return Boolean(input) && !input.checked;
-})()`);
-if (!defaultRecordingDisabled) {
-  throw new Error("recording consent must be off for a new session");
-}
 
 const engineChanged = await evaluate(`(() => {
   const select = document.querySelector('[data-testid="engine-select"]');
@@ -400,4 +419,4 @@ for (const format of ["srt", "vtt", "txt", "json"]) {
 }
 
 socket.close();
-console.log("browser E2E smoke passed: project assignments, session stop, WAV archive, audio playback and history exports");
+console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history and exports");
