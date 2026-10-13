@@ -1,6 +1,7 @@
 """Event projects group independent caption sessions without owning their data."""
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -34,6 +35,20 @@ class ProjectRecord(ProjectInput):
 
 class ProjectAssignment(BaseModel):
     project_id: str | None = Field(default=None, max_length=64)
+
+
+class ProjectTranscriptMatch(BaseModel):
+    project_id: str
+    session_id: str
+    session_title: str
+    segment_id: str
+    start_ms: int
+    end_ms: int | None
+    speaker: str | None
+    source_language: str
+    original_text: str
+    matched_language: str
+    matched_text: str
 
 
 class ProjectRepository:
@@ -157,3 +172,75 @@ class ProjectRepository:
                 """,
                 (session_id, project_id),
             )
+
+    def search_transcripts(
+        self, project_id: str, query: str, *, limit: int = 50, offset: int = 0,
+    ) -> list[ProjectTranscriptMatch]:
+        """Search committed original/translated text within one project only.
+
+        SQLite JSON1 checks translation *values*, not keys or serialized JSON syntax.
+        The literal LIKE query is escaped so user input cannot act as a wildcard.
+        """
+        phrase = query.strip()
+        if not 2 <= len(phrase) <= 128:
+            raise ValueError("search query must be 2 to 128 characters")
+        if not 1 <= limit <= 100 or not 0 <= offset <= 10_000:
+            raise ValueError("search pagination is out of bounds")
+        pattern = "%" + phrase.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
+        with self._connect() as conn:
+            if conn.execute(
+                "SELECT 1 FROM projects WHERE project_id=?", (project_id,),
+            ).fetchone() is None:
+                raise KeyError("project not found")
+            rows = conn.execute(
+                """
+                SELECT
+                  ps.project_id, s.session_id, s.title AS session_title,
+                  t.segment_id, t.start_ms, t.end_ms, t.speaker,
+                  t.source_language, t.text, t.translations_json
+                FROM project_sessions AS ps
+                JOIN sessions AS s ON s.session_id = ps.session_id
+                JOIN transcript_segments AS t ON t.session_id = s.session_id
+                WHERE ps.project_id=?
+                  AND t.committed=1
+                  AND (
+                    t.text LIKE ? ESCAPE '!'
+                    OR EXISTS (
+                      SELECT 1 FROM json_each(t.translations_json) AS translated
+                      WHERE CAST(translated.value AS TEXT)
+                        LIKE ? ESCAPE '!'
+                    )
+                  )
+                ORDER BY s.started_at DESC, t.start_ms, t.segment_id
+                LIMIT ? OFFSET ?
+                """,
+                (project_id, pattern, pattern, limit, offset),
+            ).fetchall()
+        results = []
+        for row in rows:
+            original = str(row["text"])
+            language = str(row["source_language"])
+            text = original
+            if phrase.casefold() not in original.casefold():
+                translations = json.loads(str(row["translations_json"]))
+                for translated_language, candidate in translations.items():
+                    if isinstance(candidate, str) and phrase.casefold() in candidate.casefold():
+                        language = translated_language
+                        text = candidate
+                        break
+            results.append(
+                ProjectTranscriptMatch(
+                    project_id=str(row["project_id"]),
+                    session_id=str(row["session_id"]),
+                    session_title=str(row["session_title"]),
+                    segment_id=str(row["segment_id"]),
+                    start_ms=int(row["start_ms"]),
+                    end_ms=int(row["end_ms"]) if row["end_ms"] is not None else None,
+                    speaker=str(row["speaker"]) if row["speaker"] is not None else None,
+                    source_language=str(row["source_language"]),
+                    original_text=original,
+                    matched_language=language,
+                    matched_text=text,
+                )
+            )
+        return results

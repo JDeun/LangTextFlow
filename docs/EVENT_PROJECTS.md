@@ -50,3 +50,43 @@ cd apps/web && npm ci && npm test && npm run build
 ```
 
 A green exact-commit CI, security audit, and browser E2E are required before merge; test files being present does not establish that they passed.
+
+## Cross-session transcript search (incremental project knowledge layer)
+
+When a project is selected in **Session History**, **Search event transcripts** searches that project's **committed source captions and translated caption values** across all linked sessions. Each hit carries immutable `session_id`, `segment_id`, source timestamp, language and original text for evidence inspection. Choosing a hit opens its originating session and filters transcript entries.
+
+API: `GET /api/v1/projects/{project_id}/search?q=term&limit=50&offset=0`
+
+- The query is 2–128 characters; `limit` is 1–100, and `offset` is 0–10,000.
+- All strings use SQL-bound parameters. Literal `%`, `_` and `!` are escaped; users cannot introduce SQL LIKE wildcards.
+- Searches only rows with `committed=1`. Uncommitted/provisional speech is intentionally excluded.
+- Query joins through `project_sessions` before inspecting transcript text, preventing retrieval from another event.
+- Translation JSON is searched through SQLite JSON1 **values**; language keys alone cannot trigger false positives.
+- As with every operator endpoint, browser Origins and loopback-only restrictions apply; audience join codes grant no search access.
+- Keyword matching uses SQLite LIKE semantics (ASCII case-insensitive by default); this is **not** multilingual semantic search or vector retrieval.
+- Project-wide AI synthesis and source-grounded multi-session summaries remain a separate follow-up under #86; an AI response is never treated as original transcript evidence.
+
+All search results are dynamic views; session reassignment/detachment immediately changes the scope of subsequent searches without duplicating transcript content.
+
+
+## Project-wide transcript search (stacked PR)
+
+Select an event project in Session History, then use **Search event transcripts**.
+The search considers only latest **committed** source segments and their existing
+language translations, returning independent matches with `session_id`,
+`segment_id`, speaker and millisecond offsets. Search results link back to
+the original archived session rather than creating a second copy of a transcript.
+
+- `GET /api/v1/projects/{project_id}/search?q=term&limit=50&offset=0`
+- Requires the existing loopback-only operator API guard; not an audience route.
+- Query length 2–128 characters; literal `%` / `_` are escaped and values are
+  SQL parameters. Max 100 results per page and 10,000 offset.
+- SQLite JSON1 searches translation **values** rather than keys. The initial
+  index is bounded SQL scan within one project's sessions, not embedding search.
+- Deleting or reassigning a session immediately removes it from the old project's
+  search scope without changing transcript records.
+
+**Limitations:** SQLite's built-in case-insensitive LIKE behavior is
+ASCII-oriented; sophisticated Korean morphological search, fuzzy matching,
+token ranking, and cross-session cited project-wide AI synthesis are deferred
+to issue #86. Search does not alone prove summary correctness.

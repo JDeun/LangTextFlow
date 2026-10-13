@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
 import { PostEventPanel } from "./PostEventPanel";
 import { EventProjectControls } from "./EventProjectControls";
+import { ProjectTranscriptSearch } from "./ProjectTranscriptSearch";
 import { HISTORY_COPY } from "./historyCopy";
 import { useI18n } from "./i18n";
 import type { EventProject, SessionDetail, SessionRecord, TranscriptEvent } from "./types";
@@ -105,8 +106,13 @@ export function SessionHistory({
   }, [refresh, refreshToken]);
 
   useEffect(() => {
+    // A slow detail request for the previous project must not reopen an
+    // unrelated transcript after the operator switches event workspaces.
+    detailRequestRef.current += 1;
+    setDetailBusy(false);
     setSelected(null);
     setSegments([]);
+    setTranscriptQuery("");
   }, [selectedProjectId]);
 
   const filteredSessions = useMemo(() => {
@@ -147,11 +153,11 @@ export function SessionHistory({
     );
   }
 
-  async function openDetail(session: SessionRecord) {
+  async function openDetail(session: Pick<SessionRecord, "session_id">, highlightText = "") {
     const requestId = ++detailRequestRef.current;
     setDetailBusy(true);
     setError("");
-    setTranscriptQuery("");
+    setTranscriptQuery(highlightText);
     try {
       const sessionId = encodeURIComponent(session.session_id);
       const [detailResponse, captionsResponse] = await Promise.all([
@@ -294,6 +300,17 @@ export function SessionHistory({
         onSelectProject={onSelectProject}
         onProjectsChanged={async () => { await onProjectsChanged(); await refresh(); }}
       />
+
+      {selectedProjectId !== "all" && selectedProjectId !== "unassigned" && (
+        <ProjectTranscriptSearch
+          apiUrl={apiUrl}
+          locale={locale}
+          projectId={selectedProjectId}
+          onOpenSession={(sessionId, matchedText) => {
+            void openDetail({ session_id: sessionId }, matchedText);
+          }}
+        />
+      )}
 
       <div className="history-search-row">
         <input

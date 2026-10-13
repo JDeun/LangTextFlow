@@ -50,7 +50,13 @@ from .network import (
 from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
-from .project_repository import ProjectAssignment, ProjectInput, ProjectRecord, ProjectRepository
+from .project_repository import (
+    ProjectAssignment,
+    ProjectInput,
+    ProjectRecord,
+    ProjectRepository,
+    ProjectTranscriptMatch,
+)
 from .runtime import CaptionRuntime
 from .runtime_install import (
     RuntimeKind,
@@ -517,6 +523,26 @@ async def project_detail(request: Request, project_id: str) -> ProjectRecord:
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return project
+
+
+@app.get("/api/v1/projects/{project_id}/search", response_model=list[ProjectTranscriptMatch])
+async def search_project_transcripts(
+    request: Request,
+    project_id: str,
+    q: str = Query(min_length=2, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
+) -> list[ProjectTranscriptMatch]:
+    _require_operator(request)
+    try:
+        return await asyncio.to_thread(
+            project_repository.search_transcripts,
+            project_id, q, limit=limit, offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.put("/api/v1/projects/{project_id}", response_model=ProjectRecord)
