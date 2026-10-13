@@ -17,7 +17,8 @@ entry, or import/export the complete data as JSON/CSV.
   Galilee, Jerusalem, Bethlehem and others.
 
 Total **157 entries** (66 books, 74 concepts, 17 names/places); two
-ambiguous Korean terms were omitted rather than hard-coding risky meanings. Edit theological terms before deployment: 
+ambiguous Korean terms were omitted rather than hard-coding risky meanings.
+Edit theological terms before deployment:
 `baptism` (`침례` versus `세례`), `Communion/Lord's Supper`, God/lord names,
 and word choices may vary by denomination, Japanese Bible edition, and
 speaker style. Korean canonical terms are **not an authoritative cross-church
@@ -28,15 +29,16 @@ The Japanese **66 book names** follow Japan Bible Society
 ([official title list](https://www.bible.or.jp/read/vers_search/titlename.html)).
 Some congregations use forms such as `使徒の働き`, `伝道者の書`, or `詩篇`.
 These alternate spellings are not automatically declared equivalent to all
-Japanese speech recognition/translation systems. Japanese aliases require
-source-language scoping (#130) before use in source ASR hints.
+Japanese speech recognition/translation systems. Japanese aliases require explicitly selected Japanese source-language
+records rather than being automatically derived from Korean translations.
 
 ## Important caveats
 
 The canonical **input term is currently Korean**, with EN/JA translations.
-The glossary schema does not yet tag source languages (issue #130), so this
-data alone does NOT yield correct source hints for English/Japanese missionary
-sermons → Korean captions.
+Source-language tagging is implemented under #130. The bundled entries are
+explicitly Korean-source records, so they do NOT automatically provide English
+or Japanese ASR hints. Add independently reviewed English/Japanese canonical
+terms and aliases as separate source-language records.
 
 A dictionary is not a translation quality guarantee; model-specific EN/JA/KO
 fidelity remains under #122/#126/#129. Broad 100+ entry dictionaries also
