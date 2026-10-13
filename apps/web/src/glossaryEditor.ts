@@ -4,6 +4,7 @@ export const GLOSSARY_PRESETS: ProductPreset[] = ["general", "church", "conferen
 
 export interface GlossaryDraft {
   term: string;
+  sourceLanguage: string;
   aliases: string;
   ko: string;
   en: string;
@@ -15,9 +16,9 @@ export interface GlossaryDraft {
   enabled: boolean;
 }
 
-export function newGlossaryDraft(preset: ProductPreset): GlossaryDraft {
+export function newGlossaryDraft(preset: ProductPreset, sourceLanguage = "ko"): GlossaryDraft {
   return {
-    term: "", aliases: "", ko: "", en: "", ja: "",
+    term: "", sourceLanguage, aliases: "", ko: "", en: "", ja: "",
     category: "general", presets: [preset], globalScope: false,
     boost: 1.5, enabled: true,
   };
@@ -25,7 +26,8 @@ export function newGlossaryDraft(preset: ProductPreset): GlossaryDraft {
 
 export function existingGlossaryDraft(entry: GlossaryRecord): GlossaryDraft {
   return {
-    term: entry.term, aliases: entry.aliases.join(", "),
+    term: entry.term, sourceLanguage: entry.source_language ?? "ko",
+    aliases: entry.aliases.join(", ",
     ko: entry.translations.ko ?? "",
     en: entry.translations.en ?? "", ja: entry.translations.ja ?? "",
     category: entry.category, presets: [...entry.presets],
@@ -51,6 +53,7 @@ export function glossaryPayload(
   }
   return {
     term: draft.term.trim(),
+    source_language: draft.sourceLanguage.trim().toLowerCase(),
     aliases: [...new Set(draft.aliases.split(/[,\n]/).map(s => s.trim()).filter(Boolean))],
     translations,
     category: draft.category.trim() || "general",
