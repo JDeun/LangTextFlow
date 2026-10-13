@@ -24,6 +24,7 @@ class GlossaryRepository:
                 CREATE TABLE IF NOT EXISTS glossary_entries (
                     id TEXT PRIMARY KEY,
                     term TEXT NOT NULL,
+                    source_language TEXT NOT NULL DEFAULT 'ko',
                     aliases_json TEXT NOT NULL,
                     translations_json TEXT NOT NULL,
                     category TEXT NOT NULL,
@@ -44,8 +45,19 @@ class GlossaryRepository:
                     "ALTER TABLE glossary_entries ADD COLUMN presets_json "
                     "TEXT NOT NULL DEFAULT '[]'"
                 )
+            if "source_language" not in columns:
+                # Existing records had no source code. Retain their Korean-source
+                # behavior; operators must review imported non-Korean terms.
+                connection.execute(
+                    "ALTER TABLE glossary_entries ADD COLUMN source_language "
+                    "TEXT NOT NULL DEFAULT 'ko'"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_glossary_term ON glossary_entries(term)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_glossary_source_term "
+                "ON glossary_entries(source_language, term)"
             )
 
     def list(self) -> list[GlossaryRecord]:
@@ -55,13 +67,17 @@ class GlossaryRepository:
             ).fetchall()
         return [self._record(row) for row in rows]
 
-    def active_for(self, preset: ProductPreset) -> list[GlossaryEntry]:
+    def active_for(
+        self, preset: ProductPreset, source_language: str = "ko"
+    ) -> list[GlossaryEntry]:
         entries: list[GlossaryEntry] = []
         for record in self.list():
-            if record.enabled and record.applies_to(preset):
+            if (record.enabled and record.applies_to(preset)
+                    and record.source_language == source_language):
                 entries.append(
                     GlossaryEntry(
                         term=record.term,
+                        source_language=record.source_language,
                         aliases=record.aliases,
                         translations=record.translations,
                         category=record.category,
@@ -92,9 +108,9 @@ class GlossaryRepository:
             connection.execute(
                 """
                 INSERT INTO glossary_entries (
-                    id, term, aliases_json, translations_json, category,
+                    id, term, source_language, aliases_json, translations_json, category,
                     presets_json, boost, enabled, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 self._params(record),
             )
@@ -123,11 +139,14 @@ class GlossaryRepository:
         return cursor.rowcount > 0
 
     def seed(self, entries: list[GlossaryEntry]) -> list[GlossaryRecord]:
-        existing_terms = {record.term for record in self.list()}
+        existing_terms = {
+            (record.source_language, record.term.casefold()) for record in self.list()
+        }
         for entry in entries:
-            if entry.term not in existing_terms:
+            key = (entry.source_language, entry.term.casefold())
+            if key not in existing_terms:
                 self.create(entry)
-                existing_terms.add(entry.term)
+                existing_terms.add(key)
         return self.list()
 
     def import_entries(
@@ -144,13 +163,13 @@ class GlossaryRepository:
         skipped = 0
         with self._connect() as connection:
             existing_rows = connection.execute("SELECT * FROM glossary_entries").fetchall()
-            existing: dict[str, GlossaryRecord] = {}
+            existing: dict[tuple[str, str], GlossaryRecord] = {}
             for row in existing_rows:
                 record = self._record(row)
-                existing.setdefault(record.term.casefold(), record)
+                existing.setdefault((record.source_language, record.term.casefold()), record)
 
             for entry in entries:
-                key = entry.term.casefold()
+                key = (entry.source_language, entry.term.casefold())
                 current = existing.get(key)
                 now = datetime.now(UTC)
                 if current is not None:
@@ -177,9 +196,9 @@ class GlossaryRepository:
                 connection.execute(
                     """
                     INSERT INTO glossary_entries (
-                        id, term, aliases_json, translations_json, category,
+                        id, term, source_language, aliases_json, translations_json, category,
                         presets_json, boost, enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     self._params(record),
                 )
@@ -198,12 +217,14 @@ class GlossaryRepository:
         connection.execute(
             """
             UPDATE glossary_entries
-            SET term = ?, aliases_json = ?, translations_json = ?, category = ?,
-                presets_json = ?, boost = ?, enabled = ?, updated_at = ?
+            SET term = ?, source_language = ?, aliases_json = ?,
+                translations_json = ?, category = ?, presets_json = ?,
+                boost = ?, enabled = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 record.term,
+                record.source_language,
                 json.dumps(record.aliases, ensure_ascii=False),
                 json.dumps(record.translations, ensure_ascii=False),
                 record.category,
@@ -220,6 +241,7 @@ class GlossaryRepository:
         return (
             record.id,
             record.term,
+            record.source_language,
             json.dumps(record.aliases, ensure_ascii=False),
             json.dumps(record.translations, ensure_ascii=False),
             record.category,
@@ -237,6 +259,8 @@ class GlossaryRepository:
         return GlossaryRecord(
             id=str(row["id"]),
             term=str(row["term"]),
+            source_language=(str(row["source_language"]) if "source_language" in keys
+                             else "ko"),
             aliases=json.loads(str(row["aliases_json"])),
             translations=json.loads(str(row["translations_json"])),
             category=str(row["category"]),
