@@ -121,6 +121,19 @@ await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); 
 await waitFor(() => evaluate(`document.querySelector('[data-testid="session-toggle"]') !== null`), "operator UI");
 await assertAccessible("operator");
 
+// The glossary is a separately addressable operator workspace, not audience UI.
+await navigate("http://127.0.0.1:5173/glossary");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="glossary-workspace"]') !== null`),
+  "glossary workspace",
+);
+await assertAccessible("glossary");
+await navigate("http://127.0.0.1:5173/");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="session-toggle"]') !== null`),
+  "operator after glossary",
+);
+
 const startResponse = await fetch("http://127.0.0.1:8000/api/v1/session/start", {
   method: "POST",
   headers: { "content-type": "application/json" },
