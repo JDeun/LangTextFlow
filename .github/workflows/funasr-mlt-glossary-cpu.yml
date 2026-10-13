@@ -1,0 +1,152 @@
+name: Fun-ASR MLT CPU glossary hotword paired evaluation
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/funasr-mlt-glossary-cpu.yml"
+      - "scripts/benchmark_funasr_mlt_glossary_cpu.py"
+      - "apps/server/tests/test_funasr_mlt_glossary_cpu.py"
+      - "benchmarks/church_glossary_multilingual.v1.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: funasr-mlt-cpu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  asr-hotwords-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Record runner hardware
+        run: |
+          mkdir -p artifacts/funasr-mlt-cpu
+          {
+            echo "LangTextFlow git SHA: $GITHUB_SHA"
+            uname -a
+            lscpu | grep -E "Model name|Architecture|CPU\\(s\\):" || true
+            nproc
+            free -h
+            df -h .
+          } | tee artifacts/funasr-mlt-cpu/hardware.txt
+      - name: Install experiment packages, run metadata tests and lint
+        run: |
+          set -euo pipefail
+          python -m pip install "uv==0.12.13"
+          uv sync --locked --extra dev --extra benchmark
+          uv pip install --python .venv/bin/python "funasr==1.4.15"
+          uv pip install --python .venv/bin/python "torch==2.5.1" \
+            --index-url https://download.pytorch.org/whl/cpu
+          uv run --no-sync python -m pytest -q \
+            apps/server/tests/test_funasr_mlt_glossary_cpu.py
+          uv run --no-sync ruff check \
+            scripts/benchmark_funasr_mlt_glossary_cpu.py \
+            apps/server/tests/test_funasr_mlt_glossary_cpu.py
+          uv pip freeze --python .venv/bin/python \
+            > artifacts/funasr-mlt-cpu/runtime-dependencies.txt
+      - name: Fetch pinned, separately licensed Fun-ASR implementation
+        run: |
+          set -euo pipefail
+          # Exact reviewable repository commit; NEVER execute a floating main.
+          git clone --no-checkout --filter=blob:none \
+            https://github.com/QwenAudio/Fun-ASR.git /tmp/ltf-funasr-code
+          git -C /tmp/ltf-funasr-code checkout \
+            c0a20e2bb698bbad11d143bdccd6c0760e9d6e5b
+          test -f /tmp/ltf-funasr-code/model.py
+          test -f /tmp/ltf-funasr-code/ctc.py
+          git -C /tmp/ltf-funasr-code rev-parse HEAD \
+            > artifacts/funasr-mlt-cpu/remote-code-commit.txt
+          sha256sum /tmp/ltf-funasr-code/model.py \
+            /tmp/ltf-funasr-code/ctc.py \
+            > artifacts/funasr-mlt-cpu/remote-code-hashes.txt
+      - name: Fetch exact model revision and verify model card license
+        env:
+          HF_HOME: ${{ runner.temp }}/hf-funasr-mlt
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ltf-funasr-mlt-model
+          uv run --no-sync python - <<'PY'
+          import json
+          from pathlib import Path
+          from huggingface_hub import HfApi, snapshot_download
+          name = "FunAudioLLM/Fun-ASR-MLT-Nano-2512"
+          info = HfApi().model_info(name)
+          license_id = (info.cardData or {}).get("license")
+          if str(license_id).lower() != "apache-2.0":
+              raise SystemExit(f"Model license changed/unverified: {license_id!r}")
+          revision = info.sha
+          if not revision or len(revision) != 40:
+              raise SystemExit("Cannot resolve model revision")
+          snapshot_download(
+              repo_id=name, revision=revision,
+              local_dir="/tmp/ltf-funasr-mlt-model",
+          )
+          Path("artifacts/funasr-mlt-cpu/model-revision.json").write_text(
+              json.dumps({"repo": name, "sha": revision, "license": license_id},
+                         indent=2) + "\n", encoding="utf-8",
+          )
+          PY
+      - name: Paired Korean Japanese English native-hotword CPU experiment
+        env:
+          HF_HOME: ${{ runner.temp }}/hf-funasr-mlt
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          PYTHONPATH: "${{ github.workspace }}:/tmp/ltf-funasr-code"
+        run: |
+          set -euo pipefail
+          revision="$(python -c "import json;print(json.load(open('artifacts/funasr-mlt-cpu/model-revision.json'))['sha'])")"
+          timeout 4200 uv run --no-sync python -m \
+            scripts.benchmark_funasr_mlt_glossary_cpu \
+            --model-dir /tmp/ltf-funasr-mlt-model \
+            --remote-code /tmp/ltf-funasr-code/model.py \
+            --remote-code-revision c0a20e2bb698bbad11d143bdccd6c0760e9d6e5b \
+            --model-revision "$revision" \
+            --glossary-snapshot benchmarks/church_glossary_multilingual.v1.json \
+            --threads 2 \
+            --output artifacts/funasr-mlt-cpu/paired-speech.json \
+            2>&1 | tee artifacts/funasr-mlt-cpu/evaluation.log
+      - name: Print truthful evidence summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path("artifacts/funasr-mlt-cpu/paired-speech.json")
+          lines = [
+              "## Fun-ASR-MLT-Nano-2512 CPU hotword A/B",
+              "Only offline-utterance FLEURS, NOT native streaming or real sermon.",
+              "Glossary terms are from preselected source-language export, NOT reference transcript.",
+              "A successful run with no glossary terms in speech is NOT evidence of glossary effectiveness.",
+              "| Source | Clips | OFF CER | ON CER | OFF RTF | ON RTF | Speech glossary coverage |",
+              "|---|---:|---:|---:|---:|---:|---|",
+          ]
+          if path.exists():
+              report = json.loads(path.read_text(encoding="utf-8"))
+              for lang, rec in report["per_language"].items():
+                  lines.append(
+                      f"| {lang} | {rec['clips']} | {rec['baseline_mean_cer']} "
+                      f"| {rec['assisted_mean_cer']} | {rec['baseline_inference_rtf']} "
+                      f"| {rec['assisted_inference_rtf']} | {rec['glossary_test_status']} |"
+                  )
+              lines.append("**Field ready: false.**")
+          else:
+              lines.append("**Model execution missing or failed; do not claim acceptance.**")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fd:
+              fd.write("\n".join(lines) + "\n")
+          PY
+      - name: Preserve logs, hashes and paired raw results on failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: funasr-mlt-cpu-glossary-ab
+          path: artifacts/funasr-mlt-cpu/
+          if-no-files-found: warn
+          retention-days: 14
