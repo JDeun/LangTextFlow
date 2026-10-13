@@ -210,8 +210,8 @@ def test_history_project_filter_is_applied_before_limit(tmp_path) -> None:
         _session(history, f"unassigned-{index:02d}")
     selected = history.list_sessions(limit=1, project_id=project.project_id)
     assert [item.session_id for item in selected] == ["target-session"]
-    unassigned = history.list_sessions(limit=1, unassigned=True)
-    assert unassigned[0].session_id != "target-session"
+    remaining = history.list_sessions(limit=1, unassigned=True)
+    assert remaining[0].session_id != "target-session"
     assert len(history.list_sessions(limit=200)) == 61
     assert len(history.list_sessions(limit=200, project_id=project.project_id)) == 1
     assert len(history.list_sessions(limit=200, unassigned=True)) == 60
