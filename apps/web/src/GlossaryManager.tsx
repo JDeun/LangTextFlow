@@ -10,6 +10,7 @@ import type { GlossaryRecord, ProductPreset } from "./types";
 interface GlossaryManagerProps {
   apiUrl: string;
   preset: ProductPreset;
+  sourceLanguage: string;
   targetLanguage: string;
   disabled: boolean;
 }
@@ -33,6 +34,7 @@ function downloadFilename(response: Response, fallback: string) {
 export function GlossaryManager({
   apiUrl,
   preset,
+  sourceLanguage,
   targetLanguage,
   disabled,
 }: GlossaryManagerProps) {
@@ -40,7 +42,7 @@ export function GlossaryManager({
   const copy = GLOSSARY_COPY[locale];
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [entries, setEntries] = useState<GlossaryRecord[]>([]);
-  const [draft, setDraft] = useState<GlossaryDraft>(() => newGlossaryDraft(preset));
+  const [draft, setDraft] = useState<GlossaryDraft>(() => newGlossaryDraft(preset, sourceLanguage));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importPolicy, setImportPolicy] = useState<ImportConflictPolicy>("upsert");
   const [busy, setBusy] = useState(false);
@@ -59,9 +61,10 @@ export function GlossaryManager({
 
   const applicableCount = useMemo(
     () => entries.filter(
-      (entry) => entry.enabled && (!entry.presets.length || entry.presets.includes(preset)),
+      (entry) => entry.enabled && (entry.source_language ?? "ko") === sourceLanguage
+        && (!entry.presets.length || entry.presets.includes(preset)),
     ).length,
-    [entries, preset],
+    [entries, preset, sourceLanguage],
   );
 
   function setField<K extends keyof GlossaryDraft>(field: K, value: GlossaryDraft[K]) {
@@ -76,7 +79,7 @@ export function GlossaryManager({
   }
 
   function cancelEdit() {
-    setDraft(newGlossaryDraft(preset));
+    setDraft(newGlossaryDraft(preset, sourceLanguage));
     setEditingId(null);
     setError("");
   }
@@ -114,7 +117,7 @@ export function GlossaryManager({
         },
       );
       if (!response.ok) throw new Error(await response.text());
-      setDraft(newGlossaryDraft(preset));
+      setDraft(newGlossaryDraft(preset, sourceLanguage));
       setEditingId(null);
       await refresh();
     } catch (reason) {
@@ -320,6 +323,19 @@ export function GlossaryManager({
 
       <div className="glossary-form" data-testid="glossary-editor">
         <label>
+          {copy.sourceLanguage}
+          <select
+            data-testid="glossary-source-language"
+            value={draft.sourceLanguage}
+            onChange={(event) => setField("sourceLanguage", event.target.value)}
+            disabled={disabled || busy}
+          >
+            {["ko", "en", "ja", "zh", "es", "fr", "de", "it", "pt", "ru"].map(
+              (code) => <option key={code} value={code}>{code.toUpperCase()}</option>,
+            )}
+          </select>
+        </label>
+        <label>
           {copy.termPlaceholder}
           <input
             data-testid="glossary-term"
@@ -443,7 +459,7 @@ export function GlossaryManager({
           <article className={`glossary-item ${entry.enabled ? "" : "disabled"}`} key={entry.id}>
             <div className="glossary-copy">
               <div>
-                <strong>{entry.term}</strong>
+                <strong>{entry.term}</strong> <small>({entry.source_language ?? "ko"})</small>
                 <span>{entry.category}</span>
               </div>
               <small>
