@@ -41,7 +41,7 @@ jobs:
           set -euo pipefail
           python -m pip install "uv==0.12.13"
           uv sync --locked --extra dev --extra benchmark
-          uv pip install --python .venv/bin/python "torch==2.5.1" \
+          uv pip install --python .venv/bin/python "torch==2.6.0" \
             --index-url https://download.pytorch.org/whl/cpu
           uv pip install "ctranslate2==4.8.2" "transformers==4.57.3" \
             "huggingface-hub==0.35.3" "sentencepiece==0.2.1" \
