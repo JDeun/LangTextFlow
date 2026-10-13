@@ -67,7 +67,12 @@ const axeSource = await readFile("apps/web/node_modules/axe-core/axe.min.js", "u
 
 async function assertAccessible(label) {
   await cdp("Runtime.evaluate", { expression: axeSource });
-  const violations = await evaluate(`axe.run(document, {
+  // aria-modal makes the background inactive: audit the active dialog while open,
+  // then audit the full operator document after dismissing onboarding.
+  const root = label === "onboarding"
+    ? 'document.querySelector(".onboarding-dialog")'
+    : "document";
+  const violations = await evaluate(`axe.run(${root}, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] }
   }).then((result) => result.violations.map((violation) => ({
     id: violation.id,
