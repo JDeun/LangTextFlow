@@ -339,7 +339,16 @@ export function GlossaryManager({
             disabled={disabled || busy}
           />
         </label>
-        <div className="glossary-form-row">
+        <div className="glossary-form-row glossary-language-fields">
+          <label>
+            {copy.korean}
+            <input
+              data-testid="glossary-translation-ko"
+              value={draft.ko}
+              onChange={(event) => setField("ko", event.target.value)}
+              disabled={disabled || busy}
+            />
+          </label>
           <label>
             {copy.english}
             <input
@@ -439,6 +448,7 @@ export function GlossaryManager({
               </div>
               <small>
                 {entry.aliases.length ? `${copy.aliases}: ${entry.aliases.join(", ")}` : copy.noAliases}
+                {entry.translations.ko ? ` · KO: ${entry.translations.ko}` : ""}
                 {entry.translations.en ? ` · EN: ${entry.translations.en}` : ""}
                 {entry.translations.ja ? ` · JA: ${entry.translations.ja}` : ""}
                 {targetLanguage !== "en" && targetLanguage !== "ja" && entry.translations[targetLanguage]
