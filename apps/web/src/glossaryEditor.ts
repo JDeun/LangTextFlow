@@ -5,6 +5,7 @@ export const GLOSSARY_PRESETS: ProductPreset[] = ["general", "church", "conferen
 export interface GlossaryDraft {
   term: string;
   aliases: string;
+  ko: string;
   en: string;
   ja: string;
   category: string;
@@ -16,7 +17,7 @@ export interface GlossaryDraft {
 
 export function newGlossaryDraft(preset: ProductPreset): GlossaryDraft {
   return {
-    term: "", aliases: "", en: "", ja: "",
+    term: "", aliases: "", ko: "", en: "", ja: "",
     category: "general", presets: [preset], globalScope: false,
     boost: 1.5, enabled: true,
   };
@@ -25,6 +26,7 @@ export function newGlossaryDraft(preset: ProductPreset): GlossaryDraft {
 export function existingGlossaryDraft(entry: GlossaryRecord): GlossaryDraft {
   return {
     term: entry.term, aliases: entry.aliases.join(", "),
+    ko: entry.translations.ko ?? "",
     en: entry.translations.en ?? "", ja: entry.translations.ja ?? "",
     category: entry.category, presets: [...entry.presets],
     globalScope: entry.presets.length === 0,
@@ -40,9 +42,9 @@ export function glossaryPayload(
   if (!draft.globalScope && draft.presets.length === 0) {
     throw new Error("Choose at least one preset");
   }
-  // Keep translations for languages beyond EN/JA while editing an existing term.
+  // Keep translations for languages beyond KO/EN/JA while editing an existing term.
   const translations: Record<string, string> = { ...existing?.translations };
-  for (const language of ["en", "ja"] as const) {
+  for (const language of ["ko", "en", "ja"] as const) {
     const value = draft[language].trim();
     if (value) translations[language] = value;
     else delete translations[language];
