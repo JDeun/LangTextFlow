@@ -418,5 +418,40 @@ for (const format of ["srt", "vtt", "txt", "json"]) {
   await exportResponse.arrayBuffer();
 }
 
+// #131: actual browser/HTTP/WS flow with a declared EN source and requested KO
+// captions but no translation provider. Mock words exercise the UI routing,
+// NOT English ASR accuracy.
+const missionaryStart = await fetch("http://127.0.0.1:8000/api/v1/session/start", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    engine: "mock",
+    source_language: "en",
+    target_languages: ["ko"],
+    correction_provider: "none",
+    translation_provider: "none",
+  }),
+});
+if (!missionaryStart.ok) {
+  throw new Error("missionary-language route smoke start failed: " + missionaryStart.status);
+}
+const missionaryState = await missionaryStart.json();
+try {
+  await navigate("http://127.0.0.1:5173/audience/" + missionaryState.join_code + "?lang=ko");
+  await waitFor(
+    () => evaluate("(() => { const item = document.querySelector('.audience-transcript article span'); const live = document.querySelector('.audience-caption'); return Boolean(item && live) && /한국어 번역 중|한국어 번역을 사용할 수 없습니다/.test(item.textContent || '') && !/하나님이 세상을|요한 보금/.test(live.textContent || ''); })()"),
+    "English-source transcript never presented as Korean audience translation",
+  );
+  const selectedSource = await evaluate("(() => { const select = document.querySelector('.audience-language select'); if (!(select instanceof HTMLSelectElement)) return false; const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set; if (!setter) return false; setter.call(select, 'en'); select.dispatchEvent(new Event('change', { bubbles: true })); return true; })()");
+  if (!selectedSource) throw new Error("source caption selection unavailable");
+  await waitFor(
+    () => evaluate("(() => { const text = document.querySelector('.audience-transcript article span')?.textContent || ''; return document.querySelector('.audience-language select')?.value === 'en' && (text.includes('요한 보금') || text.includes('하나님이 세상을') || text.includes('복음의 의미')); })()"),
+    "explicit source selection shows the original mock transcript",
+  );
+} finally {
+  const stop = await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });
+  if (!stop.ok) throw new Error("missionary-language smoke cleanup failed");
+}
+
 socket.close();
-console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history and exports");
+console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history, exports and no wrong-language fallback");
