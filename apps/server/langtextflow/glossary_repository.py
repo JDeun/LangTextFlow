@@ -83,7 +83,7 @@ class GlossaryRepository:
     def create(self, entry: GlossaryEntry) -> GlossaryRecord:
         now = datetime.now(UTC)
         record = GlossaryRecord(
-            **entry.model_dump(),
+            **entry.model_dump(include=set(GlossaryEntry.model_fields)),
             id=str(uuid4()),
             created_at=now,
             updated_at=now,
@@ -105,7 +105,7 @@ class GlossaryRepository:
         if current is None:
             return None
         record = GlossaryRecord(
-            **entry.model_dump(),
+            **entry.model_dump(include=set(GlossaryEntry.model_fields)),
             id=record_id,
             created_at=current.created_at,
             updated_at=datetime.now(UTC),
@@ -158,7 +158,7 @@ class GlossaryRepository:
                         skipped += 1
                         continue
                     record = GlossaryRecord(
-                        **entry.model_dump(),
+                        **entry.model_dump(include=set(GlossaryEntry.model_fields)),
                         id=current.id,
                         created_at=current.created_at,
                         updated_at=now,
@@ -169,7 +169,7 @@ class GlossaryRepository:
                     continue
 
                 record = GlossaryRecord(
-                    **entry.model_dump(),
+                    **entry.model_dump(include=set(GlossaryEntry.model_fields)),
                     id=str(uuid4()),
                     created_at=now,
                     updated_at=now,

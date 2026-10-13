@@ -10,6 +10,7 @@ import { ContextDocumentManager } from "./ContextDocumentManager";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
+import { GLOSSARY_COPY } from "./glossaryCopy";
 import { GlossaryRecommendations } from "./GlossaryRecommendations";
 import { LanguageSwitcher, useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
@@ -176,6 +177,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
 function OperatorApp() {
   const { locale, t } = useI18n();
   const operatorCopy = OPERATOR_COPY[locale];
+  const glossaryCopy = GLOSSARY_COPY[locale];
   const recordingCopy = RECORDING_COPY[locale];
   const { connected, segments, terminalError } = useCaptionSocket();
   const captureRef = useRef<AudioCaptureController | null>(null);
@@ -189,6 +191,28 @@ function OperatorApp() {
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
   const [hotwords, setHotwords] = useState(DEFAULT_KOREAN_HOTWORDS);
+  const [workspacePage, setWorkspacePage] = useState<"home" | "glossary">(
+    () => window.location.hash === "#/glossary" ? "glossary" : "home",
+  );
+  useEffect(() => {
+    const onPopState = () => {
+      setWorkspacePage(window.location.hash === "#/glossary" ? "glossary" : "home");
+    };
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("hashchange", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("hashchange", onPopState);
+    };
+  }, []);
+  function switchWorkspace(page: "home" | "glossary") {
+    // Hash routing also works for packaged Tauri/file:// assets without rewrites.
+    const hash = page === "glossary" ? "#/glossary" : "";
+    if (window.location.hash !== hash) {
+      window.history.pushState({}, "", `${window.location.pathname}${window.location.search}${hash}`);
+    }
+    setWorkspacePage(page);
+  }
   const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);
   const [engine, setEngine] = useState("auto");
   const [correctionProvider, setCorrectionProvider] = useState("none");
@@ -443,6 +467,36 @@ function OperatorApp() {
     }
   }
 
+  if (workspacePage === "glossary") {
+    return (
+      <main className="app-shell glossary-workspace-page" data-testid="glossary-workspace">
+        <header className="topbar">
+          <div>
+            <div className="brand">LangTextFlow</div>
+            <div className="subtitle">{glossaryCopy.pageTitle}</div>
+          </div>
+          <nav className="product-nav" aria-label="Workspace">
+            <button type="button" onClick={() => switchWorkspace("home")}>
+              {glossaryCopy.backToLive}
+            </button>
+          </nav>
+          <LanguageSwitcher compact />
+        </header>
+        <section className="panel glossary-workspace-panel">
+          <h1>{glossaryCopy.pageTitle}</h1>
+          <p>{glossaryCopy.pageHelp}</p>
+          <GlossaryManager
+            apiUrl={API_URL}
+            preset={preset}
+            targetLanguage={glossaryTargetLanguage}
+            disabled={running}
+          />
+          <GlossaryRecommendations preset={preset} disabled={running} />
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <OnboardingWizard
@@ -473,6 +527,7 @@ function OperatorApp() {
           <button type="button" onClick={() => document.getElementById("live-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.live")}</button>
           <button type="button" onClick={() => document.getElementById("setup-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.setup")}</button>
           <button type="button" onClick={() => document.getElementById("history-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.history")}</button>
+          <button type="button" data-testid="glossary-nav" onClick={() => switchWorkspace("glossary")}>{glossaryCopy.managePage}</button>
         </nav>
         <div className="topbar-actions">
           <LanguageSwitcher compact />
@@ -598,13 +653,14 @@ function OperatorApp() {
             onChange={setReferenceDocuments}
           />
 
-          <GlossaryManager
-            apiUrl={API_URL}
-            preset={preset}
-            targetLanguage={glossaryTargetLanguage}
-            disabled={running}
-          />
-          <GlossaryRecommendations preset={preset} disabled={running} />
+          <button
+            type="button"
+            className="secondary-button glossary-page-link"
+            onClick={() => switchWorkspace("glossary")}
+            data-testid="open-glossary-page"
+          >
+            {glossaryCopy.managePage}
+          </button>
             </div>
           </details>
 
