@@ -203,7 +203,10 @@ def main() -> None:
     p.add_argument("--ct2-dir", type=Path, required=True)
     p.add_argument("--tokenizer-dir", type=Path, required=True)
     p.add_argument("--mode", choices=["text", "real-audio"], required=True)
-    p.add_argument("--fixture", type=Path, default=Path("benchmarks/church_translation_quality.v1.jsonl"))
+    p.add_argument(
+        "--fixture", type=Path,
+        default=Path("benchmarks/church_translation_quality.v1.jsonl"),
+    )
     p.add_argument("--asr", choices=ASR_CANDIDATES)
     p.add_argument("--asr-dir", type=Path)
     p.add_argument("--threads", type=int, default=2)
