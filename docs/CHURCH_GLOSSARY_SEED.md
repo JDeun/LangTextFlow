@@ -11,13 +11,13 @@ entry, or import/export the complete data as JSON/CSV.
 
 - **66 biblical books** (39 OT + 27 NT) in Korean canonical forms, standard
   English titles and Japanese book names from Japan Bible Society.
-- **75 common sermon concepts**: gospel, salvation, faith, grace, atonement,
+- **73 common sermon concepts**: gospel, salvation, faith, grace, atonement,
   Scripture, worship, baptism, communion, scripture references, etc.
 - **18 common names and places**: Abraham, Moses, David, Mary, Peter, Paul,
   Galilee, Jerusalem, Bethlehem and others.
 
-Total **159 entries** at the time of the initial draft, subject to removals of
-ambiguous terms during curation. Edit theological terms before deployment: 
+Total **157 entries** (66 books, 73 concepts, 18 names/places); two
+ambiguous Korean terms were omitted rather than hard-coding risky meanings. Edit theological terms before deployment: 
 `baptism` (`침례` versus `세례`), `Communion/Lord's Supper`, God/lord names,
 and word choices may vary by denomination, Japanese Bible edition, and
 speaker style. Korean canonical terms are **not an authoritative cross-church
@@ -40,8 +40,10 @@ sermons → Korean captions.
 
 A dictionary is not a translation quality guarantee; model-specific EN/JA/KO
 fidelity remains under #122/#126/#129. Broad 100+ entry dictionaries also
-need **relevance-limited prompt construction** to avoid increasing CPU
-translation latency; compare prompt duration on GitHub Actions Linux CPU.
+now use **relevance-limited prompts** for Ollama and OpenAI-compatible
+translators (maximum 24 matches per utterance, matched against canonical terms
+and aliases). Compare prompt/ASR hotword latency on GitHub Actions Linux CPU.
+The full seed is still offered to ASR hint paths; field throughput is not certified.
 
 Data source and distribution: `apps/server/langtextflow/data/church_glossary_seed.v1.json`
 contains **short terminology records only**, no copyrighted Bible verse
