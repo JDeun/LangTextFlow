@@ -23,6 +23,8 @@ from .models import (
     TranscriptEvent,
 )
 from .pipeline import CaptionPipeline
+from .post_event_archive import PostEventArchive
+from .recording_writer import SessionRecordingWriter
 from .session_repository import SessionRepository
 from .store import CaptionStore
 from .telemetry import EnergyVad, RealtimeMetrics, latency_ms
@@ -39,6 +41,8 @@ class CaptionRuntime:
         self.pipeline = CaptionPipeline(self._publish, self.settings)
         self.engine: AsrEngine | None = None
         self.history = SessionRepository(self.settings.database_path)
+        self.archive = PostEventArchive(self.settings.database_path)
+        self._recorder: SessionRecordingWriter | None = None
         self.metrics = RealtimeMetrics()
         self._vad = EnergyVad(
             threshold_dbfs=self.settings.vad_threshold_dbfs,
@@ -57,6 +61,7 @@ class CaptionRuntime:
         if self._initialized:
             return
         await asyncio.to_thread(self.history.initialize)
+        await asyncio.to_thread(self.archive.initialize)
         await asyncio.to_thread(self.history.recover_interrupted_sessions)
         self._initialized = True
 
@@ -264,12 +269,12 @@ class CaptionRuntime:
             self.history.project_exists, request.project_id,
         ):
             raise ValueError("project not found")
+        # Validate the new request before interrupting any active live event.
+        engine = self._build_engine(request)
+        if request.record_audio and not engine.accepts_audio:
+            raise ValueError("recording requires a real audio-input ASR engine")
         if self.state.running:
             await self._stop_unlocked()
-
-        # Validate/construct the engine before starting any post-processing worker.
-        # A bad engine value must not leave a partially started pipeline behind.
-        engine = self._build_engine(request)
         self.store.clear()
         await self.hub.close_all(reason="caption session starting")
         self._reset_metrics()
@@ -291,6 +296,8 @@ class CaptionRuntime:
             context=request.context,
             audio_required=engine.accepts_audio,
             audio_sample_rate=engine.sample_rate,
+            recording_enabled=request.record_audio,
+            recording_error=None,
             correction_status=self.pipeline.correction_status,
             translation_status=self.pipeline.status,
             persistence_error=None,
@@ -307,11 +314,34 @@ class CaptionRuntime:
             if active_provider:
                 await self._provider_changed(str(active_provider))
             self.state.audio_sample_rate = engine.sample_rate
+            if request.record_audio:
+                # Recording is optional: storage failure must never prevent captions.
+                if self.state.persistence_error is not None:
+                    self.state.recording_error = "recording unavailable: session not persisted"
+                else:
+                    try:
+                        writer = SessionRecordingWriter(
+                            self.archive,
+                            session_id=self.state.session_id,
+                            sample_rate=engine.sample_rate,
+                            reserve_bytes=self.settings.storage_reserve_mb * 1024 * 1024,
+                        )
+                        await writer.start()
+                        self._recorder = writer
+                    except Exception:
+                        # Never include filesystem paths or credentials in client errors.
+                        self.state.recording_error = (
+                            "recording unavailable: storage initialization failed"
+                        )
             self.state.running = True
             self._refresh_queue_metrics()
         except Exception:
             self.state.running = False
             self.engine = None
+            recorder, self._recorder = self._recorder, None
+            if recorder is not None:
+                with suppress(Exception):
+                    await recorder.stop()
             with suppress(Exception):
                 await engine.stop()
             with suppress(Exception):
@@ -338,6 +368,7 @@ class CaptionRuntime:
         first_error: Exception | None = None
 
         engine = self.engine
+        recorder, self._recorder = self._recorder, None
         self.engine = None
         if engine is not None:
             try:
@@ -356,6 +387,14 @@ class CaptionRuntime:
         except Exception as exc:
             if first_error is None:
                 first_error = exc
+
+        if recorder is not None:
+            try:
+                await recorder.stop()
+                if recorder.error is not None:
+                    self.state.recording_error = recorder.error
+            except Exception:
+                self.state.recording_error = "recording finalization failed"
 
         if was_running and session_id:
             try:
@@ -387,6 +426,14 @@ class CaptionRuntime:
         )
         self.metrics.audio_rms_dbfs = dbfs
         self.metrics.voice_active = voice_active
+
+        # Mirror accepted audio before awaiting ASR: a concurrent stop or provider
+        # exception must not silently drop the last captured PCM chunk.
+        recorder = self._recorder
+        if recorder is not None:
+            recorder.offer(pcm_f32le)
+            if recorder.error is not None:
+                self.state.recording_error = recorder.error
 
         started = time.perf_counter()
         try:
