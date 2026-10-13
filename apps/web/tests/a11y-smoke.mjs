@@ -78,7 +78,25 @@ async function assertAccessible(label) {
     id: violation.id,
     impact: violation.impact,
     help: violation.help,
-    nodes: violation.nodes.slice(0, 5).map((node) => node.target)
+    nodes: violation.nodes.slice(0, 5).map((node) => ({
+      target: node.target,
+      failureSummary: node.failureSummary,
+      dimensions: node.target.map((selector) => {
+        const el = document.querySelector(selector);
+        const box = el?.getBoundingClientRect();
+        const style = el && getComputedStyle(el);
+        return {
+          selector,
+          width: box?.width,
+          height: box?.height,
+          x: box?.x,
+          y: box?.y,
+          display: style?.display,
+          visibility: style?.visibility,
+          parentWidth: el?.parentElement?.getBoundingClientRect().width,
+        };
+      }),
+    }))
   })))`);
   if (violations.length) {
     throw new Error(`${label} accessibility violations:\n${JSON.stringify(violations, null, 2)}`);
