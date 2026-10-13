@@ -242,7 +242,9 @@ def main() -> None:
     )
     print(json.dumps({k: v for k, v in report.items() if k != "samples"}, ensure_ascii=False))
     if args.mode == "text" and report["valid_outputs"] != report["cases"]:
-        raise SystemExit("invalid/untranslated or metadata-exposing output")
+        raise SystemExit("invalid/untranslated or metadata-exposing text output")
+    if args.mode == "real-audio" and report["translated_coverage"] != 3:
+        raise SystemExit("real audio yielded missing/untranslated/metadata-leaking captions")
 
 
 if __name__ == "__main__":
