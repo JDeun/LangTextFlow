@@ -252,11 +252,16 @@ def _authorize_audience(client_host: str | None, join_code: str) -> AudienceSess
 
 
 def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
-    saved = glossary_repository.active_for(request.context.preset)
-    merged: dict[str, GlossaryEntry] = {entry.term: entry for entry in saved}
+    saved = glossary_repository.active_for(
+        request.context.preset, request.source_language
+    )
+    merged: dict[tuple[str, str], GlossaryEntry] = {
+        (entry.source_language, entry.term.casefold()): entry for entry in saved
+    }
     for entry in request.context.glossary:
-        if entry.enabled and entry.applies_to(request.context.preset):
-            merged[entry.term] = entry
+        if (entry.enabled and entry.applies_to(request.context.preset)
+                and entry.source_language == request.source_language):
+            merged[(entry.source_language, entry.term.casefold())] = entry
     context = request.context.model_copy(update={"glossary": list(merged.values())})
     return request.model_copy(update={"context": context})
 
