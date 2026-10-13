@@ -8,16 +8,18 @@ import type { GlossaryRecord } from "../src/types.ts";
 const existing: GlossaryRecord = {
   id: "fixed-id", created_at: "2026-01-01", updated_at: "2026-01-01",
   term: "칭의", aliases: ["칭이"],
-  translations: { en: "justification", ja: "義認", fr: "justification" },
+  translations: { ko: "칭의", en: "justification", ja: "義認", fr: "justification" },
   category: "theology", presets: ["church", "lecture"], boost: 2,
   enabled: true,
 };
 
 test("editing multilingual glossary preserves other languages and scopes", () => {
   const draft = existingGlossaryDraft(existing);
+  draft.ko = "의롭다 하심";
   draft.ja = "義認（ぎにん）";
   draft.en = "justification";
   const saved = glossaryPayload(draft, existing);
+  assert.equal(saved.translations.ko, "의롭다 하심");
   assert.equal(saved.translations.en, "justification");
   assert.equal(saved.translations.ja, "義認（ぎにん）");
   assert.equal(saved.translations.fr, "justification");
@@ -33,6 +35,7 @@ test("empty target removes just that translation", () => {
   assert.equal(result.translations.ja, undefined);
   assert.equal(result.translations.fr, "justification");
   assert.equal(result.translations.en, "justification");
+  assert.equal(result.translations.ko, "칭의");
 });
 
 test("global scope uses an empty preset list", () => {
