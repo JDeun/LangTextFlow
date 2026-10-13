@@ -26,3 +26,13 @@
 .project-transcript-results li p { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; }
 .project-transcript-results li button { justify-self:start; }
 .project-transcript-result-meta { display:flex; gap:0.5rem; flex-wrap:wrap; align-items:baseline; }
+
+/* Project controls increase the panel height. A sticky start button overlays
+   language choices at the viewport floor; keep the action in normal flow so
+   every selector remains unobscured and keyboard/touch accessible. */
+.control-panel .start-button {
+  position: static;
+  bottom: auto;
+  z-index: auto;
+  box-shadow: none;
+}
