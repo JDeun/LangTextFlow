@@ -15,6 +15,7 @@ CONFIGS = helper.CONFIGS
 FLEURS_LICENSE = helper.FLEURS_LICENSE
 FLEURS_REVISION = helper.FLEURS_REVISION
 evaluate = helper.evaluate
+WINDOW_SECONDS = helper.WINDOW_SECONDS
 
 
 def test_fixture_source_is_pinned_and_attributed() -> None:
@@ -79,3 +80,11 @@ def test_audio_source_accepts_local_streaming_cache_path(tmp_path) -> None:
 def test_audio_source_does_not_fetch_untrusted_remote_paths(audio) -> None:
     with pytest.raises(ValueError, match="local readable file"):
         helper.audio_input(audio)
+
+
+def test_asr_chunk_window_is_reproducible_and_rejects_invalid_values(tmp_path) -> None:
+    assert WINDOW_SECONDS == (4, 15, 30)
+    for invalid in (0, 1, 3, 31, 120):
+        with pytest.raises(ValueError, match="chunk_seconds"):
+            evaluate("ko", 1, tmp_path / "benchmark", chunk_seconds=invalid)
+    assert not (tmp_path / "benchmark").exists()
