@@ -16,17 +16,17 @@ from pathlib import Path
 from typing import Any
 
 from langtextflow.benchmark import quality_metrics
-from scripts.glossary_cpu_contract import (
-    choose_candidate,
-    load_glossary_snapshot,
-    relevant_terms,
-)
 from scripts.benchmark_cpu_asr_candidates import (
     ResourceSamples,
     create_recognizer,
     decode_sample,
 )
 from scripts.evaluate_fleurs_asr import FLEURS_REVISION, write_pcm_wav
+from scripts.glossary_cpu_contract import (
+    choose_candidate,
+    load_glossary_snapshot,
+    relevant_terms,
+)
 
 MODEL = "facebook/m2m100_418M"
 LANGUAGES = ("ko", "en", "ja")
