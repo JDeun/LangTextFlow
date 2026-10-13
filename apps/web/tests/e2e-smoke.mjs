@@ -325,6 +325,49 @@ if (!stopResponse.ok) throw new Error(`session stop failed: ${stopResponse.statu
 const stopped = await stopResponse.json();
 if (stopped.running) throw new Error("session remained running after stop");
 
+// Synthetic 1-second WAV checks the finished-session recording import/playback
+// contract without involving a real microphone or storing external media.
+const pcm = Buffer.alloc(16000 * 2);
+const wav = Buffer.alloc(44 + pcm.length);
+wav.write("RIFF", 0, "ascii");
+wav.writeUInt32LE(36 + pcm.length, 4);
+wav.write("WAVE", 8, "ascii");
+wav.write("fmt ", 12, "ascii");
+wav.writeUInt32LE(16, 16);
+wav.writeUInt16LE(1, 20);
+wav.writeUInt16LE(1, 22);
+wav.writeUInt32LE(16000, 24);
+wav.writeUInt32LE(16000 * 2, 28);
+wav.writeUInt16LE(2, 32);
+wav.writeUInt16LE(16, 34);
+wav.write("data", 36, "ascii");
+wav.writeUInt32LE(pcm.length, 40);
+pcm.copy(wav, 44);
+const archiveRoot = `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}`;
+const upload = await fetch(`${archiveRoot}/recordings`, {
+  method: "POST",
+  headers: { "Content-Type": "audio/wav" },
+  body: wav,
+});
+if (upload.status !== 201) throw new Error(`WAV archive import failed: ${upload.status} ${await upload.text()}`);
+const importedRecording = await upload.json();
+if (importedRecording.session_id !== state.session_id ||
+    Math.abs(importedRecording.duration_seconds - 1) > 0.001) {
+  throw new Error("WAV duration or session metadata mismatch");
+}
+const archiveResponse = await fetch(`${archiveRoot}/archive`);
+if (!archiveResponse.ok) throw new Error("finished session archive API not available");
+const archive = await archiveResponse.json();
+if (!archive.recordings.some((item) => item.recording_id === importedRecording.recording_id)) {
+  throw new Error("imported audio not linked to the finished session");
+}
+const playback = await fetch(
+  `${archiveRoot}/recordings/${encodeURIComponent(importedRecording.recording_id)}/audio`,
+);
+if (!playback.ok || !Buffer.from(await playback.arrayBuffer()).equals(wav)) {
+  throw new Error("session recording audio cannot be played without data corruption");
+}
+
 // Move/detach must not delete or rewrite the original session.
 const sessionProjectUrl = `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}/project`;
 for (const projectId of [null, eventProject.project_id]) {
@@ -356,6 +399,10 @@ if (!historyOpened) throw new Error("history detail control was not available");
 await waitFor(
   () => evaluate(`document.querySelector('.history-detail') !== null`),
   "history detail",
+);
+await waitFor(
+  () => evaluate(`document.querySelector('.history-post-event audio') !== null`),
+  "paired recording player in completed event history",
 );
 await screenshot("history-detail-ko");
 

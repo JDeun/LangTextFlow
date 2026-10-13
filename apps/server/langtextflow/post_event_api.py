@@ -77,7 +77,20 @@ def install_post_event_routes(
             asyncio.to_thread(archive.recordings, session_id),
             asyncio.to_thread(archive.latest_summary, session_id),
         )
-        return {"recordings": recordings, "summary": summary}
+        summary_stale = False
+        if summary is not None:
+            try:
+                segments = await asyncio.to_thread(runtime.history.segments, session_id)
+                _, current_revision = transcript_source(segments)
+                summary_stale = current_revision != summary["transcript_sha256"]
+            except ValueError:
+                # A summary is stale if its original-language evidence is missing.
+                summary_stale = True
+        return {
+            "recordings": recordings,
+            "summary": summary,
+            "summary_stale": summary_stale,
+        }
 
     @app.post("/api/v1/history/{session_id}/recordings", status_code=201)
     async def upload_recording(request: Request, session_id: str) -> dict:
