@@ -338,13 +338,38 @@ def _faster_whisper_checks(model: str) -> list[PreflightCheck]:
     ]
 
 
+def _require_model_listing(
+    payload: Any, field: str, provider: str
+) -> list[dict[str, Any]]:
+    """Validate HTTP-200 model listing before reporting a provider ready.
+
+    Some proxies return an HTML/JSON error envelope with status 200. Missing
+    or malformed listings must fail closed rather than masquerade as a valid
+    empty list. A valid *empty* list means a healthy API with no model ready.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get(field), list):
+        raise ValueError(f"{provider} response requires a {field} list")
+    models = payload[field]
+    if any(not isinstance(item, dict) for item in models):
+        raise ValueError(f"{provider} {field} entries must be JSON objects")
+    key = "models" if provider == "Ollama" else "data"
+    if key != field:
+        raise ValueError("provider model listing schema mismatch")
+    for entry in models:
+        identifier = entry.get("name") or entry.get("model") if provider == "Ollama" else entry.get("id")
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError(f"{provider} {field} entry requires nonempty model ID")
+    return models
+
+
 async def _vibevoice_check(settings: Settings) -> PreflightCheck:
     try:
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{settings.vibevoice_url.rstrip('/')}/v1/config")
             response.raise_for_status()
-            raw_payload = response.json()
-            payload = raw_payload if isinstance(raw_payload, dict) else {}
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("VibeVoice config response must be a JSON object")
     except Exception as exc:
         return PreflightCheck(
             id="vibevoice",
@@ -372,8 +397,8 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
             response.raise_for_status()
-            raw_payload = response.json()
-            payload = raw_payload if isinstance(raw_payload, dict) else {}
+            payload = response.json()
+            models = _require_model_listing(payload, "models", "Ollama")
     except Exception as exc:
         return [
             PreflightCheck(
@@ -392,11 +417,12 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
             ),
         ]
 
-    raw_models = payload.get("models", [])
-    models = raw_models if isinstance(raw_models, list) else []
-    names = [str(item.get("name", "")) for item in models if isinstance(item, dict)]
-    normalized = model.casefold()
-    available = any(
+    names = [
+        item.get("name") or item.get("model") or ""
+        for item in models
+    ]
+    normalized = model.casefold().strip()
+    available = bool(normalized) and any(
         name.casefold() == normalized
         or name.casefold().removesuffix(":latest") == normalized.removesuffix(":latest")
         for name in names
@@ -435,8 +461,8 @@ async def _openai_compatible_checks(
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{base_url}/models", headers=headers)
             response.raise_for_status()
-            raw_payload = response.json()
-            payload = raw_payload if isinstance(raw_payload, dict) else {}
+            payload = response.json()
+            models = _require_model_listing(payload, "data", "OpenAI-compatible")
     except Exception as exc:
         return [
             PreflightCheck(
@@ -463,12 +489,8 @@ async def _openai_compatible_checks(
             ),
         ]
 
-    raw_models = payload.get("data", [])
-    models = raw_models if isinstance(raw_models, list) else []
     model_ids = [
-        str(item.get("id", ""))
-        for item in models
-        if isinstance(item, dict) and item.get("id")
+        item["id"] for item in models if "id" in item
     ]
     available = bool(model) and model in model_ids
     return [
