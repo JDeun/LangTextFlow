@@ -1,0 +1,50 @@
+# Fun-ASR-MLT-Nano-2512: paired CPU glossary A/B (Draft)
+
+Research-only experiment. A completed model CI run is required before any
+accuracy, latency or runtime-compatibility claim.
+
+## Why this checkpoint
+
+The official FunAudioLLM model card says the MLT Nano is the 800M, 31-language
+ASR checkpoint with Korean, English and Japanese support. The *standard* Fun-ASR
+Nano checkpoint is not published as supporting Korean. The FunASR inference
+interface has native hotwords and spoken-language controls. A native hotword
+API may support actual ASR-stage dictionary bias; passing arguments is not
+proof that words were recognized more accurately.
+
+- https://huggingface.co/FunAudioLLM/Fun-ASR-MLT-Nano-2512
+- https://github.com/QwenAudio/Fun-ASR
+
+## Experimental procedure
+
+1. Use an ephemeral GitHub Actions Ubuntu CPU runner with read-only
+   repository permissions. Download the ~2GB checkpoint only after checking
+   that its current model card still declares Apache-2.0. Record its exact
+   Hugging Face revision, checkpoint hashes and Python versions.
+2. Download independently licensed Fun-ASR Python inference source pinned to
+   c0a20e2bb698bbad11d143bdccd6c0760e9d6e5b. Third-party Python executes
+   on the ephemeral runner. Do not supply credentials.
+3. Use exactly the same 9-entry, source-scoped, operator-export-compatible
+   glossary snapshot as PR #135. Source-language hotwords are selected
+   *before* viewing the reference transcript to avoid oracle leakage.
+4. For each of three FLEURS clips in each source language KO/EN/JA, run
+   the *same* model on identical WAV audio with hotwords OFF and ON.
+   Keep threads, decoding options and source language fixed. Record actual
+   source hypotheses, CER, inference p95, RTF, audio SHA, glossary SHA,
+   reference term presence and measured resident memory.
+5. Flag speech cases without glossary terms as NOT EXERCISED. An API call with
+   hotwords but no matching speech cannot qualify dictionary effectiveness.
+
+## Limits
+
+This is an utterance-based ASR experiment, not native streaming. Three FLEURS
+clips are not licensed long sermons, and the sample glossary is not the
+complete, edited 157-entry church dictionary. OFF is always measured before
+ON; cache/order effects can distort time comparisons. Native timestamps,
+speaker diarization, real-time audio-to-translated-caption latency and
+EN/JA source theological terms require separate tests and human inspection.
+
+Stacking: PR #129 -> PR #135 -> this PR. This adds the ASR hotword stage but
+does not yet combine Fun-ASR with M2M100 in a single integrated product
+session. End-to-end four-way ASR/MT glossary ON/OFF is tracked in issue #139.
+No production or 4/8GB hardware claim follows from a green workflow.
