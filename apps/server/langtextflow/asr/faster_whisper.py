@@ -251,8 +251,14 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                 )
             self._sequence += 1
             chunk_end_ms = int(round(base_ms + duration_ms))
-            start_ms = min(chunk_end_ms, int(round(base_ms + max(0.0, segment.start_seconds) * 1000.0)))
-            end_ms = min(chunk_end_ms, int(round(base_ms + max(0.0, segment.end_seconds) * 1000.0)))
+            start_ms = min(
+                chunk_end_ms,
+                int(round(base_ms + max(0.0, segment.start_seconds) * 1000.0)),
+            )
+            end_ms = min(
+                chunk_end_ms,
+                int(round(base_ms + max(0.0, segment.end_seconds) * 1000.0)),
+            )
             if end_ms < start_ms:
                 end_ms = start_ms
             await self.publish(
