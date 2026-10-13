@@ -45,6 +45,10 @@
 |---|---|
 | [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md) | Operator/Audience/Projector/Onboarding의 visual, responsive, i18n, accessibility contract |
 
+### 통역 품질 기준
+
+- [교회 통역 품질 우선 검증](CHURCH_QUALITY_BASELINE.md) — GitHub Actions 4 vCPU/16GB CPU 실측 → 사람 검수 → 8GB/4GB 최적화
+
 ### 품질과 acceptance
 
 | 문서 | 내용 |
