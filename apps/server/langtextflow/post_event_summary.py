@@ -32,7 +32,8 @@ def transcript_source(segments: list[TranscriptEvent]) -> tuple[str, str]:
         key=lambda segment: (segment.start_ms, segment.segment_id),
     )
     lines = [
-        f"[{segment.segment_id} at {segment.start_ms // 1000}s] {segment.text.strip()}"
+        f"[{segment.segment_id} at {segment.start_ms // 1000}s] "
+        f'{" ".join(segment.text.split())}'
         for segment in eligible
     ]
     result = "\n".join(lines)
