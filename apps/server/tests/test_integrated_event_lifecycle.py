@@ -229,7 +229,7 @@ def test_summary_api_uses_completed_original_transcript_and_is_idempotent(
         calls.append((source, kwargs))
         assert "새로운 목표" in source
         assert "The new goals" not in source
-        return "원문에 기반한 행사 요약 초안"
+        return "원문에 기반한 행사 요약 초안 [evidence-1 at 0s]"
 
     monkeypatch.setattr(post_event_api, "generate_summary", fake_model)
     app = FastAPI()
@@ -258,7 +258,7 @@ def test_summary_api_uses_completed_original_transcript_and_is_idempotent(
                 break
             time.sleep(0.01)
         assert result is not None and result["status"] == "completed"
-        assert result["content"] == "원문에 기반한 행사 요약 초안"
+        assert result["content"] == "원문에 기반한 행사 요약 초안 [evidence-1 at 0s]"
         assert result["summary_id"] == first_id
         assert len(calls) == 1
         # Completed revision should reuse the same immutable summary.
@@ -297,7 +297,7 @@ def test_summary_api_uses_completed_original_transcript_and_is_idempotent(
         )
         assert new_summary.status_code == 202
         assert new_summary.json()["summary_id"] != first_id
-        assert archive.summary_by_id(first_id)["content"] == "원문에 기반한 행사 요약 초안"
+        assert archive.summary_by_id(first_id)["content"] == "원문에 기반한 행사 요약 초안 [evidence-1 at 0s]"
         for _ in range(50):
             update = client.get(path + "/archive").json()
             if (
