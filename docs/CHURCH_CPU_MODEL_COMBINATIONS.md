@@ -70,8 +70,9 @@ Each job records:
    per-item latency and p95.
 4. Actual pinned FLEURS Korean read-speech replay (same 3 IDs/PCM SHA) for
    Qwen3-ASR 0.6B and Korean Zipformer with MT **resident at the same time**:
-   source CER/WER, translated coverage, sequential playback RTF, estimated
-   lag and sampled Python + child-process peak RSS.
+   source CER/WER, translated coverage, separately labeled paced replay RTF
+   and inference-only workload RTF, estimated lag, and sampled Python +
+   child-process peak RSS.
 5. Full inference JSON, model hashes and failure logs, even if one candidate
    errors. The job fails if required candidates are not successfully run.
 
