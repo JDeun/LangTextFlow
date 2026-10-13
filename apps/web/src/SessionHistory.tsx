@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
 import { PostEventPanel } from "./PostEventPanel";
 import { EventProjectControls } from "./EventProjectControls";
+import { ProjectArchiveIndex } from "./ProjectArchiveIndex";
 import { ProjectTranscriptSearch } from "./ProjectTranscriptSearch";
 import { HISTORY_COPY } from "./historyCopy";
 import { useI18n } from "./i18n";
@@ -300,6 +301,16 @@ export function SessionHistory({
         onSelectProject={onSelectProject}
         onProjectsChanged={async () => { await onProjectsChanged(); await refresh(); }}
       />
+
+      {selectedProjectId !== "all" && selectedProjectId !== "unassigned" && (
+        <ProjectArchiveIndex
+          key={selectedProjectId}
+          apiUrl={apiUrl}
+          locale={locale}
+          projectId={selectedProjectId}
+          onOpenSession={(sessionId) => { void openDetail({ session_id: sessionId }); }}
+        />
+      )}
 
       {selectedProjectId !== "all" && selectedProjectId !== "unassigned" && (
         <ProjectTranscriptSearch

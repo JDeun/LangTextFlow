@@ -173,6 +173,29 @@ class ProjectRepository:
                 (session_id, project_id),
             )
 
+    def session_ids(
+        self, project_id: str, *, limit: int = 25, offset: int = 0,
+    ) -> list[str]:
+        """Deterministically page sessions without truncating older event history."""
+        if not 1 <= limit <= 100 or not 0 <= offset <= 10000:
+            raise ValueError("project archive pagination is out of bounds")
+        with self._connect() as conn:
+            if conn.execute(
+                "SELECT 1 FROM projects WHERE project_id=?", (project_id,),
+            ).fetchone() is None:
+                raise KeyError("project not found")
+            rows = conn.execute(
+                """
+                SELECT ps.session_id FROM project_sessions ps
+                JOIN sessions s ON s.session_id=ps.session_id
+                WHERE ps.project_id=?
+                ORDER BY s.started_at DESC, ps.session_id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (project_id, limit, offset),
+            ).fetchall()
+        return [str(row["session_id"]) for row in rows]
+
     def search_transcripts(
         self, project_id: str, query: str, *, limit: int = 50, offset: int = 0,
     ) -> list[ProjectTranscriptMatch]:

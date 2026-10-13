@@ -216,6 +216,7 @@ def test_history_project_filter_is_applied_before_limit(tmp_path) -> None:
     assert len(history.list_sessions(limit=200, project_id=project.project_id)) == 1
     assert len(history.list_sessions(limit=200, unassigned=True)) == 60
 
+
 @pytest.mark.parametrize(
     "malicious_project_id",
     ["' OR 1=1 --", "'; DROP TABLE sessions; --", "project' UNION SELECT * FROM sessions --"],
