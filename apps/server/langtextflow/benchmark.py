@@ -401,8 +401,7 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
 
     request = StartSessionRequest(
         source_language=options.source_language,
-        # The benchmark disables translation, but StartSessionRequest still requires
-        # a distinct target; setting it equal to source rejects every benchmark run.
+        # Translation disabled, but schema requires a distinct target language.
         target_languages=["en" if options.source_language.strip().lower() != "en" else "ko"],
         engine=options.engine,
         translation_provider="none",

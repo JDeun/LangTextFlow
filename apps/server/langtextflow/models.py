@@ -316,6 +316,7 @@ class TranslationStatus(ProviderStatus):
 
 
 class StartSessionRequest(BaseModel):
+    project_id: str | None = Field(default=None, max_length=64)
     # Explicit per-session consent; legacy clients default to no recording.
     record_audio: bool = False
     source_language: str = Field(default="ko", min_length=2, max_length=16)
@@ -375,6 +376,7 @@ class SessionState(BaseModel):
 
 class SessionRecord(BaseModel):
     session_id: str
+    project_id: str | None = None
     join_code: str
     title: str
     notes: str = ""

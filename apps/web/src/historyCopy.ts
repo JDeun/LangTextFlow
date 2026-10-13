@@ -41,6 +41,9 @@ interface HistoryCopy {
   allJson: string;
   noCaptionMatch: string;
   noCaptions: string;
+  projectLabel: string;
+  projectAria: string;
+  projectUnassigned: string;
 }
 
 export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
@@ -56,6 +59,7 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     activeEditHint: " The active session can be edited after it ends.", saving: "Saving…", saveMetadata: "Save title / notes", displayLanguage: "Display language",
     source: "Source", transcriptSearch: "Transcript search", transcriptPlaceholder: "Search source, all translations, and speaker", allJson: "Full JSON",
     noCaptionMatch: "No captions match the search.", noCaptions: "No saved captions.",
+    projectLabel: "Project", projectAria: "Session project", projectUnassigned: "Unassigned",
   },
   ko: {
     loadFailed: "세션 기록을 불러오지 못했습니다.", detailFailed: "세션 상세 기록을 불러오지 못했습니다.",
@@ -69,6 +73,7 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     activeEditHint: " 현재 진행 중인 세션은 종료 후 편집할 수 있습니다.", saving: "저장 중…", saveMetadata: "제목 / 메모 저장", displayLanguage: "표시 언어",
     source: "원문", transcriptSearch: "Transcript 검색", transcriptPlaceholder: "원문·모든 번역·speaker에서 검색", allJson: "전체 JSON",
     noCaptionMatch: "검색어와 일치하는 자막이 없습니다.", noCaptions: "저장된 자막이 없습니다.",
+    projectLabel: "소속 행사", projectAria: "세션 소속 프로젝트", projectUnassigned: "미분류",
   },
   ja: {
     loadFailed: "セッション履歴を読み込めませんでした。", detailFailed: "セッション詳細を読み込めませんでした。",
@@ -82,5 +87,6 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     activeEditHint: " 現在進行中のセッションは終了後に編集できます。", saving: "保存中…", saveMetadata: "タイトル / メモを保存", displayLanguage: "表示言語",
     source: "原文", transcriptSearch: "トランスクリプト検索", transcriptPlaceholder: "原文・全翻訳・speakerから検索", allJson: "全JSON",
     noCaptionMatch: "検索語に一致する字幕はありません。", noCaptions: "保存された字幕はありません。",
+    projectLabel: "所属イベント", projectAria: "セッションのプロジェクト", projectUnassigned: "未分類",
   },
 };

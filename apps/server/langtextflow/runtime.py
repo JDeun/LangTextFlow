@@ -263,6 +263,12 @@ class CaptionRuntime:
 
     async def _start_unlocked(self, request: StartSessionRequest) -> SessionState:
         await self.initialize()
+        # Validate before stopping a running session: an invalid project must not
+        # interrupt a live event or create an unassigned session by accident.
+        if request.project_id is not None and not await asyncio.to_thread(
+            self.history.project_exists, request.project_id,
+        ):
+            raise ValueError("project not found")
         # Validate the new request before interrupting any active live event.
         engine = self._build_engine(request)
         if request.record_audio and not engine.accepts_audio:

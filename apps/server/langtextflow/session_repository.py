@@ -51,6 +51,37 @@ class SessionRepository:
                 )
                 """
             )
+            # Project links are optional, preserving every pre-existing session.
+            # Deleting a project cascades association rows, NOT sessions/transcripts.
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS projects (
+                    project_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    event_date TEXT,
+                    location TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'planning'
+                      CHECK(status IN ('planning','active','completed','archived')),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS project_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+                    FOREIGN KEY(project_id) REFERENCES projects(project_id) ON DELETE CASCADE
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_project_sessions_project "
+                "ON project_sessions(project_id)"
+            )
             session_columns = {
                 str(row["name"])
                 for row in connection.execute("PRAGMA table_info(sessions)").fetchall()
@@ -164,6 +195,22 @@ class SessionRepository:
                     state.started_at.isoformat(),
                 ),
             )
+            # Assign the new session atomically with its initial history row.
+            if request.project_id is not None:
+                if connection.execute(
+                    "SELECT 1 FROM projects WHERE project_id=?", (request.project_id,),
+                ).fetchone() is None:
+                    raise ValueError("project not found")
+                connection.execute(
+                    "INSERT INTO project_sessions(session_id, project_id) VALUES (?, ?)",
+                    (state.session_id, request.project_id),
+                )
+
+    def project_exists(self, project_id: str) -> bool:
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM projects WHERE project_id=?", (project_id,),
+            ).fetchone() is not None
 
     def update_engine(self, session_id: str, engine: str) -> None:
         with self._connect() as connection:
@@ -235,28 +282,59 @@ class SessionRepository:
                 ),
             )
 
-    def list_sessions(self, limit: int = 50) -> list[SessionRecord]:
+    def list_sessions(
+        self, limit: int = 50, *, project_id: str | None = None,
+        unassigned: bool = False,
+    ) -> list[SessionRecord]:
         safe_limit = max(1, min(limit, 200))
-        with self._connect() as connection:
-            rows = connection.execute(
-                """
-                SELECT s.*, COUNT(t.segment_id) AS segment_count
+        # Choose a complete static SQL statement, keeping the filter before LIMIT.
+        # User-controlled project IDs only enter through SQLite bound parameters.
+        if project_id is not None:
+            query = """
+                SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
                 FROM sessions s
+                LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
+                LEFT JOIN transcript_segments t ON t.session_id = s.session_id
+                WHERE ps.project_id = ?
+                GROUP BY s.session_id
+                ORDER BY s.started_at DESC, s.session_id DESC
+                LIMIT ?
+                """
+            params: tuple[str | int, ...] = (project_id, safe_limit)
+        elif unassigned:
+            query = """
+                SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
+                FROM sessions s
+                LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
+                LEFT JOIN transcript_segments t ON t.session_id = s.session_id
+                WHERE ps.project_id IS NULL
+                GROUP BY s.session_id
+                ORDER BY s.started_at DESC, s.session_id DESC
+                LIMIT ?
+                """
+            params = (safe_limit,)
+        else:
+            query = """
+                SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
+                FROM sessions s
+                LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
                 LEFT JOIN transcript_segments t ON t.session_id = s.session_id
                 GROUP BY s.session_id
-                ORDER BY s.started_at DESC
+                ORDER BY s.started_at DESC, s.session_id DESC
                 LIMIT ?
-                """,
-                (safe_limit,),
-            ).fetchall()
+                """
+            params = (safe_limit,)
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
         return [self._session_record(row) for row in rows]
 
     def get_session(self, session_id: str) -> SessionDetail | None:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT s.*, COUNT(t.segment_id) AS segment_count
+                SELECT s.*, ps.project_id, COUNT(t.segment_id) AS segment_count
                 FROM sessions s
+                LEFT JOIN project_sessions ps ON ps.session_id = s.session_id
                 LEFT JOIN transcript_segments t ON t.session_id = s.session_id
                 WHERE s.session_id = ?
                 GROUP BY s.session_id
@@ -303,6 +381,7 @@ class SessionRepository:
         ended_raw = row["ended_at"]
         return SessionRecord(
             session_id=str(row["session_id"]),
+            project_id=str(row["project_id"]) if row["project_id"] is not None else None,
             join_code=str(row["join_code"]),
             title=str(row["title"]),
             notes=str(row["notes"]),

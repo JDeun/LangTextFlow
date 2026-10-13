@@ -27,6 +27,7 @@ import { useCaptionSocket } from "./useCaptionSocket";
 import type {
   AudienceSessionView,
   CaptionDisplaySettings,
+  EventProject,
   ProductPreset,
   RecommendedConfiguration,
   ReferenceDocument,
@@ -199,6 +200,9 @@ function OperatorApp() {
   // Recording consent is always an explicit per-session choice (never persisted).
   const [recordAudio, setRecordAudio] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
+  const [projects, setProjects] = useState<EventProject[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("all");
+  const [projectLoadError, setProjectLoadError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [onboardingOpen, setOnboardingOpen] = useState(
@@ -242,6 +246,18 @@ function OperatorApp() {
   const glossaryTargetLanguage = targetLanguages.includes(previewLanguage)
     ? previewLanguage
     : targetLanguages[0] || defaultTargetForSource(sourceLanguage);
+
+  async function refreshProjects(): Promise<void> {
+    const response = await fetch(`${API_URL}/api/v1/projects`);
+    if (!response.ok) throw new Error("Event project list unavailable");
+    const records = (await response.json()) as EventProject[];
+    setProjects(records);
+    setProjectLoadError("");
+  }
+
+  useEffect(() => {
+    void refreshProjects().catch((reason: Error) => setProjectLoadError(reason.message));
+  }, [historyRefreshToken]);
 
   useEffect(() => {
     if (!availablePreviewLanguages.includes(previewLanguage)) {
@@ -344,6 +360,9 @@ function OperatorApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          project_id: selectedProjectId !== "all" && selectedProjectId !== "unassigned"
+            ? selectedProjectId
+            : null,
           record_audio: recordAudio && needsAudio,
           source_language: sourceLanguage,
           target_languages: targetLanguages,
@@ -480,6 +499,22 @@ function OperatorApp() {
           <label>
             {t("session.title")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
+          </label>
+          <label>
+            {operatorCopy.projectLabel}
+            <select
+              data-testid="session-project-select"
+              value={projects.some((project) => project.project_id === selectedProjectId)
+                ? selectedProjectId : ""}
+              disabled={running}
+              onChange={(event) => setSelectedProjectId(event.target.value || "all")}
+            >
+              <option value="">{operatorCopy.projectNone}</option>
+              {projects.map((project) => (
+                <option value={project.project_id} key={project.project_id}>{project.title}</option>
+              ))}
+            </select>
+            {projectLoadError && <small role="alert">{projectLoadError}</small>}
           </label>
           <label className="recording-opt-in">
             <input
@@ -796,6 +831,10 @@ function OperatorApp() {
             targetLanguage={previewLanguage}
             activeSessionId={running ? session?.session_id ?? null : null}
             refreshToken={historyRefreshToken}
+            projects={projects}
+            selectedProjectId={selectedProjectId}
+            onSelectProject={setSelectedProjectId}
+            onProjectsChanged={refreshProjects}
           />
           </div>
         </section>

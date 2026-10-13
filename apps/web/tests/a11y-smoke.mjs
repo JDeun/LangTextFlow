@@ -67,13 +67,36 @@ const axeSource = await readFile("apps/web/node_modules/axe-core/axe.min.js", "u
 
 async function assertAccessible(label) {
   await cdp("Runtime.evaluate", { expression: axeSource });
-  const violations = await evaluate(`axe.run(document, {
+  // aria-modal makes the background inactive: audit the active dialog while open,
+  // then audit the full operator document after dismissing onboarding.
+  const root = label === "onboarding"
+    ? 'document.querySelector(".onboarding-dialog")'
+    : "document";
+  const violations = await evaluate(`axe.run(${root}, {
     runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"] }
   }).then((result) => result.violations.map((violation) => ({
     id: violation.id,
     impact: violation.impact,
     help: violation.help,
-    nodes: violation.nodes.slice(0, 5).map((node) => node.target)
+    nodes: violation.nodes.slice(0, 5).map((node) => ({
+      target: node.target,
+      failureSummary: node.failureSummary,
+      dimensions: node.target.map((selector) => {
+        const el = document.querySelector(selector);
+        const box = el?.getBoundingClientRect();
+        const style = el && getComputedStyle(el);
+        return {
+          selector,
+          width: box?.width,
+          height: box?.height,
+          x: box?.x,
+          y: box?.y,
+          display: style?.display,
+          visibility: style?.visibility,
+          parentWidth: el?.parentElement?.getBoundingClientRect().width,
+        };
+      }),
+    }))
   })))`);
   if (violations.length) {
     throw new Error(`${label} accessibility violations:\n${JSON.stringify(violations, null, 2)}`);
