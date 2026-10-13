@@ -30,6 +30,7 @@ from .store import CaptionStore
 from .telemetry import EnergyVad, RealtimeMetrics, latency_ms
 
 _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_PERSISTENCE_FAILURE = "Local session storage unavailable; check disk and database health."
 
 
 class CaptionRuntime:
@@ -151,7 +152,7 @@ class CaptionRuntime:
                     )
                 except Exception as exc:
                     if self.state.session_id == session_id:
-                        self.state.persistence_error = str(exc)
+                        self.state.persistence_error = _PERSISTENCE_FAILURE
             finally:
                 self._persistence_queue.task_done()
                 self._refresh_queue_metrics()
@@ -185,7 +186,7 @@ class CaptionRuntime:
                     provider,
                 )
             except Exception as exc:
-                self.state.persistence_error = str(exc)
+                self.state.persistence_error = _PERSISTENCE_FAILURE
         self._refresh_queue_metrics()
 
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
@@ -306,7 +307,7 @@ class CaptionRuntime:
         try:
             await asyncio.to_thread(self.history.create_session, self.state, request)
         except Exception as exc:
-            self.state.persistence_error = str(exc)
+            self.state.persistence_error = _PERSISTENCE_FAILURE
         self._start_persistence_worker()
         try:
             await engine.start(request)
@@ -352,7 +353,7 @@ class CaptionRuntime:
                 try:
                     await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
                 except Exception as exc:
-                    self.state.persistence_error = str(exc)
+                    self.state.persistence_error = _PERSISTENCE_FAILURE
             await self.hub.close_all(reason="caption session failed to start")
             raise
         return self.state
@@ -400,7 +401,7 @@ class CaptionRuntime:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception as exc:
-                self.state.persistence_error = str(exc)
+                self.state.persistence_error = _PERSISTENCE_FAILURE
 
         await self.hub.close_all(reason="caption session stopped")
         self.metrics.voice_active = False
