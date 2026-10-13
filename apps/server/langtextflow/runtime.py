@@ -165,7 +165,10 @@ class CaptionRuntime:
         low = self.settings.resource_profile == "low" if low_resource is None else low_resource
         return FasterWhisperStreamingAsrEngine(
             publish or self.pipeline.ingest,
-            model=self.settings.low_resource_whisper_model if low else self.settings.faster_whisper_model,
+            model=(
+                self.settings.low_resource_whisper_model
+                if low else self.settings.faster_whisper_model
+            ),
             device="cpu" if low else self.settings.faster_whisper_device,
             compute_type="int8" if low else self.settings.faster_whisper_compute_type,
             cpu_threads=self.settings.low_resource_cpu_threads if low else None,
