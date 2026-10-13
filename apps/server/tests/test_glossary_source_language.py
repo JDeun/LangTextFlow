@@ -190,10 +190,10 @@ def test_bulk_korean_church_seed_never_becomes_foreign_source_hotwords(tmp_path)
         aliases=["せいれい"], translations={"ko": "성령"},
         presets=[ProductPreset.CHURCH],
     ))
-    assert [item.id for item in repo.active_for(ProductPreset.CHURCH, "en")] == [
-        english.id
+    assert [item.term for item in repo.active_for(ProductPreset.CHURCH, "en")] == [
+        english.term
     ]
-    assert [item.id for item in repo.active_for(ProductPreset.CHURCH, "ja")] == [
-        japanese.id
+    assert [item.term for item in repo.active_for(ProductPreset.CHURCH, "ja")] == [
+        japanese.term
     ]
     assert len(repo.active_for(ProductPreset.CHURCH, "ko")) == 157
