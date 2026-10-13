@@ -274,6 +274,27 @@ def load_fleurs_samples(language: str, *, count: int = 3) -> list[dict[str, Any]
     return samples
 
 
+def audio_glossary_coverage(per_source: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Distinguish running an ASR→MT pipeline from exercising real glossary terms.
+
+    FLEURS read-speech clips may contain *zero* theological terms. In that
+    case model execution is not evidence that glossary intervention worked.
+    """
+    coverage: dict[str, dict[str, Any]] = {}
+    for source in LANGUAGES:
+        for target in targets_for_source(source):
+            source_result = per_source.get(source, {})
+            terms = source_result.get("glossary_relevant", {}).get(target, 0)
+            if not isinstance(terms, int) or terms < 0:
+                raise ValueError("invalid observed glossary term count")
+            coverage[f"{source}->{target}"] = {
+                "observed_relevant_terms": terms,
+                "status": "lexical_observation_only" if terms else "not_exercised",
+                "qualified": False,
+            }
+    return coverage
+
+
 def audio_evaluation(
     model: M2M100CT2, asr_dir: Path, glossary_snapshot: Path, *, threads: int = 2,
 ) -> dict[str, Any]:
@@ -365,6 +386,8 @@ def audio_evaluation(
         "glossary_snapshot_sha256": glossary_digest,
         "glossary_method": "beam4_safe_lexical_rerank_not_guaranteed",
         "per_source": results,
+        "glossary_audio_coverage": audio_glossary_coverage(results),
+        "glossary_semantic_qualification": False,
         "peak_co_resident_rss_mb": resources.summary()["rss_peak_mb"],
         "speech_translation_reference": False,
         "speaker_language_detection_verified": False,
