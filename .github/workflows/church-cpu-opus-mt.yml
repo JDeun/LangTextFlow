@@ -151,7 +151,7 @@ jobs:
               "Synthetic text is unreviewed; 3 FLEURS clips are not sermons.",
               "A green workflow does not imply field ready or 4GB/8GB supported.",
               "",
-              "| Test | Output validity | CER | RTF / MT p95 | Peak RSS MB |",
+              "| Test | Output validity | CER | Inference RTF / MT p95 | Peak RSS MB |",
               "|---|---|---:|---:|---:|",
           ]
           for name in ("text", "qwen3-0.6b", "zipformer-ko"):
@@ -169,7 +169,7 @@ jobs:
                   cer = sum(s["source_quality"]["cer"] for s in r["samples"]) / 3
                   lines.append(
                       f"| {name} | {r['translated_coverage']}/3 | "
-                      f"{cer:.3f} | {r['sequential_replay_rtf']} | "
+                      f"{cer:.3f} | {r['inference_workload_rtf']} | "
                       f"{r['peak_co_resident_rss_mb']} |"
                   )
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
