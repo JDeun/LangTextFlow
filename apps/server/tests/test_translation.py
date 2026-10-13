@@ -77,3 +77,43 @@ async def test_ollama_prepare_rejects_non_object_payload(
 
     with pytest.raises(TranslationError, match="JSON object"):
         await translator.prepare()
+
+
+def test_translategemma_official_single_user_message_has_plain_source() -> None:
+    from langtextflow.translation.ollama import OllamaTranslator
+
+    context = SessionContext(title="Sample church service")
+    messages = OllamaTranslator.build_translategemma_messages(
+        "요한복음 3장 16절을 읽겠습니다.",
+        source_language="ko",
+        target_language="en",
+        context=context,
+    )
+    assert len(messages) == 1
+    assert messages[0]["role"] == "user"
+    assert messages[0]["content"].endswith(
+        "\\n\\n\\n요한복음 3장 16절을 읽겠습니다."
+    )
+    assert "session_title" not in messages[0]["content"]
+    assert "source_text" not in messages[0]["content"]
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        '{"session_title":"Test","source_text":"Here is the translated sentence."}',
+        '{"source_text":"Translated.","reference_material":""}',
+        '{"translation":"Valid","session_title":"Leaked"}',
+        '[{"text":"Translated"}]',
+        '{"source_text":',
+    ],
+)
+def test_ollama_rejects_context_leaks_in_caption(candidate: str) -> None:
+    with pytest.raises(ValueError, match="context envelope|malformed"):
+        OllamaTranslator.validate_caption_text(candidate)
+
+
+def test_ollama_can_accept_explicit_translation_only_json() -> None:
+    assert OllamaTranslator.validate_caption_text(
+        '{"translation":"The Lord is our shepherd."}'
+    ) == "The Lord is our shepherd."

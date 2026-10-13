@@ -67,12 +67,24 @@ class OllamaTranslator(Translator):
     ) -> str:
         if source_language == target_language:
             return text
-        messages = self.build_messages(
-            text,
-            source_language=source_language,
-            target_language=target_language,
-            context=context,
-        )
+        # TranslateGemma is trained for one plain-text user prompt with two
+        # blank lines before the source. Passing a JSON context object made the
+        # 4B model translate the *entire JSON envelope* into public captions.
+        # Other Ollama instruction models retain the existing structured path.
+        if self.model.split(":", 1)[0].casefold() == "translategemma":
+            messages = self.build_translategemma_messages(
+                text,
+                source_language=source_language,
+                target_language=target_language,
+                context=context,
+            )
+        else:
+            messages = self.build_messages(
+                text,
+                source_language=source_language,
+                target_language=target_language,
+                context=context,
+            )
         try:
             async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
                 response = await client.post(
@@ -90,14 +102,52 @@ class OllamaTranslator(Translator):
             raise TranslationError(f"Ollama translation failed: {exc}") from exc
 
         try:
-            return bounded_model_text(
+            content = bounded_model_text(
                 payload.get("message", {}).get("content", "")
                 if isinstance(payload, dict)
                 else "",
                 label="Ollama translation",
             )
+            return self.validate_caption_text(content)
         except ValueError as exc:
             raise TranslationError(str(exc)) from exc
+
+    @staticmethod
+    def validate_caption_text(content: str) -> str:
+        """Do not display model-generated context dictionaries as translations."""
+        import json
+
+        candidate = content.strip()
+        if candidate.startswith(("{", "[")):
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                raise ValueError("Ollama translation emitted malformed structured text")
+            if isinstance(parsed, dict) and set(parsed) == {"translation"}:
+                return bounded_model_text(parsed["translation"], label="Ollama translation")
+            raise ValueError("Ollama translation returned a context envelope, not a caption")
+        return candidate
+
+    @staticmethod
+    def build_translategemma_messages(
+        text: str,
+        *,
+        source_language: str,
+        target_language: str,
+        context: SessionContext,
+    ) -> list[dict[str, str]]:
+        """Official single-user TranslateGemma prompt, never a metadata JSON blob."""
+        return [
+            {
+                "role": "user",
+                "content": OllamaTranslator.build_prompt(
+                    text,
+                    source_language=source_language,
+                    target_language=target_language,
+                    context=context,
+                ),
+            }
+        ]
 
     @staticmethod
     def build_messages(
