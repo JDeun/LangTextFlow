@@ -297,7 +297,9 @@ def test_summary_api_uses_completed_original_transcript_and_is_idempotent(
         )
         assert new_summary.status_code == 202
         assert new_summary.json()["summary_id"] != first_id
-        assert archive.summary_by_id(first_id)["content"] == "원문에 기반한 행사 요약 초안 [evidence-1 at 0s]"
+        assert archive.summary_by_id(first_id)["content"] == (
+            "원문에 기반한 행사 요약 초안 [evidence-1 at 0s]"
+        )
         for _ in range(50):
             update = client.get(path + "/archive").json()
             if (
