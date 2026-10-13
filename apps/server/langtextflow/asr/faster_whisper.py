@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -240,10 +241,31 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             pcm_f32le,
             self._request,
         )
+        chunk_duration_seconds = duration_ms / 1000.0
         for segment in decoded:
+            # Decoder timestamps are relative to the 4s (or final shorter)
+            # PCM chunk. FLEURS CPU pilot exposed >20s timestamps on ~4s
+            # chunks; never publish evidence with an impossible source time.
+            if (
+                not math.isfinite(segment.start_seconds)
+                or not math.isfinite(segment.end_seconds)
+                or segment.start_seconds < -0.25
+                or segment.end_seconds < segment.start_seconds
+                or segment.end_seconds > chunk_duration_seconds + 0.25
+            ):
+                raise AsrEngineError(
+                    "faster-whisper returned out-of-bounds segment timestamps"
+                )
             self._sequence += 1
-            start_ms = int(round(base_ms + segment.start_seconds * 1000.0))
-            end_ms = int(round(base_ms + segment.end_seconds * 1000.0))
+            chunk_end_ms = int(round(base_ms + duration_ms))
+            start_ms = min(
+                chunk_end_ms,
+                int(round(base_ms + max(0.0, segment.start_seconds) * 1000.0)),
+            )
+            end_ms = min(
+                chunk_end_ms,
+                int(round(base_ms + max(0.0, segment.end_seconds) * 1000.0)),
+            )
             if end_ms < start_ms:
                 end_ms = start_ms
             await self.publish(

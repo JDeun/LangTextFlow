@@ -20,6 +20,8 @@ export const OPERATOR_COPY: Record<Locale, {
   resourceStandard: string;
   resourceLow: string;
   resourceHelp: string;
+  projectLabel: string;
+  projectNone: string;
 }> = {
   en: {
     rulesOnly: "Rule-based correction only",
@@ -40,6 +42,7 @@ export const OPERATOR_COPY: Record<Locale, {
     resourceLabel: "Hardware mode", resourceStandard: "Standard",
     resourceLow: "Low-spec CPU (source captions)",
     resourceHelp: "Avoids auto-starting 7B ASR and 4B translation. Translated captions require a separately verified lightweight translator.",
+    projectLabel: "Event project", projectNone: "No project",
   },
   ko: {
     rulesOnly: "규칙 기반 보정만",
@@ -60,6 +63,7 @@ export const OPERATOR_COPY: Record<Locale, {
     resourceLabel: "PC 사양에 맞게 선택", resourceStandard: "표준 모드",
     resourceLow: "저사양 CPU 모드 (원문 자막)",
     resourceHelp: "7B ASR·4B 번역 모델을 자동 실행하지 않습니다. 다국어 통역은 검증된 경량 번역기를 별도로 구성해야 합니다.",
+    projectLabel: "행사 프로젝트", projectNone: "프로젝트 없이 진행",
   },
   ja: {
     rulesOnly: "ルールベース補正のみ",
@@ -80,5 +84,6 @@ export const OPERATOR_COPY: Record<Locale, {
     resourceLabel: "PC の性能", resourceStandard: "標準モード",
     resourceLow: "低スペック CPU (原文字幕)",
     resourceHelp: "7B ASR・4B 翻訳モデルの自動起動を避けます。翻訳字幕は別途軽量翻訳モデルの設定が必要です。",
+    projectLabel: "イベントプロジェクト", projectNone: "プロジェクトなし",
   },
 };

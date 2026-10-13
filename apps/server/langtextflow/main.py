@@ -47,8 +47,18 @@ from .network import (
     operator_origin_allowed,
     websocket_origin_allowed,
 )
+from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
+from .project_archive import build_project_archive_manifest
+from .project_report import build_project_report
+from .project_repository import (
+    ProjectAssignment,
+    ProjectInput,
+    ProjectRecord,
+    ProjectRepository,
+    ProjectTranscriptMatch,
+)
 from .runtime import CaptionRuntime
 from .runtime_install import (
     RuntimeKind,
@@ -65,6 +75,8 @@ model_cache_root.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(model_cache_root / "huggingface"))
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
+project_repository = ProjectRepository(settings.database_path)
+post_event_archive = runtime.archive
 model_setup_manager = ModelSetupManager(settings)
 model_cache_manager = ModelCacheManager(settings)
 runtime_provision_manager = RuntimeProvisionManager(settings)
@@ -496,10 +508,150 @@ async def get_captions(request: Request) -> list[TranscriptEvent]:
     return runtime.store.snapshot()
 
 
-@app.get("/api/v1/history", response_model=list[SessionRecord])
-async def session_history(request: Request, limit: int = 50) -> list[SessionRecord]:
+@app.get("/api/v1/projects", response_model=list[ProjectRecord])
+async def projects(request: Request) -> list[ProjectRecord]:
     _require_operator(request)
-    return await asyncio.to_thread(runtime.history.list_sessions, limit)
+    return await asyncio.to_thread(project_repository.list)
+
+
+@app.post("/api/v1/projects", response_model=ProjectRecord, status_code=201)
+async def create_project(request: Request, payload: ProjectInput) -> ProjectRecord:
+    _require_operator(request)
+    return await asyncio.to_thread(project_repository.create, payload)
+
+
+@app.get("/api/v1/projects/{project_id}/archive")
+async def project_archive_manifest(
+    request: Request,
+    project_id: str,
+    limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10000),
+) -> dict:
+    """Operator-only event index, with no original audio or raw transcript."""
+    _require_operator(request)
+    try:
+        return await asyncio.to_thread(
+            build_project_archive_manifest,
+            project_repository,
+            runtime.history,
+            post_event_archive,
+            project_id,
+            limit=limit,
+            offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "project not found") from exc
+
+
+@app.get("/api/v1/projects/{project_id}/report")
+async def download_project_report(
+    request: Request,
+    project_id: str,
+    limit: int = Query(default=10, ge=1, le=25),
+    offset: int = Query(default=0, ge=0, le=10000),
+) -> Response:
+    """Export bounded original-evidence report, never a synthesized project claim."""
+    _require_operator(request)
+    try:
+        content = await asyncio.to_thread(
+            build_project_report,
+            project_repository,
+            runtime.history,
+            post_event_archive,
+            project_id,
+            limit=limit,
+            offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(404, "project not found") from exc
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": 'attachment; filename="event-project-report.md"',
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.get("/api/v1/projects/{project_id}", response_model=ProjectRecord)
+async def project_detail(request: Request, project_id: str) -> ProjectRecord:
+    _require_operator(request)
+    project = await asyncio.to_thread(project_repository.get, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.get("/api/v1/projects/{project_id}/search", response_model=list[ProjectTranscriptMatch])
+async def search_project_transcripts(
+    request: Request,
+    project_id: str,
+    q: str = Query(min_length=2, max_length=128),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
+) -> list[ProjectTranscriptMatch]:
+    _require_operator(request)
+    try:
+        return await asyncio.to_thread(
+            project_repository.search_transcripts,
+            project_id, q, limit=limit, offset=offset,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.put("/api/v1/projects/{project_id}", response_model=ProjectRecord)
+async def update_project(
+    request: Request, project_id: str, payload: ProjectInput,
+) -> ProjectRecord:
+    _require_operator(request)
+    project = await asyncio.to_thread(project_repository.update, project_id, payload)
+    if project is None:
+        raise HTTPException(status_code=404, detail="project not found")
+    return project
+
+
+@app.delete("/api/v1/projects/{project_id}", status_code=204)
+async def delete_project(request: Request, project_id: str) -> Response:
+    _require_operator(request)
+    deleted = await asyncio.to_thread(project_repository.delete, project_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="project not found")
+    return Response(status_code=204)
+
+
+@app.put("/api/v1/history/{session_id}/project", response_model=SessionDetail)
+async def assign_session_project(
+    request: Request, session_id: str, payload: ProjectAssignment,
+) -> SessionDetail:
+    _require_operator(request)
+    try:
+        await asyncio.to_thread(project_repository.assign, session_id, payload.project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    result = await asyncio.to_thread(runtime.history.get_session, session_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="session not found")
+    return result
+
+
+@app.get("/api/v1/history", response_model=list[SessionRecord])
+async def session_history(
+    request: Request, limit: int = Query(default=50, ge=1, le=200),
+    project_id: str | None = Query(default=None, max_length=64),
+    unassigned: bool = False,
+) -> list[SessionRecord]:
+    _require_operator(request)
+    if project_id is not None and unassigned:
+        raise HTTPException(status_code=400, detail="project_id and unassigned cannot be combined")
+    return await asyncio.to_thread(
+        runtime.history.list_sessions,
+        limit, project_id=project_id, unassigned=unassigned,
+    )
 
 
 @app.get("/api/v1/history/{session_id}", response_model=SessionDetail)
@@ -586,9 +738,14 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
     _require_operator(request)
     if runtime.state.running and runtime.state.session_id == session_id:
         raise HTTPException(status_code=409, detail="cannot delete active session")
+    # Capture managed paths before the cascading session delete removes their rows.
+    paths = await asyncio.to_thread(post_event_archive.recording_paths_for_session, session_id)
     deleted = await asyncio.to_thread(runtime.history.delete_session, session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="session not found")
+    for path in paths:
+        with suppress(OSError):
+            await asyncio.to_thread(path.unlink, missing_ok=True)
     return Response(status_code=204)
 
 
@@ -840,3 +997,7 @@ async def audio_socket(websocket: WebSocket) -> None:
             await websocket.close(code=1011, reason=str(exc)[:120])
     finally:
         _release_audio_socket(websocket)
+
+
+# Register archive routes last; all use the shared local-operator security guard.
+install_post_event_routes(app, runtime, post_event_archive, settings, _require_operator)

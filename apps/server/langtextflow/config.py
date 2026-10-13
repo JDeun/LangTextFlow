@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     ollama_correction_model: str = "qwen3.5:4b"
     correction_timeout_seconds: float = Field(default=4.0, gt=0)
     ollama_translation_model: str = "translategemma:4b"
+    ollama_translation_timeout_seconds: float = Field(default=20.0, gt=0, le=600)
     openai_compatible_url: str = "http://127.0.0.1:1234/v1"
     openai_compatible_api_key: str = ""
     openai_compatible_translation_model: str = ""

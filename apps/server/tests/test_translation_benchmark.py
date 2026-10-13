@@ -186,3 +186,19 @@ async def test_translation_benchmark_records_partial_failure(tmp_path: Path) -> 
     failed = report["fixtures"][1]["runs"][0]
     assert failed["status"] == "error"
     assert failed["error"] == "synthetic failure"
+
+
+def test_critical_english_terms_require_token_boundaries_but_korean_particles_work() -> None:
+    # Substrings must not count as correctly preserving negation or verse numbers.
+    metrics = terminology_metrics(
+        ("not", "3", "John", "은혜"),
+        "A notable teaching in John 13: 은혜로 구원을 얻습니다.",
+    )
+    assert metrics["expected"] == 4
+    assert metrics["matched"] == 2
+    assert metrics["missing"] == ["not", "3"]
+
+
+def test_english_negation_does_not_match_another_or_note() -> None:
+    metrics = terminology_metrics(("not", "no"), "Another note is written.")
+    assert metrics["accuracy"] == 0.0

@@ -123,14 +123,29 @@ export interface SessionState {
   context: SessionContext | null;
   audio_required: boolean;
   audio_sample_rate: number | null;
+  recording_enabled: boolean;
+  recording_error: string | null;
   correction_status: CorrectionStatus;
   translation_status: TranslationStatus;
   persistence_error: string | null;
   started_at: string | null;
 }
 
+export interface EventProject {
+  project_id: string;
+  title: string;
+  description: string;
+  event_date: string | null;
+  location: string;
+  status: "planning" | "active" | "completed" | "archived";
+  created_at: string;
+  updated_at: string;
+  session_count: number;
+}
+
 export interface SessionRecord {
   session_id: string;
+  project_id: string | null;
   join_code: string;
   title: string;
   notes: string;

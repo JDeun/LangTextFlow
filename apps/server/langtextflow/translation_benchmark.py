@@ -5,6 +5,7 @@ import asyncio
 import hashlib
 import json
 import platform
+import re
 import statistics
 import time
 from dataclasses import dataclass
@@ -113,6 +114,7 @@ def build_translator(
         return OllamaTranslator(
             base_url=settings.ollama_url,
             model=model or settings.ollama_translation_model,
+            request_timeout_seconds=settings.ollama_translation_timeout_seconds,
         )
     if provider == "openai-compatible":
         resolved_model = model or settings.openai_compatible_translation_model
@@ -139,7 +141,18 @@ def terminology_metrics(expected_terms: tuple[str, ...], hypothesis: str) -> dic
     matched_terms: list[str] = []
     missing_terms: list[str] = []
     for term in expected_terms:
-        if normalize_text(term) in normalized_hypothesis:
+        needle = normalize_text(term)
+        if not needle:
+            continue
+        # Reject English substring false positives: "not" in "notable",
+        # or scripture verse "3" matched by verse "13". CJK terms are
+        # substring-checked so Korean grammatical particles remain valid.
+        if needle.isascii():
+            pattern = r"(?<![a-z0-9])" + re.escape(needle) + r"(?![a-z0-9])"
+            present = re.search(pattern, normalized_hypothesis) is not None
+        else:
+            present = needle in normalized_hypothesis
+        if present:
             matched_terms.append(term)
         else:
             missing_terms.append(term)
