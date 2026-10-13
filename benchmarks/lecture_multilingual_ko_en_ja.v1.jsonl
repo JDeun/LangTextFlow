@@ -1,0 +1,12 @@
+{"id":"mission-01","ko":"오늘 본문은 요한복음 3장 16절입니다.","en":"Today's passage is John chapter three, verse sixteen.","ja":"今日の聖書箇所はヨハネによる福音書3章16節です。","reference_status":"synthetic_unreviewed","domain":"sermon"}
+{"id":"mission-02","ko":"우리가 결코 혼자가 아니라는 말씀입니다.","en":"The message is that we are never alone.","ja":"私たちは決して一人ではないというメッセージです。","reference_status":"synthetic_unreviewed","domain":"sermon"}
+{"id":"mission-03","ko":"사람은 자기 힘으로 구원을 얻을 수 없습니다.","en":"People cannot gain salvation by their own strength.","ja":"人は自分の力で救いを得ることはできません。","reference_status":"synthetic_unreviewed","domain":"sermon"}
+{"id":"mission-04","ko":"성령의 인도하심을 신뢰해야 합니다.","en":"We should trust the guidance of the Holy Spirit.","ja":"私たちは聖霊の導きを信頼すべきです。","reference_status":"synthetic_unreviewed","domain":"sermon"}
+{"id":"mission-05","ko":"지금부터 짧은 강연을 시작하겠습니다.","en":"We will now begin a short lecture.","ja":"これから短い講演を始めます。","reference_status":"synthetic_unreviewed","domain":"lecture"}
+{"id":"mission-06","ko":"오늘 발표에서는 데이터 품질과 재현 가능성을 다룹니다.","en":"Today's presentation covers data quality and reproducibility.","ja":"今日の発表ではデータの品質と再現性を扱います。","reference_status":"synthetic_unreviewed","domain":"lecture"}
+{"id":"mission-07","ko":"실험은 동일한 환경에서 세 번 반복했습니다.","en":"The experiment was repeated three times under the same conditions.","ja":"実験は同じ条件で3回繰り返しました。","reference_status":"synthetic_unreviewed","domain":"lecture"}
+{"id":"mission-08","ko":"이 결과는 인과관계를 증명하지 않습니다.","en":"This result does not establish causation.","ja":"この結果は因果関係を証明するものではありません。","reference_status":"synthetic_unreviewed","domain":"lecture"}
+{"id":"mission-09","ko":"정확도와 응답 지연 사이에는 절충이 필요합니다.","en":"We need a trade-off between accuracy and response latency.","ja":"精度と応答遅延の間にはトレードオフが必要です。","reference_status":"synthetic_unreviewed","domain":"lecture"}
+{"id":"mission-10","ko":"이 시스템은 인터넷이 없어도 작동해야 합니다.","en":"This system should work without an internet connection.","ja":"このシステムはインターネット接続がなくても動作する必要があります。","reference_status":"synthetic_unreviewed","domain":"lecture"}
+{"id":"mission-11","ko":"이 모델은 한국어와 영어와 일본어를 지원합니다.","en":"This model supports Korean, English, and Japanese.","ja":"このモデルは韓国語、英語、日本語に対応しています。","reference_status":"synthetic_unreviewed","domain":"lecture"}
+{"id":"mission-12","ko":"아직 제품 출시를 승인하지 않았습니다.","en":"We have not yet approved the product launch.","ja":"製品の発売はまだ承認していません。","reference_status":"synthetic_unreviewed","domain":"lecture"}
