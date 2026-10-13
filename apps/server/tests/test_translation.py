@@ -59,7 +59,7 @@ class _BadPrepareClient:
     def __init__(self, *args: object, **kwargs: object) -> None:
         del args, kwargs
 
-    async def __aenter__(self) -> "_BadPrepareClient":
+    async def __aenter__(self) -> _BadPrepareClient:
         return self
 
     async def __aexit__(self, *args: object) -> None:
