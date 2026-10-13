@@ -1,0 +1,139 @@
+name: Church live interpretation - real speech Linux CPU
+
+on:
+  pull_request:
+    paths:
+      - "scripts/evaluate_live_fleurs_translation.py"
+      - "apps/server/langtextflow/pipeline.py"
+      - ".github/workflows/church-live-interpretation-cpu.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: church-live-interpretation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live-cpu:
+    name: Real FLEURS audio -> ASR -> translated captions (CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Capture actual runner resources
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/church-live
+          {
+            echo "HEAD=$GITHUB_SHA"
+            nproc
+            lscpu | grep -E 'Model name:|CPU\(s\):|Architecture:' || true
+            free -h
+            df -h .
+          } | tee artifacts/church-live/runner-hardware.txt
+      - name: Install locked backend and CPU ASR dependencies
+        run: |
+          python -m pip install "uv==0.12.13"
+          uv sync --locked --extra dev --extra whisper --extra benchmark
+          uv pip install "datasets==4.4.1" "soundfile==0.13.1"
+      - name: Start pinned Ollama with no GPU
+        run: |
+          set -euo pipefail
+          docker run -d --name ltf-live-ollama \
+            -p 127.0.0.1:11434:11434 \
+            -e OLLAMA_NUM_PARALLEL=1 \
+            -e OLLAMA_MAX_LOADED_MODELS=1 \
+            ollama/ollama:0.34.0
+          for i in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs ltf-live-ollama
+          exit 1
+      - name: Pull real translation model and record version/digest
+        run: |
+          set -euo pipefail
+          docker exec ltf-live-ollama ollama pull translategemma:4b
+          curl --fail --silent http://127.0.0.1:11434/api/tags \
+            > artifacts/church-live/translation-model-manifest.json
+          docker exec ltf-live-ollama ollama --version \
+            > artifacts/church-live/ollama-runtime-version.txt
+          docker stats --no-stream ltf-live-ollama \
+            > artifacts/church-live/memory-before.txt
+      - name: Pace pinned Korean recorded speech through actual caption pipeline
+        env:
+          HF_HOME: /tmp/ltf-live-hf
+          HF_HUB_DISABLE_TELEMETRY: "1"
+          LANGTEXTFLOW_OLLAMA_URL: http://127.0.0.1:11434
+          LANGTEXTFLOW_OLLAMA_TRANSLATION_TIMEOUT_SECONDS: "180"
+        run: |
+          echo "timestamp,cpu_percent,container_memory" > artifacts/church-live/ollama-resource-samples.csv
+          (
+            while :; do
+              printf "%s," "$(date -u +%FT%TZ)" >> artifacts/church-live/ollama-resource-samples.csv
+              docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}}' ltf-live-ollama \
+                >> artifacts/church-live/ollama-resource-samples.csv || true
+              sleep 5
+            done
+          ) &
+          monitor_pid=$!
+          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
+          uv run --no-sync python -m scripts.evaluate_live_fleurs_translation \
+            --samples 3 --model base --chunk-seconds 8 \
+            --max-drain-seconds 240 --output artifacts/church-live
+      - name: Report translation coverage and actual p95 lag, not unverified quality
+        if: always()
+        run: |
+          docker stats --no-stream ltf-live-ollama \
+            > artifacts/church-live/memory-after.txt || true
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path("artifacts/church-live/live-interpretation-report.json")
+          lines = [
+              "## Real speech -> ASR -> CPU translation -> committed captions",
+              "- Public Ubuntu runner: nominal 4 vCPU / 16 GB, no GPU",
+              "- FLEURS CC-BY-4.0 Korean speech replayed at real-time pace",
+              "- Model: CPU INT8 faster-whisper base + CPU TranslateGemma 4B",
+              "- No independent human-reviewed English speech translation available",
+          ]
+          if path.is_file():
+              report = json.loads(path.read_text(encoding="utf-8"))
+              m = report["metrics"]
+              lines.extend([
+                  f"- Status: {report['status']}",
+                  f"- ASR CER/WER: {report['asr_quality']['cer']} / {report['asr_quality']['wer']}",
+                  f"- Translated committed captions: {m['translated_committed_count']}/{m['committed_count']}",
+                  f"- Translation coverage: {m['translation_coverage']}",
+                  f"- ASR p95 lag: {m['p95_lag_ms']['stable']} ms",
+                  f"- Translation p95 lag: {m['p95_lag_ms']['translated']} ms",
+                  f"- Whole pipeline processing RTF: {m['processing_rtf']}",
+                  f"- Impossible source timestamps: {m['invalid_timestamp_count']}",
+                  "- **Field ready: no (requires live church audio, semantic review and soak)**",
+              ])
+          else:
+              lines.append("- No report generated; review failure diagnostics")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          PY
+      - name: Upload model, real speech and timing results without raw audio
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: church-live-cpu-e2e
+          path: |
+            artifacts/church-live/*.json
+            artifacts/church-live/*.txt
+            artifacts/church-live/*.csv
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Failure diagnostics
+        if: failure()
+        run: docker logs --tail 120 ltf-live-ollama || true
