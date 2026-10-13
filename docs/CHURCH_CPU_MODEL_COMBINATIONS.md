@@ -22,9 +22,24 @@ CTranslate2 CPU INT8 instead of 4B general-model decoding.
 | Qwen3-ASR 0.6B INT8 | OPUS-MT tc-big ko-en (CT2 INT8) | 16GB reference | Higher-resource comparison |
 | Korean Zipformer INT8 | OPUS-MT tc-big ko-en (CT2 INT8) | 16GB reference | Quality/latency trade-off |
 
-The previous 3-clip ASR-only FLEURS evaluation reported 0.6B Qwen CER ~0.0554
-and Zipformer CER ~0.1641. This small sample is not an actual sermon-quality
-score. Neither is certified at any memory tier.
+The previous **real 3-clip ASR-only FLEURS** experiment (PR #116,
+artifact `korean-cpu-asr-challenger-evidence`) found:
+
+| Korean ASR | Mean CER | Mean WER | ASR inference RTF | Offline post-utterance lag / native partial |
+|---|---:|---:|---:|---|
+| Qwen3-ASR 0.6B INT8 | 0.0554 | 0.4068 | 0.2902 | 2.49–3.87s after utterance |
+| Qwen3-ASR 1.7B INT8 | 0.0475 | 0.3925 | 0.5524 | 4.88–7.15s after utterance |
+| Korean Zipformer INT8 | 0.1641 | 0.9556 | 0.0609 | 1.62–2.02s to first partial |
+| whisper.cpp multilingual base | 0.1203 | 0.4803 | 0.2230 | 2.23–2.47s after utterance |
+
+The Zipformer pilot **mistranscribed dates and year numbers**, making it an
+important native-streaming *latency comparator* rather than a current
+recommendation for congregational use. Qwen 0.6B offers better Korean fidelity
+than Zipformer on this tiny corpus, but is **offline by utterance**: its
+successful recognition does not automatically produce sub-second English
+captions. Korean WER is also sensitive to spacing/tokenization; human scoring
+of verse numbers, names and negations is mandatory. No model is certified for
+a sermon or a physical RAM tier from these three clips.
 
 ## Model provenance and licensing
 
