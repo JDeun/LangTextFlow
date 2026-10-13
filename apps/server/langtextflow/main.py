@@ -48,7 +48,6 @@ from .network import (
     websocket_origin_allowed,
 )
 from .post_event_api import install_post_event_routes
-from .post_event_archive import PostEventArchive
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .runtime import CaptionRuntime
@@ -67,7 +66,7 @@ model_cache_root.mkdir(parents=True, exist_ok=True)
 os.environ.setdefault("HF_HOME", str(model_cache_root / "huggingface"))
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
-post_event_archive = PostEventArchive(settings.database_path)
+post_event_archive = runtime.archive
 model_setup_manager = ModelSetupManager(settings)
 model_cache_manager = ModelCacheManager(settings)
 runtime_provision_manager = RuntimeProvisionManager(settings)
@@ -128,7 +127,6 @@ async def _close_audio_socket_for_transition(reason: str) -> None:
 async def lifespan(_: FastAPI):
     glossary_repository.initialize()
     await runtime.initialize()
-    await asyncio.to_thread(post_event_archive.initialize)
     await asyncio.to_thread(mdns_publisher.start)
     try:
         yield

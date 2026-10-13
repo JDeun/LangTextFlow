@@ -19,6 +19,41 @@ Foreign keys cascade with session deletion. WAV bytes live in `<database-directo
 4. Choose **Generate / retry with local Ollama** to create a post-event summary. It defaults to the configured local `ollama_correction_model` (currently `qwen3.5:4b`); that model must be installed and reachable. No external provider is silently selected.
 5. The summary runs in an async job. The panel polls status; failure never changes or removes the original transcript. Generation is idempotent when the same transcript hash/provider/model/language/prompt version already has a completed result.
 
+## Automatic recording (stacked implementation)
+
+Live audio recording is available as an explicit **per-session opt-in** before starting a real ASR engine. The existing streaming `/ws/audio` float32 PCM is mirrored to a **bounded, asynchronous PCM16 WAV writer**; filesystem backpressure does not block live ASR. A complete recording is linked to `session_id` after stop and appears in the same Event archive panel. Recording defaults to off, and a demo/mock session cannot enable it.
+
+Failure behavior: if the recording queue overflows, storage is exhausted, or WAV finalization fails, the recorder discards incomplete audio and sets `SessionState.recording_error`, while the caption pipeline continues. The operator must check the recording status before publishing. Interrupted `.partial` recordings are not automatically represented as complete assets; safe startup recovery/retention policies remain #79.
+
+Recordings are local plaintext files with `0600` creation permissions (subject to platform filesystem semantics); **participant notice/consent is the operator's responsibility**. Browser controls do not persist recording opt-in across sessions. Imported WAV files remain supported.
+
+
+## Optional live recording (stacked PR #92)
+
+- Recording remains **off by default** and must be opted into for each new
+  microphone-enabled session, after informing participants and obtaining
+  required consent. The choice resets when a session ends or aborts.
+- A bounded in-memory queue copies PCM frames from the operator-only audio
+  stream to a separate asynchronous WAV writer. Files are private,
+  single-channel PCM16 and linked to the immutable `session_id`.
+- A disk initialization error does not stop live captioning; the operator
+  sees a distinct recording failure status. Disk flush errors or audio queue
+  overflow invalidate the recording and prevent incomplete files being
+  presented as successful.
+- The recording is written first as a private `*.wav.partial` and only
+  promoted to `*.wav` after finalization and disk flush. Its SHA-256,
+  duration, codec and size are then registered in SQLite.
+- Recording failures that occur mid-session are surfaced through a scoped
+  operator-state poll; no new audience API or permission is introduced.
+- A power loss may leave an **unregistered partial file**. On subsequent
+  startup, only server-generated UUID-named partials older than 24 hours are
+  reclaimed. Completed WAVs and newer/unknown files are preserved. Partial
+  files are never advertised as complete; finalized-but-unindexed WAV recovery
+  and broader retention governance remain tracked in #79.
+- Session timestamps and audio frames currently lack independently verified
+  sample-accurate seek alignment. Do not imply that clicking a caption seeks
+  to that exact recorded word until alignment verification is implemented.
+
 ## Operator-only API
 
 | Endpoint | Purpose |
