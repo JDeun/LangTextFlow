@@ -130,7 +130,8 @@ def test_missing_model_term_is_reported_not_forcibly_substituted() -> None:
 
 def test_number_negation_and_existing_term_protection() -> None:
     terms = [{"source": "성령", "target": "Holy Spirit"}]
-    check = lambda source, output: bool(output) and source != output
+    def check(source: str, output: str) -> bool:
+        return bool(output) and source != output
     baseline = "The spirit did not leave us in 3 days."
     unsafe = ["The Holy Spirit left us in 4 days."]
     out = choose_candidate(baseline, unsafe, "성령", terms, "en", safe=check)
