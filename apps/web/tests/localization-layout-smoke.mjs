@@ -52,11 +52,23 @@ async function evaluate(expression) {
 }
 
 async function setLocale(locale) {
-  await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)}); location.reload(); true`);
-  await waitFor(
-    () => evaluate(`document.readyState === "complete" && document.querySelector('[data-testid="locale-select"]')?.value === ${JSON.stringify(locale)}`),
-    `locale ${locale}`,
-  );
+  // Do not navigate inside Runtime.evaluate: reload can destroy the CDP
+  // execution context before its response resolves, causing false timeouts.
+  await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)}); true`);
+  await cdp("Page.reload", { ignoreCache: true });
+  await waitFor(async () => {
+    try {
+      return await evaluate(`document.readyState === "complete"
+        && document.documentElement.lang === ${JSON.stringify(locale)}
+        && document.querySelector('[data-testid="locale-select"]')?.value === ${JSON.stringify(locale)}
+        && localStorage.getItem("langtextflow:locale:v1") === ${JSON.stringify(locale)}`);
+    } catch (error) {
+      if (/Inspected target navigated or closed|Execution context was destroyed|Cannot find context with specified id/i.test(String(error))) {
+        return false;
+      }
+      throw error;
+    }
+  }, `locale ${locale}`);
 }
 
 const stressSamples = {
