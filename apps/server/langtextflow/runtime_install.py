@@ -180,19 +180,43 @@ class RuntimeProvisionManager:
             if task:
                 task.cancel()
         if task:
-            with suppress(asyncio.CancelledError):
-                await task
+            try:
+                with suppress(asyncio.CancelledError):
+                    await task
+            finally:
+                # Cancelled runners skip _complete/_error (and their _update
+                # cleanup). Do not retain each completed Task indefinitely.
+                async with self._lock:
+                    if self._tasks.get(job_id) is task and task.done():
+                        self._tasks.pop(job_id, None)
         return await self.get_job(job_id)
 
     async def shutdown(self) -> None:
         async with self._lock:
-            tasks = [task for task in self._tasks.values() if not task.done()]
-            for task in tasks:
+            outstanding = [
+                (job_id, task)
+                for job_id, task in self._tasks.items()
+                if not task.done()
+            ]
+            now = datetime.now(UTC)
+            for job_id, task in outstanding:
+                job = self._jobs.get(job_id)
+                if job and job.state in {ProvisionState.QUEUED, ProvisionState.RUNNING}:
+                    job.state = ProvisionState.CANCELLED
+                    job.status = "cancelled"
+                    job.updated_at = now
+                    job.finished_at = now
                 task.cancel()
-        for task in tasks:
-            with suppress(asyncio.CancelledError):
-                await task
-        await self._stop_managed_ollama()
+        try:
+            for _, task in outstanding:
+                with suppress(asyncio.CancelledError):
+                    await task
+        finally:
+            async with self._lock:
+                for job_id, task in list(self._tasks.items()):
+                    if task.done():
+                        self._tasks.pop(job_id, None)
+            await self._stop_managed_ollama()
 
     async def _install_faster_whisper(self, job_id: str) -> None:
         if importlib.util.find_spec("faster_whisper") is not None:
