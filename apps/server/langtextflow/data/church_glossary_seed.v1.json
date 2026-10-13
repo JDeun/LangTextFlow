@@ -1855,20 +1855,6 @@
       "aliases": []
     },
     {
-      "term": "시험",
-      "translations": {
-        "en": "trial",
-        "ja": "試練"
-      },
-      "category": "theology",
-      "presets": [
-        "church"
-      ],
-      "boost": 1.5,
-      "enabled": true,
-      "aliases": []
-    },
-    {
       "term": "성육신",
       "translations": {
         "en": "incarnation",
@@ -2181,20 +2167,6 @@
       "translations": {
         "en": "John the Baptist",
         "ja": "洗礼者ヨハネ"
-      },
-      "category": "proper-name",
-      "presets": [
-        "church"
-      ],
-      "boost": 1.6,
-      "enabled": true,
-      "aliases": []
-    },
-    {
-      "term": "유다",
-      "translations": {
-        "en": "Judas",
-        "ja": "ユダ"
       },
       "category": "proper-name",
       "presets": [
