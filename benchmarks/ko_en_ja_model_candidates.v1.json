@@ -39,8 +39,8 @@
       "license": {
         "id": "apache-2.0",
         "status": "model_card_verified",
-        "source": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B",
-        "license": "permissive"
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B"
       },
       "execution": "existing_cpu_utterance_baseline",
       "glossary": "hotword_ablation_not_yet_verified",
@@ -58,8 +58,8 @@
       "license": {
         "id": "apache-2.0",
         "status": "model_card_verified",
-        "source": "https://huggingface.co/FunAudioLLM/Fun-ASR-MLT-Nano-2512",
-        "license": "permissive"
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/FunAudioLLM/Fun-ASR-MLT-Nano-2512"
       },
       "execution": "planned_cpu_provision_and_adapter",
       "glossary": "hotword_ablation_not_yet_verified",
@@ -84,8 +84,8 @@
       "license": {
         "id": "mit",
         "status": "model_card_verified",
-        "source": "https://huggingface.co/facebook/m2m100_418M",
-        "license": "permissive"
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/facebook/m2m100_418M"
       },
       "execution": "existing_ct2_cpu_experiment",
       "glossary": "experimental_beam4_candidate_rerank_not_constrained",
@@ -103,8 +103,8 @@
       "license": {
         "id": "apache-2.0",
         "status": "model_card_verified",
-        "source": "https://huggingface.co/Helsinki-NLP/opus-mt-ko-en",
-        "license": "permissive"
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/Helsinki-NLP/opus-mt-ko-en"
       },
       "execution": "existing_directional_ct2_experiment",
       "glossary": "not_integrated",
@@ -129,8 +129,8 @@
       "license": {
         "id": "apache-2.0",
         "status": "model_card_verified",
-        "source": "https://huggingface.co/google/madlad400-3b-mt",
-        "license": "permissive"
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/google/madlad400-3b-mt"
       },
       "execution": "planned_cpu_feasibility_prototype",
       "glossary": "not_integrated",
@@ -155,8 +155,8 @@
       "license": {
         "id": "unknown",
         "status": "pending_explicit_permission",
-        "source": "https://huggingface.co/facebook/mbart-large-50-many-to-many-mmt",
-        "license": "unknown"
+        "territory": "unknown",
+        "evidence_url": "https://huggingface.co/facebook/mbart-large-50-many-to-many-mmt"
       },
       "execution": "blocked_pending_license",
       "glossary": "not_integrated",
@@ -181,8 +181,8 @@
       "license": {
         "id": "tencent-hy-community",
         "status": "territory_excluded",
-        "source": "https://huggingface.co/tencent/HY-MT1.5-1.8B/blob/main/License.txt",
-        "license": "south_korea_excluded"
+        "territory": "south_korea_excluded",
+        "evidence_url": "https://huggingface.co/tencent/HY-MT1.5-1.8B/blob/main/License.txt"
       },
       "execution": "excluded_for_korean_deployment",
       "glossary": "not_evaluated",
