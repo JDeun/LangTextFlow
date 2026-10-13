@@ -500,21 +500,6 @@ function OperatorApp() {
             {t("session.title")}
             <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
           </label>
-          <label className="recording-opt-in">
-            <input
-              type="checkbox"
-              checked={recordAudio && needsAudio}
-              disabled={running || !needsAudio}
-              onChange={(event) => setRecordAudio(event.target.checked)}
-            />
-            <span>
-              {recordingCopy.label}
-            </span>
-          </label>
-          <small>
-            {recordingCopy.help}
-          </small>
-          {session?.recording_error && <small role="alert">{session.recording_error}</small>}
           <label>
             {operatorCopy.projectLabel}
             <select
@@ -531,6 +516,21 @@ function OperatorApp() {
             </select>
             {projectLoadError && <small role="alert">{projectLoadError}</small>}
           </label>
+          <label className="recording-opt-in">
+            <input
+              type="checkbox"
+              checked={recordAudio && needsAudio}
+              disabled={running || !needsAudio}
+              onChange={(event) => setRecordAudio(event.target.checked)}
+            />
+            <span>
+              {recordingCopy.label}
+            </span>
+          </label>
+          <small>
+            {recordingCopy.help}
+          </small>
+          {session?.recording_error && <small role="alert">{session.recording_error}</small>}
           <label>
             {t("session.presenter")}
             <input

@@ -77,20 +77,7 @@ def install_post_event_routes(
             asyncio.to_thread(archive.recordings, session_id),
             asyncio.to_thread(archive.latest_summary, session_id),
         )
-        stale = False
-        if summary is not None:
-            segments = await asyncio.to_thread(runtime.history.segments, session_id)
-            try:
-                _, current_hash = transcript_source(segments)
-                stale = summary["transcript_sha256"] != current_hash
-            except ValueError:
-                # A summary with no current committed source can never be trusted.
-                stale = True
-        return {
-            "recordings": recordings,
-            "summary": summary,
-            "summary_stale": stale,
-        }
+        return {"recordings": recordings, "summary": summary}
 
     @app.post("/api/v1/history/{session_id}/recordings", status_code=201)
     async def upload_recording(request: Request, session_id: str) -> dict:
@@ -132,10 +119,6 @@ def install_post_event_routes(
                         raise HTTPException(413, "recording exceeds upload limit")
                     digest.update(part)
                     await asyncio.to_thread(output.write, part)
-                # Ensure the imported recording is durable before registering its
-                # metadata. A disk flush failure must never publish an incomplete WAV.
-                await asyncio.to_thread(output.flush)
-                await asyncio.to_thread(os.fsync, output.fileno())
             # Streaming WAV validation is performed off the ASGI event loop.
             channels, sample_rate, duration = await asyncio.to_thread(
                 _validate_wav, path,
@@ -150,19 +133,9 @@ def install_post_event_routes(
                 sample_rate=sample_rate,
                 channels=channels,
             )
-        except asyncio.CancelledError:
-            # Client disconnect/task cancellation must not leak a private audio
-            # upload which has not been linked to a completed session.
-            await asyncio.to_thread(path.unlink, missing_ok=True)
-            raise
         except HTTPException:
             path.unlink(missing_ok=True)
             raise
-        except sqlite3.IntegrityError as exc:
-            path.unlink(missing_ok=True)
-            if "FOREIGN KEY constraint failed" in str(exc):
-                raise HTTPException(404, "session no longer exists") from exc
-            raise HTTPException(409, "recording metadata conflict") from exc
         except (OSError, EOFError, wave.Error, ValueError, StorageCapacityError) as exc:
             path.unlink(missing_ok=True)
             raise HTTPException(422, "invalid or unwritable WAV recording") from exc
