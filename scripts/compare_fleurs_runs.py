@@ -15,7 +15,10 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, An
     """Fail rather than compare non-equivalent recordings."""
     for field in ("dataset", "revision", "split", "language"):
         if baseline.get(field) != candidate.get(field):
-            raise ValueError(f"non-comparable {field}: {baseline.get(field)!r} vs {candidate.get(field)!r}")
+            raise ValueError(
+                f"non-comparable {field}: {baseline.get(field)!r} "
+                f"vs {candidate.get(field)!r}"
+            )
     base_samples = baseline.get("samples", [])
     next_samples = candidate.get("samples", [])
     if not base_samples or not next_samples:
@@ -38,7 +41,10 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, An
         if abs(float(b["audio_duration_seconds"]) - float(a["audio_duration_seconds"])) > 0.001:
             raise ValueError(f"non-comparable sample {identifier}: duration changed")
         for metric in ("cer", "wer", "throughput_rtf"):
-            if not isinstance(b.get(metric), (int, float)) or not isinstance(a.get(metric), (int, float)):
+            if (
+                not isinstance(b.get(metric), (int, float))
+                or not isinstance(a.get(metric), (int, float))
+            ):
                 raise ValueError(f"missing numeric {metric} on {identifier}")
         rows.append({
             "id": identifier,
@@ -61,11 +67,20 @@ def compare(baseline: dict[str, Any], candidate: dict[str, Any]) -> dict[str, An
         "revision": baseline["revision"],
         "language": baseline["language"],
         "samples": len(rows),
-        "baseline_config": {"model": baseline.get("model"), "chunk_seconds": baseline.get("decode_chunk_seconds", 4)},
-        "candidate_config": {"model": candidate.get("model"), "chunk_seconds": candidate.get("decode_chunk_seconds", 4)},
+        "baseline_config": {
+            "model": baseline.get("model"),
+            "chunk_seconds": baseline.get("decode_chunk_seconds", 4),
+        },
+        "candidate_config": {
+            "model": candidate.get("model"),
+            "chunk_seconds": candidate.get("decode_chunk_seconds", 4),
+        },
         "aggregate": aggregate,
         "per_sample": rows,
-        "interpretation": "Negative CER/WER change means fewer errors; negative RTF change means faster processing. Pilot only.",
+        "interpretation": (
+            "Negative CER/WER change means fewer errors; "
+            "negative RTF change means faster processing. Pilot only."
+        ),
     }
 
 
