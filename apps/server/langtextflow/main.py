@@ -47,6 +47,7 @@ from .network import (
     operator_origin_allowed,
     websocket_origin_allowed,
 )
+from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .project_repository import ProjectAssignment, ProjectInput, ProjectRecord, ProjectRepository
@@ -67,6 +68,7 @@ os.environ.setdefault("HF_HOME", str(model_cache_root / "huggingface"))
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
 project_repository = ProjectRepository(settings.database_path)
+post_event_archive = runtime.archive
 model_setup_manager = ModelSetupManager(settings)
 model_cache_manager = ModelCacheManager(settings)
 runtime_provision_manager = RuntimeProvisionManager(settings)
@@ -651,9 +653,14 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
     _require_operator(request)
     if runtime.state.running and runtime.state.session_id == session_id:
         raise HTTPException(status_code=409, detail="cannot delete active session")
+    # Capture managed paths before the cascading session delete removes their rows.
+    paths = await asyncio.to_thread(post_event_archive.recording_paths_for_session, session_id)
     deleted = await asyncio.to_thread(runtime.history.delete_session, session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="session not found")
+    for path in paths:
+        with suppress(OSError):
+            await asyncio.to_thread(path.unlink, missing_ok=True)
     return Response(status_code=204)
 
 
@@ -905,3 +912,7 @@ async def audio_socket(websocket: WebSocket) -> None:
             await websocket.close(code=1011, reason=str(exc)[:120])
     finally:
         _release_audio_socket(websocket)
+
+
+# Register archive routes last; all use the shared local-operator security guard.
+install_post_event_routes(app, runtime, post_event_archive, settings, _require_operator)

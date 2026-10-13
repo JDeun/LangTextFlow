@@ -123,8 +123,9 @@
 }
 
 .target-language-selector.compact .target-language-chips {
-  /* Ensure every language button has an accessible touch target, even when
-     the onboarding wizard is displayed in a narrow desktop viewport. */
+  /* Five fixed columns squeezed Russian and other long language labels into
+     overlapping target boxes in the 360px onboarding panel (axe target-size).
+     Two flexible columns preserve a real touch area at every supported width. */
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }

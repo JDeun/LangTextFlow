@@ -73,11 +73,20 @@ async function key(key, modifiers = 0) {
 await cdp("Page.enable");
 await cdp("Runtime.enable");
 await waitFor(() => evaluate("document.readyState === 'complete'"), "operator page");
-await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); location.reload(); true`);
-await waitFor(
-  () => evaluate(`document.querySelector('.setup-button') !== null && document.querySelector('.onboarding-dialog') === null`),
-  "operator setup button",
-);
+// Keep navigation outside Runtime.evaluate: a synchronous location.reload()
+// destroys the execution context before the DevTools reply can be delivered.
+await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); true`);
+await cdp("Page.reload", { ignoreCache: true });
+await waitFor(async () => {
+  try {
+    return await evaluate(`document.readyState === 'complete' && document.querySelector('.setup-button') !== null && document.querySelector('.onboarding-dialog') === null`);
+  } catch (error) {
+    // Chromium may reject a Runtime.evaluate sent while the new document
+    // replaces its execution context. Only retry these navigation errors.
+    if (/Inspected target navigated or closed|Execution context was destroyed|Cannot find context with specified id/i.test(String(error))) return false;
+    throw error;
+  }
+}, "operator setup button");
 
 // A locale/storage-triggered React re-render can replace the setup button
 // between the initial selector check and our click. Retry the real click,
