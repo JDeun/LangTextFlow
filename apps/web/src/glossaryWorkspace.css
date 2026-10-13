@@ -13,6 +13,7 @@
 .glossary-workspace-page .glossary-actions button { min-height: 44px; }
 .glossary-workspace-page .glossary-form input { font-size: 14px; }
 .glossary-form label { margin: 0; }
+.glossary-language-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .glossary-form-actions { display: flex; gap: 8px; align-items: center; }
 .glossary-form-actions .glossary-add { flex: 1; }
 .glossary-preset-scope {
@@ -29,4 +30,5 @@
   .glossary-workspace-page .topbar { flex-wrap: wrap; gap: 12px; }
   .glossary-workspace-page .glossary-actions { grid-auto-flow: row; }
   .glossary-form-row { grid-template-columns: 1fr; }
+  .glossary-language-fields { grid-template-columns: 1fr; }
 }
