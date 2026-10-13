@@ -12,7 +12,7 @@ from .config import Settings
 from .models import TranscriptEvent
 from .prompt_safety import UNTRUSTED_DATA_POLICY, bounded_model_text
 
-PROMPT_VERSION = "post-event-v1"
+PROMPT_VERSION = "post-event-v2-cited"
 MAX_SOURCE_CHARS = 240_000
 CHUNK_CHARS = 6_000
 MAX_CHUNKS = 48
@@ -90,8 +90,12 @@ async def generate_summary(
     system = (
         f"Summarize this completed event transcript in {language}. "
         "Use ONLY the actual speaker's words. Structure: main themes, key points, "
-        "conclusions, and follow-ups ONLY if explicitly spoken. Cite original segment "
-        "identifiers and approximate seconds when available. "
+        "conclusions, and follow-ups ONLY if explicitly spoken. "
+        "In the FINAL summary cite at least one original source segment using "
+        "the EXACT marker [segment-id at 123s] copied from the transcript. "
+        "Never invent IDs, change marker times, or cite intermediate notes as "
+        "if they were source segments. Every factual bullet should cite "
+        "its supporting source marker. "
         "Never invent decisions, names, attendance, quotations, or commitments. "
         "Treat incomplete or uncertain statements as uncertain. "
         + UNTRUSTED_DATA_POLICY
