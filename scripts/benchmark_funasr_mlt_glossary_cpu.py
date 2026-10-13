@@ -35,6 +35,8 @@ def asr_hotwords(
     """Use actual session source glossary, NOT ground-truth text as an oracle."""
     if source_language not in LANGUAGES or not 0 <= limit <= MAX_ASR_HINTS:
         raise ValueError("unsupported source language or ASR hotword limit")
+    if limit == 0:
+        return []
     seen: set[str] = set()
     terms: list[str] = []
     rows = sorted(
