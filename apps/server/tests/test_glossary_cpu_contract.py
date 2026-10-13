@@ -8,6 +8,7 @@ import pytest
 
 from scripts.compare_multilingual_m2m100_cpu import (
     LANGUAGES,
+    audio_glossary_coverage,
     load_text_fixtures,
     translate_to_targets,
 )
@@ -155,3 +156,31 @@ def test_no_relevant_glossary_does_not_fake_perfect_adherence() -> None:
     )
     assert out["adherence"] is None
     assert out["strategy"] == "not_applicable"
+
+
+def test_real_audio_glossary_without_source_terms_is_not_qualified() -> None:
+    """FLEURS with no observed dictionary concepts is only a speech smoke run."""
+    report = audio_glossary_coverage({
+        "en": {"glossary_relevant": {"ko": 0, "ja": 0}},
+        "ja": {"glossary_relevant": {"ko": 2, "en": 0}},
+        "ko": {"glossary_relevant": {"en": 1, "ja": 1}},
+    })
+    assert report["en->ko"] == {
+        "observed_relevant_terms": 0,
+        "status": "not_exercised",
+        "qualified": False,
+    }
+    assert report["ja->ko"] == {
+        "observed_relevant_terms": 2,
+        "status": "lexical_observation_only",
+        "qualified": False,
+    }
+    assert set(report) == {
+        "ko->en", "ko->ja", "en->ko",
+        "en->ja", "ja->ko", "ja->en",
+    }
+
+
+def test_audio_glossary_coverage_rejects_negative_counts() -> None:
+    with pytest.raises(ValueError, match="invalid observed"):
+        audio_glossary_coverage({"ko": {"glossary_relevant": {"en": -1}}})
