@@ -21,8 +21,8 @@ from .post_event_summary import (
     transcript_source,
 )
 from .runtime import CaptionRuntime
-from .summary_evidence import validate_summary_citations
 from .storage_guard import StorageCapacityError, ensure_storage_capacity
+from .summary_evidence import validate_summary_citations
 
 MAX_RECORDING_BYTES = 512 * 1024 * 1024
 
