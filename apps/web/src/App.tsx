@@ -488,6 +488,7 @@ function OperatorApp() {
           <GlossaryManager
             apiUrl={API_URL}
             preset={preset}
+            sourceLanguage={sourceLanguage}
             targetLanguage={glossaryTargetLanguage}
             disabled={running}
           />
