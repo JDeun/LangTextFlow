@@ -105,6 +105,7 @@ class GlossaryRepository:
             updated_at=now,
         )
         with self._connect() as connection:
+            self._assert_source_term_free(connection, record)
             connection.execute(
                 """
                 INSERT INTO glossary_entries (
@@ -127,6 +128,7 @@ class GlossaryRepository:
             updated_at=datetime.now(UTC),
         )
         with self._connect() as connection:
+            self._assert_source_term_free(connection, record, excluded_id=record_id)
             self._update_record(connection, record)
         return record
 
@@ -206,6 +208,22 @@ class GlossaryRepository:
                 created += 1
 
         return created, updated, skipped
+
+    @staticmethod
+    def _assert_source_term_free(
+        connection: sqlite3.Connection,
+        entry: GlossaryRecord,
+        excluded_id: str | None = None,
+    ) -> None:
+        rows = connection.execute(
+            "SELECT id, term FROM glossary_entries WHERE source_language = ?",
+            (entry.source_language,),
+        ).fetchall()
+        for row in rows:
+            if row["id"] != excluded_id and str(row["term"]).casefold() == entry.term.casefold():
+                raise ValueError(
+                    f"duplicate glossary term for {entry.source_language}: {entry.term}"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=5.0)
