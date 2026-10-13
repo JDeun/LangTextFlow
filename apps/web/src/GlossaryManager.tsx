@@ -5,7 +5,7 @@ import {
   newGlossaryDraft, type GlossaryDraft,
 } from "./glossaryEditor";
 import { useI18n } from "./i18n";
-import type { GlossaryEntry, GlossaryRecord, ProductPreset } from "./types";
+import type { GlossaryRecord, ProductPreset } from "./types";
 
 interface GlossaryManagerProps {
   apiUrl: string;
@@ -23,13 +23,6 @@ interface GlossaryImportResult {
 
 type ImportConflictPolicy = "upsert" | "skip";
 type TransferFormat = "json" | "csv";
-
-function splitAliases(value: string) {
-  return value
-    .split(/[,\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
 
 function downloadFilename(response: Response, fallback: string) {
   const disposition = response.headers.get("Content-Disposition") || "";
