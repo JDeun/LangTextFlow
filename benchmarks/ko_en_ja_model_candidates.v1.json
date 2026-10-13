@@ -88,7 +88,7 @@
         "evidence_url": "https://huggingface.co/facebook/m2m100_418M"
       },
       "execution": "existing_ct2_cpu_experiment",
-      "glossary": "experimental_beam4_candidate_rerank_not_constrained",
+      "glossary": "pending_merge_of_stacked_pr_135",
       "priority": 1
     },
     {
