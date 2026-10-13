@@ -26,6 +26,15 @@ on:
           - "3"
           - "5"
           - "8"
+      chunk_seconds:
+        description: ASR decode window in seconds (4 = current live default; 30 = full short clip)
+        type: choice
+        required: true
+        default: "4"
+        options:
+          - "4"
+          - "15"
+          - "30"
       cpu_model:
         description: Faster-whisper model on standard CPU runner
         type: choice
@@ -40,12 +49,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: licensed-fleurs-asr-${{ github.ref }}-${{ inputs.language || 'ko' }}
+  group: licensed-fleurs-asr-${{ github.ref }}-${{ inputs.language || 'ko' }}-${{ inputs.chunk_seconds || '30' }}
   cancel-in-progress: false
 
 jobs:
   real-speech-asr:
-    name: FLEURS ${{ inputs.language || 'ko' }} (${{ inputs.cpu_model || 'tiny' }})
+    name: FLEURS ${{ inputs.language || 'ko' }} (${{ inputs.cpu_model || 'tiny' }}, ${{ inputs.chunk_seconds || '30' }}s)
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -70,6 +79,7 @@ jobs:
             --language "${{ inputs.language || 'ko' }}" \
             --samples "${{ inputs.samples || '3' }}" \
             --model "${{ inputs.cpu_model || 'tiny' }}" \
+            --chunk-seconds "${{ inputs.chunk_seconds || '30' }}" \
             --output artifacts/fleurs-asr
       - name: Print comparable metrics in job summary
         if: success()
@@ -85,6 +95,7 @@ jobs:
               f"- Language: {payload['language']}",
               f"- Model: {payload['model']} (CPU int8)",
               f"- Samples: {payload['sample_count']}",
+              f"- Decoder window: {payload['decode_chunk_seconds']} seconds",
               f"- Mean CER: {payload['mean_cer']:.4f}",
               f"- Mean WER: {payload['mean_wer']:.4f}",
               f"- Mean throughput RTF: {payload['mean_throughput_rtf']:.4f}",
@@ -98,7 +109,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: licensed-fleurs-asr-${{ inputs.language || 'ko' }}-${{ inputs.cpu_model || 'tiny' }}
+          name: licensed-fleurs-asr-${{ inputs.language || 'ko' }}-${{ inputs.cpu_model || 'tiny' }}-${{ inputs.chunk_seconds || '30' }}s
           path: |
             artifacts/fleurs-asr/summary.json
             artifacts/fleurs-asr/report-*.json
