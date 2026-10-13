@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "notes": "Export-compatible multilingual church glossary fixture for source-scoped CPU MT experiments. Synthetic, manually authored, unreviewed theology. John chapter is an intentionally narrow fixture phrase, not a general synonym. Do not seed into user databases.",
+  "entries": [
+    {
+      "term": "성령",
+      "source_language": "ko",
+      "aliases": [],
+      "translations": {
+        "en": "Holy Spirit",
+        "ja": "聖霊"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "Holy Spirit",
+      "source_language": "en",
+      "aliases": [],
+      "translations": {
+        "ko": "성령",
+        "ja": "聖霊"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "聖霊",
+      "source_language": "ja",
+      "aliases": [],
+      "translations": {
+        "ko": "성령",
+        "en": "Holy Spirit"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "구원",
+      "source_language": "ko",
+      "aliases": [],
+      "translations": {
+        "en": "salvation",
+        "ja": "救い"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "salvation",
+      "source_language": "en",
+      "aliases": [],
+      "translations": {
+        "ko": "구원",
+        "ja": "救い"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "救い",
+      "source_language": "ja",
+      "aliases": [],
+      "translations": {
+        "ko": "구원",
+        "en": "salvation"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "요한복음",
+      "source_language": "ko",
+      "aliases": [],
+      "translations": {
+        "en": "John chapter",
+        "ja": "ヨハネによる福音書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "John chapter",
+      "source_language": "en",
+      "aliases": [],
+      "translations": {
+        "ko": "요한복음",
+        "ja": "ヨハネによる福音書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    },
+    {
+      "term": "ヨハネによる福音書",
+      "source_language": "ja",
+      "aliases": [],
+      "translations": {
+        "ko": "요한복음",
+        "en": "John chapter"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true
+    }
+  ]
+}
