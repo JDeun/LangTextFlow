@@ -11,7 +11,12 @@ from fastapi.testclient import TestClient
 
 from langtextflow import post_event_api
 from langtextflow.config import Settings
-from langtextflow.models import CaptionStage, SessionState, StartSessionRequest, TranscriptEvent
+from langtextflow.models import (
+    CaptionStage,
+    SessionState,
+    StartSessionRequest,
+    TranscriptEvent,
+)
 from langtextflow.post_event_api import install_post_event_routes
 from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.session_repository import SessionRepository
