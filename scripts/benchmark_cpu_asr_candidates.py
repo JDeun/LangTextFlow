@@ -10,6 +10,7 @@ import json
 import platform
 import subprocess
 import tempfile
+from contextlib import suppress
 import threading
 import time
 from pathlib import Path
@@ -71,7 +72,7 @@ class ResourceSamples:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
-    def __enter__(self) -> "ResourceSamples":
+    def __enter__(self) -> ResourceSamples:
         import psutil
 
         process = psutil.Process()
@@ -79,10 +80,8 @@ class ResourceSamples:
         def poll() -> None:
             while not self._stop.is_set():
                 processes = [process]
-                try:
+                with suppress(psutil.Error):
                     processes += process.children(recursive=True)
-                except psutil.Error:
-                    pass
                 rss = 0
                 for item in processes:
                     try:
