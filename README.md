@@ -50,6 +50,23 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 | 💾 | **기록과 내보내기** | 세션을 로컬에 기록하고 SRT, WebVTT, TXT, JSON으로 내보냅니다. |
 | 🏠 | **Local-first** | VibeVoice/faster-whisper/Ollama 등 로컬 구성을 지원합니다. |
 
+## 행사 종료 후 아카이브 (초기 구현)
+
+종료된 세션에 **원문 전사문, 별도로 녹음한 WAV 파일, AI 요약 초안**을 연결할 수 있습니다. 
+세션 기록 화면에서 녹음을 가져와 재생하고, 로컬 Ollama를 통해 원문 전사 기반 요약을 생성할 수 있습니다.
+
+> [!WARNING]
+> 현재 WAV 녹음은 **수동 가져오기만 지원**합니다. 앱 내부 자동 녹음, 녹음/전사 타임라인 정렬, AI 요약의 사람 검수/승인, 실제 현장 품질 검증은 진행 중입니다.
+> 세부 범위는 [Post-event archive](docs/POST_EVENT_ARCHIVE.md)와 이슈 [#78](https://github.com/JDeun/LangTextFlow/issues/78)–[#81](https://github.com/JDeun/LangTextFlow/issues/81)을 확인하십시오.
+
+## 행사 프로젝트
+
+**Event Projects**를 만들어 하나의 행사에 리허설·여러 강연·질의응답 등 여러 세션을 연결할 수 있습니다. 
+기존 세션은 보존한 채 프로젝트로 이동할 수 있고, 프로젝트를 삭제해도 원본 전사 기록은 삭제되지 않습니다.
+행사 생성·편집과 세션 배정은 운영자 화면의 **세션 기록 → 행사 프로젝트**에서 관리합니다.
+
+[Event Projects 사용·데이터 구조](docs/EVENT_PROJECTS.md) · [프로젝트 지식 아카이브 후속 작업 #86](https://github.com/JDeun/LangTextFlow/issues/86)
+
 ## 현재 지원 범위
 
 | 영역 | 현재 지원 | 비고 |

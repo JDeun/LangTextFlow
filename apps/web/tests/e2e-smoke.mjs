@@ -204,6 +204,49 @@ await waitFor(
   "operator caption socket connection",
 );
 
+// Consent is explicitly opt-in and must remain unavailable in demo-only mode.
+const defaultRecordingDisabled = await evaluate(`(() => {
+  const input = document.querySelector('.recording-opt-in input[type="checkbox"]');
+  return Boolean(input) && !input.checked;
+})()`);
+if (!defaultRecordingDisabled) {
+  throw new Error("recording consent must be off for a new session");
+}
+
+// A real Project API/UI contract: select the event before starting the live session.
+const projectResponse = await fetch("http://127.0.0.1:8000/api/v1/projects", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    title: "Browser E2E conference",
+    description: "Project/session grouping acceptance",
+    event_date: "2026-10-12",
+    location: "Test venue",
+    status: "planning",
+  }),
+});
+if (projectResponse.status !== 201) {
+  throw new Error(`project creation failed: ${projectResponse.status} ${await projectResponse.text()}`);
+}
+const eventProject = await projectResponse.json();
+await navigate("http://127.0.0.1:5173/");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="session-project-select"] option[value="${eventProject.project_id}"]') !== null`),
+  "new event project in operator setup",
+);
+const projectSelected = await evaluate(`(() => {
+  const select = document.querySelector('[data-testid="session-project-select"]');
+  if (!select) return false;
+  select.value = ${JSON.stringify(eventProject.project_id)};
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  return true;
+})()`);
+if (!projectSelected) throw new Error("event project was not selectable");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="session-project-select"]')?.value === ${JSON.stringify(eventProject.project_id)}`),
+  "selected project for the next session",
+);
+
 const engineChanged = await evaluate(`(() => {
   const select = document.querySelector('[data-testid="engine-select"]');
   if (!select) return false;
@@ -212,6 +255,14 @@ const engineChanged = await evaluate(`(() => {
   return true;
 })()`);
 if (!engineChanged) throw new Error("ASR engine selector not found");
+
+await waitFor(
+  () => evaluate(`(() => {
+    const input = document.querySelector('.recording-opt-in input[type="checkbox"]');
+    return Boolean(input) && !input.checked && input.disabled;
+  })()`),
+  "recording consent must be disabled for mock demo engine",
+);
 
 await waitFor(
   () => evaluate(`(() => {
@@ -244,6 +295,15 @@ if (!state.running || !state.join_code || !state.session_id) {
   throw new Error(`invalid running state: ${JSON.stringify(state)}`);
 }
 
+const savedSessionResponse = await fetch(
+  `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}`,
+);
+if (!savedSessionResponse.ok) throw new Error("new session history not available");
+const savedSession = await savedSessionResponse.json();
+if (savedSession.project_id !== eventProject.project_id) {
+  throw new Error("new session was not atomically associated with the selected project");
+}
+
 await navigate(`http://127.0.0.1:5173/audience/${state.join_code}`);
 await waitFor(
   () => evaluate(`document.body.innerText.includes("LIVE") && document.documentElement.lang === "ko"`),
@@ -265,6 +325,64 @@ if (!stopResponse.ok) throw new Error(`session stop failed: ${stopResponse.statu
 const stopped = await stopResponse.json();
 if (stopped.running) throw new Error("session remained running after stop");
 
+// Synthetic 1-second WAV checks the finished-session recording import/playback
+// contract without involving a real microphone or storing external media.
+const pcm = Buffer.alloc(16000 * 2);
+const wav = Buffer.alloc(44 + pcm.length);
+wav.write("RIFF", 0, "ascii");
+wav.writeUInt32LE(36 + pcm.length, 4);
+wav.write("WAVE", 8, "ascii");
+wav.write("fmt ", 12, "ascii");
+wav.writeUInt32LE(16, 16);
+wav.writeUInt16LE(1, 20);
+wav.writeUInt16LE(1, 22);
+wav.writeUInt32LE(16000, 24);
+wav.writeUInt32LE(16000 * 2, 28);
+wav.writeUInt16LE(2, 32);
+wav.writeUInt16LE(16, 34);
+wav.write("data", 36, "ascii");
+wav.writeUInt32LE(pcm.length, 40);
+pcm.copy(wav, 44);
+const archiveRoot = `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}`;
+const upload = await fetch(`${archiveRoot}/recordings`, {
+  method: "POST",
+  headers: { "Content-Type": "audio/wav" },
+  body: wav,
+});
+if (upload.status !== 201) throw new Error(`WAV archive import failed: ${upload.status} ${await upload.text()}`);
+const importedRecording = await upload.json();
+if (importedRecording.session_id !== state.session_id ||
+    Math.abs(importedRecording.duration_seconds - 1) > 0.001) {
+  throw new Error("WAV duration or session metadata mismatch");
+}
+const archiveResponse = await fetch(`${archiveRoot}/archive`);
+if (!archiveResponse.ok) throw new Error("finished session archive API not available");
+const archive = await archiveResponse.json();
+if (!archive.recordings.some((item) => item.recording_id === importedRecording.recording_id)) {
+  throw new Error("imported audio not linked to the finished session");
+}
+const playback = await fetch(
+  `${archiveRoot}/recordings/${encodeURIComponent(importedRecording.recording_id)}/audio`,
+);
+if (!playback.ok || !Buffer.from(await playback.arrayBuffer()).equals(wav)) {
+  throw new Error("session recording audio cannot be played without data corruption");
+}
+
+// Move/detach must not delete or rewrite the original session.
+const sessionProjectUrl = `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}/project`;
+for (const projectId of [null, eventProject.project_id]) {
+  const linked = await fetch(sessionProjectUrl, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_id: projectId }),
+  });
+  if (!linked.ok) throw new Error(`project relinking failed: ${linked.status}`);
+  const updated = await linked.json();
+  if (updated.project_id !== projectId || updated.session_id !== state.session_id) {
+    throw new Error("project reassignment changed the wrong session");
+  }
+}
+
 await navigate("http://127.0.0.1:5173/");
 await waitFor(
   () => evaluate(`document.querySelector('.history-item') !== null`),
@@ -282,6 +400,10 @@ await waitFor(
   () => evaluate(`document.querySelector('.history-detail') !== null`),
   "history detail",
 );
+await waitFor(
+  () => evaluate(`document.querySelector('.history-post-event audio') !== null`),
+  "paired recording player in completed event history",
+);
 await screenshot("history-detail-ko");
 
 for (const format of ["srt", "vtt", "txt", "json"]) {
@@ -297,4 +419,4 @@ for (const format of ["srt", "vtt", "txt", "json"]) {
 }
 
 socket.close();
-console.log("browser E2E smoke passed: onboarding, locale/layout, keyboard start, audience, stop, history and exports");
+console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history and exports");

@@ -131,3 +131,30 @@ async def test_faster_whisper_end_audio_does_not_block_on_full_queue() -> None:
 
     await asyncio.wait_for(engine.end_audio(), timeout=0.1)
     assert engine._ended is True
+
+class ImpossibleTimestampEngine(FakeFasterWhisperEngine):
+    def _transcribe_chunk_sync(self, pcm_f32le: bytes, request: StartSessionRequest):
+        del request
+        duration = len(pcm_f32le) / 4 / self.sample_rate
+        return [DecodedSegment(
+            start_seconds=0.0,
+            end_seconds=duration + 20.0,
+            text="hallucinated source timestamp",
+        )]
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_rejects_decoder_timestamps_beyond_source_audio() -> None:
+    published = []
+
+    async def publish(event) -> None:
+        published.append(event)
+
+    engine = ImpossibleTimestampEngine(publish, chunk_seconds=0.1)
+    await engine.start(StartSessionRequest(engine="faster-whisper"))
+    await engine.feed_audio(pcm(0.1))
+    failure = await wait_for_failure(engine)
+    assert "out-of-bounds" in failure
+    assert not published
+    await engine.stop()
+

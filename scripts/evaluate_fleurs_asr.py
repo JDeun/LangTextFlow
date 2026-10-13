@@ -22,6 +22,7 @@ FLEURS_LICENSE = "https://creativecommons.org/licenses/by/4.0/"
 FLEURS_DATASET = "https://huggingface.co/datasets/google/fleurs"
 MAX_SAMPLE_SECONDS = 20
 CONFIGS = {"ko": "ko_kr", "en": "en_us"}
+WINDOW_SECONDS = (4, 15, 30)
 
 
 def fleurs_test_parquet_uri(language: str) -> str:
@@ -80,6 +81,7 @@ def evaluate(
     output: Path,
     *,
     model: str = "tiny",
+    chunk_seconds: int = 4,
 ) -> dict:
     if language not in CONFIGS:
         raise ValueError("language must be ko or en")
@@ -87,6 +89,8 @@ def evaluate(
         raise ValueError("samples must be between 1 and 8")
     if model not in {"tiny", "base", "small"}:
         raise ValueError("CPU model must be tiny, base or small")
+    if chunk_seconds not in WINDOW_SECONDS:
+        raise ValueError("ASR decode chunk_seconds must be 4, 15 or 30")
 
     from datasets import Audio, load_dataset
 
@@ -138,6 +142,7 @@ def evaluate(
             env={
                 **os.environ,
                 "LANGTEXTFLOW_FASTER_WHISPER_MODEL": model,
+                "LANGTEXTFLOW_FASTER_WHISPER_CHUNK_SECONDS": str(chunk_seconds),
                 "LANGTEXTFLOW_FASTER_WHISPER_DEVICE": "cpu",
                 "LANGTEXTFLOW_FASTER_WHISPER_COMPUTE_TYPE": "int8",
             },
@@ -179,6 +184,7 @@ def evaluate(
         "generated_at": datetime.now(UTC).isoformat(),
         "language": language,
         "model": model,
+        "decode_chunk_seconds": chunk_seconds,
         "sample_count": len(rows),
         "mean_cer": sum(row["cer"] for row in rows) / len(rows),
         "mean_wer": sum(row["wer"] for row in rows) / len(rows),
@@ -199,11 +205,16 @@ def main() -> None:
     parser.add_argument("--language", required=True, choices=CONFIGS)
     parser.add_argument("--samples", type=int, default=3)
     parser.add_argument("--model", choices=["tiny", "base", "small"], default="tiny")
+    parser.add_argument("--chunk-seconds", type=int, choices=WINDOW_SECONDS, default=4)
     parser.add_argument("--output", type=Path, default=Path("artifacts/fleurs-asr"))
     args = parser.parse_args()
-    report = evaluate(args.language, args.samples, args.output, model=args.model)
+    report = evaluate(
+        args.language, args.samples, args.output,
+        model=args.model, chunk_seconds=args.chunk_seconds,
+    )
     print(json.dumps({
         "language": report["language"],
+        "decode_chunk_seconds": report["decode_chunk_seconds"],
         "mean_cer": report["mean_cer"],
         "mean_wer": report["mean_wer"],
         "mean_throughput_rtf": report["mean_throughput_rtf"],
