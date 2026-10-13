@@ -78,6 +78,32 @@ def test_same_canonical_term_can_exist_in_different_source_languages(tmp_path) -
     assert repo.get(ja.id).translations["ko"] == "恩寵"
 
 
+def test_same_language_duplicate_is_rejected_but_other_language_is_valid(tmp_path) -> None:
+    import pytest
+
+    repo = GlossaryRepository(str(tmp_path / "conflicts.db"))
+    repo.initialize()
+    english = repo.create(GlossaryEntry(
+        term="Grace", source_language="en", translations={"ko": "은혜"},
+    ))
+    with pytest.raises(ValueError, match="duplicate glossary term"):
+        repo.create(GlossaryEntry(
+            term="grace", source_language="en", translations={"ko": "호의"},
+        ))
+    korean = repo.create(GlossaryEntry(
+        term="grace", source_language="ko", translations={"en": "grace"},
+    ))
+    with pytest.raises(ValueError, match="duplicate glossary term"):
+        repo.update(
+            korean.id,
+            GlossaryEntry(
+                term="Grace", source_language="en", translations={"ko": "은혜"},
+            ),
+        )
+    assert repo.get(english.id).source_language == "en"
+    assert repo.get(korean.id).source_language == "ko"
+
+
 def test_session_snapshot_selects_only_matching_english_and_japanese_terms(
     monkeypatch, tmp_path,
 ) -> None:
