@@ -79,14 +79,20 @@ await waitFor(
   "operator setup button",
 );
 
-const opened = await evaluate(`(() => {
-  const button = document.querySelector('.setup-button');
-  if (!button) return false;
-  button.focus();
-  button.click();
-  return true;
-})()`);
-if (!opened) throw new Error("setup button could not open onboarding dialog");
+// A locale/storage-triggered React re-render can replace the setup button
+// between the initial selector check and our click. Retry the real click,
+// then assert that the dialog actually opens (not merely that click() ran).
+await waitFor(async () => {
+  const ready = await evaluate(`(() => {
+    if (document.querySelector('.onboarding-dialog')) return true;
+    const button = document.querySelector('.setup-button');
+    if (!button || !button.isConnected || button.disabled) return false;
+    button.focus();
+    button.click();
+    return false;
+  })()`);
+  return ready || await evaluate("document.querySelector('.onboarding-dialog') !== null");
+}, "setup button opens onboarding dialog");
 
 await waitFor(
   () => evaluate(`document.querySelector('.onboarding-dialog')?.contains(document.activeElement) === true`),
