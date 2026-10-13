@@ -14,3 +14,13 @@
 .event-project-buttons { display:flex; gap:0.65rem; flex-wrap:wrap; }
 .history-project-assign { display:grid; gap:0.3rem; font-size:0.85rem; min-width:160px; }
 .history-project-assign select { max-width:250px; width:100%; }
+
+/* Project controls increase the panel height. A sticky start button overlays
+   language choices at the viewport floor; keep the action in normal flow so
+   every selector remains unobscured and keyboard/touch accessible. */
+.control-panel .start-button {
+  position: static;
+  bottom: auto;
+  z-index: auto;
+  box-shadow: none;
+}
