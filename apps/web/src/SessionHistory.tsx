@@ -1,3 +1,4 @@
+import { captionTextForLanguage } from "./captionLanguage";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
 import { PostEventPanel } from "./PostEventPanel";
@@ -48,8 +49,7 @@ function sessionLanguages(session: SessionRecord) {
 }
 
 function segmentText(segment: TranscriptEvent, language: string) {
-  if (language === segment.source_language) return segment.text;
-  return segment.translations[language] || segment.text;
+  return captionTextForLanguage(segment, language);
 }
 
 function matchesTranscript(segment: TranscriptEvent, query: string) {
