@@ -43,11 +43,15 @@ jobs:
           uv sync --locked --extra dev --extra benchmark
           uv pip install --python .venv/bin/python "funasr==1.4.15" \
             "datasets==4.4.1" "soundfile==0.13.1"
-          uv pip install --python .venv/bin/python "torch==2.6.0" \
+          uv pip install --python .venv/bin/python \
+            "torch==2.10.0" "torchaudio==2.10.0" \
             --index-url https://download.pytorch.org/whl/cpu
           uv run --no-sync python - <<'PY'
           import torch
           assert hasattr(torch, "accelerator"), "FunASR Transformers requires torch.accelerator"
+          assert torch.accelerator.current_accelerator() is None, "Hosted CPU experiment must not acquire a GPU"
+          import torchaudio
+          assert torch.__version__.split("+")[0] == torchaudio.__version__.split("+")[0]
           print("Verified PyTorch CPU version:", torch.__version__)
           PY
           uv run --no-sync python -m pytest -q \
