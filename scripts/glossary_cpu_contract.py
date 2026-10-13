@@ -10,8 +10,9 @@ import hashlib
 import json
 import re
 import unicodedata
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 LANGUAGES = frozenset({"ko", "en", "ja"})
 MAX_RELEVANT = 24
