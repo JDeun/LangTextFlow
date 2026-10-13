@@ -496,7 +496,7 @@ function OperatorApp() {
             targetLanguage={glossaryTargetLanguage}
             disabled={running}
           />
-          <GlossaryRecommendations preset={preset} disabled={running} />
+          <GlossaryRecommendations preset={preset} sourceLanguage={sourceLanguage} disabled={running} />
         </section>
       </main>
     );
