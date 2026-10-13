@@ -68,6 +68,30 @@ def test_japanese_measures_observed_terms_without_rewriting() -> None:
     )
 
 
+def test_english_missionary_source_to_korean_glossary_observation() -> None:
+    context = SessionContext(
+        preset=ProductPreset.CHURCH,
+        glossary=[
+            GlossaryEntry(
+                term="grace",
+                aliases=["the grace"],
+                translations={"ko": "은혜", "ja": "恵み"},
+                presets=[ProductPreset.CHURCH],
+            )
+        ],
+    )
+    mappings = resolve_glossary(context, "ko")
+    observed = measure_glossary_adherence(
+        "We are saved by grace.", "우리는 은혜로 구원받았습니다.",
+        mappings, "ko",
+    )
+    assert observed.relevant_terms == 1
+    assert observed.matched_terms == 1
+    assert observed.adherence == 1.0
+    # This only tests the lexical metric. Runtime source-language matching
+    # requires explicit source-language metadata migration in issue #130.
+
+
 def test_no_relevant_term_has_no_accuracy_claim() -> None:
     terms = resolve_glossary(_context(), "ja")
     report = measure_glossary_adherence("평범한 강연", "普通の講演", terms, "ja")
