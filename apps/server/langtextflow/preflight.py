@@ -352,11 +352,12 @@ def _require_model_listing(
     models = payload[field]
     if any(not isinstance(item, dict) for item in models):
         raise ValueError(f"{provider} {field} entries must be JSON objects")
-    key = "models" if provider == "Ollama" else "data"
-    if key != field:
-        raise ValueError("provider model listing schema mismatch")
     for entry in models:
-        identifier = entry.get("name") or entry.get("model") if provider == "Ollama" else entry.get("id")
+        identifier = (
+            entry.get("name") or entry.get("model")
+            if provider == "Ollama"
+            else entry.get("id")
+        )
         if not isinstance(identifier, str) or not identifier.strip():
             raise ValueError(f"{provider} {field} entry requires nonempty model ID")
     return models
@@ -370,6 +371,12 @@ async def _vibevoice_check(settings: Settings) -> PreflightCheck:
             payload = response.json()
             if not isinstance(payload, dict):
                 raise ValueError("VibeVoice config response must be a JSON object")
+            # Match the streaming adapter's actual readiness requirements:
+            # HTTP 200 with an error object must NOT count as a usable sidecar.
+            sample_rate = int(payload["sample_rate"])
+            chunk_seconds = float(payload.get("chunk_seconds", 2.0))
+            if sample_rate <= 0 or not 0.05 <= chunk_seconds <= 60.0:
+                raise ValueError("VibeVoice returned invalid streaming configuration")
     except Exception as exc:
         return PreflightCheck(
             id="vibevoice",
@@ -386,8 +393,8 @@ async def _vibevoice_check(settings: Settings) -> PreflightCheck:
         summary="VibeVoice streaming sidecar가 응답합니다.",
         details={
             "url": settings.vibevoice_url,
-            "sample_rate": payload.get("sample_rate"),
-            "chunk_seconds": payload.get("chunk_seconds"),
+            "sample_rate": sample_rate,
+            "chunk_seconds": chunk_seconds,
         },
     )
 
