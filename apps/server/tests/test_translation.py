@@ -94,7 +94,7 @@ def test_translategemma_official_single_user_message_has_plain_source() -> None:
     assert len(messages) == 1
     assert messages[0]["role"] == "user"
     assert messages[0]["content"].endswith(
-        "\\n\\n\\n요한복음 3장 16절을 읽겠습니다."
+        "\n\n\n요한복음 3장 16절을 읽겠습니다."
     )
     assert "session_title" not in messages[0]["content"]
     assert "source_text" not in messages[0]["content"]
@@ -170,7 +170,7 @@ async def test_translategemma_http_uses_official_plain_text_not_json(
     assert isinstance(messages, list) and len(messages) == 1
     assert messages[0]["role"] == "user"
     assert messages[0]["content"].endswith(
-        "\\n\\n\\n요한복음 3장 16절 말씀을 함께 읽겠습니다."
+        "\n\n\n요한복음 3장 16절 말씀을 함께 읽겠습니다."
     )
     assert "source_text" not in messages[0]["content"]
     assert "session_title" not in messages[0]["content"]
