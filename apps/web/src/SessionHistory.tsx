@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
+import { PostEventPanel } from "./PostEventPanel";
 import { HISTORY_COPY } from "./historyCopy";
 import { useI18n } from "./i18n";
 import type { SessionDetail, SessionRecord, TranscriptEvent } from "./types";
@@ -338,6 +339,15 @@ export function SessionHistory({
                 <small>Reference documents: {selected.context.reference_documents.map((document) => document.filename).join(", ")}</small>
               )}
             </div>
+          )}
+
+          {selected.ended_at && (
+            <PostEventPanel
+              key={selected.session_id}
+              apiUrl={apiUrl}
+              session={selected}
+              locale={locale}
+            />
           )}
 
           <div className="history-detail-controls">
