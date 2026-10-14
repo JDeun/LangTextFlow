@@ -149,3 +149,46 @@ def test_pull_request_smoke_never_launches_unattended_scientific_cohort():
     api = FakeAPI({"catalog": [pr_run]})
     assert sources(api, "schedule", {}, PLAN) == []
     assert sources(api, "workflow_run", {"workflow_run": pr_run}, PLAN) == []
+
+
+def test_repository_preregistration_advances_native_funasr_independently():
+    """Real model stage must run after catalog without waiting for M2M100."""
+    from pathlib import Path
+
+    path = (
+        Path(__file__).resolve().parents[3]
+        / "benchmarks/translation-conveyor-preregistration.json"
+    )
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    stages = {s["id"]: s for s in manifest["stages"]}
+    assert set(stages) == {
+        "catalog", "m2m", "apple", "funasr",
+        "church_quality", "church_live",
+    }
+    assert stages["funasr"]["deps"] == ["catalog"]
+    assert stages["funasr"]["artifact"] == "funasr-mlt-cpu-glossary-ab"
+    assert stages["church_quality"]["deps"] == ["m2m"]
+    assert not any(
+        "Fun-ASR" in m["model"] for m in manifest["blocked_candidates"]
+    )
+    assert manifest["scientific_integrity"]["field_ready_after_ci"] is False
+
+
+def test_funasr_negative_scientific_result_does_not_disappear_on_retry():
+    """A measured failed experiment remains visible, not an infrastructure retry."""
+    import copy
+
+    manifest = copy.deepcopy(PLAN)
+    manifest["stages"].insert(
+        3,
+        {"id": "funasr", "workflow": "funasr.yml", "deps": ["catalog"],
+         "artifact": "funasr-mlt-cpu-glossary-ab"},
+    )
+    api = FakeAPI({
+        "catalog": [run("catalog")],
+        "funasr": [run("funasr", conclusion="failure", artifact_good=True)],
+    })
+    report = advance(api, FROZEN, manifest, execute=False)
+    assert report["stages"]["funasr"] == "blocked_scientific_or_semantic_failure"
+    assert report["stages"]["m2m"] == "dispatched_not_yet_completed"
+    assert api.retried == []
