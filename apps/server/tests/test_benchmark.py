@@ -131,6 +131,8 @@ def test_streaming_revisions_do_not_inflate_asr_quality() -> None:
     asyncio.run(replay())
     assert len(collector.segments) == 2
     assert [row.segment_id for row in collector.segments] == ["s1", "s2"]
+    assert collector.first_stable_elapsed_ms is not None
+    assert collector.first_stable_elapsed_ms <= collector.segments[0].received_elapsed_ms
     hypothesis = " ".join(row.text for row in collector.segments)
     assert hypothesis == "주 예수님 은혜"
     assert quality_metrics(hypothesis, hypothesis) == {"cer": 0.0, "wer": 0.0}
