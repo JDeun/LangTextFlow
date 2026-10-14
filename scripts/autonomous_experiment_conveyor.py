@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import re
 import subprocess
@@ -140,6 +142,24 @@ def sources(api: GitHub, event_name: str, event: dict, manifest: dict) -> list[s
     return []
 
 
+def frozen_preregistration(api: GitHub, sha: str) -> dict:
+    """Use exact source's study plan, never the latest mutable main plan."""
+    if not SHA.fullmatch(sha):
+        raise ValueError("invalid source SHA for frozen preregistration")
+    entry = api.api(
+        "GET",
+        "/contents/benchmarks/translation-conveyor-preregistration.json"
+        + "?ref=" + sha,
+    )
+    if entry.get("encoding") != "base64":
+        raise ValueError("GitHub returned unexpected preregistration encoding")
+    payload = base64.b64decode(entry["content"], validate=False)
+    plan = json.loads(payload)
+    if plan.get("schema_version") != 1:
+        raise ValueError("unsupported frozen experiment manifest schema")
+    return plan
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", required=True)
@@ -152,10 +172,15 @@ def main() -> None:
     plan = json.loads(args.manifest.read_text())
     api = GitHub(args.repository)
     event = json.loads(args.event_path.read_text())
-    report = {"event": args.event_name, "results": [
-        advance(api, sha, plan, args.execute)
-        for sha in sources(api, args.event_name, event, plan)
-    ]}
+    reports = []
+    for sha in sources(api, args.event_name, event, plan):
+        source_plan = frozen_preregistration(api, sha)
+        item = advance(api, sha, source_plan, args.execute)
+        item["preregistration_sha256"] = hashlib.sha256(
+            json.dumps(source_plan, sort_keys=True).encode()
+        ).hexdigest()
+        reports.append(item)
+    report = {"event": args.event_name, "results": reports}
     args.state_out.parent.mkdir(parents=True, exist_ok=True)
     args.state_out.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(report, ensure_ascii=False))
