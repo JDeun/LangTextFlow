@@ -192,7 +192,12 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
             <div className={`telemetry-metric ${queueLevel(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}`}>
               <span>{copy.postprocess}</span>
               <strong>{queueValue(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}</strong>
-              <small>{copy.correctionTranslation}</small>
+              <small>
+                {copy.peak} {metrics.postprocess_queue_high_watermark}
+                {" · "}{copy.dropped} {metrics.postprocess_segments_dropped}
+                {" · "}{copy.failed} {metrics.postprocess_segments_failed}
+                {" · "}{copy.duplicates} {metrics.postprocess_duplicate_asr_events_dropped}
+              </small>
             </div>
             <div className={`telemetry-metric ${queueLevel(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}`}>
               <span>{copy.storage}</span>

@@ -32,6 +32,11 @@ class RealtimeMetrics(BaseModel):
     persistence_queue_capacity: int = 0
     postprocess_queue_depth: int = 0
     postprocess_queue_capacity: int = 0
+    postprocess_queue_high_watermark: int = 0
+    postprocess_segments_dropped: int = 0
+    postprocess_segments_failed: int = 0
+    postprocess_duplicate_asr_events_dropped: int = 0
+    stale_asr_events_dropped: int = 0
     last_asr_lag_ms: float | None = None
     last_correction_latency_ms: float | None = None
     last_translation_latency_ms: float | None = None
