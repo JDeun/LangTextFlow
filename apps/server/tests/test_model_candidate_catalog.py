@@ -21,7 +21,7 @@ class CandidateCatalogTest(unittest.TestCase):
 
     def test_real_catalog_passes_metadata_checks_not_model_quality(self) -> None:
         rows = report(self.data)
-        self.assertEqual(len(rows), 10)
+        self.assertEqual(len(rows), 12)
         self.assertTrue(all(row["field_ready"] is False for row in rows))
 
     def test_three_language_missionary_directions(self) -> None:
@@ -51,6 +51,38 @@ class CandidateCatalogTest(unittest.TestCase):
             {"text", "audio"},
         )
         self.assertEqual(models["google/gemma-4-E2B-it"]["audio_max_seconds"], 30)
+
+    def test_nllb_and_general_qwen_are_distinct_candidates(self) -> None:
+        models = {m["model_id"]: m for m in self.data["models"]}
+        nllb = models["facebook/nllb-200-distilled-600M"]
+        qwen = models["Qwen/Qwen3-0.6B"]
+        self.assertEqual(set(nllb["pairs"]), set(self.data["language_priority"]))
+        self.assertEqual(set(qwen["pairs"]), set(self.data["language_priority"]))
+        self.assertEqual(nllb["license"]["id"], "cc-by-nc-4.0")
+        self.assertEqual(nllb["license"]["status"], "noncommercial_research_only")
+        self.assertFalse(licensed_for_research(nllb))
+        self.assertTrue(nllb["execution"].startswith("blocked_"))
+        self.assertEqual(qwen["license"]["id"], "apache-2.0")
+        self.assertTrue(licensed_for_research(qwen))
+        self.assertEqual(qwen["glossary"], "prompt_only_not_proven")
+        self.assertEqual(nllb["quality_evidence"], "not_measured")
+        self.assertEqual(qwen["quality_evidence"], "not_measured")
+        self.assertIn("Qwen/Qwen3-ASR-0.6B", models)
+        self.assertNotEqual(qwen["model_id"], "Qwen/Qwen3-ASR-0.6B")
+
+    def test_noncommercial_candidate_cannot_be_relabelled_permissive(self) -> None:
+        changed = copy.deepcopy(self.data)
+        row = next(
+            m for m in changed["models"]
+            if m["model_id"] == "facebook/nllb-200-distilled-600M"
+        )
+        row["license"]["territory"] = "permissive"
+        with self.assertRaisesRegex(ValueError, "noncommercial use"):
+            validate_catalog(changed)
+        row["license"]["territory"] = "noncommercial_only"
+        row["execution"] = "planned_default_cpu_inference"
+        with self.assertRaisesRegex(ValueError, "blocked license"):
+            validate_catalog(changed)
 
     def test_gemma_terms_are_not_silently_treated_as_apache_licensed(self) -> None:
         models = {m["model_id"]: m for m in self.data["models"]}
