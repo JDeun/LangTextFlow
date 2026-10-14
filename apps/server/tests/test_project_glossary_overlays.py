@@ -74,7 +74,8 @@ def test_project_glossary_precedence_snapshot_and_isolation(monkeypatch, tmp_pat
         presets=[ProductPreset.CHURCH],
     )])
     assert first_session.context.glossary[0].translations["ko"] == "하나님의 은혜"
-    assert main._with_saved_glossary(request(first.project_id)).context.glossary[0].translations["ko"] == "변경된 용어"
+    refreshed = main._with_saved_glossary(request(first.project_id))
+    assert refreshed.context.glossary[0].translations["ko"] == "변경된 용어"
 
 
 def test_project_glossary_atomic_invalid_replace_and_delete_cascade(tmp_path) -> None:
