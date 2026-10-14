@@ -60,3 +60,43 @@ def test_default_seed_remains_opt_in_idempotent_and_never_overwrites(tmp_path) -
     assert after.translations == {"en": "the gospel", "ja": "福音の知らせ"}
     assert len(repo.active_for(ProductPreset.CONFERENCE)) == 0
     assert len(repo.active_for(ProductPreset.CHURCH)) == expected_count
+
+
+def test_foreign_church_seed_is_explicit_source_scoped_and_unambiguous(tmp_path) -> None:
+    from langtextflow.church_glossary_seed import church_glossary_for_source
+
+    en = church_glossary_for_source("en")
+    ja = church_glossary_for_source("ja")
+    assert len(en) == 151  # Reject three ambiguous EN labels (6 rows).
+    assert len(ja) == 153  # Reject two ambiguous JA labels (4 rows).
+    assert all(row.source_language == "en" for row in en)
+    assert all(row.source_language == "ja" for row in ja)
+    assert all(row.aliases == [] for row in [*en, *ja])
+    assert all("ko" in row.translations for row in [*en, *ja])
+    assert not any(row.term.casefold() == "baptism" for row in en)
+    assert next(row for row in en if row.term == "Holy Spirit").translations["ko"] == "성령"
+    assert next(row for row in ja if row.term == "聖霊").translations["ko"] == "성령"
+
+    repository = GlossaryRepository(str(tmp_path / "missionary.db"))
+    repository.initialize()
+    assert repository.seed(en)
+    assert len(repository.active_for(ProductPreset.CHURCH, "ko")) == 0
+    assert len(repository.active_for(ProductPreset.CHURCH, "en")) == len(en)
+    assert len(repository.active_for(ProductPreset.CHURCH, "ja")) == 0
+    initial = next(row for row in repository.list() if row.source_language == "en")
+    edited = initial.model_copy(update={"translations": {"ko": "운영자가 수정한 뜻"}})
+    repository.update(initial.id, edited)
+    repository.seed(en)
+    assert repository.get(initial.id).translations["ko"] == "운영자가 수정한 뜻"
+    repository.seed(ja)
+    assert len(repository.active_for(ProductPreset.CHURCH, "ja")) == len(ja)
+    assert len(repository.active_for(ProductPreset.CHURCH, "ko")) == 0
+
+
+def test_foreign_church_seed_refuses_unsupported_language() -> None:
+    import pytest
+
+    from langtextflow.church_glossary_seed import church_glossary_for_source
+
+    with pytest.raises(ValueError, match="ko/en/ja"):
+        church_glossary_for_source("fr")

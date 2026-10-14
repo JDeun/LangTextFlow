@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import __version__
 from .asr import AsrEngineError
 from .asr.capabilities import AsrCapability, asr_capabilities
+from .church_glossary_seed import church_glossary_for_source
 from .audience_security import AudienceJoinRateLimiter
 from .config import get_settings
 from .diagnostics import build_diagnostics_bundle
@@ -866,9 +867,12 @@ def delete_glossary(record_id: str, request: Request) -> Response:
 
 
 @app.post("/api/v1/glossary/presets/church", response_model=list[GlossaryRecord])
-def seed_church_glossary(request: Request) -> list[GlossaryRecord]:
+def seed_church_glossary(
+    request: Request,
+    source_language: Literal["ko", "en", "ja"] = "ko",
+) -> list[GlossaryRecord]:
     _require_operator(request)
-    return glossary_repository.seed(CHURCH_GLOSSARY)
+    return glossary_repository.seed(church_glossary_for_source(source_language))
 
 
 @app.post("/api/v1/session/start", response_model=SessionState)

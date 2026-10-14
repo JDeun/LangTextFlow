@@ -176,7 +176,7 @@ export function GlossaryManager({
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/glossary/presets/church`, {
+      const response = await fetch(`${apiUrl}/api/v1/glossary/presets/church?source_language=${encodeURIComponent(sourceLanguage)}`, {
         method: "POST",
       });
       if (!response.ok) throw new Error(await response.text());
@@ -267,11 +267,14 @@ export function GlossaryManager({
             onClick={importChurchPreset}
             disabled={disabled || busy}
           >
-            {copy.importChurch}
+            {copy.importChurch} ({sourceLanguage.toUpperCase()})
           </button>
         )}
       </div>
 
+      {preset === "church" && sourceLanguage !== "ko" && (
+        <small role="note">{copy.foreignChurchSeedNote}</small>
+      )}
       <div className="glossary-transfer">
         <div className="glossary-transfer-actions">
           <button
