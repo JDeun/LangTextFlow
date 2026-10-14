@@ -8,6 +8,7 @@ on:
       - "benchmarks/lecture_multilingual_ko_en_ja.v1.jsonl"
       - "apps/server/tests/test_multilingual_m2m100_cpu.py"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
