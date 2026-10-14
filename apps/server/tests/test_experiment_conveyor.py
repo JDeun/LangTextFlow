@@ -28,6 +28,15 @@ def test_cpu_stage_needs_both_real_and_synthetic_evidence() -> None:
     assert any("real-audio" in item for item in missing["problems"])
 
 
+def test_mac_profile_only_uses_metadata_and_hosted_apple_probe() -> None:
+    needs = _needs("mac")
+    report = summarize("mac", needs, {"apple-language-availability.json"})
+    assert report["execution_complete"]
+    assert report["apple_translation_executed"] is False
+    missing = summarize("mac", needs, set())
+    assert any("apple-language-availability" in p for p in missing["problems"])
+
+
 def test_full_profile_requires_apple_and_church_reports() -> None:
     artifacts = {
         "text-six-directions.json", "real-audio-six-directions.json",
