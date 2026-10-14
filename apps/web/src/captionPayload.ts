@@ -40,7 +40,8 @@ export function isTranscriptEvent(value: unknown): value is TranscriptEvent {
   if (value.translation_states !== undefined && (
     !isRecord(value.translation_states) ||
     !Object.entries(value.translation_states).every(
-      ([language, state]) => language.length > 0 && TARGET_STATES.has(String(state)),
+      ([language, state]) =>
+        language.length > 0 && typeof state === "string" && TARGET_STATES.has(state),
     )
   )) return false;
   if (!Number.isInteger(value.start_ms) || (value.start_ms as number) < 0) return false;
