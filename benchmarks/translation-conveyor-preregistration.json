@@ -30,7 +30,7 @@
         "catalog"
       ],
       "artifact": "apple-language-availability-only",
-      "interpretation": "macOS Translation API compiled and available language pairs; no translation"
+      "interpretation": "macOS native 6-pair availability; actual lowLatency/highFidelity text inference auto-attempted only when preinstalled assets exist, otherwise explicit blocked status"
     },
     {
       "id": "church_quality",
@@ -89,7 +89,7 @@
     },
     {
       "model": "Apple highFidelity / lowLatency text inference",
-      "reason": "runner language assets not assured; native Mac execution not yet proven"
+      "reason": "hosted Mac language assets may be absent; native translation runs automatically only for installed pairs, and Apple Intelligence backend identity cannot be verified"
     }
   ],
   "scientific_integrity": {
