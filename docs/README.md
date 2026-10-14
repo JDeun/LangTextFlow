@@ -55,6 +55,7 @@
 |---|---|
 | [`BENCHMARK.md`](BENCHMARK.md) | ASR/full-runtime benchmark와 soak harness |
 | [`TRANSLATION_BENCHMARK.md`](TRANSLATION_BENCHMARK.md) | translation latency/quality protocol |
+| [`GEMMA_TRANSLATION_RESEARCH.md`](GEMMA_TRANSLATION_RESEARCH.md) | Gemma 3 1B / Gemma 4 E2B / TranslateGemma 4B 실험 후보, 라이선스 게이트, 6방향 기준 |
 | [`APPLE_SYSTEM_TRANSLATION.md`](APPLE_SYSTEM_TRANSLATION.md) | macOS/iPhone Translation 프레임워크의 실제 API, 제한, 6방향 비교 실험 |
 | [`CORRECTION_QUALITY.md`](CORRECTION_QUALITY.md) | correction quality gate |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | 자동 gate와 실제 장비/field acceptance |
