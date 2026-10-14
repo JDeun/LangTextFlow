@@ -904,9 +904,6 @@ async def test_postprocessing_queue_overflow_emits_terminal_source_only_status()
         target_languages=["ko", "ja"],
         translation_provider="demo",
     ))
-    # Constrain the admission queue only, independently of worker execution.
-    pipeline._queue = asyncio.Queue(maxsize=1)
-
     def stable(identity: str) -> TranscriptEvent:
         return TranscriptEvent(
             segment_id=identity,
@@ -921,7 +918,10 @@ async def test_postprocessing_queue_overflow_emits_terminal_source_only_status()
     try:
         await pipeline.ingest(stable("busy"))
         await asyncio.wait_for(first_corrected.wait(), 1)
-        await pipeline.ingest(stable("queued"))
+        # Fill the production-size bounded queue while the sole worker is
+        # deliberately blocked in publish, then force exactly one overflow.
+        for index in range(pipeline.queue_capacity):
+            await pipeline.ingest(stable(f"queued-{index}"))
         await pipeline.ingest(stable("overflow"))
         overflow_events = [item for item in events if item.segment_id == "overflow"]
         assert [event.stage for event in overflow_events] == [
@@ -939,7 +939,7 @@ async def test_postprocessing_queue_overflow_emits_terminal_source_only_status()
         release.set()
         await asyncio.wait_for(pipeline.stop(), 2)
 
-    assert any(event.segment_id == "queued" and event.committed for event in events)
+    assert any(event.segment_id == "queued-0" and event.committed for event in events)
 
 
 @pytest.mark.asyncio
