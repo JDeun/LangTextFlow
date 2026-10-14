@@ -32,3 +32,17 @@ export function visibleScopedCaptions(state: ScopedCaptions, path: string): Tran
   if (state.path !== path) return [];
   return Object.values(state.records).sort((a, b) => a.start_ms - b.start_ms);
 }
+
+
+/** Remove stale captions on a transient or terminal socket close.
+ *
+ * Reconnect repopulates from a fresh authoritative snapshot; an old-path
+ * closure cannot clear the currently selected audience join-code route.
+ */
+export function clearDisconnectedCaptionScope(
+  state: ScopedCaptions, disconnectedPath: string,
+): ScopedCaptions {
+  return state.path === disconnectedPath
+    ? createScopedCaptions(disconnectedPath)
+    : state;
+}
