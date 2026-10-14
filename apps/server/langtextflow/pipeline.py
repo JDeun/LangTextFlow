@@ -29,7 +29,11 @@ from .translation import (
 
 
 class CaptionPipeline:
-    """Sequential post-ASR pipeline that never blocks source caption delivery."""
+    """Bounded post-ASR worker with source-first publication and target isolation.
+
+    Per-segment work remains serialized until the independent segment scheduler
+    (#155) lands; only target translations within one segment are concurrent.
+    """
 
     def __init__(self, publish, settings: Settings) -> None:
         self.publish = publish
@@ -254,17 +258,53 @@ class CaptionPipeline:
 
         translations: dict[str, str] = {}
         if self.translator is not None and self.status.available:
-            for target in self.request.target_languages:
-                try:
-                    translations[target] = await self.translator.translate(
-                        corrected_text,
-                        source_language=self.request.source_language,
-                        target_language=target,
-                        context=self.request.context,
-                    )
-                    self.status.error = None
-                except TranslationError as exc:
-                    self.status.error = str(exc)
+            targets = self.request.target_languages
+            low_resource = (
+                self.settings.resource_profile == "low"
+                or self.request.resource_profile == "low"
+            )
+            limit = 1 if low_resource else self.settings.translation_max_parallel_targets
+            limiter = asyncio.Semaphore(limit)
+
+            async def translate_target(target: str) -> tuple[str, str | None, str | None]:
+                async with limiter:
+                    try:
+                        translated = await asyncio.wait_for(
+                            self.translator.translate(
+                                corrected_text,
+                                source_language=self.request.source_language,
+                                target_language=target,
+                                context=self.request.context,
+                            ),
+                            timeout=self.settings.translation_target_timeout_seconds,
+                        )
+                        if not translated.strip():
+                            raise TranslationError("translation provider returned empty text")
+                        return target, translated.strip(), None
+                    except TimeoutError:
+                        return target, None, (
+                            f"translation timed out after "
+                            f"{self.settings.translation_target_timeout_seconds:.1f}s"
+                        )
+                    except TranslationError as exc:
+                        return target, None, str(exc)
+                    except Exception:
+                        # Bad adapters must not tear down the caption worker.
+                        # Do not expose raw provider exceptions to audience or logs.
+                        return target, None, "translation provider failed unexpectedly"
+
+            # A single slow target must not prevent another target starting.
+            # The bounded semaphore protects low-spec CPUs from model overload.
+            results = await asyncio.gather(*(translate_target(t) for t in targets))
+            errors = {target: error for target, _, error in results if error is not None}
+            self.status.errors_by_language = errors
+            self.status.error = "; ".join(
+                f"{target}: {error}" for target, error in errors.items()
+            ) or None
+            translations = {
+                target: result for target, result, error in results
+                if result is not None and error is None
+            }
 
         base = corrected
         if translations:
