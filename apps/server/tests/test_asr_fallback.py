@@ -271,7 +271,9 @@ async def test_replay_fallback_fences_old_session_callbacks_across_restart() -> 
     wrapper = ReplayFallbackAsrEngine(
         publish, [("primary", factory)], health_check_seconds=60.0,
     )
-    request = StartSessionRequest(engine="auto", source_language="en")
+    request = StartSessionRequest(
+        engine="auto", source_language="en", target_languages=["ko"],
+    )
     await wrapper.start(request)
     old = created[-1]
     await old.emit(segment_id="before-stop", start_ms=0, end_ms=300, text="old")
