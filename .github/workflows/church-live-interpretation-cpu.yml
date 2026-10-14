@@ -23,8 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: church-live-interpretation-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: church-live-interpretation-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   live-cpu:
