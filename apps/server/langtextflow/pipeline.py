@@ -23,6 +23,7 @@ from .translation import (
     DemoTranslator,
     OllamaTranslator,
     OpenAICompatibleTranslator,
+    M2M100CT2Translator,
     TranslationError,
     Translator,
 )
@@ -141,6 +142,17 @@ class CaptionPipeline:
         provider = request.translation_provider
         if provider == "none":
             return None
+        if provider == "m2m100-ct2":
+            return M2M100CT2Translator(
+                model_dir=self.settings.local_m2m100_ct2_dir,
+                tokenizer_dir=self.settings.local_m2m100_tokenizer_dir,
+                cpu_threads=(
+                    self.settings.low_resource_cpu_threads
+                    if (request.resource_profile == "low"
+                        or self.settings.resource_profile == "low")
+                    else self.settings.local_m2m100_cpu_threads
+                ),
+            )
         if provider == "demo":
             return DemoTranslator()
         if provider == "ollama":
