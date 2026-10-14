@@ -12,8 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import __version__
 from .asr import AsrEngineError
 from .asr.capabilities import AsrCapability, asr_capabilities
-from .church_glossary_seed import church_glossary_for_source
 from .audience_security import AudienceJoinRateLimiter
+from .church_glossary_seed import church_glossary_for_source
 from .config import get_settings
 from .diagnostics import build_diagnostics_bundle
 from .exports import export_json, export_srt, export_txt, export_vtt
