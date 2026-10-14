@@ -60,3 +60,21 @@ test("rejects invalid transcript bounds and versions", () => {
 test("rejects non-text websocket payloads", () => {
   assert.throws(() => parseCaptionPayload(new ArrayBuffer(4)), /must be text JSON/);
 });
+
+test("accepts per-language incremental translation state", () => {
+  const parsed = parseCaptionPayload(JSON.stringify({
+    ...transcript, version: 3, stage: "translated",
+    translations: { en: "Gospel" },
+    translation_states: { en: "available", ja: "pending" },
+  }));
+  assert.equal(parsed.type, "transcript");
+  if (parsed.type === "transcript") {
+    assert.equal(parsed.translation_states?.ja, "pending");
+  }
+});
+
+test("rejects invalid target-language status", () => {
+  assert.throws(() => parseCaptionPayload(JSON.stringify({
+    ...transcript, translation_states: { ko: "imaginary-status" },
+  })), /caption event is invalid/);
+});

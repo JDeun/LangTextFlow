@@ -113,6 +113,7 @@ class SessionRepository:
                     source_language TEXT NOT NULL,
                     text TEXT NOT NULL,
                     translations_json TEXT NOT NULL,
+                    translation_states_json TEXT NOT NULL DEFAULT '{}',
                     start_ms INTEGER NOT NULL,
                     end_ms INTEGER,
                     speaker TEXT,
@@ -134,6 +135,11 @@ class SessionRepository:
             if "correction_json" not in segment_columns:
                 connection.execute(
                     "ALTER TABLE transcript_segments ADD COLUMN correction_json TEXT"
+                )
+            if "translation_states_json" not in segment_columns:
+                connection.execute(
+                    "ALTER TABLE transcript_segments ADD COLUMN "
+                    "translation_states_json TEXT NOT NULL DEFAULT '{}'"
                 )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at DESC)"
@@ -246,15 +252,17 @@ class SessionRepository:
                 """
                 INSERT INTO transcript_segments (
                     session_id, segment_id, version, stage, source_language,
-                    text, translations_json, start_ms, end_ms, speaker,
-                    confidence, correction_json, committed, emitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    text, translations_json, translation_states_json,
+                    start_ms, end_ms, speaker, confidence, correction_json,
+                    committed, emitted_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, segment_id) DO UPDATE SET
                     version = excluded.version,
                     stage = excluded.stage,
                     source_language = excluded.source_language,
                     text = excluded.text,
                     translations_json = excluded.translations_json,
+                    translation_states_json = excluded.translation_states_json,
                     start_ms = excluded.start_ms,
                     end_ms = excluded.end_ms,
                     speaker = excluded.speaker,
@@ -272,6 +280,7 @@ class SessionRepository:
                     event.source_language,
                     event.text,
                     json.dumps(event.translations, ensure_ascii=False),
+                    json.dumps(event.translation_states, ensure_ascii=False),
                     event.start_ms,
                     event.end_ms,
                     event.speaker,
@@ -423,6 +432,7 @@ class SessionRepository:
             source_language=str(row["source_language"]),
             text=str(row["text"]),
             translations=json.loads(str(row["translations_json"])),
+            translation_states=json.loads(str(row["translation_states_json"])),
             start_ms=int(row["start_ms"]),
             end_ms=int(row["end_ms"]) if row["end_ms"] is not None else None,
             speaker=str(row["speaker"]) if row["speaker"] is not None else None,

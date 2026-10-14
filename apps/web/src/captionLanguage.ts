@@ -2,7 +2,7 @@ import type { TranscriptEvent } from "./types";
 
 type CaptionContent = Pick<
   TranscriptEvent,
-  "text" | "source_language" | "translations" | "committed"
+  "text" | "source_language" | "translations" | "translation_states" | "committed"
 >;
 
 const STATES: Record<string, [string, string]> = {
@@ -22,9 +22,12 @@ export function captionTextForLanguage(
   if (language === segment.source_language) return segment.text;
   const translated = segment.translations[language]?.trim();
   if (translated) return translated;
+  const current = segment.translation_states?.[language];
   const status = STATES[language] || [
     `Translating into ${language.toUpperCase()}…`,
     `Translation in ${language.toUpperCase()} unavailable.`,
   ];
-  return status[segment.committed ? 1 : 0];
+  const unavailable = current === "failed" || current === "timed_out"
+    || current === "unsupported";
+  return status[segment.committed || unavailable ? 1 : 0];
 }

@@ -5,7 +5,13 @@ from datetime import UTC, datetime
 import pytest
 
 from langtextflow.config import Settings
-from langtextflow.models import SessionContext, SessionState, StartSessionRequest
+from langtextflow.models import (
+    CaptionStage,
+    SessionContext,
+    SessionState,
+    StartSessionRequest,
+    TranscriptEvent,
+)
 from langtextflow.runtime import CaptionRuntime
 from langtextflow.session_repository import SessionRepository
 
@@ -273,3 +279,98 @@ async def test_feed_audio_uses_captured_engine_during_concurrent_stop_boundary(t
     await runtime.feed_audio(frame)
 
     assert engine.received is True
+
+
+@pytest.mark.asyncio
+async def test_late_asr_callback_is_fenced_after_session_restart(tmp_path) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "epoch.db")))
+    request = StartSessionRequest(
+        engine="mock", source_language="ko",
+        target_languages=["en"], translation_provider="none",
+    )
+    first = await runtime.start(request)
+    assert runtime.engine is not None
+    stale_publish = runtime.engine.publish
+    try:
+        second = await runtime.start(request)
+        assert second.session_id != first.session_id
+        assert runtime.engine is not None
+        live_publish = runtime.engine.publish
+        await stale_publish(TranscriptEvent(
+            segment_id="old-source-event", version=1,
+            stage=CaptionStage.STABLE, source_language="ko",
+            text="prior session", start_ms=100,
+        ))
+        assert runtime.stale_asr_events_dropped >= 1
+        assert not any(
+            e.segment_id == "old-source-event" for e in runtime.store.snapshot()
+        )
+        await live_publish(TranscriptEvent(
+            segment_id="new-source-event", version=1,
+            stage=CaptionStage.PARTIAL, source_language="ko",
+            text="current session", start_ms=100,
+        ))
+        assert any(
+            e.segment_id == "new-source-event" for e in runtime.store.snapshot()
+        )
+    finally:
+        await runtime.stop()
+        await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_late_asr_callback_is_fenced_after_session_stop(tmp_path) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "stop-epoch.db")))
+    await runtime.start(StartSessionRequest(
+        engine="mock", source_language="ko",
+        target_languages=["en"], translation_provider="none",
+    ))
+    assert runtime.engine is not None
+    stale_publish = runtime.engine.publish
+    await runtime.stop()
+    prior = len(runtime.store.snapshot())
+    await stale_publish(TranscriptEvent(
+        segment_id="late-after-stop", version=1,
+        stage=CaptionStage.PARTIAL, source_language="ko",
+        text="late", start_ms=0,
+    ))
+    assert len(runtime.store.snapshot()) == prior
+    assert runtime.stale_asr_events_dropped >= 1
+    await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_previous_provider_change_callback_cannot_relabel_new_session(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from langtextflow.asr import MockStreamingAsrEngine
+
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "provider-epoch.db")))
+
+    def mock_with_provider_change(request: StartSessionRequest) -> MockStreamingAsrEngine:
+        del request
+        engine = MockStreamingAsrEngine(runtime.pipeline.ingest)
+        engine.on_provider_change = runtime._provider_changed
+        return engine
+
+    monkeypatch.setattr(runtime, "_build_engine", mock_with_provider_change)
+    request = StartSessionRequest(
+        engine="mock", source_language="ko",
+        target_languages=["en"], translation_provider="none",
+    )
+    await runtime.start(request)
+    try:
+        assert runtime.engine is not None
+        stale_provider_callback = runtime.engine.on_provider_change
+        await runtime.start(request)
+        assert runtime.state.engine == "mock"
+
+        await stale_provider_callback("faster-whisper")
+        assert runtime.state.engine == "mock"
+
+        assert runtime.engine is not None
+        await runtime.engine.on_provider_change("vibevoice")
+        assert runtime.state.engine == "vibevoice"
+    finally:
+        await runtime.stop()
+        await runtime.shutdown()

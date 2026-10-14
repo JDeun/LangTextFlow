@@ -1,12 +1,11 @@
 name: Church live interpretation - real speech Linux CPU
 
-run-name: ltf-stage-churchlive source=${{ inputs.source_sha || github.sha }}
+run-name: ltf-stage-church_live source=${{ inputs.source_sha || github.sha }}
 
 on:
   pull_request:
     paths:
       - "scripts/evaluate_live_fleurs_translation.py"
-      - "apps/server/langtextflow/pipeline.py"
   workflow_dispatch:
     inputs:
       source_sha:

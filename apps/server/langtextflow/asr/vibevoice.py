@@ -250,7 +250,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         reference = context.reference_excerpt(3000)
         if reference:
             parts.append(reference)
-        hotwords = context.asr_hotwords()
+        hotwords = context.asr_hotwords(source_language=request.source_language)
         if hotwords:
             parts.append(", ".join(hotwords))
         value = " | ".join(part.strip() for part in parts if part.strip())

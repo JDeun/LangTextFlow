@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     vad_hangover_frames: int = Field(default=3, ge=0, le=10_000)
     audio_backpressure_warn_ms: float = Field(default=50.0, ge=0)
     postprocess_drain_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
+    postprocess_max_parallel_segments: int = Field(default=2, ge=1, le=4)
+    # Bound target language inference even when one provider hangs or crashes.
+    translation_target_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    translation_max_parallel_targets: int = Field(default=2, ge=1, le=4)
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_correction_model: str = "qwen3.5:4b"
     correction_timeout_seconds: float = Field(default=4.0, gt=0)

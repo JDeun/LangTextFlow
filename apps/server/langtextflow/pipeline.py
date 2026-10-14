@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from contextlib import suppress
 from datetime import UTC, datetime
 
@@ -30,7 +31,11 @@ from .translation import (
 
 
 class CaptionPipeline:
-    """Sequential post-ASR pipeline that never blocks source caption delivery."""
+    """Bounded post-ASR worker with source-first publication and target isolation.
+
+    Independent speech segments use a bounded number of workers. The target
+    inference semaphore is global for the entire session (not per segment).
+    """
 
     def __init__(self, publish, settings: Settings) -> None:
         self.publish = publish
@@ -43,6 +48,16 @@ class CaptionPipeline:
         self.status = TranslationStatus()
         self._queue: asyncio.Queue[TranscriptEvent | None] = asyncio.Queue(maxsize=128)
         self._worker_task: asyncio.Task[None] | None = None
+        self._extra_workers: list[asyncio.Task[None]] = []
+        self._translation_limiter = asyncio.Semaphore(1)
+        self.dropped_postprocess_segments = 0
+        self.failed_postprocess_segments = 0
+        # A final ASR segment may be replayed/duplicated by a provider. Keep a
+        # bounded admission ledger so later PARTIAL/STABLE cannot regress its
+        # already corrected/translated source. Distinct IDs are never deduped
+        # by text, preserving legitimate repeated sentences.
+        self._seen_stable_sources: OrderedDict[str, None] = OrderedDict()
+        self.duplicate_asr_events_dropped = 0
 
     @property
     def queue_depth(self) -> int:
@@ -56,6 +71,19 @@ class CaptionPipeline:
         await self.stop()
         self.request = request
         self._queue = asyncio.Queue(maxsize=128)
+        self.dropped_postprocess_segments = 0
+        self.failed_postprocess_segments = 0
+        self._seen_stable_sources.clear()
+        self.duplicate_asr_events_dropped = 0
+        low_resource = (
+            self.settings.resource_profile == "low" or request.resource_profile == "low"
+        )
+        self._translation_limiter = asyncio.Semaphore(
+            1 if low_resource else self.settings.translation_max_parallel_targets
+        )
+        worker_count = (
+            1 if low_resource else self.settings.postprocess_max_parallel_segments
+        )
         self.llm_corrector = self._build_corrector(request)
         self.translator = self._build_translator(request)
         self.correction_status = CorrectionStatus(
@@ -82,32 +110,64 @@ class CaptionPipeline:
             except TranslationError as exc:
                 self.status.available = False
                 self.status.error = str(exc)
-        self._worker_task = asyncio.create_task(self._worker(), name="caption-postprocessing")
+        self._worker_task = asyncio.create_task(
+            self._worker(), name="caption-postprocessing"
+        )
+        self._extra_workers = [
+            asyncio.create_task(self._worker(), name=f"caption-postprocessing-{index}")
+            for index in range(1, worker_count)
+        ]
 
     async def ingest(self, event: TranscriptEvent) -> None:
+        if (
+            event.stage in (CaptionStage.PARTIAL, CaptionStage.STABLE)
+            and event.segment_id in self._seen_stable_sources
+        ):
+            self.duplicate_asr_events_dropped += 1
+            return
+        if event.stage is CaptionStage.STABLE:
+            # Admit the first stable event by *segment identity* before
+            # awaiting publish. A duplicate arriving during its await cannot
+            # launch a second correction/MT worker for the same ID.
+            self._seen_stable_sources[event.segment_id] = None
+            if len(self._seen_stable_sources) > 8192:
+                self._seen_stable_sources.popitem(last=False)
         await self.publish(event)
         if event.stage is CaptionStage.STABLE:
-            await self._queue.put(event)
+            try:
+                self._queue.put_nowait(event)
+            except asyncio.QueueFull:
+                # Source has already been published. Preserve live ASR transport;
+                # flag the absence of postprocessing rather than stalling audio.
+                self.dropped_postprocess_segments += 1
+                self.status.error = "postprocessing queue full; source caption preserved"
 
     async def stop(self) -> None:
         first_error: Exception | None = None
-        task = self._worker_task
+        tasks = [
+            task for task in (self._worker_task, *self._extra_workers)
+            if task is not None
+        ]
         self._worker_task = None
-        if task is not None:
-            if not task.done():
+        self._extra_workers = []
+        if tasks:
+            if any(not task.done() for task in tasks):
                 with suppress(TimeoutError):
                     await asyncio.wait_for(
                         self._queue.join(),
                         timeout=self.settings.postprocess_drain_timeout_seconds,
                     )
-            if not task.done():
-                task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception as exc:
-                first_error = exc
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            for task in tasks:
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:
+                    if first_error is None:
+                        first_error = exc
         self._queue = asyncio.Queue(maxsize=128)
 
         corrector = self.llm_corrector
@@ -191,12 +251,23 @@ class CaptionPipeline:
                 return
             try:
                 await self._process_stable(event)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # A broken optional provider must not permanently kill the
+                # segment worker and therefore the entire live ASR session.
+                self.failed_postprocess_segments += 1
+                self.status.error = (
+                    "postprocessing failed unexpectedly; source caption preserved"
+                )
             finally:
                 self._queue.task_done()
 
     async def _correct(self, text: str) -> tuple[str, CorrectionProvenance]:
         assert self.request is not None
-        deterministic = self.deterministic_corrector.correct(text, self.request.context)
+        deterministic = self.deterministic_corrector.correct(
+            text, self.request.context, source_language=self.request.source_language
+        )
         deterministic_changed = deterministic != text
         provider = self.request.correction_provider
         model = getattr(self.llm_corrector, "model", None)
@@ -262,40 +333,98 @@ class CaptionPipeline:
         assert self.request is not None
         version = event.version + 1
         corrected_text, provenance = await self._correct(event.text)
+        targets = self.request.target_languages
+        enabled = self.translator is not None and self.status.available
+        states: dict[str, str] = {
+            language: (
+                "pending" if enabled else
+                "unsupported" if self.translator is None else "failed"
+            )
+            for language in targets
+        }
         corrected = self._next_event(
             event,
             version=version,
             stage=CaptionStage.CORRECTED,
             text=corrected_text,
             correction=provenance,
+            translation_states=states,
         )
         await self.publish(corrected)
 
         translations: dict[str, str] = {}
-        if self.translator is not None and self.status.available:
-            for target in self.request.target_languages:
-                try:
-                    translations[target] = await self.translator.translate(
-                        corrected_text,
-                        source_language=self.request.source_language,
-                        target_language=target,
-                        context=self.request.context,
-                    )
-                    self.status.error = None
-                except TranslationError as exc:
-                    self.status.error = str(exc)
-
         base = corrected
-        if translations:
-            version += 1
-            base = self._next_event(
-                corrected,
-                version=version,
-                stage=CaptionStage.TRANSLATED,
-                text=corrected_text,
-                translations=translations,
-            )
-            await self.publish(base)
+        if enabled:
+            assert self.translator is not None
+            limiter = self._translation_limiter
+
+            async def translate_target(target: str) -> tuple[str, str | None, str | None]:
+                async with limiter:
+                    try:
+                        translated = await asyncio.wait_for(
+                            self.translator.translate(
+                                corrected_text,
+                                source_language=self.request.source_language,
+                                target_language=target,
+                                context=self.request.context,
+                            ),
+                            timeout=self.settings.translation_target_timeout_seconds,
+                        )
+                        if not translated.strip():
+                            raise TranslationError("translation provider returned empty text")
+                        return target, translated.strip(), None
+                    except TimeoutError:
+                        return target, None, (
+                            f"translation timed out after "
+                            f"{self.settings.translation_target_timeout_seconds:.1f}s"
+                        )
+                    except TranslationError as exc:
+                        return target, None, str(exc)
+                    except Exception:
+                        return target, None, "translation provider failed unexpectedly"
+
+            tasks = [
+                asyncio.create_task(
+                    translate_target(target), name=f"caption-mt-{target}"
+                ) for target in targets
+            ]
+            errors: dict[str, str] = {}
+            try:
+                # Publish each target's completion without awaiting unrelated
+                # languages; send cumulative translation snapshots, not deltas.
+                for result in asyncio.as_completed(tasks):
+                    target, translated, error = await result
+                    if error is not None:
+                        states[target] = (
+                            "timed_out" if error.startswith("translation timed out")
+                            else "failed"
+                        )
+                        errors[target] = error
+                    else:
+                        assert translated is not None
+                        states[target] = "available"
+                        translations[target] = translated
+                    self.status.errors_by_language = dict(errors)
+                    self.status.error = "; ".join(
+                        f"{language}: {reason}" for language, reason in errors.items()
+                    ) or None
+                    version += 1
+                    base = self._next_event(
+                        base,
+                        version=version,
+                        stage=CaptionStage.TRANSLATED,
+                        text=corrected_text,
+                        translations=translations,
+                        translation_states=states,
+                    )
+                    await self.publish(base)
+            finally:
+                # as_completed() launches target tasks eagerly. On session
+                # stop/restart, do not leave orphaned provider inference behind.
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         version += 1
         committed = self._next_event(
@@ -304,6 +433,7 @@ class CaptionPipeline:
             stage=CaptionStage.COMMITTED,
             text=corrected_text,
             translations=translations,
+            translation_states=states,
             committed=True,
         )
         await self.publish(committed)
@@ -316,6 +446,7 @@ class CaptionPipeline:
         stage: CaptionStage,
         text: str,
         translations: dict[str, str] | None = None,
+        translation_states: dict[str, str] | None = None,
         correction: CorrectionProvenance | None = None,
         committed: bool = False,
     ) -> TranscriptEvent:
@@ -325,7 +456,8 @@ class CaptionPipeline:
             stage=stage,
             source_language=previous.source_language,
             text=text,
-            translations=translations or {},
+            translations=dict(translations or {}),
+            translation_states=dict(translation_states or {}),
             start_ms=previous.start_ms,
             end_ms=previous.end_ms,
             speaker=previous.speaker,

@@ -1,13 +1,12 @@
 name: Church translation quality - Linux CPU baseline
 
-run-name: ltf-stage-churchquality source=${{ inputs.source_sha || github.sha }}
+run-name: ltf-stage-church_quality source=${{ inputs.source_sha || github.sha }}
 
 on:
   pull_request:
     paths:
       - "benchmarks/church_translation_quality.v1.jsonl"
       - "scripts/assess_church_translation.py"
-      - "apps/server/langtextflow/translation/ollama.py"
       - "apps/server/langtextflow/translation_benchmark.py"
   workflow_dispatch:
     inputs:
