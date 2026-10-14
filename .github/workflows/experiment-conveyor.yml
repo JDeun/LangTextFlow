@@ -14,6 +14,12 @@ on:
       - ".github/workflows/church-live-interpretation-cpu.yml"
       - ".github/workflows/apple-system-translation-research.yml"
       - "scripts/autonomous_experiment_conveyor.py"
+      # Product-runtime changes are evaluated on the merged main revision,
+      # not by repeating 90–120 minute CPU experiments for every PR revision.
+      - "apps/server/langtextflow/pipeline.py"
+      - "apps/server/langtextflow/translation/**"
+      - "apps/server/langtextflow/asr/**"
+      - "apps/server/langtextflow/correction.py"
       - "scripts/compare_multilingual_m2m100_cpu.py"
       - "scripts/assess_church_translation.py"
       - "scripts/evaluate_live_fleurs_translation.py"

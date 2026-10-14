@@ -6,7 +6,6 @@ on:
   pull_request:
     paths:
       - "scripts/evaluate_live_fleurs_translation.py"
-      - "apps/server/langtextflow/pipeline.py"
   workflow_dispatch:
     inputs:
       source_sha:
