@@ -405,3 +405,26 @@ async def test_flooding_startup_candidate_is_bounded_and_rejected() -> None:
         assert wrapper._pending_overflowed is False
     finally:
         await wrapper.stop()
+
+
+def test_replay_buffer_strictly_bounds_single_oversized_frame_and_keeps_true_clock() -> None:
+    async def publish(_event: TranscriptEvent) -> None:
+        pass
+
+    engine = ReplayFallbackAsrEngine(
+        publish, [("fake", lambda sink: FakeEngine(sink))],
+        replay_seconds=0.01,
+    )
+    oversized = pcm(2500, 0.5)  # 156.25 ms vs a 10 ms replay budget.
+    engine._remember_audio(oversized)
+    budget = int(0.01 * 16000 * 4)
+    assert engine._buffer_bytes == budget
+    assert b"".join(engine._audio_frames) == oversized[-budget:]
+    assert engine._audio_cursor_ms == pytest.approx(156.25)
+
+    next_frame = pcm(32, 0.3)
+    engine._remember_audio(next_frame)
+    assert engine._buffer_bytes <= budget
+    assert b"".join(engine._audio_frames).endswith(next_frame)
+    assert engine._audio_cursor_ms == pytest.approx(158.25)
+    assert all(len(frame) % 4 == 0 for frame in engine._audio_frames)
