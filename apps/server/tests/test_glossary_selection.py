@@ -73,3 +73,41 @@ def test_provider_only_includes_source_mentioned_terms(translator) -> None:
     assert structured["terminology_mappings"] == [
         {"source": "성령", "target": "Holy Spirit"}
     ]
+
+
+@pytest.mark.parametrize("translator", [OllamaTranslator, OpenAICompatibleTranslator])
+def test_providers_never_inject_other_source_language_glossary(translator) -> None:
+    context = SessionContext(
+        preset=ProductPreset.CHURCH,
+        glossary=[
+            GlossaryEntry(
+                term="grace", source_language="ko",
+                translations={"ja": "誤った訳"},
+            ),
+            GlossaryEntry(
+                term="grace", source_language="en",
+                translations={"ja": "恵み"},
+                presets=[ProductPreset.CHURCH],
+            ),
+            GlossaryEntry(
+                term="grace", source_language="en",
+                translations={"ja": "無関係"},
+                presets=[ProductPreset.CONFERENCE],
+            ),
+        ],
+    )
+    messages = translator.build_messages(
+        "The grace of God.", source_language="en", target_language="ja",
+        context=context,
+    )
+    payload = json.loads(messages[1]["content"])
+    assert payload["terminology_mappings"] == [
+        {"source": "grace", "target": "恵み"},
+    ]
+    prompt = translator.build_prompt(
+        "The grace of God.", source_language="en", target_language="ja",
+        context=context,
+    )
+    assert "grace -> 恵み" in prompt
+    assert "誤った訳" not in prompt
+    assert "無関係" not in prompt
