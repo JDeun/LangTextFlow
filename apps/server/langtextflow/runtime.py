@@ -41,6 +41,10 @@ class CaptionRuntime:
         self.state = SessionState()
         self.pipeline = CaptionPipeline(self._publish, self.settings)
         self.engine: AsrEngine | None = None
+        # An epoch object is captured by each ASR source callback. Delayed
+        # events from an older ASR provider can never enter a new session.
+        self._active_generation: object | None = None
+        self.stale_asr_events_dropped = 0
         self.history = SessionRepository(self.settings.database_path)
         self.archive = PostEventArchive(self.settings.database_path)
         self._recorder: SessionRecordingWriter | None = None
@@ -287,16 +291,38 @@ class CaptionRuntime:
             raise ValueError("project not found")
         # Validate the new request before interrupting any active live event.
         engine = self._build_engine(request)
+        generation = object()
+
+        async def publish_from_this_session(event: TranscriptEvent) -> None:
+            if self._active_generation is not generation:
+                self.stale_asr_events_dropped += 1
+                return
+            await self.pipeline.ingest(event)
+
+        # All built-in AsrEngine implementations expose a writable publish
+        # callback; ReplayFallbackAsrEngine forwards through self.publish.
+        # Install the guard before starting any ASR/background tasks.
+        engine.publish = publish_from_this_session
+        if getattr(engine, "on_provider_change", None) is not None:
+            async def guarded_provider_change(provider: str) -> None:
+                if self._active_generation is generation:
+                    await self._provider_changed(provider)
+
+            engine.on_provider_change = guarded_provider_change
+
         if request.record_audio and not engine.accepts_audio:
             raise ValueError("recording requires a real audio-input ASR engine")
         if self.state.running:
             await self._stop_unlocked()
+        self._active_generation = generation
         self.store.clear()
         await self.hub.close_all(reason="caption session starting")
         self._reset_metrics()
         try:
             await self.pipeline.start(request)
         except Exception:
+            # A failed session never authorizes its ASR callbacks to publish.
+            self._active_generation = None
             with suppress(Exception):
                 await self.pipeline.stop()
             raise
@@ -362,6 +388,7 @@ class CaptionRuntime:
                 await engine.stop()
             with suppress(Exception):
                 await self.pipeline.stop()
+            self._active_generation = None
             with suppress(Exception):
                 await self._stop_persistence_worker()
             if self.state.session_id and self.state.persistence_error is None:
@@ -397,6 +424,9 @@ class CaptionRuntime:
         except Exception as exc:
             if first_error is None:
                 first_error = exc
+        # Engine shutdown and postprocessor drain have completed or failed;
+        # obsolete source callbacks are no longer permitted to publish.
+        self._active_generation = None
 
         try:
             await self._stop_persistence_worker()
