@@ -236,3 +236,59 @@ async def test_runtime_tracks_stage_latency_by_segment() -> None:
     assert metrics.last_correction_latency_ms == 80.0
     assert metrics.last_translation_latency_ms == 500.0
     assert metrics.last_commit_latency_ms == 600.0
+
+
+
+@pytest.mark.asyncio
+async def test_persistence_overflow_is_counted_without_blocking_caption_publication() -> None:
+    import asyncio
+
+    runtime = CaptionRuntime()
+    runtime.state = SessionState(session_id="persistent-session", running=True)
+    runtime._persistence_queue = asyncio.Queue(maxsize=1)
+    existing = TranscriptEvent(
+        segment_id="existing", version=1, stage=CaptionStage.STABLE,
+        source_language="ko", text="원문", start_ms=0,
+    )
+    runtime._persistence_queue.put_nowait(("persistent-session", existing))
+    # _publish only needs a worker-liveness sentinel. Do not create an
+    # actual waiting worker that might consume the saturated queue here.
+    runtime._persistence_task = asyncio.current_task()
+    newest = existing.model_copy(update={"segment_id": "overflow", "text": "보존된 자막"})
+    try:
+        await runtime._publish(newest)
+        snapshot = runtime.metrics_snapshot()
+        assert runtime.store.snapshot()[-1].text == "보존된 자막"
+        assert snapshot.persistence_events_dropped == 1
+        assert snapshot.persistence_events_failed == 0
+        assert snapshot.persistence_queue_high_watermark == 1
+        assert runtime.state.persistence_error == "transcript persistence queue is full"
+        assert runtime._persistence_queue.qsize() == 1
+    finally:
+        runtime._persistence_task = None
+
+
+@pytest.mark.asyncio
+async def test_persistence_worker_counts_failed_sqlite_write(monkeypatch) -> None:
+    import asyncio
+
+    runtime = CaptionRuntime()
+    runtime.state = SessionState(session_id="write-failure-session", running=True)
+    event = TranscriptEvent(
+        segment_id="fail", version=1, stage=CaptionStage.STABLE,
+        source_language="en", text="original", start_ms=0,
+    )
+
+    def fail_write(*_args) -> None:
+        raise OSError("simulated database outage")
+
+    monkeypatch.setattr(runtime.history, "upsert_segment", fail_write)
+    await runtime._persistence_queue.put(("write-failure-session", event))
+    worker = asyncio.create_task(runtime._persistence_worker())
+    try:
+        await asyncio.wait_for(runtime._persistence_queue.join(), timeout=2)
+        assert runtime.metrics_snapshot().persistence_events_failed == 1
+        assert runtime.state.persistence_error is not None
+    finally:
+        await runtime._persistence_queue.put(None)
+        await asyncio.wait_for(worker, timeout=2)

@@ -30,6 +30,9 @@ class RealtimeMetrics(BaseModel):
     asr_queue_high_watermark: int = 0
     persistence_queue_depth: int = 0
     persistence_queue_capacity: int = 0
+    persistence_queue_high_watermark: int = 0
+    persistence_events_dropped: int = 0
+    persistence_events_failed: int = 0
     postprocess_queue_depth: int = 0
     postprocess_queue_capacity: int = 0
     websocket_clients: int = 0

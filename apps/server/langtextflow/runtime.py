@@ -105,6 +105,9 @@ class CaptionRuntime:
         try:
             self._persistence_queue.put_nowait((session_id, event))
         except asyncio.QueueFull:
+            # The published caption remains visible; the archive is now
+            # incomplete. Count the event loss rather than silently hiding it.
+            self.metrics.persistence_events_dropped += 1
             self.state.persistence_error = "transcript persistence queue is full"
         self._refresh_queue_metrics()
 
@@ -157,6 +160,7 @@ class CaptionRuntime:
                         event,
                     )
                 except Exception:
+                    self.metrics.persistence_events_failed += 1
                     if self.state.session_id == session_id:
                         self.state.persistence_error = _PERSISTENCE_FAILURE
             finally:
@@ -268,6 +272,10 @@ class CaptionRuntime:
             self.metrics.asr_queue_capacity = 0
         self.metrics.persistence_queue_depth = self._persistence_queue.qsize()
         self.metrics.persistence_queue_capacity = self._persistence_queue.maxsize
+        self.metrics.persistence_queue_high_watermark = max(
+            self.metrics.persistence_queue_high_watermark,
+            self._persistence_queue.qsize(),
+        )
         self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
         self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
         self.metrics.websocket_clients = self.hub.client_count
