@@ -1,0 +1,185 @@
+name: Experiment Conveyor (controlled Linux CPU and macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: "metadata: quick; cpu: M2M100 real CPU; full: model+live+macOS"
+        required: true
+        default: metadata
+        type: choice
+        options: [metadata, cpu, full]
+  schedule:
+    - cron: "23 3 * * 1"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: experimental-conveyor-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  catalog:
+    name: Stage 1 - model licenses and glossary metadata
+    uses: ./.github/workflows/cpu-model-candidate-gates.yml
+    permissions:
+      contents: read
+
+  m2m_cpu:
+    name: Stage 2 - multilingual real CPU ASR/MT
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.profile == 'cpu' || inputs.profile == 'full') }}
+    needs: [catalog]
+    uses: ./.github/workflows/multilingual-cpu-m2m100.yml
+    permissions:
+      contents: read
+
+  church_quality:
+    name: Stage 3 - church-domain CPU translation quality
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile == 'full' }}
+    needs: [m2m_cpu]
+    uses: ./.github/workflows/church-translation-quality.yml
+    permissions:
+      contents: read
+
+  church_live:
+    name: Stage 4 - real-speech ASR to caption pipeline CPU
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile == 'full' }}
+    needs: [church_quality]
+    uses: ./.github/workflows/church-live-interpretation-cpu.yml
+    permissions:
+      contents: read
+
+  apple:
+    name: Stage 2b - macOS installed Translation availability
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile == 'full' }}
+    needs: [catalog]
+    runs-on: macos-26
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Record Apple runner and SDK
+        run: |
+          sw_vers
+          xcodebuild -version
+          xcrun swiftc --version
+      - name: Check actual language pair installation without model download
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cat > "$RUNNER_TEMP/AppleLanguageAvailability.swift" <<'SWIFT'
+          import Foundation
+          import Translation
+          struct Pair: Codable {
+              let source: String
+              let target: String
+              let status: String
+          }
+          struct Report: Codable {
+              let method: String
+              let actualTranslationExecuted: Bool
+              let results: [Pair]
+          }
+          @main struct Probe {
+              @MainActor
+              static func main() async throws {
+                  let languages = ["ko", "en", "ja"]
+                  let availability = LanguageAvailability()
+                  var rows: [Pair] = []
+                  for source in languages {
+                      for target in languages where source != target {
+                          let status = await availability.status(
+                              from: Locale.Language(identifier: source),
+                              to: Locale.Language(identifier: target)
+                          )
+                          rows.append(Pair(
+                              source: source, target: target,
+                              status: String(describing: status)
+                          ))
+                      }
+                  }
+                  let report = Report(
+                      method: "LanguageAvailability; no translations performed",
+                      actualTranslationExecuted: false,
+                      results: rows
+                  )
+                  let bytes = try JSONEncoder().encode(report)
+                  print(String(decoding: bytes, as: UTF8.self))
+              }
+          }
+          SWIFT
+          xcrun swiftc -parse-as-library \
+            "$RUNNER_TEMP/AppleLanguageAvailability.swift" \
+            -o "$RUNNER_TEMP/ltf-apple-capability"
+          "$RUNNER_TEMP/ltf-apple-capability" \
+            > artifacts/apple-language-availability.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          r = json.loads(Path("artifacts/apple-language-availability.json").read_text())
+          assert not r["actualTranslationExecuted"]
+          pairs = {(x["source"], x["target"]) for x in r["results"]}
+          assert pairs == {
+              (a, b) for a in ("ko", "en", "ja")
+              for b in ("ko", "en", "ja") if a != b
+          }
+          print(json.dumps(r, ensure_ascii=False, indent=2))
+          PY
+      - name: Upload installed-pair status only
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: apple-language-availability-only
+          path: artifacts/apple-language-availability.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  report:
+    name: Stage 5 - combined execution and evidence verdict
+    if: always()
+    needs: [catalog, m2m_cpu, church_quality, church_live, apple]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Download completed evidence artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROFILE: ${{ github.event_name == 'schedule' && 'metadata' || inputs.profile }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/conveyor
+          if [[ "$PROFILE" != metadata ]]; then
+            gh run download "$GITHUB_RUN_ID" \
+              --repo "$GITHUB_REPOSITORY" \
+              --dir artifacts/conveyor
+          fi
+      - name: Fail closed on missing evidence or incomplete stage
+        env:
+          PROFILE: ${{ github.event_name == 'schedule' && 'metadata' || inputs.profile }}
+          STAGE_NEEDS_JSON: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          python scripts/summarize_experiment_conveyor.py \
+            --profile "$PROFILE" \
+            --needs-json "$STAGE_NEEDS_JSON" \
+            --artifact-dir artifacts/conveyor \
+            --output artifacts/conveyor-summary.json \
+            --markdown-output artifacts/conveyor-summary.md
+          cat artifacts/conveyor-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload aggregated status
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: experiment-conveyor-summary
+          path: |
+            artifacts/conveyor-summary.json
+            artifacts/conveyor-summary.md
+          if-no-files-found: warn
+          retention-days: 30
