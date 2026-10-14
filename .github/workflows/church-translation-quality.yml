@@ -1,5 +1,7 @@
 name: Church translation quality - Linux CPU baseline
 
+run-name: ltf-stage-churchquality source=${{ inputs.source_sha || github.sha }}
+
 on:
   pull_request:
     paths:
@@ -8,7 +10,16 @@ on:
       - "apps/server/langtextflow/translation/ollama.py"
       - "apps/server/langtextflow/translation_benchmark.py"
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Frozen model and benchmark implementation revision
+        type: string
+        required: false
   workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -24,6 +35,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
