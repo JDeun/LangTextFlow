@@ -5,7 +5,7 @@
   "automated": true,
   "source_freeze": "the triggering main push SHA; preserved in every dispatched stage's run name and checkout",
   "controller": "schedule hourly plus workflow_run completed, no manual dispatch required",
-  "parallelism": "apple and m2m may run concurrently after catalog; quality follows m2m; live follows quality",
+  "parallelism": "m2m, funasr and apple can run concurrently after catalog; church text quality follows m2m; live follows quality",
   "stages": [
     {
       "id": "catalog",
@@ -31,6 +31,15 @@
       ],
       "artifact": "apple-language-availability-only",
       "interpretation": "macOS native 6-pair availability; actual lowLatency/highFidelity text inference auto-attempted only when preinstalled assets exist, otherwise explicit blocked status"
+    },
+    {
+      "id": "funasr",
+      "workflow": "funasr-mlt-glossary-cpu.yml",
+      "deps": [
+        "catalog"
+      ],
+      "artifact": "funasr-mlt-cpu-glossary-ab",
+      "interpretation": "Fun-ASR native KO/EN/JA source-language hotword OFF/ON, real FLEURS; reference had 0 observed sermon terms in first run, not a positive quality result"
     },
     {
       "id": "church_quality",
@@ -78,10 +87,6 @@
     {
       "model": "Qwen/Qwen3-0.6B",
       "reason": "no native six-way text MT model harness yet"
-    },
-    {
-      "model": "FunAudioLLM/Fun-ASR-MLT-Nano-2512",
-      "reason": "native glossary code in unmerged research PR #140, not on main"
     },
     {
       "model": "Helsinki-NLP/opus-mt-ko-en",
