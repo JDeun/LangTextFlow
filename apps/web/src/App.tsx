@@ -196,6 +196,7 @@ function OperatorApp() {
     { ko: DEFAULT_KOREAN_HOTWORDS },
   );
   const hotwords = hotwordsByLanguage[sourceLanguage] ?? "";
+  const [glossaryProjectId, setGlossaryProjectId] = useState("global");
   const [workspacePage, setWorkspacePage] = useState<"home" | "glossary">(
     () => window.location.hash === "#/glossary" ? "glossary" : "home",
   );
@@ -515,11 +516,28 @@ function OperatorApp() {
         <section className="panel glossary-workspace-panel">
           <h1>{glossaryCopy.pageTitle}</h1>
           <p>{glossaryCopy.pageHelp}</p>
+          <label>
+            {glossaryCopy.projectScope}
+            <select
+              data-testid="glossary-project-scope"
+              value={glossaryProjectId}
+              disabled={running}
+              onChange={(event) => setGlossaryProjectId(event.target.value)}
+            >
+              <option value="global">{glossaryCopy.globalTerms}</option>
+              {projects.map((project) => (
+                <option key={project.project_id} value={project.project_id}>
+                  {project.title}
+                </option>
+              ))}
+            </select>
+          </label>
           <GlossaryManager
             apiUrl={API_URL}
             preset={preset}
             sourceLanguage={sourceLanguage}
             targetLanguage={glossaryTargetLanguage}
+            projectId={glossaryProjectId === "global" ? null : glossaryProjectId}
             disabled={running}
           />
           <GlossaryRecommendations preset={preset} sourceLanguage={sourceLanguage} disabled={running} />
