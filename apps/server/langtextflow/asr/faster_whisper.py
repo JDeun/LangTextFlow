@@ -27,6 +27,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         model: str = "small",
         device: str = "auto",
         compute_type: str = "default",
+        cpu_threads: int | None = None,
         chunk_seconds: float = 4.0,
         queue_chunks: int = 32,
         max_frame_bytes: int = 1024 * 1024,
@@ -37,6 +38,9 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self.model_name = model
         self.device = device
         self.compute_type = compute_type
+        if cpu_threads is not None and cpu_threads < 1:
+            raise ValueError("cpu_threads must be positive")
+        self.cpu_threads = cpu_threads
         self.chunk_seconds = chunk_seconds
         self.queue_chunks = queue_chunks
         self.max_frame_bytes = max_frame_bytes
@@ -139,11 +143,14 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             raise AsrEngineError(
                 "faster-whisper is not installed; install LangTextFlow with the 'whisper' extra"
             ) from exc
-        return WhisperModel(
-            self.model_name,
-            device=self.device,
-            compute_type=self.compute_type,
-        )
+        options: dict[str, Any] = {
+            "device": self.device,
+            "compute_type": self.compute_type,
+        }
+        if self.cpu_threads is not None:
+            options["cpu_threads"] = self.cpu_threads
+            options["num_workers"] = 1
+        return WhisperModel(self.model_name, **options)
 
     def _transcribe_chunk_sync(
         self,

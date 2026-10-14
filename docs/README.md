@@ -4,10 +4,12 @@
 
 ## 처음 사용하는 분
 
+- **[교회·비영리 저사양 CPU 운용](CHURCH_LOW_SPEC.md)** — GPU 없는 PC 시험 운용과 원문/번역 제한 구분
+
 | 문서 | 언제 읽나요? |
 |---|---|
 | [`USER_GUIDE.md`](USER_GUIDE.md) | 처음 실행하고 실제 자막 세션을 시작할 때 |
-| [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md) | 내 PC에서 어떤 모델 구성이 가능한지, 최소/권장 사양을 확인할 때 |
+| [`HARDWARE_REQUIREMENTS.md`](HARDWARE_REQUIREMENTS.md) | 저사양 교회용 CPU 모드 및 검증 중인 최소/권장 사양을 확인할 때 |
 | [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | 마이크·자막·번역·QR 접속에 문제가 있을 때 |
 | [`FAQ.md`](FAQ.md) | 지원 범위, 로컬 실행, 저장, 다국어 등 기본 질문이 있을 때 |
 | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | 현재 미지원 기능과 production acceptance 경계를 확인할 때 |

@@ -5,6 +5,46 @@ LangTextFlow는 사용할 모델과 provider 조합에 따라 필요한 하드�
 > [!IMPORTANT]
 > 이 문서는 **pre-field hardware guidance**입니다. 자동 테스트와 모델 파일 크기, 런타임 구조를 기준으로 보수적으로 작성했으며, 특정 CPU/GPU SKU에 대한 production certification은 아닙니다. 실제 target hardware에서 `BENCHMARK.md`와 `RELEASE_CHECKLIST.md`의 30/60/90분 acceptance를 수행한 뒤 수치를 조정합니다.
 
+## 교회·지역 공동체를 위한 CPU 저사양 모드 (실험적)
+
+교회·비영리 행사에서 오래된 PC와 기부 장비를 재사용할 수 있도록
+`LANGTEXTFLOW_RESOURCE_PROFILE=low` 설정을 제공합니다. **추가 GPU나 유료 API가
+필수인 모드는 아닙니다.** 다만 실시간 *번역*까지 보장하는 완성형 저사양
+설치는 아직 아닙니다.
+
+```bash
+# 프로젝트 .env 또는 실행 환경에 지정 (Windows는 환경변수 설정 후 실행)
+LANGTEXTFLOW_RESOURCE_PROFILE=low
+LANGTEXTFLOW_LOW_RESOURCE_WHISPER_MODEL=base
+LANGTEXTFLOW_LOW_RESOURCE_CPU_THREADS=2
+```
+
+- `Auto` 요청은 7B VibeVoice를 시도하지 않고 CPU faster-whisper로 직접 연결합니다.
+  명시적으로 VibeVoice를 선택한 경우만 예외입니다.
+- CPU `int8`, 단일 모델 worker, 오디오 큐 최대 8개로 제한합니다.
+  `base`는 **품질 검증 전 후보값**이며 특정 RAM에서도 동작을 보장하지 않습니다.
+  `tiny`는 더 가볍지만 현재 한국어 FLEURS 파일럿 정확도가 매우 낮았습니다.
+- Onboarding/Preflight에서 `faster-whisper` 준비 여부를 검사하고,
+  저사양 권장 설정에서는 추가 4B 번역·교정 모델을 강제하지 않습니다.
+- 기본 사용자 인터페이스의 **번역 엔진을 '사용 안 함'으로 별도 선택**하면
+  원문 자막만 구동합니다. 이 경우 영어 번역 자막이 생성되는 것은 아닙니다.
+  로컬 번역을 켜면 모델에 따라 CPU·RAM 사용량이 크게 증가합니다.
+- 최초 모델 다운로드는 인터넷이 필요할 수 있습니다. 행사 시작 전
+  캐시를 준비하고, 녹음·전사문/요약 데이터는 교회 내부 승인 절차로 관리하세요.
+
+### 하드웨어 검증 목표 — 지원 확정 아님
+
+| 대상 | 검증하려는 기능 | 판정 |
+|---|---|---|
+| 4 GB RAM / 내장 GPU / 보급형 CPU | CPU 원문 ASR, 한 화면, 30분 | 실측 전·미보증 |
+| 8 GB RAM / GPU 없음 | CPU 한국어 ASR + 별도 경량 번역 후보, 60분 | 실측 전·미보증 |
+| 16 GB RAM / GPU 없음 | 원문+1개 번역, 90분 | 기존 가이드상의 시작점·실측 필요 |
+
+측정값은 CPU 종류, p50/p95 자막 지연, CER/WER, 처리 RTF,
+RSS 최고치, 스왑/메모리 초과, 누락·지연된 세그먼트, 모델 최초 로딩 시간,
+모델 크기, 디스크 사용량 및 회복 가능한 오류를 구분해서 기록합니다.
+GPU 없이 4GB에서 **번역 품질까지 합격했다는 뜻은 아닙니다.**
+
 ## 빠른 결론
 
 | 프로필 | CPU | 메모리 | GPU / 가속기 | 저장공간 여유 | 적합한 구성 |
