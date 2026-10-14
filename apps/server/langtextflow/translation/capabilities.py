@@ -4,6 +4,8 @@ Capability metadata is a DECLARATION, not a model quality report.
 """
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from pydantic import BaseModel, Field
 
 from ..config import Settings
@@ -24,6 +26,14 @@ class TranslationCapability(BaseModel):
     glossary_mode: str = "unsupported"
     model_id: str | None = None
     warnings: list[str] = Field(default_factory=list)
+
+
+def _loopback_endpoint(url: str) -> bool:
+    # An Ollama/OpenAI-compatible proxy can be configured remotely.
+    # Never label such an endpoint offline or local-only by provider name.
+    parsed = urlsplit(url)
+    return (parsed.scheme in {"http", "https"}
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"})
 
 
 def translation_capabilities(settings: Settings) -> list[TranslationCapability]:
@@ -50,8 +60,8 @@ def translation_capabilities(settings: Settings) -> list[TranslationCapability]:
         ),
         TranslationCapability(
             provider="ollama",
-            label="Ollama (local)",
-            local_only=True,
+            label="Ollama (operator-configured endpoint)",
+            local_only=_loopback_endpoint(settings.ollama_url),
             requires_model=True,
             configured=None,
             glossary_mode="prompt-hints-not-guaranteed",
@@ -60,7 +70,7 @@ def translation_capabilities(settings: Settings) -> list[TranslationCapability]:
         TranslationCapability(
             provider="openai-compatible",
             label="OpenAI-compatible endpoint (configured by operator)",
-            local_only=False,
+            local_only=_loopback_endpoint(settings.openai_compatible_url),
             requires_model=True,
             configured=None,
             glossary_mode="prompt-hints-not-guaranteed",
