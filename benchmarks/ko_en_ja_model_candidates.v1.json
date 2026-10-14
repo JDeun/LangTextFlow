@@ -1,0 +1,348 @@
+{
+  "schema_version": 1,
+  "updated_on": "2026-10-14",
+  "hardware_target": "GitHub Actions hosted Ubuntu CPU",
+  "language_priority": [
+    "en->ko",
+    "ja->ko",
+    "ko->en",
+    "ko->ja",
+    "en->ja",
+    "ja->en"
+  ],
+  "validation_contract": {
+    "no_production_ranking_without_glossary_ablation": true,
+    "requires_same_audio_and_glossary_snapshot": true,
+    "metrics": [
+      "cer_wer",
+      "chrf_plus_plus",
+      "source_target_terminology_recall",
+      "critical_negation_number_bible_reference_review",
+      "e2e_p95_ms",
+      "processing_rtf",
+      "peak_co_resident_rss_mb"
+    ],
+    "no_inference_of_streaming_from_utterance_replay": true,
+    "model_revision_sha_required_at_run": true,
+    "license_review_before_download": true
+  },
+  "models": [
+    {
+      "model_id": "Qwen/Qwen3-ASR-0.6B",
+      "kind": "asr",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/Qwen/Qwen3-ASR-0.6B"
+      },
+      "execution": "existing_cpu_utterance_baseline",
+      "glossary": "hotword_ablation_not_yet_verified",
+      "priority": 1
+    },
+    {
+      "model_id": "FunAudioLLM/Fun-ASR-MLT-Nano-2512",
+      "kind": "asr",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/FunAudioLLM/Fun-ASR-MLT-Nano-2512"
+      },
+      "execution": "planned_cpu_provision_and_adapter",
+      "glossary": "hotword_ablation_not_yet_verified",
+      "priority": 1
+    },
+    {
+      "model_id": "facebook/m2m100_418M",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "mit",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/facebook/m2m100_418M"
+      },
+      "execution": "existing_ct2_cpu_experiment",
+      "glossary": "pending_merge_of_stacked_pr_135",
+      "priority": 1
+    },
+    {
+      "model_id": "Helsinki-NLP/opus-mt-ko-en",
+      "kind": "mt",
+      "source_languages": [
+        "ko"
+      ],
+      "pairs": [
+        "ko->en"
+      ],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/Helsinki-NLP/opus-mt-ko-en"
+      },
+      "execution": "existing_directional_ct2_experiment",
+      "glossary": "not_integrated",
+      "priority": 2
+    },
+    {
+      "model_id": "google/madlad400-3b-mt",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/google/madlad400-3b-mt"
+      },
+      "execution": "planned_cpu_feasibility_prototype",
+      "glossary": "not_integrated",
+      "priority": 2
+    },
+    {
+      "model_id": "facebook/mbart-large-50-many-to-many-mmt",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "unknown",
+        "status": "pending_explicit_permission",
+        "territory": "unknown",
+        "evidence_url": "https://huggingface.co/facebook/mbart-large-50-many-to-many-mmt"
+      },
+      "execution": "blocked_pending_license",
+      "glossary": "not_integrated",
+      "priority": 3
+    },
+    {
+      "model_id": "tencent/HY-MT1.5-1.8B",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "ko->en",
+        "ko->ja",
+        "en->ko",
+        "en->ja",
+        "ja->ko",
+        "ja->en"
+      ],
+      "license": {
+        "id": "tencent-hy-community",
+        "status": "territory_excluded",
+        "territory": "south_korea_excluded",
+        "evidence_url": "https://huggingface.co/tencent/HY-MT1.5-1.8B/blob/main/License.txt"
+      },
+      "execution": "excluded_for_korean_deployment",
+      "glossary": "not_evaluated",
+      "priority": 99
+    },
+    {
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "en->ko",
+        "ja->ko",
+        "ko->en",
+        "ko->ja",
+        "en->ja",
+        "ja->en"
+      ],
+      "priority": 2,
+      "model_id": "google/gemma-3-1b-it",
+      "kind": "mt",
+      "input_modalities": [
+        "text"
+      ],
+      "license": {
+        "id": "gemma",
+        "status": "terms_review_required",
+        "territory": "terms_review",
+        "evidence_url": "https://huggingface.co/google/gemma-3-1b-it"
+      },
+      "execution": "blocked_until_gemma_terms_review_and_hf_access",
+      "glossary": "prompt_only_not_proven",
+      "research_track": "text_to_text",
+      "quality_evidence": "not_measured",
+      "notes": "Instruction-tuned general text LLM, not translation-specialized; six-way output quality must be measured and HF terms accepted before downloads."
+    },
+    {
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "en->ko",
+        "ja->ko",
+        "ko->en",
+        "ko->ja",
+        "en->ja",
+        "ja->en"
+      ],
+      "priority": 2,
+      "model_id": "google/gemma-4-E2B-it",
+      "kind": "speech_translation",
+      "input_modalities": [
+        "audio",
+        "text"
+      ],
+      "audio_max_seconds": 30,
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/google/gemma-4-E2B-it"
+      },
+      "execution": "planned_cpu_audio_text_feasibility_no_auto_download",
+      "glossary": "prompt_only_not_proven",
+      "research_track": "direct_speech_to_translated_text_plus_text_translation",
+      "quality_evidence": "not_measured",
+      "notes": "5.1B total parameters including embeddings (E2B is ~2.3B effective); audio max 30 s; no live-streaming or output-language qualification yet."
+    },
+    {
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "en->ko",
+        "ja->ko",
+        "ko->en",
+        "ko->ja",
+        "en->ja",
+        "ja->en"
+      ],
+      "priority": 2,
+      "model_id": "google/translategemma-4b-it",
+      "kind": "mt",
+      "input_modalities": [
+        "text"
+      ],
+      "license": {
+        "id": "gemma",
+        "status": "terms_review_required",
+        "territory": "terms_review",
+        "evidence_url": "https://huggingface.co/google/translategemma-4b-it"
+      },
+      "execution": "blocked_until_gemma_terms_review_and_hf_access",
+      "glossary": "prompt_only_not_proven",
+      "research_track": "translation_specialized_text_to_text",
+      "quality_evidence": "not_measured",
+      "notes": "TranslateGemma translation-specialized 4B. Requires explicit HF Gemma terms acceptance; quality and resource metrics not measured here."
+    },
+    {
+      "model_id": "facebook/nllb-200-distilled-600M",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "en->ko",
+        "ja->ko",
+        "ko->en",
+        "ko->ja",
+        "en->ja",
+        "ja->en"
+      ],
+      "license": {
+        "id": "cc-by-nc-4.0",
+        "status": "noncommercial_research_only",
+        "territory": "noncommercial_only",
+        "evidence_url": "https://huggingface.co/facebook/nllb-200-distilled-600M"
+      },
+      "execution": "blocked_from_default_and_commercial_deployment_pending_separate_research_authorization",
+      "glossary": "not_integrated",
+      "priority": 3,
+      "research_track": "translation_specialized_seq2seq_baseline",
+      "quality_evidence": "not_measured",
+      "notes": "CC BY-NC 4.0; model card explicitly describes research intent and warns against production deployment. Noncommercial research permission does NOT convey commercial redistribution rights. No download or inference through metadata pipeline."
+    },
+    {
+      "model_id": "Qwen/Qwen3-0.6B",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "en->ko",
+        "ja->ko",
+        "ko->en",
+        "ko->ja",
+        "en->ja",
+        "ja->en"
+      ],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/Qwen/Qwen3-0.6B"
+      },
+      "execution": "planned_text_prompt_translation_cpu_experiment_no_auto_download",
+      "glossary": "prompt_only_not_proven",
+      "priority": 2,
+      "research_track": "general_text_llm_translation_control",
+      "quality_evidence": "not_measured",
+      "notes": "General 0.6B instruction/chat LLM, NOT Qwen3-ASR-0.6B. Research text translation using explicit prompt and output-language checks, with full six-pair acceptance before product use."
+    }
+  ]
+}

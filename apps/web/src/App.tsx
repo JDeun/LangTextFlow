@@ -7,9 +7,11 @@ import {
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
 import { ContextDocumentManager } from "./ContextDocumentManager";
+import { captionTextForLanguage as displayCaption } from "./captionLanguage";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
+import { GLOSSARY_COPY } from "./glossaryCopy";
 import { GlossaryRecommendations } from "./GlossaryRecommendations";
 import { LanguageSwitcher, useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
@@ -40,12 +42,6 @@ const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lect
 
 const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 const DISPLAY_SETTINGS_STORAGE_KEY = "langtextflow:display:v1";
-
-function displayCaption(segment: TranscriptEvent | undefined, language: string, emptyText = "") {
-  if (!segment) return emptyText;
-  if (language === segment.source_language) return segment.text;
-  return segment.translations[language] || segment.text;
-}
 
 function splitHotwords(value: string) {
   return value
@@ -176,6 +172,7 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
 function OperatorApp() {
   const { locale, t } = useI18n();
   const operatorCopy = OPERATOR_COPY[locale];
+  const glossaryCopy = GLOSSARY_COPY[locale];
   const recordingCopy = RECORDING_COPY[locale];
   const { connected, segments, terminalError } = useCaptionSocket();
   const captureRef = useRef<AudioCaptureController | null>(null);
@@ -188,9 +185,36 @@ function OperatorApp() {
   const [title, setTitle] = useState(() => t("session.newTitle"));
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
-  const [hotwords, setHotwords] = useState(DEFAULT_KOREAN_HOTWORDS);
+  // Manual hotwords are source-language-specific: do not send Korean hints for EN/JA speech.
+  const [hotwordsByLanguage, setHotwordsByLanguage] = useState<Record<string, string>>(
+    { ko: DEFAULT_KOREAN_HOTWORDS },
+  );
+  const hotwords = hotwordsByLanguage[sourceLanguage] ?? "";
+  const [workspacePage, setWorkspacePage] = useState<"home" | "glossary">(
+    () => window.location.hash === "#/glossary" ? "glossary" : "home",
+  );
+  useEffect(() => {
+    const onPopState = () => {
+      setWorkspacePage(window.location.hash === "#/glossary" ? "glossary" : "home");
+    };
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("hashchange", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("hashchange", onPopState);
+    };
+  }, []);
+  function switchWorkspace(page: "home" | "glossary") {
+    // Hash routing also works for packaged Tauri/file:// assets without rewrites.
+    const hash = page === "glossary" ? "#/glossary" : "";
+    if (window.location.hash !== hash) {
+      window.history.pushState({}, "", `${window.location.pathname}${window.location.search}${hash}`);
+    }
+    setWorkspacePage(page);
+  }
   const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);
   const [engine, setEngine] = useState("auto");
+  const [resourceProfile, setResourceProfile] = useState<"standard" | "low">("standard");
   const [correctionProvider, setCorrectionProvider] = useState("none");
   const [correctionModel, setCorrectionModel] = useState("qwen3.5:4b");
   const [translationProvider, setTranslationProvider] = useState("ollama");
@@ -287,6 +311,16 @@ function OperatorApp() {
     }
   }
 
+  function changeResourceProfile(value: "standard" | "low") {
+    setResourceProfile(value);
+    if (value === "low") {
+      // ASR is CPU-only; auxiliary local 4B LLMs are explicitly opt-in.
+      setEngine("auto");
+      setCorrectionProvider("none");
+      setTranslationProvider("none");
+    }
+  }
+
   function changeEngine(nextEngine: string) {
     setEngine(nextEngine);
     setTranslationProvider((current) => {
@@ -323,6 +357,7 @@ function OperatorApp() {
     const query = new URLSearchParams({
       engine,
       translation_provider: translationProvider,
+      resource_profile: resourceProfile,
     });
     if (translationProviderUsesModel(translationProvider) && translationModel.trim()) {
       query.set("translation_model", translationModel.trim());
@@ -367,6 +402,7 @@ function OperatorApp() {
           source_language: sourceLanguage,
           target_languages: targetLanguages,
           engine,
+          resource_profile: resourceProfile,
           correction_provider: correctionProvider,
           correction_model: correctionProvider === "ollama" ? correctionModel : null,
           translation_provider: translationProvider,
@@ -443,11 +479,43 @@ function OperatorApp() {
     }
   }
 
+  if (workspacePage === "glossary") {
+    return (
+      <main className="app-shell glossary-workspace-page" data-testid="glossary-workspace">
+        <header className="topbar">
+          <div>
+            <div className="brand">LangTextFlow</div>
+            <div className="subtitle">{glossaryCopy.pageTitle}</div>
+          </div>
+          <nav className="product-nav" aria-label="Workspace">
+            <button type="button" onClick={() => switchWorkspace("home")}>
+              {glossaryCopy.backToLive}
+            </button>
+          </nav>
+          <LanguageSwitcher compact />
+        </header>
+        <section className="panel glossary-workspace-panel">
+          <h1>{glossaryCopy.pageTitle}</h1>
+          <p>{glossaryCopy.pageHelp}</p>
+          <GlossaryManager
+            apiUrl={API_URL}
+            preset={preset}
+            sourceLanguage={sourceLanguage}
+            targetLanguage={glossaryTargetLanguage}
+            disabled={running}
+          />
+          <GlossaryRecommendations preset={preset} sourceLanguage={sourceLanguage} disabled={running} />
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="app-shell">
       <OnboardingWizard
         open={onboardingOpen && !running}
         engine={engine}
+        resourceProfile={resourceProfile}
         translationProvider={translationProvider}
         translationModel={translationModel}
         sourceLanguage={sourceLanguage}
@@ -473,6 +541,7 @@ function OperatorApp() {
           <button type="button" onClick={() => document.getElementById("live-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.live")}</button>
           <button type="button" onClick={() => document.getElementById("setup-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.setup")}</button>
           <button type="button" onClick={() => document.getElementById("history-workspace")?.scrollIntoView({ behavior: "smooth" })}>{t("app.history")}</button>
+          <button type="button" data-testid="glossary-nav" onClick={() => switchWorkspace("glossary")}>{glossaryCopy.managePage}</button>
         </nav>
         <div className="topbar-actions">
           <LanguageSwitcher compact />
@@ -541,6 +610,21 @@ function OperatorApp() {
             />
           </label>
           <label>
+            {operatorCopy.resourceLabel}
+            <select
+              data-testid="resource-profile-select"
+              value={resourceProfile}
+              onChange={(event) => changeResourceProfile(
+                event.target.value as "standard" | "low",
+              )}
+              disabled={running}
+            >
+              <option value="standard">{operatorCopy.resourceStandard}</option>
+              <option value="low">{operatorCopy.resourceLow}</option>
+            </select>
+            <small>{operatorCopy.resourceHelp}</small>
+          </label>
+          <label>
             {t("session.preset")}
             <select
               value={preset}
@@ -586,7 +670,9 @@ function OperatorApp() {
             <textarea
               rows={4}
               value={hotwords}
-              onChange={(event) => setHotwords(event.target.value)}
+              onChange={(event) => setHotwordsByLanguage((values) => ({
+                ...values, [sourceLanguage]: event.target.value,
+              }))}
               disabled={running}
             />
             <small>{t("session.hotwordsHelp")}</small>
@@ -598,13 +684,14 @@ function OperatorApp() {
             onChange={setReferenceDocuments}
           />
 
-          <GlossaryManager
-            apiUrl={API_URL}
-            preset={preset}
-            targetLanguage={glossaryTargetLanguage}
-            disabled={running}
-          />
-          <GlossaryRecommendations preset={preset} disabled={running} />
+          <button
+            type="button"
+            className="secondary-button glossary-page-link"
+            onClick={() => switchWorkspace("glossary")}
+            data-testid="open-glossary-page"
+          >
+            {glossaryCopy.managePage}
+          </button>
             </div>
           </details>
 
@@ -843,6 +930,7 @@ function OperatorApp() {
       {!running && (
         <PreflightPanel
           engine={engine}
+          resourceProfile={resourceProfile}
           translationProvider={translationProvider}
           translationModel={translationModel}
           onApplyRecommendation={applyRecommendation}

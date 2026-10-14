@@ -1,0 +1,2222 @@
+{
+  "schema_version": 1,
+  "source_language": "ko",
+  "notes": "Starter terminology is Korean canonical source with editable EN/JA choices. Not validated for foreign-language sermon ASR until source-language scoping (#130).",
+  "book_name_reference": "https://www.bible.or.jp/read/vers_search/titlename.html",
+  "entries": [
+    {
+      "term": "창세기",
+      "translations": {
+        "en": "Genesis",
+        "ja": "創世記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "출애굽기",
+      "translations": {
+        "en": "Exodus",
+        "ja": "出エジプト記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "레위기",
+      "translations": {
+        "en": "Leviticus",
+        "ja": "レビ記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "민수기",
+      "translations": {
+        "en": "Numbers",
+        "ja": "民数記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "신명기",
+      "translations": {
+        "en": "Deuteronomy",
+        "ja": "申命記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "여호수아",
+      "translations": {
+        "en": "Joshua",
+        "ja": "ヨシュア記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "사사기",
+      "translations": {
+        "en": "Judges",
+        "ja": "士師記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "룻기",
+      "translations": {
+        "en": "Ruth",
+        "ja": "ルツ記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "사무엘상",
+      "translations": {
+        "en": "1 Samuel",
+        "ja": "サムエル記上"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "사무엘하",
+      "translations": {
+        "en": "2 Samuel",
+        "ja": "サムエル記下"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "열왕기상",
+      "translations": {
+        "en": "1 Kings",
+        "ja": "列王記上"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "열왕기하",
+      "translations": {
+        "en": "2 Kings",
+        "ja": "列王記下"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "역대상",
+      "translations": {
+        "en": "1 Chronicles",
+        "ja": "歴代誌上"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "역대하",
+      "translations": {
+        "en": "2 Chronicles",
+        "ja": "歴代誌下"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "에스라",
+      "translations": {
+        "en": "Ezra",
+        "ja": "エズラ記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "느헤미야",
+      "translations": {
+        "en": "Nehemiah",
+        "ja": "ネヘミヤ記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "에스더",
+      "translations": {
+        "en": "Esther",
+        "ja": "エステル記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "욥기",
+      "translations": {
+        "en": "Job",
+        "ja": "ヨブ記"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "시편",
+      "translations": {
+        "en": "Psalms",
+        "ja": "詩編"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "잠언",
+      "translations": {
+        "en": "Proverbs",
+        "ja": "箴言"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "전도서",
+      "translations": {
+        "en": "Ecclesiastes",
+        "ja": "コヘレトの言葉"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "아가",
+      "translations": {
+        "en": "Song of Songs",
+        "ja": "雅歌"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "이사야",
+      "translations": {
+        "en": "Isaiah",
+        "ja": "イザヤ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "예레미야",
+      "translations": {
+        "en": "Jeremiah",
+        "ja": "エレミヤ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "예레미야애가",
+      "translations": {
+        "en": "Lamentations",
+        "ja": "哀歌"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "에스겔",
+      "translations": {
+        "en": "Ezekiel",
+        "ja": "エゼキエル書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "다니엘",
+      "translations": {
+        "en": "Daniel",
+        "ja": "ダニエル書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "호세아",
+      "translations": {
+        "en": "Hosea",
+        "ja": "ホセア書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요엘",
+      "translations": {
+        "en": "Joel",
+        "ja": "ヨエル書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "아모스",
+      "translations": {
+        "en": "Amos",
+        "ja": "アモス書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "오바댜",
+      "translations": {
+        "en": "Obadiah",
+        "ja": "オバデヤ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요나",
+      "translations": {
+        "en": "Jonah",
+        "ja": "ヨナ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "미가",
+      "translations": {
+        "en": "Micah",
+        "ja": "ミカ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "나훔",
+      "translations": {
+        "en": "Nahum",
+        "ja": "ナホム書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "하박국",
+      "translations": {
+        "en": "Habakkuk",
+        "ja": "ハバクク書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "스바냐",
+      "translations": {
+        "en": "Zephaniah",
+        "ja": "ゼファニヤ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "학개",
+      "translations": {
+        "en": "Haggai",
+        "ja": "ハガイ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "스가랴",
+      "translations": {
+        "en": "Zechariah",
+        "ja": "ゼカリヤ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "말라기",
+      "translations": {
+        "en": "Malachi",
+        "ja": "マラキ書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "마태복음",
+      "translations": {
+        "en": "Matthew",
+        "ja": "マタイによる福音書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "마가복음",
+      "translations": {
+        "en": "Mark",
+        "ja": "マルコによる福音書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "누가복음",
+      "translations": {
+        "en": "Luke",
+        "ja": "ルカによる福音書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요한복음",
+      "translations": {
+        "en": "Gospel of John",
+        "ja": "ヨハネによる福音書"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": [
+        "요한 보금",
+        "요한 복음"
+      ]
+    },
+    {
+      "term": "사도행전",
+      "translations": {
+        "en": "Acts",
+        "ja": "使徒言行録"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "로마서",
+      "translations": {
+        "en": "Romans",
+        "ja": "ローマの信徒への手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": [
+        "로마 써"
+      ]
+    },
+    {
+      "term": "고린도전서",
+      "translations": {
+        "en": "1 Corinthians",
+        "ja": "コリントの信徒への手紙一"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "고린도후서",
+      "translations": {
+        "en": "2 Corinthians",
+        "ja": "コリントの信徒への手紙二"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "갈라디아서",
+      "translations": {
+        "en": "Galatians",
+        "ja": "ガラテヤの信徒への手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "에베소서",
+      "translations": {
+        "en": "Ephesians",
+        "ja": "エフェソの信徒への手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "빌립보서",
+      "translations": {
+        "en": "Philippians",
+        "ja": "フィリピの信徒への手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "골로새서",
+      "translations": {
+        "en": "Colossians",
+        "ja": "コロサイの信徒への手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "데살로니가전서",
+      "translations": {
+        "en": "1 Thessalonians",
+        "ja": "テサロニケの信徒への手紙一"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "데살로니가후서",
+      "translations": {
+        "en": "2 Thessalonians",
+        "ja": "テサロニケの信徒への手紙二"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "디모데전서",
+      "translations": {
+        "en": "1 Timothy",
+        "ja": "テモテへの手紙一"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "디모데후서",
+      "translations": {
+        "en": "2 Timothy",
+        "ja": "テモテへの手紙二"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "디도서",
+      "translations": {
+        "en": "Titus",
+        "ja": "テトスへの手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "빌레몬서",
+      "translations": {
+        "en": "Philemon",
+        "ja": "フィレモンへの手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "히브리서",
+      "translations": {
+        "en": "Hebrews",
+        "ja": "ヘブライ人への手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "야고보서",
+      "translations": {
+        "en": "James",
+        "ja": "ヤコブの手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "베드로전서",
+      "translations": {
+        "en": "1 Peter",
+        "ja": "ペトロの手紙一"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "베드로후서",
+      "translations": {
+        "en": "2 Peter",
+        "ja": "ペトロの手紙二"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요한일서",
+      "translations": {
+        "en": "1 John",
+        "ja": "ヨハネの手紙一"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요한이서",
+      "translations": {
+        "en": "2 John",
+        "ja": "ヨハネの手紙二"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요한삼서",
+      "translations": {
+        "en": "3 John",
+        "ja": "ヨハネの手紙三"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "유다서",
+      "translations": {
+        "en": "Jude",
+        "ja": "ユダの手紙"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요한계시록",
+      "translations": {
+        "en": "Revelation",
+        "ja": "ヨハネの黙示録"
+      },
+      "category": "bible-book",
+      "presets": [
+        "church"
+      ],
+      "boost": 2,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "하나님",
+      "translations": {
+        "en": "God",
+        "ja": "神"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "예수님",
+      "translations": {
+        "en": "Jesus",
+        "ja": "イエス"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "예수 그리스도",
+      "translations": {
+        "en": "Jesus Christ",
+        "ja": "イエス・キリスト"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "그리스도",
+      "translations": {
+        "en": "Christ",
+        "ja": "キリスト"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "주님",
+      "translations": {
+        "en": "Lord",
+        "ja": "主"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "아버지 하나님",
+      "translations": {
+        "en": "God the Father",
+        "ja": "父なる神"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성령",
+      "translations": {
+        "en": "Holy Spirit",
+        "ja": "聖霊"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": [
+        "성녕",
+        "성영"
+      ]
+    },
+    {
+      "term": "삼위일체",
+      "translations": {
+        "en": "Trinity",
+        "ja": "三位一体"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성경",
+      "translations": {
+        "en": "Bible",
+        "ja": "聖書"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "구약",
+      "translations": {
+        "en": "Old Testament",
+        "ja": "旧約聖書"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "신약",
+      "translations": {
+        "en": "New Testament",
+        "ja": "新約聖書"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "하나님의 말씀",
+      "translations": {
+        "en": "Word of God",
+        "ja": "神の言葉"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "복음",
+      "translations": {
+        "en": "gospel",
+        "ja": "福音"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "구원",
+      "translations": {
+        "en": "salvation",
+        "ja": "救い"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "구속",
+      "translations": {
+        "en": "redemption",
+        "ja": "贖い"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "속죄",
+      "translations": {
+        "en": "atonement",
+        "ja": "贖罪"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": [
+        "속재",
+        "속제"
+      ]
+    },
+    {
+      "term": "죄",
+      "translations": {
+        "en": "sin",
+        "ja": "罪"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "죄인",
+      "translations": {
+        "en": "sinner",
+        "ja": "罪人"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "회개",
+      "translations": {
+        "en": "repentance",
+        "ja": "悔い改め"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "믿음",
+      "translations": {
+        "en": "faith",
+        "ja": "信仰"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "은혜",
+      "translations": {
+        "en": "grace",
+        "ja": "恵み"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "긍휼",
+      "translations": {
+        "en": "mercy",
+        "ja": "憐れみ"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "사랑",
+      "translations": {
+        "en": "love",
+        "ja": "愛"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "소망",
+      "translations": {
+        "en": "hope",
+        "ja": "希望"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "영생",
+      "translations": {
+        "en": "eternal life",
+        "ja": "永遠の命"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "부활",
+      "translations": {
+        "en": "resurrection",
+        "ja": "復活"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "십자가",
+      "translations": {
+        "en": "cross",
+        "ja": "十字架"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": [
+        "십자 가"
+      ]
+    },
+    {
+      "term": "생명",
+      "translations": {
+        "en": "life",
+        "ja": "命"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "심판",
+      "translations": {
+        "en": "judgment",
+        "ja": "裁き"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "죄 사함",
+      "translations": {
+        "en": "forgiveness of sins",
+        "ja": "罪の赦し"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "칭의",
+      "translations": {
+        "en": "justification",
+        "ja": "義認"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": [
+        "칭이",
+        "칭위"
+      ]
+    },
+    {
+      "term": "성화",
+      "translations": {
+        "en": "sanctification",
+        "ja": "聖化"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "거룩",
+      "translations": {
+        "en": "holiness",
+        "ja": "聖さ"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "의로움",
+      "translations": {
+        "en": "righteousness",
+        "ja": "義"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "제자",
+      "translations": {
+        "en": "disciple",
+        "ja": "弟子"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "사도",
+      "translations": {
+        "en": "apostle",
+        "ja": "使徒"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "선지자",
+      "translations": {
+        "en": "prophet",
+        "ja": "預言者"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "제사장",
+      "translations": {
+        "en": "priest",
+        "ja": "祭司"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "대제사장",
+      "translations": {
+        "en": "high priest",
+        "ja": "大祭司"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "교회",
+      "translations": {
+        "en": "church",
+        "ja": "教会"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성도",
+      "translations": {
+        "en": "believers",
+        "ja": "信徒"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "예배",
+      "translations": {
+        "en": "worship",
+        "ja": "礼拝"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "기도",
+      "translations": {
+        "en": "prayer",
+        "ja": "祈り"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "찬양",
+      "translations": {
+        "en": "praise",
+        "ja": "賛美"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "감사",
+      "translations": {
+        "en": "thanksgiving",
+        "ja": "感謝"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "축복",
+      "translations": {
+        "en": "blessing",
+        "ja": "祝福"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "헌금",
+      "translations": {
+        "en": "offering",
+        "ja": "献金"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "침례",
+      "translations": {
+        "en": "baptism",
+        "ja": "バプテスマ"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "세례",
+      "translations": {
+        "en": "baptism",
+        "ja": "洗礼"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성찬",
+      "translations": {
+        "en": "Communion",
+        "ja": "聖餐"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "주의 만찬",
+      "translations": {
+        "en": "Lord's Supper",
+        "ja": "主の晩餐"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성막",
+      "translations": {
+        "en": "tabernacle",
+        "ja": "幕屋"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성전",
+      "translations": {
+        "en": "temple",
+        "ja": "神殿"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "언약",
+      "translations": {
+        "en": "covenant",
+        "ja": "契約"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "약속",
+      "translations": {
+        "en": "promise",
+        "ja": "約束"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "계명",
+      "translations": {
+        "en": "commandment",
+        "ja": "戒め"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "율법",
+      "translations": {
+        "en": "Law",
+        "ja": "律法"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "안식일",
+      "translations": {
+        "en": "Sabbath",
+        "ja": "安息日"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "선교사",
+      "translations": {
+        "en": "missionary",
+        "ja": "宣教師"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "선교",
+      "translations": {
+        "en": "mission",
+        "ja": "宣教"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "전도",
+      "translations": {
+        "en": "evangelism",
+        "ja": "伝道"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "순종",
+      "translations": {
+        "en": "obedience",
+        "ja": "従順"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "겸손",
+      "translations": {
+        "en": "humility",
+        "ja": "謙遜"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "인내",
+      "translations": {
+        "en": "perseverance",
+        "ja": "忍耐"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "유혹",
+      "translations": {
+        "en": "temptation",
+        "ja": "誘惑"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성육신",
+      "translations": {
+        "en": "incarnation",
+        "ja": "受肉"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "재림",
+      "translations": {
+        "en": "Second Coming",
+        "ja": "再臨"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "천국",
+      "translations": {
+        "en": "kingdom of heaven",
+        "ja": "天の国"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "하나님 나라",
+      "translations": {
+        "en": "kingdom of God",
+        "ja": "神の国"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "성경 구절",
+      "translations": {
+        "en": "Bible verse",
+        "ja": "聖書の節"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "설교",
+      "translations": {
+        "en": "sermon",
+        "ja": "説教"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "본문",
+      "translations": {
+        "en": "scripture passage",
+        "ja": "聖書本文"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "구약성경",
+      "translations": {
+        "en": "Old Testament",
+        "ja": "旧約聖書"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "신약성경",
+      "translations": {
+        "en": "New Testament",
+        "ja": "新約聖書"
+      },
+      "category": "theology",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.5,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "아브라함",
+      "translations": {
+        "en": "Abraham",
+        "ja": "アブラハム"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "이삭",
+      "translations": {
+        "en": "Isaac",
+        "ja": "イサク"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "야곱",
+      "translations": {
+        "en": "Jacob",
+        "ja": "ヤコブ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "요셉",
+      "translations": {
+        "en": "Joseph",
+        "ja": "ヨセフ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "모세",
+      "translations": {
+        "en": "Moses",
+        "ja": "モーセ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "다윗",
+      "translations": {
+        "en": "David",
+        "ja": "ダビデ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "솔로몬",
+      "translations": {
+        "en": "Solomon",
+        "ja": "ソロモン"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "엘리야",
+      "translations": {
+        "en": "Elijah",
+        "ja": "エリヤ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "엘리사",
+      "translations": {
+        "en": "Elisha",
+        "ja": "エリシャ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "마리아",
+      "translations": {
+        "en": "Mary",
+        "ja": "マリア"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "베드로",
+      "translations": {
+        "en": "Peter",
+        "ja": "ペトロ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "바울",
+      "translations": {
+        "en": "Paul",
+        "ja": "パウロ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "디모데",
+      "translations": {
+        "en": "Timothy",
+        "ja": "テモテ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "세례 요한",
+      "translations": {
+        "en": "John the Baptist",
+        "ja": "洗礼者ヨハネ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "갈릴리",
+      "translations": {
+        "en": "Galilee",
+        "ja": "ガリラヤ"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "예루살렘",
+      "translations": {
+        "en": "Jerusalem",
+        "ja": "エルサレム"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    },
+    {
+      "term": "베들레헴",
+      "translations": {
+        "en": "Bethlehem",
+        "ja": "ベツレヘム"
+      },
+      "category": "proper-name",
+      "presets": [
+        "church"
+      ],
+      "boost": 1.6,
+      "enabled": true,
+      "aliases": []
+    }
+  ]
+}

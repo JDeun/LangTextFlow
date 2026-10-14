@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -53,6 +54,10 @@ class Settings(BaseSettings):
     max_audio_frame_bytes: int = Field(default=1024 * 1024, ge=4, le=8 * 1024 * 1024)
     asr_replay_seconds: float = Field(default=8.0, gt=0, le=120)
     asr_health_check_seconds: float = Field(default=0.25, gt=0, le=60)
+    # Explicit low-resource profile is opt-in; the normal defaults are unchanged.
+    resource_profile: Literal["standard", "low"] = "standard"
+    low_resource_whisper_model: Literal["tiny", "base", "small"] = "base"
+    low_resource_cpu_threads: int = Field(default=2, ge=1, le=16)
     faster_whisper_model: str = "small"
     faster_whisper_device: str = "auto"
     faster_whisper_compute_type: str = "default"
@@ -61,6 +66,10 @@ class Settings(BaseSettings):
     vad_hangover_frames: int = Field(default=3, ge=0, le=10_000)
     audio_backpressure_warn_ms: float = Field(default=50.0, ge=0)
     postprocess_drain_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
+    postprocess_max_parallel_segments: int = Field(default=2, ge=1, le=4)
+    # Bound target language inference even when one provider hangs or crashes.
+    translation_target_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
+    translation_max_parallel_targets: int = Field(default=2, ge=1, le=4)
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_correction_model: str = "qwen3.5:4b"
     correction_timeout_seconds: float = Field(default=4.0, gt=0)
@@ -70,6 +79,14 @@ class Settings(BaseSettings):
     openai_compatible_api_key: str = ""
     openai_compatible_translation_model: str = ""
     openai_compatible_timeout_seconds: float = Field(default=20.0, gt=0)
+
+    @property
+    def active_whisper_model(self) -> str:
+        return (
+            self.low_resource_whisper_model
+            if self.resource_profile == "low"
+            else self.faster_whisper_model
+        )
 
     @field_validator("max_audio_frame_bytes")
     @classmethod

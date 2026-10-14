@@ -30,6 +30,7 @@ from .store import CaptionStore
 from .telemetry import EnergyVad, RealtimeMetrics, latency_ms
 
 _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+_PERSISTENCE_FAILURE = "Local session storage unavailable; check disk and database health."
 
 
 class CaptionRuntime:
@@ -40,6 +41,10 @@ class CaptionRuntime:
         self.state = SessionState()
         self.pipeline = CaptionPipeline(self._publish, self.settings)
         self.engine: AsrEngine | None = None
+        # An epoch object is captured by each ASR source callback. Delayed
+        # events from an older ASR provider can never enter a new session.
+        self._active_generation: object | None = None
+        self.stale_asr_events_dropped = 0
         self.history = SessionRepository(self.settings.database_path)
         self.archive = PostEventArchive(self.settings.database_path)
         self._recorder: SessionRecordingWriter | None = None
@@ -90,7 +95,9 @@ class CaptionRuntime:
     async def _publish(self, event: TranscriptEvent) -> None:
         self.store.apply(event)
         self._observe_event(event)
-        await self.hub.broadcast(event)
+        # Each client owns a bounded FIFO sender. Never await a network write
+        # while holding the ASR->source-caption processing path.
+        self.hub.enqueue(event)
         session_id = self.state.session_id
         if not session_id or self._persistence_task is None:
             self._refresh_queue_metrics()
@@ -149,9 +156,9 @@ class CaptionRuntime:
                         session_id,
                         event,
                     )
-                except Exception as exc:
+                except Exception:
                     if self.state.session_id == session_id:
-                        self.state.persistence_error = str(exc)
+                        self.state.persistence_error = _PERSISTENCE_FAILURE
             finally:
                 self._persistence_queue.task_done()
                 self._refresh_queue_metrics()
@@ -164,14 +171,22 @@ class CaptionRuntime:
             max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
 
-    def _faster_whisper_engine(self, publish=None) -> FasterWhisperStreamingAsrEngine:
+    def _faster_whisper_engine(
+        self, publish=None, *, low_resource: bool | None = None,
+    ) -> FasterWhisperStreamingAsrEngine:
+        low = self.settings.resource_profile == "low" if low_resource is None else low_resource
         return FasterWhisperStreamingAsrEngine(
             publish or self.pipeline.ingest,
-            model=self.settings.faster_whisper_model,
-            device=self.settings.faster_whisper_device,
-            compute_type=self.settings.faster_whisper_compute_type,
+            model=(
+                self.settings.low_resource_whisper_model
+                if low else self.settings.faster_whisper_model
+            ),
+            device="cpu" if low else self.settings.faster_whisper_device,
+            compute_type="int8" if low else self.settings.faster_whisper_compute_type,
+            cpu_threads=self.settings.low_resource_cpu_threads if low else None,
             chunk_seconds=self.settings.faster_whisper_chunk_seconds,
-            queue_chunks=self.settings.audio_queue_chunks,
+            queue_chunks=min(8, self.settings.audio_queue_chunks)
+            if low else self.settings.audio_queue_chunks,
             max_frame_bytes=self.settings.max_audio_frame_bytes,
         )
 
@@ -184,18 +199,23 @@ class CaptionRuntime:
                     self.state.session_id,
                     provider,
                 )
-            except Exception as exc:
-                self.state.persistence_error = str(exc)
+            except Exception:
+                self.state.persistence_error = _PERSISTENCE_FAILURE
         self._refresh_queue_metrics()
 
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
+        low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         if request.engine == "mock":
             return MockStreamingAsrEngine(self.pipeline.ingest)
         if request.engine == "vibevoice":
             return self._vibevoice_engine()
         if request.engine == "faster-whisper":
-            return self._faster_whisper_engine()
+            return self._faster_whisper_engine(low_resource=low)
         if request.engine == "auto":
+            # Low-resource installations never probe/load a 7B sidecar in Auto.
+            # Explicit "vibevoice" remains an intentional operator override.
+            if low:
+                return self._faster_whisper_engine(low_resource=True)
             return ReplayFallbackAsrEngine(
                 self.pipeline.ingest,
                 [
@@ -271,16 +291,38 @@ class CaptionRuntime:
             raise ValueError("project not found")
         # Validate the new request before interrupting any active live event.
         engine = self._build_engine(request)
+        generation = object()
+
+        async def publish_from_this_session(event: TranscriptEvent) -> None:
+            if self._active_generation is not generation:
+                self.stale_asr_events_dropped += 1
+                return
+            await self.pipeline.ingest(event)
+
+        # All built-in AsrEngine implementations expose a writable publish
+        # callback; ReplayFallbackAsrEngine forwards through self.publish.
+        # Install the guard before starting any ASR/background tasks.
+        engine.publish = publish_from_this_session
+        if getattr(engine, "on_provider_change", None) is not None:
+            async def guarded_provider_change(provider: str) -> None:
+                if self._active_generation is generation:
+                    await self._provider_changed(provider)
+
+            engine.on_provider_change = guarded_provider_change
+
         if request.record_audio and not engine.accepts_audio:
             raise ValueError("recording requires a real audio-input ASR engine")
         if self.state.running:
             await self._stop_unlocked()
+        self._active_generation = generation
         self.store.clear()
         await self.hub.close_all(reason="caption session starting")
         self._reset_metrics()
         try:
             await self.pipeline.start(request)
         except Exception:
+            # A failed session never authorizes its ASR callbacks to publish.
+            self._active_generation = None
             with suppress(Exception):
                 await self.pipeline.stop()
             raise
@@ -305,8 +347,8 @@ class CaptionRuntime:
         )
         try:
             await asyncio.to_thread(self.history.create_session, self.state, request)
-        except Exception as exc:
-            self.state.persistence_error = str(exc)
+        except Exception:
+            self.state.persistence_error = _PERSISTENCE_FAILURE
         self._start_persistence_worker()
         try:
             await engine.start(request)
@@ -346,13 +388,14 @@ class CaptionRuntime:
                 await engine.stop()
             with suppress(Exception):
                 await self.pipeline.stop()
+            self._active_generation = None
             with suppress(Exception):
                 await self._stop_persistence_worker()
             if self.state.session_id and self.state.persistence_error is None:
                 try:
                     await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
-                except Exception as exc:
-                    self.state.persistence_error = str(exc)
+                except Exception:
+                    self.state.persistence_error = _PERSISTENCE_FAILURE
             await self.hub.close_all(reason="caption session failed to start")
             raise
         return self.state
@@ -381,6 +424,9 @@ class CaptionRuntime:
         except Exception as exc:
             if first_error is None:
                 first_error = exc
+        # Engine shutdown and postprocessor drain have completed or failed;
+        # obsolete source callbacks are no longer permitted to publish.
+        self._active_generation = None
 
         try:
             await self._stop_persistence_worker()
@@ -399,8 +445,8 @@ class CaptionRuntime:
         if was_running and session_id:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
-            except Exception as exc:
-                self.state.persistence_error = str(exc)
+            except Exception:
+                self.state.persistence_error = _PERSISTENCE_FAILURE
 
         await self.hub.close_all(reason="caption session stopped")
         self.metrics.voice_active = False

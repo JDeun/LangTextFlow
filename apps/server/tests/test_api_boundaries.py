@@ -269,3 +269,25 @@ def test_export_selection_keeps_uncommitted_tail_segment() -> None:
         committed,
         stable_tail,
     ]
+
+
+def test_operator_only_asr_capability_endpoint() -> None:
+    client = _local_client()
+    response = client.get("/api/v1/asr/providers")
+    assert response.status_code == 200
+    providers = {record["provider"]: record for record in response.json()}
+    assert set(providers) == {"mock", "faster-whisper", "vibevoice", "auto"}
+    assert all(not p["model_language_quality_verified"] for p in providers.values())
+    assert providers["mock"]["emitted_stages"] == ["partial", "stable"]
+    assert providers["mock"]["implementation"] == "synthetic"
+    assert providers["faster-whisper"]["emitted_stages"] == ["stable"]
+    assert providers["faster-whisper"]["timestamp_origin"] == "chunk_segment"
+    assert providers["faster-whisper"]["hotwords"] == "native_hint"
+    assert providers["vibevoice"]["emitted_stages"] == ["stable"]
+    assert providers["vibevoice"]["timestamp_origin"] == "sequence_estimate"
+    assert providers["vibevoice"]["hotwords"] == "prompt_hint"
+    assert providers["auto"]["timestamp_origin"] == "dynamic"
+    assert all(not p["word_timestamps"] for p in providers.values())
+
+    remote = TestClient(main_module.app, client=("203.0.113.32", 50000))
+    assert remote.get("/api/v1/asr/providers").status_code == 403

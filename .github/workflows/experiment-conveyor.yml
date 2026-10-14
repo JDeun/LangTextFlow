@@ -1,0 +1,113 @@
+name: LangTextFlow Autonomous Experiment Conveyor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/experiment-conveyor.yml"
+      - ".github/workflows/cpu-model-candidate-gates.yml"
+      - ".github/workflows/multilingual-cpu-m2m100.yml"
+      - ".github/workflows/funasr-mlt-glossary-cpu.yml"
+      - "scripts/benchmark_funasr_mlt_glossary_cpu.py"
+      - "benchmarks/church_glossary_multilingual.v1.json"
+      - ".github/workflows/church-translation-quality.yml"
+      - ".github/workflows/church-live-interpretation-cpu.yml"
+      - ".github/workflows/apple-system-translation-research.yml"
+      - "scripts/autonomous_experiment_conveyor.py"
+      # Product-runtime changes are evaluated on the merged main revision,
+      # not by repeating 90–120 minute CPU experiments for every PR revision.
+      - "apps/server/langtextflow/pipeline.py"
+      - "apps/server/langtextflow/translation/**"
+      - "apps/server/langtextflow/asr/**"
+      - "apps/server/langtextflow/correction.py"
+      - "scripts/compare_multilingual_m2m100_cpu.py"
+      - "scripts/assess_church_translation.py"
+      - "scripts/evaluate_live_fleurs_translation.py"
+      - "benchmarks/translation-conveyor-preregistration.json"
+      - "benchmarks/lecture_multilingual_ko_en_ja.v1.jsonl"
+      - "benchmarks/church_translation_quality.v1.jsonl"
+  repository_dispatch:
+    types: [ltf-stage-finished]
+  workflow_run:
+    workflows:
+      - "CPU model candidate license and glossary gates"
+      - "Multilingual local CPU ASR and M2M100 translation"
+      - "Fun-ASR MLT CPU glossary hotword paired evaluation"
+      - "Church translation quality - Linux CPU baseline"
+      - "Church live interpretation - real speech Linux CPU"
+      - "Apple system Translation text probe (compile-only)"
+    types: [completed]
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ltf-autonomous-scientific-conveyor
+  cancel-in-progress: false
+
+jobs:
+  advance:
+    if: ${{ github.repository == 'JDeun/LangTextFlow' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: main
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Advance frozen and ready model experiments automatically
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python scripts/autonomous_experiment_conveyor.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --event-name "$GITHUB_EVENT_NAME" \
+            --event-path "$GITHUB_EVENT_PATH" \
+            --manifest benchmarks/translation-conveyor-preregistration.json \
+            --state-out artifacts/autonomous-conveyor-state.json \
+            --execute
+      - name: Summarize individual stage status without quality claims
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          path = Path("artifacts/autonomous-conveyor-state.json")
+          if path.is_file():
+              report = json.loads(path.read_text())
+              lines = ["## LangTextFlow Autonomous Experiment Conveyor"]
+              for group in report.get("results", []):
+                  lines.append("### Frozen source " + group["frozen_source_sha"])
+                  lines.extend(
+                      f"- {name}: {status}"
+                      for name, status in group["stages"].items()
+                  )
+                  lines.extend(
+                      "- " + action for action in group.get("actions", [])
+                  )
+              lines.append(
+                  "Green workflow executions are NOT church semantic or "
+                  "glossary-effectiveness certification."
+              )
+          else:
+              lines = ["Conveyor controller failed before writing state."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as fp:
+              fp.write("\n".join(lines) + "\n")
+          PY
+      - name: Preserve idempotent controller state
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: autonomous-translation-conveyor-state
+          path: artifacts/autonomous-conveyor-state.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,21 +1,31 @@
 name: Church translation quality - Linux CPU baseline
 
+run-name: ltf-stage-church_quality source=${{ inputs.source_sha || github.sha }}
+
 on:
   pull_request:
     paths:
       - "benchmarks/church_translation_quality.v1.jsonl"
       - "scripts/assess_church_translation.py"
-      - ".github/workflows/church-translation-quality.yml"
-      - "apps/server/langtextflow/translation/ollama.py"
       - "apps/server/langtextflow/translation_benchmark.py"
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Frozen model and benchmark implementation revision
+        type: string
+        required: false
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: church-translation-cpu-${{ github.ref }}
-  cancel-in-progress: true
+  group: church-translation-cpu-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   translation-quality:
@@ -24,6 +34,8 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
@@ -119,3 +131,30 @@ jobs:
       - name: Diagnostics on failed execution
         if: failure()
         run: docker logs --tail 100 ltf-translation-ollama || true
+
+  notify-conveyor:
+    needs: [translation-quality]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.source_sha != '' && github.repository == 'JDeun/LangTextFlow' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Resume research DAG on scientific stage completion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          STAGE: church_quality
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
+          import json
+          import os
+          import re
+          source = os.environ['SOURCE_SHA']
+          assert re.fullmatch(r'[a-f0-9]{40}', source), 'invalid frozen SHA'
+          print(json.dumps({
+              'event_type': 'ltf-stage-finished',
+              'client_payload': {'source_sha': source, 'stage': os.environ['STAGE']},
+          }))
+          PY

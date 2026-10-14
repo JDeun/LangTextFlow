@@ -1,0 +1,214 @@
+name: Multilingual local CPU ASR and M2M100 translation
+
+run-name: ltf-stage-m2m source=${{ inputs.source_sha || github.sha }}
+
+on:
+  pull_request:
+    paths:
+      - "scripts/compare_multilingual_m2m100_cpu.py"
+      - "scripts/glossary_cpu_contract.py"
+      - "benchmarks/church_glossary_multilingual.v1.json"
+      - "apps/server/tests/test_glossary_cpu_contract.py"
+      - "benchmarks/lecture_multilingual_ko_en_ja.v1.jsonl"
+      - "apps/server/tests/test_multilingual_m2m100_cpu.py"
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact frozen benchmark revision
+        type: string
+        required: false
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: multilingual-cpu-m2m100-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  multilingual-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Hardware context for primary target
+        run: |
+          mkdir -p artifacts/multilingual-cpu
+          {
+            echo "Git SHA: $GITHUB_SHA"
+            echo "Hosted GitHub Actions Linux CPU"
+            nproc
+            lscpu | grep -E 'Model name:|Architecture:' || true
+            free -h
+            df -h .
+          } | tee artifacts/multilingual-cpu/hardware.txt
+      - name: Install local CPU benchmark dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install "uv==0.12.13"
+          uv sync --locked --extra dev --extra benchmark
+          uv pip install --python .venv/bin/python "torch==2.6.0" \
+            --index-url https://download.pytorch.org/whl/cpu
+          uv pip install "ctranslate2==4.8.2" "transformers==4.57.3" \
+            "huggingface-hub==0.35.3" "sentencepiece==0.2.1" \
+            "sacrebleu==2.5.1" "sherpa-onnx==1.13.8" \
+            "datasets==4.4.1" "soundfile==0.13.1"
+          uv run --no-sync python -m pytest -q \
+            apps/server/tests/test_multilingual_m2m100_cpu.py \
+            apps/server/tests/test_glossary_cpu_contract.py
+          uv run --no-sync ruff check \
+            scripts/compare_multilingual_m2m100_cpu.py \
+            scripts/glossary_cpu_contract.py \
+            apps/server/tests/test_multilingual_m2m100_cpu.py \
+            apps/server/tests/test_glossary_cpu_contract.py
+      - name: Download exact M2M100 revision and record model license
+        env:
+          HF_HOME: ${{ runner.temp }}/hf-multilingual
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ltf-m2m100-hf
+          uv run --no-sync python - <<'PY'
+          import json
+          from pathlib import Path
+          from huggingface_hub import HfApi, snapshot_download
+          name = "facebook/m2m100_418M"
+          info = HfApi().model_info(name)
+          revision = info.sha
+          snapshot_download(
+              repo_id=name, revision=revision,
+              local_dir="/tmp/ltf-m2m100-hf",
+          )
+          Path("artifacts/multilingual-cpu/model-revision.json").write_text(
+              json.dumps({"model": name, "sha": revision,
+                          "license": "MIT"}, indent=2)+"\n",
+              encoding="utf-8",
+          )
+          PY
+      - name: Convert multilingual MT to CPU INT8
+        run: |
+          set -euo pipefail
+          uv run --no-sync ct2-transformers-converter \
+            --model /tmp/ltf-m2m100-hf \
+            --output_dir /tmp/ltf-m2m100-ct2 --quantization int8
+          find /tmp/ltf-m2m100-ct2 -maxdepth 1 -type f -print0 \
+            | sort -z | xargs -0 -r sha256sum \
+            > artifacts/multilingual-cpu/m2m100-converted-hashes.txt
+      - name: Six-direction synthetic test ko/en/ja with same model
+        run: |
+          timeout 1800 uv run --no-sync python -m \
+            scripts.compare_multilingual_m2m100_cpu \
+            --mode text --ct2-dir /tmp/ltf-m2m100-ct2 \
+            --glossary-snapshot benchmarks/church_glossary_multilingual.v1.json \
+            --tokenizer-dir /tmp/ltf-m2m100-hf --threads 2 \
+            --output artifacts/multilingual-cpu/text-six-directions.json
+      - name: Provision one multilingual ASR engine with checksum evidence
+        run: |
+          set -euo pipefail
+          timeout 1500 bash scripts/provision_cpu_asr_candidate.sh \
+            qwen3-0.6b /tmp/ltf-qwen3-asr \
+            > artifacts/multilingual-cpu/qwen3-provision.log 2>&1
+          cp /tmp/ltf-qwen3-asr/model-sha256.txt \
+            artifacts/multilingual-cpu/qwen3-model-hashes.txt || true
+      - name: Test real pinned speech for English Japanese Korean sources
+        env:
+          HF_HOME: ${{ runner.temp }}/hf-multilingual-fleurs
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          timeout 2400 uv run --no-sync python -m \
+            scripts.compare_multilingual_m2m100_cpu \
+            --mode real-audio --ct2-dir /tmp/ltf-m2m100-ct2 \
+            --glossary-snapshot benchmarks/church_glossary_multilingual.v1.json \
+            --tokenizer-dir /tmp/ltf-m2m100-hf \
+            --asr-dir /tmp/ltf-qwen3-asr --threads 2 \
+            --output artifacts/multilingual-cpu/real-audio-six-directions.json
+      - name: Write six-direction evidence summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          base = Path("artifacts/multilingual-cpu")
+          lines = [
+              "## Local CPU ASR → Korean/English/Japanese",
+              "P0 missionary English/Japanese → Korean; Korean → EN/JA.",
+              "FLEURS short clips and synthetic unreviewed references are NOT sermons.",
+              "The audio replay is offline by utterance, NOT native Qwen streaming.",
+              "Glossary is SOURCE-SCOPED. MT baseline vs beam-4 terminology-assisted candidate rerank.",
+              "Missing terms remain missing; no forced word replacement or semantic certification.",
+              "Audio glossary status may be NOT EXERCISED: successful FLEURS run is NOT a glossary field pass.",
+              "| Direction | Safe text | chrF++ | MT p95 | Glossary baseline -> assisted | Real speech | Audio glossary |",
+              "|---|---:|---:|---:|---:|---:|---|",
+          ]
+          tx, ax = base/"text-six-directions.json", base/"real-audio-six-directions.json"
+          text = json.loads(tx.read_text()) if tx.is_file() else {}
+          audio = json.loads(ax.read_text()) if ax.is_file() else {}
+          for source in ("en", "ja", "ko"):
+              for target in ("en", "ja", "ko"):
+                  if source == target:
+                      continue
+                  label = source+"->"+target
+                  report = text.get("per_direction", {}).get(label, {})
+                  spoken = audio.get("per_source", {}).get(source, {})
+                  count = spoken.get("translated_coverage", {}).get(target)
+                  glossary_audio = audio.get("glossary_audio_coverage", {}).get(label, {})
+                  lines.append(
+                      f"| {label} | {report.get('valid','-')}/{report.get('cases','-')} "
+                      f"| {report.get('mean_sentence_chrf_plus_plus','-')} "
+                      f"| {report.get('mt_latency_p95_ms','-')}ms "
+                      f"| {report.get('glossary_baseline_matched','-')} -> "
+                      f"{report.get('glossary_assisted_matched','-')} / "
+                      f"{report.get('glossary_relevant','-')} "
+                      f"| {count if count is not None else '-'} / 3 "
+                      f"| {glossary_audio.get('status', 'NO RESULT')} "
+                      f"({glossary_audio.get('observed_relevant_terms', '-')} terms) |"
+                  )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write("\n".join(lines)+"\n")
+          PY
+      - name: Preserve complete evidence and failure logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: multilingual-m2m100-cpu-real-audio
+          path: artifacts/multilingual-cpu/
+          if-no-files-found: warn
+          retention-days: 14
+
+  notify-conveyor:
+    needs: [multilingual-cpu]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.source_sha != '' && github.repository == 'JDeun/LangTextFlow' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Resume research DAG on scientific stage completion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          STAGE: m2m
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
+          import json
+          import os
+          import re
+          source = os.environ['SOURCE_SHA']
+          assert re.fullmatch(r'[a-f0-9]{40}', source), 'invalid frozen SHA'
+          print(json.dumps({
+              'event_type': 'ltf-stage-finished',
+              'client_payload': {'source_sha': source, 'stage': os.environ['STAGE']},
+          }))
+          PY

@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GLOSSARY_COPY } from "./glossaryCopy";
+import {
+  existingGlossaryDraft, glossaryPayload, GLOSSARY_PRESETS,
+  newGlossaryDraft, type GlossaryDraft,
+} from "./glossaryEditor";
 import { useI18n } from "./i18n";
-import type { GlossaryEntry, GlossaryRecord, ProductPreset } from "./types";
+import type { GlossaryRecord, ProductPreset } from "./types";
 
 interface GlossaryManagerProps {
   apiUrl: string;
   preset: ProductPreset;
+  sourceLanguage: string;
   targetLanguage: string;
   disabled: boolean;
 }
@@ -20,13 +25,6 @@ interface GlossaryImportResult {
 type ImportConflictPolicy = "upsert" | "skip";
 type TransferFormat = "json" | "csv";
 
-function splitAliases(value: string) {
-  return value
-    .split(/[,\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function downloadFilename(response: Response, fallback: string) {
   const disposition = response.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename="?([^";]+)"?/i);
@@ -36,6 +34,7 @@ function downloadFilename(response: Response, fallback: string) {
 export function GlossaryManager({
   apiUrl,
   preset,
+  sourceLanguage,
   targetLanguage,
   disabled,
 }: GlossaryManagerProps) {
@@ -43,11 +42,8 @@ export function GlossaryManager({
   const copy = GLOSSARY_COPY[locale];
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [entries, setEntries] = useState<GlossaryRecord[]>([]);
-  const [term, setTerm] = useState("");
-  const [aliases, setAliases] = useState("");
-  const [translation, setTranslation] = useState("");
-  const [category, setCategory] = useState("general");
-  const [globalScope, setGlobalScope] = useState(false);
+  const [draft, setDraft] = useState<GlossaryDraft>(() => newGlossaryDraft(preset, sourceLanguage));
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [importPolicy, setImportPolicy] = useState<ImportConflictPolicy>("upsert");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -65,35 +61,64 @@ export function GlossaryManager({
 
   const applicableCount = useMemo(
     () => entries.filter(
-      (entry) => entry.enabled && (!entry.presets.length || entry.presets.includes(preset)),
+      (entry) => entry.enabled && (entry.source_language ?? "ko") === sourceLanguage
+        && (!entry.presets.length || entry.presets.includes(preset)),
     ).length,
-    [entries, preset],
+    [entries, preset, sourceLanguage],
   );
 
-  async function addEntry() {
-    if (!term.trim()) return;
+  function setField<K extends keyof GlossaryDraft>(field: K, value: GlossaryDraft[K]) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function beginEdit(entry: GlossaryRecord) {
+    setDraft(existingGlossaryDraft(entry));
+    setEditingId(entry.id);
+    setError("");
+    setNotice("");
+  }
+
+  function cancelEdit() {
+    setDraft(newGlossaryDraft(preset, sourceLanguage));
+    setEditingId(null);
+    setError("");
+  }
+
+  function togglePreset(value: ProductPreset, selected: boolean) {
+    setDraft((current) => ({
+      ...current,
+      presets: selected
+        ? [...new Set([...current.presets, value])]
+        : current.presets.filter((presetValue) => presetValue !== value),
+    }));
+  }
+
+  async function saveEntry() {
+    if (!draft.term.trim()) return;
+    if (!draft.globalScope && draft.presets.length === 0) {
+      setError(copy.choosePreset);
+      return;
+    }
     setBusy(true);
     setError("");
     setNotice("");
     try {
-      const payload: GlossaryEntry = {
-        term: term.trim(),
-        aliases: splitAliases(aliases),
-        translations: translation.trim() ? { [targetLanguage]: translation.trim() } : {},
-        category: category.trim() || "general",
-        presets: globalScope ? [] : [preset],
-        boost: 1.5,
-        enabled: true,
-      };
-      const response = await fetch(`${apiUrl}/api/v1/glossary`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const current = entries.find((entry) => entry.id === editingId);
+      if (editingId && !current) throw new Error(copy.updateFailed);
+      const payload = glossaryPayload(draft, current);
+      const response = await fetch(
+        current
+          ? `${apiUrl}/api/v1/glossary/${encodeURIComponent(current.id)}`
+          : `${apiUrl}/api/v1/glossary`,
+        {
+          method: current ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        },
+      );
       if (!response.ok) throw new Error(await response.text());
-      setTerm("");
-      setAliases("");
-      setTranslation("");
+      setDraft(newGlossaryDraft(preset, sourceLanguage));
+      setEditingId(null);
       await refresh();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : copy.saveFailed);
@@ -229,7 +254,7 @@ export function GlossaryManager({
   }
 
   return (
-    <section className="glossary-manager">
+    <section className="glossary-manager" data-testid="glossary-manager">
       <div className="glossary-heading">
         <div>
           <strong>{copy.title}</strong>
@@ -296,50 +321,133 @@ export function GlossaryManager({
         <small>{copy.validationHelp}</small>
       </div>
 
-      <div className="glossary-form">
-        <input
-          value={term}
-          onChange={(event) => setTerm(event.target.value)}
-          placeholder={copy.termPlaceholder}
-          disabled={disabled || busy}
-        />
-        <input
-          value={aliases}
-          onChange={(event) => setAliases(event.target.value)}
-          placeholder={copy.aliasesPlaceholder}
-          disabled={disabled || busy}
-        />
+      <div className="glossary-form" data-testid="glossary-editor">
+        <label>
+          {copy.sourceLanguage}
+          <select
+            data-testid="glossary-source-language"
+            value={draft.sourceLanguage}
+            onChange={(event) => setField("sourceLanguage", event.target.value)}
+            disabled={disabled || busy}
+          >
+            {["ko", "en", "ja", "zh", "es", "fr", "de", "it", "pt", "ru"].map(
+              (code) => <option key={code} value={code}>{code.toUpperCase()}</option>,
+            )}
+          </select>
+        </label>
+        <label>
+          {copy.termPlaceholder}
+          <input
+            data-testid="glossary-term"
+            value={draft.term}
+            onChange={(event) => setField("term", event.target.value)}
+            disabled={disabled || busy}
+            maxLength={160}
+          />
+        </label>
+        <label>
+          {copy.aliases}
+          <input
+            data-testid="glossary-aliases"
+            value={draft.aliases}
+            onChange={(event) => setField("aliases", event.target.value)}
+            placeholder={copy.aliasesPlaceholder}
+            disabled={disabled || busy}
+          />
+        </label>
+        <div className="glossary-form-row glossary-language-fields">
+          <label>
+            {copy.korean}
+            <input
+              data-testid="glossary-translation-ko"
+              value={draft.ko}
+              onChange={(event) => setField("ko", event.target.value)}
+              disabled={disabled || busy}
+            />
+          </label>
+          <label>
+            {copy.english}
+            <input
+              data-testid="glossary-translation-en"
+              value={draft.en}
+              onChange={(event) => setField("en", event.target.value)}
+              disabled={disabled || busy}
+            />
+          </label>
+          <label>
+            {copy.japanese}
+            <input
+              data-testid="glossary-translation-ja"
+              value={draft.ja}
+              onChange={(event) => setField("ja", event.target.value)}
+              disabled={disabled || busy}
+            />
+          </label>
+        </div>
         <div className="glossary-form-row">
-          <input
-            value={translation}
-            onChange={(event) => setTranslation(event.target.value)}
-            placeholder={`${targetLanguage.toUpperCase()} ${copy.translationOptional}`}
-            disabled={disabled || busy}
-          />
-          <input
-            value={category}
-            onChange={(event) => setCategory(event.target.value)}
-            placeholder={copy.categoryPlaceholder}
-            disabled={disabled || busy}
-          />
+          <label>
+            {copy.categoryPlaceholder}
+            <input
+              data-testid="glossary-category"
+              value={draft.category}
+              onChange={(event) => setField("category", event.target.value)}
+              disabled={disabled || busy}
+            />
+          </label>
+          <label>
+            {copy.boostLabel}
+            <input
+              data-testid="glossary-boost"
+              type="number" min="0" max="20" step="0.1"
+              value={draft.boost}
+              onChange={(event) => setField("boost", Number(event.target.value))}
+              disabled={disabled || busy}
+            />
+          </label>
         </div>
         <label className="scope-toggle">
           <input
             type="checkbox"
-            checked={globalScope}
-            onChange={(event) => setGlobalScope(event.target.checked)}
+            checked={draft.globalScope}
+            onChange={(event) => setField("globalScope", event.target.checked)}
             disabled={disabled || busy}
           />
           {copy.globalScope}
         </label>
-        <button
-          type="button"
-          className="secondary-button glossary-add"
-          onClick={addEntry}
-          disabled={disabled || busy || !term.trim()}
-        >
-          {copy.add}
-        </button>
+        {!draft.globalScope && (
+          <fieldset className="glossary-preset-scope" disabled={disabled || busy}>
+            <legend>{copy.presetScope}</legend>
+            {GLOSSARY_PRESETS.map((option) => (
+              <label key={option} className="scope-toggle">
+                <input
+                  type="checkbox"
+                  checked={draft.presets.includes(option)}
+                  onChange={(event) => togglePreset(option, event.target.checked)}
+                />
+                {option}
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <div className="glossary-form-actions">
+          <button
+            data-testid="glossary-save"
+            type="button"
+            className="secondary-button glossary-add"
+            onClick={() => void saveEntry()}
+            disabled={
+              disabled || busy || !draft.term.trim()
+              || (!draft.globalScope && draft.presets.length === 0)
+            }
+          >
+            {editingId ? copy.save : copy.add}
+          </button>
+          {editingId && (
+            <button type="button" className="secondary-button" onClick={cancelEdit}>
+              {copy.cancel}
+            </button>
+          )}
+        </div>
       </div>
 
       {error && <div className="error-box">{error}</div>}
@@ -351,20 +459,31 @@ export function GlossaryManager({
           <article className={`glossary-item ${entry.enabled ? "" : "disabled"}`} key={entry.id}>
             <div className="glossary-copy">
               <div>
-                <strong>{entry.term}</strong>
+                <strong>{entry.term}</strong> <small>({entry.source_language ?? "ko"})</small>
                 <span>{entry.category}</span>
               </div>
               <small>
                 {entry.aliases.length ? `${copy.aliases}: ${entry.aliases.join(", ")}` : copy.noAliases}
-                {entry.translations[targetLanguage]
-                  ? ` · ${targetLanguage.toUpperCase()}: ${entry.translations[targetLanguage]}`
-                  : ""}
+                {entry.translations.ko ? ` · KO: ${entry.translations.ko}` : ""}
+                {entry.translations.en ? ` · EN: ${entry.translations.en}` : ""}
+                {entry.translations.ja ? ` · JA: ${entry.translations.ja}` : ""}
+                {targetLanguage !== "en" && targetLanguage !== "ja" && entry.translations[targetLanguage]
+                  ? ` · ${targetLanguage.toUpperCase()}: ${entry.translations[targetLanguage]}` : ""}
               </small>
               <small>
                 {copy.applies}: {entry.presets.length ? entry.presets.join(", ") : copy.allPresets}
               </small>
             </div>
             <div className="glossary-actions">
+              <button
+                type="button"
+                data-testid="glossary-edit"
+                className="secondary-button"
+                onClick={() => beginEdit(entry)}
+                disabled={disabled || busy}
+              >
+                {copy.edit}
+              </button>
               <button
                 type="button"
                 className="secondary-button"

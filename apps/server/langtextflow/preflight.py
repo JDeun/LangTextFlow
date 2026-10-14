@@ -338,13 +338,45 @@ def _faster_whisper_checks(model: str) -> list[PreflightCheck]:
     ]
 
 
+def _require_model_listing(
+    payload: Any, field: str, provider: str
+) -> list[dict[str, Any]]:
+    """Validate HTTP-200 model listing before reporting a provider ready.
+
+    Some proxies return an HTML/JSON error envelope with status 200. Missing
+    or malformed listings must fail closed rather than masquerade as a valid
+    empty list. A valid *empty* list means a healthy API with no model ready.
+    """
+    if not isinstance(payload, dict) or not isinstance(payload.get(field), list):
+        raise ValueError(f"{provider} response requires a {field} list")
+    models = payload[field]
+    if any(not isinstance(item, dict) for item in models):
+        raise ValueError(f"{provider} {field} entries must be JSON objects")
+    for entry in models:
+        identifier = (
+            entry.get("name") or entry.get("model")
+            if provider == "Ollama"
+            else entry.get("id")
+        )
+        if not isinstance(identifier, str) or not identifier.strip():
+            raise ValueError(f"{provider} {field} entry requires nonempty model ID")
+    return models
+
+
 async def _vibevoice_check(settings: Settings) -> PreflightCheck:
     try:
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{settings.vibevoice_url.rstrip('/')}/v1/config")
             response.raise_for_status()
-            raw_payload = response.json()
-            payload = raw_payload if isinstance(raw_payload, dict) else {}
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError("VibeVoice config response must be a JSON object")
+            # Match the streaming adapter's actual readiness requirements:
+            # HTTP 200 with an error object must NOT count as a usable sidecar.
+            sample_rate = int(payload["sample_rate"])
+            chunk_seconds = float(payload.get("chunk_seconds", 2.0))
+            if sample_rate <= 0 or not 0.05 <= chunk_seconds <= 60.0:
+                raise ValueError("VibeVoice returned invalid streaming configuration")
     except Exception as exc:
         return PreflightCheck(
             id="vibevoice",
@@ -361,8 +393,8 @@ async def _vibevoice_check(settings: Settings) -> PreflightCheck:
         summary="VibeVoice streaming sidecar가 응답합니다.",
         details={
             "url": settings.vibevoice_url,
-            "sample_rate": payload.get("sample_rate"),
-            "chunk_seconds": payload.get("chunk_seconds"),
+            "sample_rate": sample_rate,
+            "chunk_seconds": chunk_seconds,
         },
     )
 
@@ -372,8 +404,8 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
             response.raise_for_status()
-            raw_payload = response.json()
-            payload = raw_payload if isinstance(raw_payload, dict) else {}
+            payload = response.json()
+            models = _require_model_listing(payload, "models", "Ollama")
     except Exception as exc:
         return [
             PreflightCheck(
@@ -392,11 +424,12 @@ async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]
             ),
         ]
 
-    raw_models = payload.get("models", [])
-    models = raw_models if isinstance(raw_models, list) else []
-    names = [str(item.get("name", "")) for item in models if isinstance(item, dict)]
-    normalized = model.casefold()
-    available = any(
+    names = [
+        item.get("name") or item.get("model") or ""
+        for item in models
+    ]
+    normalized = model.casefold().strip()
+    available = bool(normalized) and any(
         name.casefold() == normalized
         or name.casefold().removesuffix(":latest") == normalized.removesuffix(":latest")
         for name in names
@@ -435,8 +468,8 @@ async def _openai_compatible_checks(
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(f"{base_url}/models", headers=headers)
             response.raise_for_status()
-            raw_payload = response.json()
-            payload = raw_payload if isinstance(raw_payload, dict) else {}
+            payload = response.json()
+            models = _require_model_listing(payload, "data", "OpenAI-compatible")
     except Exception as exc:
         return [
             PreflightCheck(
@@ -463,12 +496,8 @@ async def _openai_compatible_checks(
             ),
         ]
 
-    raw_models = payload.get("data", [])
-    models = raw_models if isinstance(raw_models, list) else []
     model_ids = [
-        str(item.get("id", ""))
-        for item in models
-        if isinstance(item, dict) and item.get("id")
+        item["id"] for item in models if "id" in item
     ]
     available = bool(model) and model in model_ids
     return [
@@ -521,6 +550,7 @@ def _blocking_checks(
     *,
     engine: str,
     translation_provider: str,
+    low_resource: bool = False,
 ) -> list[str]:
     indexed = {check.id: check for check in checks}
     blocking: list[str] = []
@@ -534,7 +564,12 @@ def _blocking_checks(
             blocking.append("faster-whisper")
         elif not _is_ready(indexed.get("faster-whisper-model")):
             blocking.append("faster-whisper-model")
-    elif engine == "auto" and not (vibevoice_ready or whisper_ready):
+    elif engine == "auto" and low_resource and not whisper_ready:
+        if not _is_ready(indexed.get("faster-whisper")):
+            blocking.append("faster-whisper")
+        else:
+            blocking.append("faster-whisper-model")
+    elif engine == "auto" and not (vibevoice_ready or whisper_ready) and not low_resource:
         blocking.append("vibevoice")
         if not _is_ready(indexed.get("faster-whisper")):
             blocking.append("faster-whisper")
@@ -564,14 +599,21 @@ def _recommended_configuration(
     *,
     model: str,
     openai_model: str | None = None,
+    low_resource: bool = False,
 ) -> RecommendedConfiguration:
     indexed = {check.id: check for check in checks}
     vibevoice_ready = _is_ready(indexed.get("vibevoice"))
     whisper_ready = _whisper_ready(indexed)
     reasons: list[str] = []
 
-    if vibevoice_ready and whisper_ready:
-        engine: str | None = "auto"
+    if low_resource:
+        engine: str | None = "faster-whisper" if whisper_ready else None
+        reasons.append(
+            "저사양 모드는 GPU/7B 모델 없이 CPU faster-whisper만 사용합니다. "
+            "ASR 모델 캐시를 먼저 준비하고 실기기 정확도·RTF를 확인하세요."
+        )
+    elif vibevoice_ready and whisper_ready:
+        engine = "auto"
         reasons.append(
             "VibeVoice와 faster-whisper model cache가 모두 준비되어 있어 "
             "Auto 복구 경로를 사용할 수 있습니다."
@@ -593,7 +635,14 @@ def _recommended_configuration(
     ollama_model_ready = _is_ready(indexed.get("translation-model"))
     compatible_ready = _is_ready(indexed.get("openai-compatible"))
     compatible_model_ready = _is_ready(indexed.get("openai-compatible-model"))
-    if ollama_ready and ollama_model_ready:
+    if low_resource:
+        translation_provider = "none"
+        translation_model: str | None = None
+        reasons.append(
+            "저사양 기본 권장은 원문 자막 전용입니다. 통역 번역은 "
+            "검증된 경량 모델 또는 명시적으로 선택한 제공자가 필요합니다."
+        )
+    elif ollama_ready and ollama_model_ready:
         translation_provider = "ollama"
         translation_model: str | None = model
         reasons.append(f"Ollama와 {model}이 준비되어 있어 로컬 번역을 사용할 수 있습니다.")
@@ -621,7 +670,9 @@ async def run_preflight(
     translation_model: str | None = None,
     engine: str = "auto",
     translation_provider: str = "ollama",
+    resource_profile: str = "standard",
 ) -> SystemPreflight:
+    low = settings.resource_profile == "low" or resource_profile == "low"
     ollama_model = (
         translation_model
         if translation_provider == "ollama" and translation_model
@@ -634,7 +685,10 @@ async def run_preflight(
     )
     nvidia, whisper, vibevoice, ollama, openai_compatible = await asyncio.gather(
         asyncio.to_thread(_nvidia_check),
-        asyncio.to_thread(_faster_whisper_checks, settings.faster_whisper_model),
+        asyncio.to_thread(
+            _faster_whisper_checks,
+            settings.low_resource_whisper_model if low else settings.faster_whisper_model,
+        ),
         _vibevoice_check(settings),
         _ollama_checks(settings, ollama_model),
         _openai_compatible_checks(settings, openai_model),
@@ -680,6 +734,7 @@ async def run_preflight(
         checks,
         engine=engine,
         translation_provider=translation_provider,
+        low_resource=low,
     )
     selected_model: str | None = None
     if translation_provider == "ollama":
@@ -704,5 +759,6 @@ async def run_preflight(
             checks,
             model=ollama_model,
             openai_model=openai_model or None,
+            low_resource=low,
         ),
     )

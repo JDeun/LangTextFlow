@@ -200,6 +200,7 @@ def test_initialize_migrates_existing_sessions_table_with_history_fields(tmp_pat
     assert "correction_model" in session_columns
     assert "interrupted" in session_columns
     assert "correction_json" in segment_columns
+    assert "translation_states_json" in segment_columns
 
 
 def test_recover_interrupted_sessions_marks_only_unclosed_sessions(tmp_path) -> None:
@@ -255,3 +256,48 @@ def test_session_end_and_delete_cascades_transcript(tmp_path) -> None:
     assert repository.delete_session("session-1") is True
     assert repository.get_session("session-1") is None
     assert repository.segments("session-1") == []
+
+
+def test_translation_language_status_persists_across_restart(tmp_path) -> None:
+    database_path = str(tmp_path / "language-status.db")
+    repo = SessionRepository(database_path)
+    repo.initialize()
+    repo.create_session(_state(), _request())
+    snapshot = TranscriptEvent(
+        segment_id="language-states", version=5,
+        stage=CaptionStage.COMMITTED, source_language="ko",
+        text="은혜", translations={"en": "Grace"},
+        translation_states={"en": "available", "ja": "timed_out"},
+        start_ms=0, end_ms=1500, committed=True,
+    )
+    repo.upsert_segment("session-1", snapshot)
+    after_restart = SessionRepository(database_path)
+    after_restart.initialize()
+    restored = after_restart.segments("session-1")
+    assert len(restored) == 1
+    assert restored[0].translations == {"en": "Grace"}
+    assert restored[0].translation_states == {
+        "en": "available", "ja": "timed_out"
+    }
+
+
+def test_old_translation_rows_default_to_no_states_after_migration(tmp_path) -> None:
+    repo = SessionRepository(str(tmp_path / "legacy-states.db"))
+    repo.initialize()
+    repo.create_session(_state(), _request())
+    repo.upsert_segment(
+        "session-1",
+        TranscriptEvent(
+            segment_id="legacy", version=2, stage=CaptionStage.COMMITTED,
+            source_language="ko", text="믿음",
+            translations={"en": "Faith"}, committed=True, start_ms=0,
+        ),
+    )
+    with sqlite3.connect(repo.database_path) as connection:
+        connection.execute(
+            "UPDATE transcript_segments SET translation_states_json='{}' "
+            "WHERE segment_id='legacy'"
+        )
+    restored = SessionRepository(str(repo.database_path))
+    restored.initialize()
+    assert restored.segments("session-1")[0].translation_states == {}

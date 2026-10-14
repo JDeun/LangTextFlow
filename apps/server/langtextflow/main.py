@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .asr import AsrEngineError
+from .asr.capabilities import AsrCapability, asr_capabilities
 from .audience_security import AudienceJoinRateLimiter
 from .config import get_settings
 from .diagnostics import build_diagnostics_bundle
@@ -252,11 +253,16 @@ def _authorize_audience(client_host: str | None, join_code: str) -> AudienceSess
 
 
 def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
-    saved = glossary_repository.active_for(request.context.preset)
-    merged: dict[str, GlossaryEntry] = {entry.term: entry for entry in saved}
+    saved = glossary_repository.active_for(
+        request.context.preset, request.source_language
+    )
+    merged: dict[tuple[str, str], GlossaryEntry] = {
+        (entry.source_language, entry.term.casefold()): entry for entry in saved
+    }
     for entry in request.context.glossary:
-        if entry.enabled and entry.applies_to(request.context.preset):
-            merged[entry.term] = entry
+        if (entry.enabled and entry.applies_to(request.context.preset)
+                and entry.source_language == request.source_language):
+            merged[(entry.source_language, entry.term.casefold())] = entry
     context = request.context.model_copy(update={"glossary": list(merged.values())})
     return request.model_copy(update={"context": context})
 
@@ -294,12 +300,20 @@ async def mdns_status(request: Request) -> dict[str, str | bool | None]:
     }
 
 
+@app.get("/api/v1/asr/providers", response_model=list[AsrCapability])
+async def available_asr_providers(request: Request) -> list[AsrCapability]:
+    """Operator-only adapter metadata, never a quality or installation guarantee."""
+    _require_operator(request)
+    return asr_capabilities()
+
+
 @app.get("/api/v1/preflight", response_model=SystemPreflight)
 async def system_preflight(
     request: Request,
     engine: str = "auto",
     translation_provider: str = "ollama",
     translation_model: str | None = None,
+    resource_profile: str = "standard",
 ) -> SystemPreflight:
     _require_operator(request)
     return await run_preflight(
@@ -307,6 +321,7 @@ async def system_preflight(
         translation_model,
         engine=engine,
         translation_provider=translation_provider,
+        resource_profile=resource_profile,
     )
 
 
@@ -757,6 +772,7 @@ def list_glossary(request: Request) -> list[GlossaryRecord]:
 async def glossary_recommendations(
     request: Request,
     session_limit: int = Query(default=20, ge=1, le=100),
+    source_language: str = Query(default="ko", min_length=2, max_length=16),
     limit: int = Query(default=30, ge=1, le=100),
     min_occurrences: int = Query(default=2, ge=2, le=50),
 ) -> list[GlossaryRecommendation]:
@@ -766,6 +782,7 @@ async def glossary_recommendations(
         runtime.history,
         glossary_repository,
         session_limit=session_limit,
+        source_language=source_language.strip().lower(),
         limit=limit,
         min_occurrences=min_occurrences,
     )
@@ -810,7 +827,10 @@ def glossary_import(request: Request, payload: GlossaryImportRequest) -> Glossar
 @app.post("/api/v1/glossary", response_model=GlossaryRecord, status_code=201)
 def create_glossary(request: Request, entry: GlossaryEntry) -> GlossaryRecord:
     _require_operator(request)
-    return glossary_repository.create(entry)
+    try:
+        return glossary_repository.create(entry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.put("/api/v1/glossary/{record_id}", response_model=GlossaryRecord)
@@ -820,7 +840,10 @@ def update_glossary(
     entry: GlossaryEntry,
 ) -> GlossaryRecord:
     _require_operator(request)
-    record = glossary_repository.update(record_id, entry)
+    try:
+        record = glossary_repository.update(record_id, entry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     if record is None:
         raise HTTPException(status_code=404, detail="glossary entry not found")
     return record
@@ -889,15 +912,15 @@ async def audience_captions(request: Request, join_code: str) -> list[Transcript
 
 
 async def _caption_socket(websocket: WebSocket) -> None:
-    if not await runtime.hub.connect(websocket):
+    if not await runtime.hub.connect(
+        websocket,
+        initial_snapshot=lambda: {
+            "type": "snapshot",
+            "segments": [item.model_dump(mode="json") for item in runtime.store.snapshot()],
+        },
+    ):
         return
     try:
-        await websocket.send_json(
-            {
-                "type": "snapshot",
-                "segments": [item.model_dump(mode="json") for item in runtime.store.snapshot()],
-            }
-        )
         while True:
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":

@@ -7,6 +7,7 @@ import httpx
 from ..models import SessionContext
 from ..prompt_safety import UNTRUSTED_DATA_POLICY, bounded_model_text, untrusted_json
 from .base import TranslationError, Translator
+from .glossary_selection import relevant_glossary
 
 _LANGUAGE_NAMES = {
     "ko": "Korean",
@@ -164,11 +165,12 @@ class OpenAICompatibleTranslator(Translator):
                 UNTRUSTED_DATA_POLICY,
             ]
         )
-        terms: list[dict[str, str]] = []
-        for entry in context.glossary:
-            translated = entry.translations.get(target_language)
-            if entry.enabled and translated:
-                terms.append({"source": entry.term, "target": translated})
+        terms = [
+            {"source": entry.term, "target": translated}
+            for entry, translated in relevant_glossary(
+                context, text, target_language, source_language=source_language
+            )
+        ]
         user = untrusted_json(
             {
                 "session_title": context.title,
@@ -202,11 +204,12 @@ class OpenAICompatibleTranslator(Translator):
             f"Produce only the {target_name} translation, without commentary.",
             UNTRUSTED_DATA_POLICY,
         ]
-        terms: list[str] = []
-        for entry in context.glossary:
-            translated = entry.translations.get(target_language)
-            if entry.enabled and translated:
-                terms.append(f"- {entry.term} -> {translated}")
+        terms = [
+            f"- {entry.term} -> {translated}"
+            for entry, translated in relevant_glossary(
+                context, text, target_language, source_language=source_language
+            )
+        ]
         if terms:
             lines.append("Use these terminology mappings when applicable:")
             lines.extend(terms)

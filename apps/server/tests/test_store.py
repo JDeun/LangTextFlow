@@ -43,3 +43,24 @@ def test_committed_segment_is_immutable() -> None:
     store.apply(event(1, CaptionStage.COMMITTED, committed=True))
     with pytest.raises(ValueError, match="committed"):
         store.apply(event(2, CaptionStage.COMMITTED, committed=True))
+
+
+def test_cumulative_language_updates_are_monotonic_and_stale_reply_rejected() -> None:
+    store = CaptionStore()
+    store.apply(event(1, CaptionStage.STABLE))
+    store.apply(event(2, CaptionStage.CORRECTED))
+    first = event(3, CaptionStage.TRANSLATED).model_copy(
+        update={"translations": {"en": "Grace"}, "translation_states": {
+            "en": "available", "ja": "pending"
+        }}
+    )
+    store.apply(first)
+    second = event(4, CaptionStage.TRANSLATED).model_copy(
+        update={"translations": {"en": "Grace", "ja": "恵み"}, "translation_states": {
+            "en": "available", "ja": "available"
+        }}
+    )
+    store.apply(second)
+    with pytest.raises(ValueError, match="version"):
+        store.apply(first)
+    assert store.snapshot()[0].translations == second.translations

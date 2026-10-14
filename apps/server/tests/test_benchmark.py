@@ -93,3 +93,69 @@ def test_segment_quality_flags_exact_duplicates_and_timestamp_overlap() -> None:
     assert metrics["exact_adjacent_duplicate_rate"] == pytest.approx(1 / 3, abs=0.0001)
     assert metrics["timestamp_overlap_candidate_count"] == 1
     assert metrics["timestamp_overlap_candidate_rate"] == pytest.approx(1 / 3, abs=0.0001)
+
+
+def test_streaming_revisions_do_not_inflate_asr_quality() -> None:
+    """Regression for #101: duplicated or stale hypotheses must not raise CER."""
+    import asyncio
+
+    from langtextflow.benchmark import SegmentCollector
+    from langtextflow.models import CaptionStage, TranscriptEvent
+
+    collector = SegmentCollector(pace="max")
+    collector.start_clock()
+
+    def event(segment: str, version: int, stage: CaptionStage, text: str,
+              *, start: int = 0, end: int = 1000) -> TranscriptEvent:
+        return TranscriptEvent(
+            segment_id=segment, version=version, stage=stage,
+            source_language="ko", text=text, start_ms=start, end_ms=end,
+            committed=stage is CaptionStage.COMMITTED,
+        )
+
+    async def replay() -> None:
+        await collector.publish(event("s1", 1, CaptionStage.PARTIAL, "틀린 가설"))
+        await collector.publish(event("s1", 1, CaptionStage.STABLE, "예수님"))
+        await collector.publish(event("s1", 1, CaptionStage.STABLE, "예수님"))
+        await collector.publish(event("s1", 2, CaptionStage.STABLE, "주 예수님"))
+        await collector.publish(event("s1", 1, CaptionStage.STABLE, "오래된 가설"))
+        await collector.publish(event("s1", 2, CaptionStage.COMMITTED, "주 예수님"))
+        await collector.publish(event("s1", 3, CaptionStage.STABLE, "뒤늦은 수정"))
+        await collector.publish(event(
+            "s2", 1, CaptionStage.STABLE, "은혜", start=1000, end=2000
+        ))
+        await collector.publish(event(
+            "s2", 2, CaptionStage.COMMITTED, "은혜", start=1000, end=2000
+        ))
+
+    asyncio.run(replay())
+    assert len(collector.segments) == 2
+    assert [row.segment_id for row in collector.segments] == ["s1", "s2"]
+    assert collector.first_stable_elapsed_ms is not None
+    assert collector.first_stable_elapsed_ms <= collector.segments[0].received_elapsed_ms
+    hypothesis = " ".join(row.text for row in collector.segments)
+    assert hypothesis == "주 예수님 은혜"
+    assert quality_metrics(hypothesis, hypothesis) == {"cer": 0.0, "wer": 0.0}
+
+
+def test_distinct_equal_text_segments_remain_visible_for_diagnostics() -> None:
+    """Never discard two separately identified segments by text equality."""
+    import asyncio
+
+    from langtextflow.benchmark import SegmentCollector
+    from langtextflow.models import CaptionStage, TranscriptEvent
+
+    collector = SegmentCollector(pace="max")
+    collector.start_clock()
+
+    async def replay() -> None:
+        for identifier, start in (("one", 0), ("two", 1000)):
+            await collector.publish(TranscriptEvent(
+                segment_id=identifier, version=1, stage=CaptionStage.STABLE,
+                source_language="en", text="amen",
+                start_ms=start, end_ms=start + 1000,
+            ))
+
+    asyncio.run(replay())
+    assert [row.text for row in collector.segments] == ["amen", "amen"]
+    assert segment_quality(collector.segments)["exact_adjacent_duplicate_count"] == 1

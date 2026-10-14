@@ -5,6 +5,7 @@ import { LocaleProvider } from "./i18n";
 import { installModalFocusManagement } from "./modalFocus";
 import "./styles.css";
 import "./glossaryTransfer.css";
+import "./glossaryWorkspace.css";
 import "./productShell.css";
 import "./accessibility.css";
 import "./layoutResilience.css";

@@ -13,7 +13,7 @@ def test_context_builds_deduplicated_asr_hotwords() -> None:
         ],
     )
 
-    assert context.asr_hotwords() == ["요한복음", "바울", "칭의", "의롭다 하심"]
+    assert context.asr_hotwords(source_language="ko") == ["요한복음", "바울", "칭의", "의롭다 하심"]
 
 
 @pytest.mark.asyncio

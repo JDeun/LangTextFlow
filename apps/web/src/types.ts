@@ -30,6 +30,8 @@ export interface CaptionDisplaySettings {
 
 export interface GlossaryEntry {
   term: string;
+  // Older exports and callers may omit this; backend assumes ko for legacy records.
+  source_language?: string;
   aliases: string[];
   translations: Record<string, string>;
   category: string;
@@ -80,6 +82,9 @@ export interface CorrectionProvenance {
   fallback_reason: string | null;
 }
 
+export type TranslationTargetState =
+  | "pending" | "available" | "failed" | "timed_out" | "unsupported";
+
 export interface TranscriptEvent {
   type: "transcript";
   segment_id: string;
@@ -88,6 +93,8 @@ export interface TranscriptEvent {
   source_language: string;
   text: string;
   translations: Record<string, string>;
+  // Optional for old sessions and unchanged ASR adapters.
+  translation_states?: Record<string, TranslationTargetState>;
   start_ms: number;
   end_ms: number | null;
   speaker: string | null;

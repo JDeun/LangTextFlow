@@ -360,7 +360,12 @@ button:active:not(:disabled) { transform: translateY(1px); }
 .empty { color: var(--ltf-muted); }
 .stage-tag {
   background: #e9edea;
-  color: #647168;
+  color: #44554a;
+}
+/* Product light-surface contrast must override the legacy dark-theme
+   .stage-tag.partial color on partial and translation-pending states. */
+.stage-tag.partial {
+  color: #44554a;
 }
 .stage-tag.committed {
   background: var(--ltf-success-soft);

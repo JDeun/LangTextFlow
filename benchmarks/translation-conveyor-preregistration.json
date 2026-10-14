@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "study": "langtextflow-unattended-ko-en-ja-conveyor",
+  "status": "preregistered",
+  "automated": true,
+  "source_freeze": "the triggering main push SHA; preserved in every dispatched stage's run name and checkout",
+  "controller": "schedule hourly plus workflow_run completed, no manual dispatch required",
+  "parallelism": "m2m, funasr and apple can run concurrently after catalog; church text quality follows m2m; live follows quality",
+  "stages": [
+    {
+      "id": "catalog",
+      "workflow": "cpu-model-candidate-gates.yml",
+      "deps": [],
+      "artifact": null,
+      "interpretation": "legal metadata only"
+    },
+    {
+      "id": "m2m",
+      "workflow": "multilingual-cpu-m2m100.yml",
+      "deps": [
+        "catalog"
+      ],
+      "artifact": "multilingual-m2m100-cpu-real-audio",
+      "interpretation": "six-way local CPU actual ASR and MT"
+    },
+    {
+      "id": "apple",
+      "workflow": "apple-system-translation-research.yml",
+      "deps": [
+        "catalog"
+      ],
+      "artifact": "apple-language-availability-only",
+      "interpretation": "macOS native 6-pair availability; actual lowLatency/highFidelity text inference auto-attempted only when preinstalled assets exist, otherwise explicit blocked status"
+    },
+    {
+      "id": "funasr",
+      "workflow": "funasr-mlt-glossary-cpu.yml",
+      "deps": [
+        "catalog"
+      ],
+      "artifact": "funasr-mlt-cpu-glossary-ab",
+      "interpretation": "Fun-ASR native KO/EN/JA source-language hotword OFF/ON, real FLEURS; reference had 0 observed sermon terms in first run, not a positive quality result"
+    },
+    {
+      "id": "church_quality",
+      "workflow": "church-translation-quality.yml",
+      "deps": [
+        "m2m"
+      ],
+      "artifact": "church-translation-cpu-baseline",
+      "interpretation": "synthetic church text baseline, not human quality"
+    },
+    {
+      "id": "church_live",
+      "workflow": "church-live-interpretation-cpu.yml",
+      "deps": [
+        "church_quality"
+      ],
+      "artifact": "church-live-cpu-e2e",
+      "interpretation": "short real recorded audio ASR to captions"
+    }
+  ],
+  "infrastructure_recovery": {
+    "max_run_attempts": 3,
+    "retry_failed_jobs_only": true,
+    "missing_artifact_fail_closed": true,
+    "scientific_result_changes_on_retry": false,
+    "skip_duplicate_active_run": true
+  },
+  "blocked_candidates": [
+    {
+      "model": "facebook/nllb-200-distilled-600M",
+      "reason": "CC BY-NC 4.0; no automatic model-download authorization"
+    },
+    {
+      "model": "google/gemma-3-1b-it",
+      "reason": "Gemma terms gated and no CPU experiment adapter"
+    },
+    {
+      "model": "google/translategemma-4b-it",
+      "reason": "Gemma terms gated; independent consent needed"
+    },
+    {
+      "model": "google/gemma-4-E2B-it",
+      "reason": "audio/text benchmark harness and resource budget not yet implemented"
+    },
+    {
+      "model": "Qwen/Qwen3-0.6B",
+      "reason": "no native six-way text MT model harness yet"
+    },
+    {
+      "model": "Helsinki-NLP/opus-mt-ko-en",
+      "reason": "experiment workflow in unmerged draft PR #119; tc-big arm failed"
+    },
+    {
+      "model": "Apple highFidelity / lowLatency text inference",
+      "reason": "hosted Mac language assets may be absent; native translation runs automatically only for installed pairs, and Apple Intelligence backend identity cannot be verified"
+    }
+  ],
+  "scientific_integrity": {
+    "negative_results_preserved": true,
+    "no_labeling_source_as_target": true,
+    "no_untested_model_quality_claim": true,
+    "per_direction_human_church_audio_review_required": true,
+    "field_ready_after_ci": false
+  }
+}
