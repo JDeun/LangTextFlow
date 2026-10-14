@@ -23,7 +23,7 @@ const remote: TranslationCapability = {
   configured: null, supported_pairs: null,
 };
 const demo: TranslationCapability = {
-  ...none, provider: "demo", label: "Demo",
+  ...none, provider: "demo", label: "Demo", supported_pairs: null,
 };
 const registry: TranslationRegistry = { status: "ready", providers: [none, local, remote, demo] };
 
