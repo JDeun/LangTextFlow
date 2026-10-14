@@ -285,6 +285,64 @@
       "research_track": "translation_specialized_text_to_text",
       "quality_evidence": "not_measured",
       "notes": "TranslateGemma translation-specialized 4B. Requires explicit HF Gemma terms acceptance; quality and resource metrics not measured here."
+    },
+    {
+      "model_id": "facebook/nllb-200-distilled-600M",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "en->ko",
+        "ja->ko",
+        "ko->en",
+        "ko->ja",
+        "en->ja",
+        "ja->en"
+      ],
+      "license": {
+        "id": "cc-by-nc-4.0",
+        "status": "noncommercial_research_only",
+        "territory": "noncommercial_only",
+        "evidence_url": "https://huggingface.co/facebook/nllb-200-distilled-600M"
+      },
+      "execution": "blocked_from_default_and_commercial_deployment_pending_separate_research_authorization",
+      "glossary": "not_integrated",
+      "priority": 3,
+      "research_track": "translation_specialized_seq2seq_baseline",
+      "quality_evidence": "not_measured",
+      "notes": "CC BY-NC 4.0; model card explicitly describes research intent and warns against production deployment. Noncommercial research permission does NOT convey commercial redistribution rights. No download or inference through metadata pipeline."
+    },
+    {
+      "model_id": "Qwen/Qwen3-0.6B",
+      "kind": "mt",
+      "source_languages": [
+        "ko",
+        "en",
+        "ja"
+      ],
+      "pairs": [
+        "en->ko",
+        "ja->ko",
+        "ko->en",
+        "ko->ja",
+        "en->ja",
+        "ja->en"
+      ],
+      "license": {
+        "id": "apache-2.0",
+        "status": "model_card_verified",
+        "territory": "permissive",
+        "evidence_url": "https://huggingface.co/Qwen/Qwen3-0.6B"
+      },
+      "execution": "planned_text_prompt_translation_cpu_experiment_no_auto_download",
+      "glossary": "prompt_only_not_proven",
+      "priority": 2,
+      "research_track": "general_text_llm_translation_control",
+      "quality_evidence": "not_measured",
+      "notes": "General 0.6B instruction/chat LLM, NOT Qwen3-ASR-0.6B. Research text translation using explicit prompt and output-language checks, with full six-pair acceptance before product use."
     }
   ]
 }
