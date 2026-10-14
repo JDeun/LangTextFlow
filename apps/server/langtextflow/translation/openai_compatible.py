@@ -167,7 +167,9 @@ class OpenAICompatibleTranslator(Translator):
         )
         terms = [
             {"source": entry.term, "target": translated}
-            for entry, translated in relevant_glossary(context, text, target_language)
+            for entry, translated in relevant_glossary(
+                context, text, target_language, source_language=source_language
+            )
         ]
         user = untrusted_json(
             {
@@ -204,7 +206,9 @@ class OpenAICompatibleTranslator(Translator):
         ]
         terms = [
             f"- {entry.term} -> {translated}"
-            for entry, translated in relevant_glossary(context, text, target_language)
+            for entry, translated in relevant_glossary(
+                context, text, target_language, source_language=source_language
+            )
         ]
         if terms:
             lines.append("Use these terminology mappings when applicable:")
