@@ -54,6 +54,7 @@ def run(stage, status="completed", conclusion="success", attempt=1,
         "event": "workflow_dispatch",
         "display_title": f"ltf-stage-{stage} source={FROZEN}",
         "status": status, "conclusion": conclusion, "run_attempt": attempt,
+        "event": "workflow_dispatch", "head_branch": "main",
         "artifact_good": artifact_good,
     }
 
@@ -110,7 +111,10 @@ def test_infrastructure_retried_with_limit_but_negative_artifacts_preserved():
 
 def test_workflow_run_resumes_same_sha_and_hourly_never_creates_unseeded_run():
     api = FakeAPI({"catalog": [run("catalog")]})
-    event = {"workflow_run": {"display_title": f"ltf-stage-m2m source={FROZEN}"}}
+    event = {"workflow_run": {
+        "display_title": f"ltf-stage-m2m source={FROZEN}",
+        "event": "workflow_dispatch", "head_branch": "main",
+    }}
     assert sources(api, "workflow_run", event, PLAN) == [FROZEN]
     assert sources(api, "schedule", {}, PLAN) == [FROZEN]
     assert sources(FakeAPI(), "schedule", {}, PLAN) == []
@@ -137,3 +141,12 @@ def test_preregistration_is_loaded_from_frozen_source_not_mutable_main():
             }
 
     assert frozen_preregistration(FrozenGitHub(), FROZEN) == PLAN
+
+
+def test_pull_request_smoke_never_launches_unattended_scientific_cohort():
+    pr_run = run("catalog")
+    pr_run["event"] = "pull_request"
+    pr_run["head_branch"] = "ci/experiment-conveyor-20261014"
+    api = FakeAPI({"catalog": [pr_run]})
+    assert sources(api, "schedule", {}, PLAN) == []
+    assert sources(api, "workflow_run", {"workflow_run": pr_run}, PLAN) == []
