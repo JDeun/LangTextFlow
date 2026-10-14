@@ -20,9 +20,10 @@ Select **Actions → Experiment Conveyor (controlled Linux CPU and macOS)
 | --- | --- | --- | --- |
 | `metadata` | Monday 03:23 UTC automatically; or manual | License status, source-language scope and safe candidate metadata on Linux | Small, no models downloaded |
 | `cpu` | Manual only | metadata → real Qwen3-ASR + M2M100 CPU, 6 KO/EN/JA translation directions, short pinned FLEURS audio | Large checkpoint downloads; up to 120-minute model job |
+| `mac` | Manual only | metadata → hosted macOS 26 Swift `LanguageAvailability` for 6 KO/EN/JA pairs; **no actual translation** | Mac runner only; no large model downloads |
 | `full` | Manual only | metadata → M2M100 CPU → TranslateGemma text quality → audio-to-caption replay; parallel macOS 26 language-availability probe | **Expensive**, three sequential heavyweight Linux model jobs + macOS runner; each may take up to 90–120 minutes |
 
-**Never automatically run `cpu` or `full` on every PR or cron.**
+**Never automatically run `cpu`, `mac` or `full` on every PR or cron.**
 GitHub-hosted macOS runners can have different rates and hardware from
 Linux and from an M4 Mac mini. No cloud-runner scores are transferable to a
 real operator's machine without a separate device benchmark.
