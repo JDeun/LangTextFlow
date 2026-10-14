@@ -306,7 +306,7 @@ def test_all_registered_scientific_stage_names_match_workflow_and_callback() -> 
             f"run-name: ltf-stage-{stage_id} source=" in workflow
         ), f"{stage['workflow']} run-name does not match {stage_id}"
         assert re.search(
-            r"^\\s*STAGE:\\s*" + re.escape(stage_id) + r"\\s*$",
+            r"^\s*STAGE:\s*" + re.escape(stage_id) + r"\s*$",
             workflow,
             flags=re.MULTILINE,
         ), f"{stage['workflow']} callback stage does not match {stage_id}"
