@@ -13,6 +13,7 @@ interface GlossaryManagerProps {
   sourceLanguage: string;
   targetLanguage: string;
   disabled: boolean;
+  projectId?: string | null;
 }
 
 interface GlossaryImportResult {
@@ -37,9 +38,13 @@ export function GlossaryManager({
   sourceLanguage,
   targetLanguage,
   disabled,
+  projectId = null,
 }: GlossaryManagerProps) {
   const { locale } = useI18n();
   const copy = GLOSSARY_COPY[locale];
+  const glossaryRoot = projectId
+    ? `${apiUrl}/api/v1/projects/${encodeURIComponent(projectId)}/glossary`
+    : `${apiUrl}/api/v1/glossary`;
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [entries, setEntries] = useState<GlossaryRecord[]>([]);
   const [draft, setDraft] = useState<GlossaryDraft>(() => newGlossaryDraft(preset, sourceLanguage));
@@ -50,12 +55,18 @@ export function GlossaryManager({
   const [notice, setNotice] = useState("");
 
   const refresh = useCallback(async () => {
-    const response = await fetch(`${apiUrl}/api/v1/glossary`);
+    const response = await fetch(glossaryRoot);
     if (!response.ok) throw new Error(copy.loadFailed);
     setEntries((await response.json()) as GlossaryRecord[]);
-  }, [apiUrl]);
+  }, [glossaryRoot]);
 
   useEffect(() => {
+    // Prevent a draft/edit selection from leaking across glossary scopes.
+    setEntries([]);
+    setEditingId(null);
+    setDraft(newGlossaryDraft(preset, sourceLanguage));
+    setError("");
+    setNotice("");
     refresh().catch((reason: Error) => setError(reason.message));
   }, [refresh]);
 
@@ -108,8 +119,8 @@ export function GlossaryManager({
       const payload = glossaryPayload(draft, current);
       const response = await fetch(
         current
-          ? `${apiUrl}/api/v1/glossary/${encodeURIComponent(current.id)}`
-          : `${apiUrl}/api/v1/glossary`,
+          ? `${glossaryRoot}/${encodeURIComponent(current.id)}`
+          : glossaryRoot,
         {
           method: current ? "PUT" : "POST",
           headers: { "Content-Type": "application/json" },
@@ -132,11 +143,12 @@ export function GlossaryManager({
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/glossary/${entry.id}`, {
+      const response = await fetch(`${glossaryRoot}/${encodeURIComponent(entry.id)}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           term: entry.term,
+          source_language: entry.source_language ?? "ko",
           aliases: entry.aliases,
           translations: entry.translations,
           category: entry.category,
@@ -159,7 +171,7 @@ export function GlossaryManager({
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/glossary/${entry.id}`, {
+      const response = await fetch(`${glossaryRoot}/${encodeURIComponent(entry.id)}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error(await response.text());
@@ -193,7 +205,7 @@ export function GlossaryManager({
     setError("");
     setNotice("");
     try {
-      const response = await fetch(`${apiUrl}/api/v1/glossary/export?format=${format}`);
+      const response = await fetch(`${glossaryRoot}/export?format=${format}`);
       if (!response.ok) throw new Error(await response.text());
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -218,7 +230,7 @@ export function GlossaryManager({
       throw new Error(copy.importType);
     }
     const content = await file.text();
-    const response = await fetch(`${apiUrl}/api/v1/glossary/import`, {
+    const response = await fetch(`${glossaryRoot}/import`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -260,7 +272,7 @@ export function GlossaryManager({
           <strong>{copy.title}</strong>
           <small>{copy.currentPrefix} {preset} · {applicableCount}{copy.currentSuffix}</small>
         </div>
-        {preset === "church" && (
+        {preset === "church" && !projectId && (
           <button
             type="button"
             className="secondary-button"
