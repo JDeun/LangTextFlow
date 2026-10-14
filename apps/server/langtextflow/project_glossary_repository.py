@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 
 from .models import GlossaryEntry, GlossaryRecord, ProductPreset
 
-
 MAX_PROJECT_GLOSSARY_ENTRIES = 500
 
 
