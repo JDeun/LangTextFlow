@@ -244,13 +244,22 @@ class SessionContext(BaseModel):
             self.reference_text = "\n\n".join(blocks)[:120_000].rstrip()
         return self
 
-    def asr_hotwords(self) -> list[str]:
+    def asr_hotwords(self, *, source_language: str | None = None) -> list[str]:
+        """Return only source-language glossary terms for an ASR adapter.
+
+        Explicit operator hotwords are kept because they are not stored with a
+        language tag. A caller without verified source language gets *no*
+        glossary-derived hints rather than silently assuming Korean.
+        """
         terms = list(self.hotwords)
-        for entry in self.glossary:
-            if not entry.enabled:
-                continue
-            terms.append(entry.term)
-            terms.extend(entry.aliases)
+        if source_language is not None:
+            language = source_language.strip().lower().replace("_", "-")
+            for entry in self.glossary:
+                if (not entry.enabled or not entry.applies_to(self.preset)
+                        or entry.source_language != language):
+                    continue
+                terms.append(entry.term)
+                terms.extend(entry.aliases)
         return list(dict.fromkeys(term for term in terms if term))[:1000]
 
     def reference_excerpt(self, max_chars: int = 4000) -> str:

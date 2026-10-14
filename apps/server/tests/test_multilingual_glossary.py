@@ -82,7 +82,7 @@ def test_saved_en_ja_glossary_is_session_snapshot(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(main, "glossary_repository", repo)
     start = StartSessionRequest(context=SessionContext(preset=ProductPreset.CHURCH))
     request = main._with_saved_glossary(start)
-    assert request.context.asr_hotwords() == ["칭의", "칭이"]
+    assert request.context.asr_hotwords(source_language="ko") == ["칭의", "칭이"]
     assert request.context.glossary[0].translations["ja"] == "義認"
     repo.delete(saved.id)
     assert request.context.glossary[0].translations["ja"] == "義認"

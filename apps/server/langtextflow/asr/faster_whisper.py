@@ -175,7 +175,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         if reference:
             prompt_parts.append(reference)
         initial_prompt = " | ".join(part.strip() for part in prompt_parts if part.strip()) or None
-        hotwords = ", ".join(context.asr_hotwords()) or None
+        hotwords = ", ".join(context.asr_hotwords(source_language=request.source_language)) or None
 
         segments, _ = self._model.transcribe(
             audio,
