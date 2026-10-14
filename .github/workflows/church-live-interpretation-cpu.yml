@@ -7,6 +7,7 @@ on:
       - "apps/server/langtextflow/pipeline.py"
       - ".github/workflows/church-live-interpretation-cpu.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
