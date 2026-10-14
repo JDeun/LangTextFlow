@@ -54,9 +54,10 @@
 | 문서 | 내용 |
 |---|---|
 | [`BENCHMARK.md`](BENCHMARK.md) | ASR/full-runtime benchmark와 soak harness |
-| [`EXPERIMENT_CONVEYOR.md`](EXPERIMENT_CONVEYOR.md) | Actions 한 번 실행으로 Linux CPU 모델 테스트와 macOS 지원 확인을 순차 진행하는 실험 파이프라인 |
 | [`TRANSLATION_BENCHMARK.md`](TRANSLATION_BENCHMARK.md) | translation latency/quality protocol |
 | [`GEMMA_TRANSLATION_RESEARCH.md`](GEMMA_TRANSLATION_RESEARCH.md) | Gemma 3 1B / Gemma 4 E2B / TranslateGemma 4B 실험 후보, 라이선스 게이트, 6방향 기준 |
+| [`EXPERIMENT_CONVEYOR.md`](EXPERIMENT_CONVEYOR.md) | GitHub Actions에서 사용자 개입 없이 Linux CPU 모델 테스트와 macOS 지원 확인을 순차 진행하는 실험 파이프라인 |
+| [`APPLE_SYSTEM_TRANSLATION.md`](APPLE_SYSTEM_TRANSLATION.md) | macOS/iPhone Translation 프레임워크의 실제 API, 제한, 6방향 비교 실험 |
 | [`CORRECTION_QUALITY.md`](CORRECTION_QUALITY.md) | correction quality gate |
 | [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md) | 자동 gate와 실제 장비/field acceptance |
 | [`KNOWN_LIMITATIONS.md`](KNOWN_LIMITATIONS.md) | 현재 지원하지 않는 기능과 검증 경계 |
