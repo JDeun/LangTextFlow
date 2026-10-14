@@ -275,6 +275,7 @@ async def test_replay_fallback_fences_old_session_callbacks_across_restart() -> 
         engine="auto", source_language="en", target_languages=["ko"],
     )
     await wrapper.start(request)
+    original_epoch = wrapper._session_epoch
     old = created[-1]
     await old.emit(segment_id="before-stop", start_ms=0, end_ms=300, text="old")
     assert len(published) == 1
@@ -284,6 +285,7 @@ async def test_replay_fallback_fences_old_session_callbacks_across_restart() -> 
     assert len(published) == 1
 
     await wrapper.start(request)
+    assert wrapper._session_epoch > original_epoch
     new = created[-1]
     assert new is not old
     # Reused transcript generation=0 must not reuse the closed session epoch.
