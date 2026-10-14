@@ -216,6 +216,7 @@ class CaptionPipeline:
                             )
             finally:
                 self._queue.task_done()
+        self._worker_progress.clear()
         self._queue = asyncio.Queue(maxsize=128)
 
         corrector = self.llm_corrector

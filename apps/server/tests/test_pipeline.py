@@ -341,7 +341,11 @@ async def test_pipeline_stop_cancels_blocked_postprocessing() -> None:
 
     assert pipeline._worker_task is None
     assert pipeline.queue_depth == 0
-    assert [event.stage for event in published] == [CaptionStage.STABLE]
+    assert [event.stage for event in published] == [
+        CaptionStage.STABLE, CaptionStage.COMMITTED,
+    ]
+    assert published[-1].translation_states == {"en": "unsupported"}
+    assert published[-1].committed is True
 
 
 class ControllableTranslator:
