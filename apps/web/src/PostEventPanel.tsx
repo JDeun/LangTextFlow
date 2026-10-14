@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { SessionDetail } from "./types";
 import type { Locale } from "./locales";
 import { POST_EVENT_COPY } from "./postEventCopy";
+import { buildSummaryRequest, type SummaryLanguage, type SummaryProvider } from "./summaryRequestPolicy";
 
 interface Recording {
   recording_id: string;
@@ -26,6 +27,7 @@ interface Summary {
 interface Archive {
   recordings: Recording[];
   summary: Summary | null;
+  summary_stale: boolean;
 }
 
 
@@ -37,7 +39,13 @@ interface Props {
 
 export function PostEventPanel({ apiUrl, session, locale }: Props) {
   const copy = POST_EVENT_COPY[locale];
-  const [archive, setArchive] = useState<Archive>({ recordings: [], summary: null });
+  const [archive, setArchive] = useState<Archive>({
+    recordings: [], summary: null, summary_stale: false,
+  });
+  const [summaryLanguage, setSummaryLanguage] = useState<SummaryLanguage>(locale);
+  const [summaryProvider, setSummaryProvider] = useState<SummaryProvider>("ollama");
+  const [summaryModel, setSummaryModel] = useState("");
+  const [allowExternal, setAllowExternal] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -101,7 +109,9 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
       const response = await fetch(`${root}/summary`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ language: locale, provider: "ollama" }),
+        body: JSON.stringify(buildSummaryRequest(
+          summaryLanguage, summaryProvider, summaryModel, allowExternal,
+        )),
       });
       if (!response.ok) throw new Error(await response.text());
       await refresh();
@@ -110,6 +120,21 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
     } finally {
       setBusy("");
     }
+  }
+
+  function exportSummaryText() {
+    if (archive.summary?.status !== "completed") return;
+    const blob = new Blob([archive.summary.content], {
+      type: "text/plain;charset=utf-8",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `langtextflow-${session.session_id}-summary-${archive.summary.language}.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -152,10 +177,65 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
         </div>
       ))}
       <h4>{copy.summary}</h4>
+      {archive.summary_stale && (
+        <p role="alert" className="error-box">{copy.summaryStale}</p>
+      )}
+      <div className="history-post-actions">
+        <label>
+          {copy.summaryLanguage}
+          <select
+            value={summaryLanguage}
+            disabled={Boolean(busy) || archive.summary?.status === "running"}
+            onChange={(event) => setSummaryLanguage(event.target.value as SummaryLanguage)}
+          >
+            <option value="ko">{copy.korean}</option>
+            <option value="en">{copy.english}</option>
+            <option value="ja">{copy.japanese}</option>
+          </select>
+        </label>
+        <label>
+          {copy.summaryProvider}
+          <select
+            value={summaryProvider}
+            disabled={Boolean(busy) || archive.summary?.status === "running"}
+            onChange={(event) => {
+              setSummaryProvider(event.target.value as SummaryProvider);
+              setAllowExternal(false);
+            }}
+          >
+            <option value="ollama">{copy.localProvider}</option>
+            <option value="openai-compatible">{copy.externalProvider}</option>
+          </select>
+        </label>
+        <label>
+          {copy.modelId}
+          <input
+            type="text"
+            maxLength={128}
+            value={summaryModel}
+            onChange={(event) => setSummaryModel(event.target.value)}
+            placeholder={copy.defaultModel}
+            disabled={Boolean(busy) || archive.summary?.status === "running"}
+          />
+        </label>
+      </div>
+      {summaryProvider === "openai-compatible" && (
+        <label>
+          <input
+            type="checkbox"
+            checked={allowExternal}
+            disabled={Boolean(busy) || archive.summary?.status === "running"}
+            onChange={(event) => setAllowExternal(event.target.checked)}
+          />
+          {copy.externalConsent}
+        </label>
+      )}
       <button
         type="button"
         className="secondary-button"
-        disabled={Boolean(busy) || archive.summary?.status === "running"}
+        disabled={Boolean(busy)
+          || archive.summary?.status === "running"
+          || (summaryProvider === "openai-compatible" && !allowExternal)}
         onClick={() => void summarize()}
       >
         {copy.generate}
@@ -166,6 +246,9 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
         <div className="history-post-summary">
           <small>{archive.summary.model} · {archive.summary.language.toUpperCase()}</small>
           <pre>{archive.summary.content}</pre>
+          <button type="button" className="secondary-button" onClick={exportSummaryText}>
+            {copy.exportSummary}
+          </button>
         </div>
       )}
       {!archive.summary && <p>{copy.noSummary}</p>}
