@@ -9,12 +9,15 @@ import {
   retryDelayMs,
   terminalMessage,
 } from "./captionSocketPolicy";
+import { applyScopedCaption, createScopedCaptions, visibleScopedCaptions } from "./scopedCaptions";
 import type { TranscriptEvent } from "./types";
 
 export function useCaptionSocket(path = "/ws/captions") {
-  const [connected, setConnected] = useState(false);
-  const [segments, setSegments] = useState<Record<string, TranscriptEvent>>({});
-  const [terminalError, setTerminalError] = useState("");
+  // Pair transcript data with the source route. On an immediate route change,
+  // render no old caption even before the effect cleans up the old connection.
+  const [scoped, setScoped] = useState(() => createScopedCaptions(path));
+  const [connection, setConnection] = useState({ path, connected: false });
+  const [terminal, setTerminal] = useState({ path, message: "" });
 
   useEffect(() => {
     let socket: WebSocket | undefined;
@@ -22,6 +25,10 @@ export function useCaptionSocket(path = "/ws/captions") {
     let disposed = false;
     let retryAttempt = 0;
     const wsUrl = getWebSocketUrl(path);
+
+    setScoped(createScopedCaptions(path));
+    setConnection({ path, connected: false });
+    setTerminal({ path, message: "" });
 
     const scheduleReconnect = (delayMs?: number) => {
       if (disposed) return;
@@ -32,18 +39,22 @@ export function useCaptionSocket(path = "/ws/captions") {
 
     const connect = () => {
       if (disposed) return;
-      setTerminalError("");
-      socket = new WebSocket(wsUrl);
-      socket.onopen = () => {
+      setTerminal({ path, message: "" });
+      const activeSocket = new WebSocket(wsUrl);
+      socket = activeSocket;
+      activeSocket.onopen = () => {
+        if (disposed || socket !== activeSocket) return;
         retryAttempt = 0;
-        setConnected(true);
+        setConnection({ path, connected: true });
       };
-      socket.onclose = (event) => {
-        setConnected(false);
-        if (disposed) return;
-
+      activeSocket.onclose = (event) => {
+        if (disposed || socket !== activeSocket) return;
+        setConnection({ path, connected: false });
         if (isTerminalCloseCode(event.code)) {
-          setTerminalError(terminalMessage(event.code, event.reason));
+          // Auth/terminal failures must not leave another session's private
+          // transcript visible while the audience client is denied access.
+          setScoped(createScopedCaptions(path));
+          setTerminal({ path, message: terminalMessage(event.code, event.reason) });
           return;
         }
         if (event.code === 4429) {
@@ -52,25 +63,19 @@ export function useCaptionSocket(path = "/ws/captions") {
         }
         scheduleReconnect();
       };
-      socket.onerror = () => socket?.close();
-      socket.onmessage = (message) => {
+      activeSocket.onerror = () => {
+        if (!disposed && socket === activeSocket) activeSocket.close();
+      };
+      activeSocket.onmessage = (message) => {
+        if (disposed || socket !== activeSocket) return;
         let payload;
         try {
           payload = parseCaptionPayload(message.data);
         } catch {
-          socket?.close(CLIENT_PROTOCOL_ERROR_CODE, "invalid caption payload");
+          activeSocket.close(CLIENT_PROTOCOL_ERROR_CODE, "invalid caption payload");
           return;
         }
-
-        if (payload.type === "snapshot") {
-          setSegments(Object.fromEntries(payload.segments.map((item) => [item.segment_id, item])));
-          return;
-        }
-        setSegments((current) => {
-          const previous = current[payload.segment_id];
-          if (previous && previous.version >= payload.version) return current;
-          return { ...current, [payload.segment_id]: payload };
-        });
+        setScoped((current) => applyScopedCaption(current, path, payload));
       };
     };
 
@@ -82,10 +87,13 @@ export function useCaptionSocket(path = "/ws/captions") {
     };
   }, [path]);
 
-  const ordered = useMemo(
-    () => Object.values(segments).sort((a, b) => a.start_ms - b.start_ms),
-    [segments],
+  const segments: TranscriptEvent[] = useMemo(
+    () => visibleScopedCaptions(scoped, path),
+    [scoped, path],
   );
-
-  return { connected, segments: ordered, terminalError };
+  return {
+    connected: connection.path === path && connection.connected,
+    segments,
+    terminalError: terminal.path === path ? terminal.message : "",
+  };
 }
