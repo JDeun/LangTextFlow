@@ -6,7 +6,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from pydantic import BaseModel, Field
+
 from .models import GlossaryEntry, GlossaryRecord, ProductPreset
+
+
+class ProjectGlossarySnapshot(BaseModel):
+    entries: list[GlossaryEntry] = Field(default_factory=list, max_length=500)
 
 
 class ProjectGlossaryRepository:
@@ -140,6 +146,50 @@ class ProjectGlossaryRepository:
                 (project_id, record_id),
             )
         return cursor.rowcount > 0
+
+    def replace_snapshot(
+        self, project_id: str, entries: list[GlossaryEntry],
+    ) -> list[GlossaryRecord]:
+        """Atomically replace one project's entries without erasing global terms.
+
+        Preserve existing IDs and created_at for matching source/term keys.
+        Validate the complete payload before any destructive SQL statements.
+        """
+        if len(entries) > 500:
+            raise ValueError("project glossary snapshot exceeds 500 entries")
+        validated = [GlossaryEntry.model_validate(item.model_dump()) for item in entries]
+        keys = [(row.source_language, row.term.casefold()) for row in validated]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate project glossary source-language term")
+        stamp = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            self._validate_project(connection, project_id)
+            previous = {
+                (row["source_language"], row["term_key"]): (
+                    str(row["id"]), str(row["created_at"])
+                )
+                for row in connection.execute(
+                    "SELECT id, source_language, term_key, created_at "
+                    "FROM project_glossary_entries WHERE project_id=?",
+                    (project_id,),
+                )
+            }
+            connection.execute(
+                "DELETE FROM project_glossary_entries WHERE project_id=?", (project_id,),
+            )
+            for entry in validated:
+                key = (entry.source_language, entry.term.casefold())
+                record_id, created = previous.get(key, (str(uuid4()), stamp))
+                connection.execute(
+                    "INSERT INTO project_glossary_entries "
+                    "(id, project_id, source_language, term_key, entry_json, "
+                    "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        record_id, project_id, key[0], key[1],
+                        entry.model_dump_json(), created, stamp,
+                    ),
+                )
+        return self.list(project_id)
 
     def import_entries(
         self, project_id: str, entries: list[GlossaryEntry], *,

@@ -145,3 +145,60 @@ def test_project_glossary_api_is_operator_only_and_project_isolated(monkeypatch,
     assert operator.get(uri + "/export?format=json").status_code == 200
     assert operator.delete(f"{uri}/{record_id}").status_code == 204
     assert operator.get(uri).json() == []
+
+
+
+def test_full_snapshot_replace_is_atomic_and_keeps_stable_record_ids(stores):
+    projects, global_terms, scoped, first, second = stores
+    global_record = global_terms.create(_term("믿음"))
+    initial = scoped.create(first, _term("grace", source="en"))
+    other = scoped.create(second, _term("grace", source="en"))
+
+    replacement = [
+        GlossaryEntry(term="grace", source_language="en",
+                      translations={"ko": "은혜로우신 하나님"}),
+        GlossaryEntry(term="聖霊", source_language="ja",
+                      translations={"ko": "성령"}),
+    ]
+    result = scoped.replace_snapshot(first, replacement)
+    assert len(result) == 2
+    assert next(item for item in result if item.term == "grace").id == initial.id
+    assert next(item for item in result if item.term == "grace").created_at == initial.created_at
+    assert next(item for item in scoped.list(second) if item.term == "grace").id == other.id
+    assert global_terms.get(global_record.id) is not None
+
+    with pytest.raises(ValueError, match="duplicate"):
+        scoped.replace_snapshot(first, [
+            GlossaryEntry(term="Grace", source_language="en"),
+            GlossaryEntry(term="grace", source_language="EN"),
+        ])
+    assert [item.id for item in scoped.list(first)] == [item.id for item in result]
+
+    with pytest.raises(ValueError, match="500"):
+        scoped.replace_snapshot(first, [
+            GlossaryEntry(term=f"term-{index}") for index in range(501)
+        ])
+    assert [item.id for item in scoped.list(first)] == [item.id for item in result]
+    assert projects.get(first) is not None
+
+
+def test_full_snapshot_replace_api_requires_operator_and_existing_project(monkeypatch, stores):
+    projects, global_terms, scoped, first, _ = stores
+    monkeypatch.setattr(main_module, "project_repository", projects)
+    monkeypatch.setattr(main_module, "project_glossary_repository", scoped)
+    monkeypatch.setattr(main_module, "glossary_repository", global_terms)
+    operator = TestClient(main_module.app, client=("127.0.0.1", 40000))
+    remote = TestClient(main_module.app, client=("203.0.113.71", 40000))
+    url = f"/api/v1/projects/{first}/glossary"
+    payload = {"entries": [{"term": "grace", "source_language": "en",
+                           "translations": {"ko": "은혜"}}]}
+    assert remote.put(url, json=payload).status_code == 403
+    assert operator.put("/api/v1/projects/missing/glossary", json=payload).status_code == 404
+    assert operator.put(url, json=payload).status_code == 200
+    assert operator.get(url).json()[0]["term"] == "grace"
+    response = operator.put(url, json={"entries": [
+        {"term": "grace", "source_language": "en"},
+        {"term": "Grace", "source_language": "en"},
+    ]})
+    assert response.status_code == 409
+    assert operator.get(url).json()[0]["term"] == "grace"

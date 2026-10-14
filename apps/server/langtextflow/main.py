@@ -52,7 +52,7 @@ from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .project_archive import build_project_archive_manifest
-from .project_glossary_repository import ProjectGlossaryRepository
+from .project_glossary_repository import ProjectGlossaryRepository, ProjectGlossarySnapshot
 from .project_report import build_project_report
 from .project_repository import (
     ProjectAssignment,
@@ -802,6 +802,21 @@ def list_project_glossary(request: Request, project_id: str) -> list[GlossaryRec
     _require_operator(request)
     _assert_project_glossary_access(project_id)
     return project_glossary_repository.list(project_id)
+
+
+@app.put(
+    "/api/v1/projects/{project_id}/glossary",
+    response_model=list[GlossaryRecord],
+)
+def replace_project_glossary_snapshot(
+    request: Request, project_id: str, payload: ProjectGlossarySnapshot,
+) -> list[GlossaryRecord]:
+    _require_operator(request)
+    _assert_project_glossary_access(project_id)
+    try:
+        return project_glossary_repository.replace_snapshot(project_id, payload.entries)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/glossary/export")
