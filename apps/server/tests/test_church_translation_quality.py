@@ -62,3 +62,72 @@ def test_mismatched_or_empty_evaluation_refused(problem: str) -> None:
         content = b""
     with pytest.raises(ValueError):
         MODULE.assess(report, content)
+
+
+def test_scripture_verse_number_drift_is_not_a_provisional_pass() -> None:
+    report, content = sample()
+    fixture = {
+        "id": "ko-en-j316",
+        "source_text": "요한복음 3장 16절을 읽습니다",
+        "reference_text": "Read John chapter 3 verse 16",
+        "target_language": "en",
+        "expected_terms": ["John"],
+    }
+    content = (json.dumps(fixture, ensure_ascii=False) + "\n").encode()
+    report["config"]["fixture_sha256"] = hashlib.sha256(content).hexdigest()
+    report["fixtures"][0]["id"] = fixture["id"]
+    run = report["fixtures"][0]["runs"][0]
+    run["hypothesis"] = "Read John chapter 3 verse 17"
+    evaluated = MODULE.assess(report, content)
+    assert evaluated["status"] == "needs-improvement"
+    assert evaluated["cases"][0]["semantic_sanity"]["expected_digits"] == ["3", "16"]
+    assert "numeric/verse reference mismatch" in evaluated["reasons"][0]
+
+
+def test_english_negation_regression_is_separately_reported() -> None:
+    report, content = sample()
+    fixture = {
+        "id": "ko-en-negative",
+        "source_text": "우리는 정죄함이 없습니다",
+        "reference_text": "There is no condemnation",
+        "target_language": "en",
+        "expected_terms": ["condemnation"],
+    }
+    content = (json.dumps(fixture, ensure_ascii=False) + "\n").encode()
+    report["config"]["fixture_sha256"] = hashlib.sha256(content).hexdigest()
+    report["fixtures"][0]["id"] = fixture["id"]
+    report["fixtures"][0]["runs"][0]["hypothesis"] = "There is condemnation"
+    evaluated = MODULE.assess(report, content)
+    assert evaluated["status"] == "needs-improvement"
+    assert evaluated["cases"][0]["semantic_sanity"]["negation_presence_preserved"] is False
+    assert any("English negation presence mismatch" in x for x in evaluated["reasons"])
+
+
+def test_reference_mismatched_scripture_digits_fails_closed() -> None:
+    report, content = sample()
+    fixture = {
+        "id": "ko-en-bad-fixture",
+        "source_text": "요한복음 3장 16절",
+        "reference_text": "John 3:17",
+        "expected_terms": ["John"],
+    }
+    content = (json.dumps(fixture, ensure_ascii=False) + "\n").encode()
+    report["config"]["fixture_sha256"] = hashlib.sha256(content).hexdigest()
+    report["fixtures"][0]["id"] = fixture["id"]
+    with pytest.raises(ValueError, match="source/reference numbers differ"):
+        MODULE.assess(report, content)
+
+
+def test_unchecked_non_english_negation_never_claims_semantic_pass() -> None:
+    sanity = MODULE.semantic_sanity("罪はありません", "罪があります", target="ja")
+    assert sanity["english_negation_checked"] is False
+    assert sanity["negation_presence_preserved"] is None
+    assert sanity["semantic_equivalence_certified"] is False
+
+
+def test_equivalent_scripture_digit_punctuation_is_accepted() -> None:
+    sanity = MODULE.semantic_sanity(
+        "Read John chapter 3, verse 16.", "Read John 3:16.", target="en"
+    )
+    assert sanity["digits_preserved"] is True
+    assert sanity["semantic_equivalence_certified"] is False
