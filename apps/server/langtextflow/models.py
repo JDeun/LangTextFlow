@@ -270,6 +270,11 @@ class CorrectionProvenance(BaseModel):
     fallback_reason: str | None = Field(default=None, max_length=1000)
 
 
+TranslationTargetState = Literal[
+    "pending", "available", "failed", "timed_out", "unsupported"
+]
+
+
 class TranscriptEvent(BaseModel):
     type: str = Field(default="transcript", max_length=32)
     segment_id: str = Field(min_length=1, max_length=128)
@@ -278,6 +283,10 @@ class TranscriptEvent(BaseModel):
     source_language: str = Field(min_length=2, max_length=16)
     text: str = Field(max_length=MAX_TRANSCRIPT_TEXT_CHARS)
     translations: dict[str, str] = Field(default_factory=dict, max_length=MAX_TARGET_LANGUAGES)
+    # A resolved target can be displayed before other language targets finish.
+    translation_states: dict[str, TranslationTargetState] = Field(
+        default_factory=dict, max_length=MAX_TARGET_LANGUAGES
+    )
     start_ms: int = Field(ge=0)
     end_ms: int | None = Field(default=None, ge=0)
     speaker: str | None = Field(default=None, max_length=160)
@@ -307,6 +316,11 @@ class TranscriptEvent(BaseModel):
 
     @model_validator(mode="after")
     def validate_commit_state(self) -> TranscriptEvent:
+        if any(
+            self.translation_states.get(language) != "available"
+            for language in self.translations
+        ) and self.translation_states:
+            raise ValueError("translated text requires target state available")
         if self.committed and self.stage is not CaptionStage.COMMITTED:
             raise ValueError("committed=true requires stage=committed")
         if self.end_ms is not None and self.end_ms < self.start_ms:
