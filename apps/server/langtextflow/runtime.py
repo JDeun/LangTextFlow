@@ -91,7 +91,9 @@ class CaptionRuntime:
     async def _publish(self, event: TranscriptEvent) -> None:
         self.store.apply(event)
         self._observe_event(event)
-        await self.hub.broadcast(event)
+        # Each client owns a bounded FIFO sender. Never await a network write
+        # while holding the ASR->source-caption processing path.
+        self.hub.enqueue(event)
         session_id = self.state.session_id
         if not session_id or self._persistence_task is None:
             self._refresh_queue_metrics()

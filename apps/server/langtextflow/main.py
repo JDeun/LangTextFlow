@@ -904,15 +904,15 @@ async def audience_captions(request: Request, join_code: str) -> list[Transcript
 
 
 async def _caption_socket(websocket: WebSocket) -> None:
-    if not await runtime.hub.connect(websocket):
+    if not await runtime.hub.connect(
+        websocket,
+        initial_snapshot=lambda: {
+            "type": "snapshot",
+            "segments": [item.model_dump(mode="json") for item in runtime.store.snapshot()],
+        },
+    ):
         return
     try:
-        await websocket.send_json(
-            {
-                "type": "snapshot",
-                "segments": [item.model_dump(mode="json") for item in runtime.store.snapshot()],
-            }
-        )
         while True:
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":
