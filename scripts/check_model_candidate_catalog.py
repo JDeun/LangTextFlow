@@ -89,7 +89,7 @@ def validate_catalog(document: dict[str, Any]) -> None:
             raise ValueError(f"{identifier}: license evidence URL required")
         if status not in {
             VERIFIED, "pending_explicit_permission", "territory_excluded",
-            "terms_review_required",
+            "terms_review_required", "noncommercial_research_only",
         }:
             raise ValueError(f"{identifier}: unsupported license status")
         if status == VERIFIED:
@@ -101,6 +101,9 @@ def validate_catalog(document: dict[str, Any]) -> None:
         elif status == "terms_review_required":
             if license_id != "gemma" or territory != "terms_review":
                 raise ValueError(f"{identifier}: Gemma terms must be explicitly reviewed")
+        elif status == "noncommercial_research_only":
+            if license_id != "cc-by-nc-4.0" or territory != "noncommercial_only":
+                raise ValueError(f"{identifier}: noncommercial use must be disclosed")
         elif territory != "south_korea_excluded":
             raise ValueError(f"{identifier}: territory exclusion must be explicit")
         execution = model.get("execution")
