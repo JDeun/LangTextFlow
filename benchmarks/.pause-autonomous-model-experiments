@@ -1,0 +1,13 @@
+# Automatic model experiment scheduling paused (2026-10-14)
+
+Product/architecture issues are prioritized before scientific model reruns.
+
+While this marker exists on `main`, `experiment-conveyor.yml` writes an
+explicit `paused: true` result and will not dispatch or retry any automatic
+heavyweight CPU/model workflow. This does not cancel already-running jobs,
+change normal frontend/backend/security/desktop CI, delete past experiment
+artifacts, or prevent explicitly invoked manual research workflows.
+
+**Resume:** remove this marker in a reviewed PR once architecture and feature
+code gates are complete. Existing frozen SHA provenance and experiment DAG
+logic remain intact; GitHub Actions' hourly reconciliation can then resume.

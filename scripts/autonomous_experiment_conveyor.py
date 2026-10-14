@@ -188,6 +188,15 @@ def frozen_preregistration(api: GitHub, sha: str) -> dict:
     return plan
 
 
+def automatic_experiments_paused(pause_file: Path | None) -> bool:
+    """Pause unattended scientific dispatch without modifying historical results.
+
+    Manual model experiments remain available. Remove the marker on main to
+    resume the existing frozen-DAG controller and its hourly recovery.
+    """
+    return pause_file is not None and pause_file.is_file()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repository", required=True)
@@ -196,7 +205,24 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--state-out", type=Path, required=True)
     parser.add_argument("--execute", action="store_true")
+    parser.add_argument("--pause-file", type=Path, default=None)
     args = parser.parse_args()
+    if automatic_experiments_paused(args.pause_file):
+        # Source provenance and recorded scientific outcomes are retained.
+        # Skip the API client entirely: no dispatch, retry or large-model loads.
+        report = {
+            "event": args.event_name,
+            "paused": True,
+            "pause_marker": str(args.pause_file),
+            "results": [],
+            "message": "Automatic model experiments paused for product stabilization",
+        }
+        args.state_out.parent.mkdir(parents=True, exist_ok=True)
+        args.state_out.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n"
+        )
+        print(json.dumps(report, ensure_ascii=False))
+        return
     plan = json.loads(args.manifest.read_text())
     api = GitHub(args.repository)
     event = json.loads(args.event_path.read_text())

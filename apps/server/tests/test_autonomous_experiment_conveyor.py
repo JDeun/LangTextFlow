@@ -6,6 +6,7 @@ import json
 
 from scripts.autonomous_experiment_conveyor import (
     advance,
+    automatic_experiments_paused,
     frozen_preregistration,
     sources,
 )
@@ -310,3 +311,13 @@ def test_all_registered_scientific_stage_names_match_workflow_and_callback() -> 
             workflow,
             flags=re.MULTILINE,
         ), f"{stage['workflow']} callback stage does not match {stage_id}"
+
+
+def test_automatic_experiment_pause_marker_is_explicit_and_reversible(tmp_path):
+    marker = tmp_path / ".pause-autonomous-model-experiments"
+    assert automatic_experiments_paused(None) is False
+    assert automatic_experiments_paused(marker) is False
+    marker.write_text("Paused for code stabilization", encoding="utf-8")
+    assert automatic_experiments_paused(marker) is True
+    marker.unlink()
+    assert automatic_experiments_paused(marker) is False
