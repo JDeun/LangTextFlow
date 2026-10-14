@@ -130,6 +130,33 @@ async def test_runtime_tracks_audio_activity_queue_and_provider_health() -> None
     assert metrics.last_audio_enqueue_wait_ms is not None
 
 
+def test_runtime_reports_postprocessing_overload_and_stale_asr_counts() -> None:
+    runtime = CaptionRuntime()
+    runtime.pipeline.dropped_postprocess_segments = 4
+    runtime.pipeline.failed_postprocess_segments = 2
+    runtime.pipeline.duplicate_asr_events_dropped = 9
+    runtime.stale_asr_events_dropped = 3
+    runtime.pipeline._queue.put_nowait(None)
+
+    first = runtime.metrics_snapshot()
+    assert first.postprocess_queue_depth == 1
+    assert first.postprocess_queue_high_watermark == 1
+    assert first.postprocess_segments_dropped == 4
+    assert first.postprocess_segments_failed == 2
+    assert first.postprocess_duplicate_asr_events_dropped == 9
+    assert first.stale_asr_events_dropped == 3
+
+    runtime.pipeline._queue.get_nowait()
+    runtime.pipeline._queue.task_done()
+    runtime.pipeline.dropped_postprocess_segments += 1
+    second = runtime.metrics_snapshot()
+    assert second.postprocess_queue_depth == 0
+    assert second.postprocess_queue_high_watermark == 1
+    assert second.postprocess_segments_dropped == 5
+    # Returned snapshots must not change after subsequent metrics updates.
+    assert first.postprocess_segments_dropped == 4
+
+
 def test_runtime_metrics_surface_provider_failure() -> None:
     runtime = CaptionRuntime()
     runtime.engine = DummyAudioEngine(runtime.pipeline.ingest, failure="GPU worker failed")

@@ -270,6 +270,16 @@ class CaptionRuntime:
         self.metrics.persistence_queue_capacity = self._persistence_queue.maxsize
         self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
         self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
+        self.metrics.postprocess_queue_high_watermark = max(
+            self.metrics.postprocess_queue_high_watermark,
+            self.pipeline.queue_depth,
+        )
+        self.metrics.postprocess_segments_dropped = self.pipeline.dropped_postprocess_segments
+        self.metrics.postprocess_segments_failed = self.pipeline.failed_postprocess_segments
+        self.metrics.postprocess_duplicate_asr_events_dropped = (
+            self.pipeline.duplicate_asr_events_dropped
+        )
+        self.metrics.stale_asr_events_dropped = self.stale_asr_events_dropped
         self.state.correction_status = self.pipeline.correction_status
         self.state.translation_status = self.pipeline.status
 
