@@ -371,6 +371,10 @@ class ControllableTranslator:
         self.active += 1
         self.max_active = max(self.max_active, self.active)
         try:
+            # Simulate an awaited translation call. An immediate-return fake
+            # cannot demonstrate overlapping language inference even when
+            # the runtime correctly schedules concurrent target tasks.
+            await asyncio.sleep(0)
             self.started.add(target_language)
             if len(self.started) == 2:
                 self.both_started.set()
