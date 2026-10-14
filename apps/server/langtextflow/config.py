@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     vad_hangover_frames: int = Field(default=3, ge=0, le=10_000)
     audio_backpressure_warn_ms: float = Field(default=50.0, ge=0)
     postprocess_drain_timeout_seconds: float = Field(default=1.5, gt=0, le=30)
+    # SQLite/disk errors must not block operator session stop indefinitely.
+    persistence_drain_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
     postprocess_max_parallel_segments: int = Field(default=2, ge=1, le=4)
     # Bound target language inference even when one provider hangs or crashes.
     translation_target_timeout_seconds: float = Field(default=20.0, gt=0, le=120)

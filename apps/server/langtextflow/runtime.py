@@ -83,11 +83,41 @@ class CaptionRuntime:
         task = self._persistence_task
         if task is None:
             return
-        await self._persistence_queue.join()
-        await self._persistence_queue.put(None)
-        await task
-        self._persistence_task = None
-        self._refresh_queue_metrics()
+        try:
+            await asyncio.wait_for(
+                self._persistence_queue.join(),
+                timeout=self.settings.persistence_drain_timeout_seconds,
+            )
+        except TimeoutError:
+            # Preserve live captions; the archive can be incomplete. An
+            # in-flight asyncio.to_thread SQLite write cannot be force-killed
+            # and may still finish after its asyncio waiter is cancelled.
+            # Therefore do not incorrectly count it as a confirmed drop.
+            self.state.persistence_error = (
+                "transcript persistence shutdown deadline exceeded; "
+                "archive may be incomplete"
+            )
+            task.cancel()
+            # Coroutine cancellation releases queue.task_done() in worker
+            # finally; queued, *unstarted* writes cannot execute afterward.
+            with suppress(asyncio.CancelledError, Exception):
+                await task
+            while True:
+                try:
+                    item = self._persistence_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                try:
+                    if item is not None:
+                        self.metrics.persistence_events_dropped += 1
+                finally:
+                    self._persistence_queue.task_done()
+        else:
+            await self._persistence_queue.put(None)
+            await task
+        finally:
+            self._persistence_task = None
+            self._refresh_queue_metrics()
 
     async def shutdown(self) -> None:
         await self.stop()
