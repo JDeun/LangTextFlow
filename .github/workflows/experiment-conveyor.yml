@@ -7,6 +7,9 @@ on:
       - ".github/workflows/experiment-conveyor.yml"
       - ".github/workflows/cpu-model-candidate-gates.yml"
       - ".github/workflows/multilingual-cpu-m2m100.yml"
+      - ".github/workflows/funasr-mlt-glossary-cpu.yml"
+      - "scripts/benchmark_funasr_mlt_glossary_cpu.py"
+      - "benchmarks/church_glossary_multilingual.v1.json"
       - ".github/workflows/church-translation-quality.yml"
       - ".github/workflows/church-live-interpretation-cpu.yml"
       - ".github/workflows/apple-system-translation-research.yml"
@@ -21,6 +24,7 @@ on:
     workflows:
       - "CPU model candidate license and glossary gates"
       - "Multilingual local CPU ASR and M2M100 translation"
+      - "Fun-ASR MLT CPU glossary hotword paired evaluation"
       - "Church translation quality - Linux CPU baseline"
       - "Church live interpretation - real speech Linux CPU"
       - "Apple system Translation text probe (compile-only)"
