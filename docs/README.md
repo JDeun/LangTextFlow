@@ -54,6 +54,7 @@
 | 문서 | 내용 |
 |---|---|
 | [`BENCHMARK.md`](BENCHMARK.md) | ASR/full-runtime benchmark와 soak harness |
+| [`EXPERIMENT_CONVEYOR.md`](EXPERIMENT_CONVEYOR.md) | Actions 한 번 실행으로 Linux CPU 모델 테스트와 macOS 지원 확인을 순차 진행하는 실험 파이프라인 |
 | [`TRANSLATION_BENCHMARK.md`](TRANSLATION_BENCHMARK.md) | translation latency/quality protocol |
 | [`GEMMA_TRANSLATION_RESEARCH.md`](GEMMA_TRANSLATION_RESEARCH.md) | Gemma 3 1B / Gemma 4 E2B / TranslateGemma 4B 실험 후보, 라이선스 게이트, 6방향 기준 |
 | [`CORRECTION_QUALITY.md`](CORRECTION_QUALITY.md) | correction quality gate |
