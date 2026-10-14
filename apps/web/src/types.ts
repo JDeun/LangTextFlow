@@ -293,6 +293,7 @@ export interface RealtimeMetrics {
   postprocess_queue_high_watermark: number;
   postprocess_segments_dropped: number;
   postprocess_segments_failed: number;
+  postprocess_segments_expired: number;
   postprocess_duplicate_asr_events_dropped: number;
   stale_asr_events_dropped: number;
   last_asr_lag_ms: number | null;

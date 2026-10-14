@@ -304,6 +304,7 @@ class CaptionRuntime:
         )
         self.metrics.postprocess_segments_dropped = self.pipeline.dropped_postprocess_segments
         self.metrics.postprocess_segments_failed = self.pipeline.failed_postprocess_segments
+        self.metrics.postprocess_segments_expired = self.pipeline.expired_postprocess_segments
         self.metrics.postprocess_duplicate_asr_events_dropped = (
             self.pipeline.duplicate_asr_events_dropped
         )

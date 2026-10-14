@@ -44,6 +44,7 @@ class RealtimeMetrics(BaseModel):
     postprocess_queue_high_watermark: int = 0
     postprocess_segments_dropped: int = 0
     postprocess_segments_failed: int = 0
+    postprocess_segments_expired: int = 0
     postprocess_duplicate_asr_events_dropped: int = 0
     stale_asr_events_dropped: int = 0
     last_asr_lag_ms: float | None = None

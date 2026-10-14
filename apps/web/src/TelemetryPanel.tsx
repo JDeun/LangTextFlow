@@ -189,13 +189,14 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
               <strong>{metrics.asr_failover_count}</strong>
               <small>{metrics.asr_failover_count > 0 ? copy.recoveredHandoff : copy.none}</small>
             </div>
-            <div className={`telemetry-metric ${queueLevel(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}`}>
+            <div className={`telemetry-metric ${metrics.postprocess_segments_dropped + metrics.postprocess_segments_failed + metrics.postprocess_segments_expired > 0 ? "warning" : queueLevel(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}`}>
               <span>{copy.postprocess}</span>
               <strong>{queueValue(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}</strong>
               <small>
                 {copy.peak} {metrics.postprocess_queue_high_watermark}
                 {" · "}{copy.dropped} {metrics.postprocess_segments_dropped}
                 {" · "}{copy.failed} {metrics.postprocess_segments_failed}
+                {" · "}{copy.expired} {metrics.postprocess_segments_expired}
                 {" · "}{copy.duplicates} {metrics.postprocess_duplicate_asr_events_dropped}
               </small>
             </div>

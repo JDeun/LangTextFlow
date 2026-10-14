@@ -341,7 +341,11 @@ async def test_pipeline_stop_cancels_blocked_postprocessing() -> None:
 
     assert pipeline._worker_task is None
     assert pipeline.queue_depth == 0
-    assert [event.stage for event in published] == [CaptionStage.STABLE]
+    assert [event.stage for event in published] == [
+        CaptionStage.STABLE, CaptionStage.COMMITTED,
+    ]
+    assert published[-1].translation_states == {"en": "unsupported"}
+    assert published[-1].committed is True
 
 
 class ControllableTranslator:
@@ -1030,3 +1034,52 @@ async def test_unexpected_failure_preserves_successful_target_and_finalizes_pend
         assert pipeline._worker_progress == {}
     finally:
         await pipeline.stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_timeout_finalizes_active_and_queued_sources_with_no_pending_targets() -> None:
+    from langtextflow.store import CaptionStore
+
+    events: list[TranscriptEvent] = []
+    store = CaptionStore()
+    translator = ControllableTranslator(stall="en")
+
+    async def publish(event: TranscriptEvent) -> None:
+        store.apply(event)
+        events.append(event)
+
+    pipeline = PipelineWithTranslator(
+        publish, Settings(
+            postprocess_max_parallel_segments=1,
+            postprocess_drain_timeout_seconds=0.05,
+            translation_target_timeout_seconds=10.0,
+        ), translator,
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="demo", resource_profile="low",
+    ))
+    for identity in ("active", "queued"):
+        await pipeline.ingest(TranscriptEvent(
+            segment_id=identity, version=1, stage=CaptionStage.STABLE,
+            text="말씀", source_language="ko", start_ms=0, end_ms=100,
+        ))
+    for _ in range(100):
+        if translator.started:
+            break
+        await asyncio.sleep(0.001)
+    assert "en" in translator.started
+    await asyncio.wait_for(pipeline.stop(), timeout=1.0)
+
+    assert translator.active == 0
+    assert pipeline.expired_postprocess_segments == 2
+    assert pipeline.queue_depth == 0
+    assert len(store.snapshot()) == 2
+    for record in store.snapshot():
+        assert record.committed is True
+        assert record.text == "말씀"
+        assert record.translations == {}
+        assert record.translation_states == {"en": "timed_out"}
+        versions = [item.version for item in events if item.segment_id == record.segment_id]
+        assert versions == sorted(versions)
+    assert pipeline._worker_progress == {}
