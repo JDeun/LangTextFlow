@@ -208,3 +208,75 @@ def test_funasr_negative_scientific_result_does_not_disappear_on_retry():
     assert report["stages"]["funasr"] == "blocked_scientific_or_semantic_failure"
     assert report["stages"]["m2m"] == "dispatched_not_yet_completed"
     assert api.retried == []
+
+
+def test_repository_dispatch_callback_resumes_only_acknowledged_main_study() -> None:
+    event = {
+        "action": "ltf-stage-finished",
+        "client_payload": {"source_sha": FROZEN, "stage": "catalog"},
+    }
+    api = FakeAPI({"catalog": [run("catalog")]})
+    assert sources(api, "repository_dispatch", event, PLAN) == [FROZEN]
+
+    # Neither a forged stage nor an unknown run can seed a costly study.
+    assert sources(FakeAPI(), "repository_dispatch", event, PLAN) == []
+    bad = {"action": "ltf-stage-finished", "client_payload": {
+        "source_sha": FROZEN, "stage": "not_a_stage",
+    }}
+    assert sources(api, "repository_dispatch", bad, PLAN) == []
+
+    pr_run = run("catalog")
+    pr_run["head_branch"] = "not-main"
+    assert sources(
+        FakeAPI({"catalog": [pr_run]}), "repository_dispatch", event, PLAN
+    ) == []
+
+
+def test_repository_dispatch_does_not_accept_unknown_event_or_sha() -> None:
+    api = FakeAPI({"catalog": [run("catalog")]})
+    for action, source in (
+        ("other-event", FROZEN),
+        ("ltf-stage-finished", "main"),
+        ("ltf-stage-finished", "1" * 41),
+    ):
+        event = {
+            "action": action,
+            "client_payload": {"source_sha": source, "stage": "catalog"},
+        }
+        assert sources(api, "repository_dispatch", event, PLAN) == []
+
+
+def test_real_preregistered_dag_advances_without_manual_intervention() -> None:
+    """Real six-stage manifest advances all ready branches on a callback."""
+    from pathlib import Path
+
+    manifest_path = (
+        Path(__file__).resolve().parents[3]
+        / "benchmarks/translation-conveyor-preregistration.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    api = FakeAPI({"catalog": [run("catalog")]})
+
+    first = advance(api, FROZEN, manifest, execute=False)
+    assert set(first["actions"]) == {
+        "dispatch:m2m", "dispatch:apple", "dispatch:funasr",
+    }
+    assert first["stages"]["church_quality"] == "waiting_on_dependency"
+    assert first["stages"]["church_live"] == "waiting_on_dependency"
+
+    api.states["m2m"] = [run("m2m")]
+    second = advance(api, FROZEN, manifest, execute=False)
+    assert "dispatch:church_quality" in second["actions"]
+    assert "dispatch:church_live" not in second["actions"]
+
+    api.states["church_quality"] = [run("church_quality")]
+    third = advance(api, FROZEN, manifest, execute=False)
+    assert "dispatch:church_live" in third["actions"]
+
+    api.states["apple"] = [run("apple")]
+    api.states["funasr"] = [run("funasr")]
+    api.states["church_live"] = [run("church_live")]
+    done = advance(api, FROZEN, manifest, execute=False)
+    assert done["execution_complete"]
+    assert not done["field_ready"]
+    assert not done["translation_quality_certified"]

@@ -137,6 +137,24 @@ def sources(api: GitHub, event_name: str, event: dict, manifest: dict) -> list[s
         title = str(completed.get("display_title") or "")
         m = TITLE.fullmatch(title)
         return [m.group(2)] if m else []
+    if event_name == "repository_dispatch":
+        # repository_dispatch is explicitly allowed to start a workflow
+        # when sent by the built-in GITHUB_TOKEN. A workflow_run callback
+        # from a token-dispatched workflow may never arrive.
+        if event.get("action") != "ltf-stage-finished":
+            return []
+        payload = event.get("client_payload") or {}
+        sha = str(payload.get("source_sha") or "")
+        name = str(payload.get("stage") or "")
+        if not SHA.fullmatch(sha):
+            return []
+        matches = [stage for stage in manifest["stages"] if stage["id"] == name]
+        if len(matches) != 1:
+            return []
+        rows = matching(api, matches[0], sha)
+        if not rows or rows[0].get("head_branch") != "main":
+            return []  # Refuse unacknowledged and PR-origin callback payloads.
+        return [sha]
     if event_name == "schedule":
         found: list[str] = []
         for row in api.runs(manifest["stages"][0]):
@@ -185,6 +203,21 @@ def main() -> None:
     reports = []
     for sha in sources(api, args.event_name, event, plan):
         source_plan = frozen_preregistration(api, sha)
+        if args.event_name == "repository_dispatch" and args.execute:
+            # Callback is sent by the final job, just before the previous
+            # workflow becomes terminal. Wait briefly for GitHub to finalize
+            # its run result so downstream DAG nodes can advance immediately.
+            prev = str((event.get("client_payload") or {}).get("stage") or "")
+            match = next(
+                (stage for stage in source_plan["stages"] if stage["id"] == prev),
+                None,
+            )
+            if match is not None:
+                for _ in range(24):
+                    latest = matching(api, match, sha)
+                    if latest and latest[0].get("status") == "completed":
+                        break
+                    time.sleep(5)
         item = advance(api, sha, source_plan, args.execute)
         item["preregistration_sha256"] = hashlib.sha256(
             json.dumps(source_plan, sort_keys=True).encode()
