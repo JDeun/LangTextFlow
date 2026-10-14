@@ -6,8 +6,9 @@ real-audio quality gate separate from syntactic adapter unit tests.
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from threading import Lock
+from threading import BoundedSemaphore, Lock
 from typing import Any
 
 from ..models import SessionContext
@@ -15,6 +16,24 @@ from .base import TranslationError, Translator
 
 SUPPORTED_LANGUAGES = frozenset({"ko", "en", "ja"})
 MODEL_ID = "facebook/m2m100_418M"
+
+# Process-wide bound: timed-out asyncio callers cannot cancel a running native
+# inference. Limit the model to one CPU worker and three queued requests even
+# if multiple sessions are stopped and restarted while inference is in flight.
+_MAX_NATIVE_JOBS = 4
+_NATIVE_JOB_SLOTS = BoundedSemaphore(_MAX_NATIVE_JOBS)
+_NATIVE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="langtextflow-m2m100-cpu",
+)
+
+
+def _release_native_job_slot(job: Future[str]) -> None:
+    # Consume failures from orphaned/cancelled asyncio waiters; the worker
+    # itself always finishes or fails before its capacity slot is reclaimed.
+    try:
+        job.exception()
+    finally:
+        _NATIVE_JOB_SLOTS.release()
 
 
 class M2M100CT2Translator(Translator):
@@ -84,11 +103,25 @@ class M2M100CT2Translator(Translator):
         # worker thread still runs. Captured resources stay valid until it exits.
         tokenizer = self._tokenizer
         engine = self._engine
+        if not _NATIVE_JOB_SLOTS.acquire(blocking=False):
+            raise TranslationError(
+                "Local M2M100 CPU inference at capacity; source caption preserved"
+            )
         try:
-            return await asyncio.to_thread(
+            job = _NATIVE_EXECUTOR.submit(
                 self._translate_sync, text, source_language, target_language,
                 tokenizer, engine,
             )
+        except Exception as exc:
+            _NATIVE_JOB_SLOTS.release()
+            raise TranslationError("Local M2M100 inference scheduling failed") from exc
+
+        job.add_done_callback(_release_native_job_slot)
+        try:
+            # Shield the native future from asyncio cancellation. A timed-out
+            # session stops awaiting but cannot silently release its slot until
+            # the underlying native operation actually terminates.
+            return await asyncio.shield(asyncio.wrap_future(job))
         except TranslationError:
             raise
         except Exception as exc:
@@ -118,8 +151,8 @@ class M2M100CT2Translator(Translator):
             return candidate
 
     async def close(self) -> None:
-        # Native CPU inference cannot be interrupted by asyncio cancellation.
-        # In-flight calls captured their own engine/tokenizer references above.
-        # Resource-budgeted executor teardown remains a later #157 task.
+        # Native CPU inference cannot be preempted: bounded process-wide jobs
+        # retain strong engine/tokenizer references until the thread exits.
+        # Closing only prevents new submissions through this instance.
         self._engine = None
         self._tokenizer = None
