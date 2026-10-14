@@ -51,7 +51,7 @@ def validate_catalog(document: dict[str, Any]) -> None:
             raise ValueError(f"duplicate model ID: {identifier}")
         seen.add(identifier)
         kind = model.get("kind")
-        if kind not in {"asr", "mt"}:
+        if kind not in {"asr", "mt", "speech_translation"}:
             raise ValueError(f"{identifier}: unrecognized model kind")
         source_languages = model.get("source_languages")
         if (not isinstance(source_languages, list) or not source_languages
@@ -63,7 +63,7 @@ def validate_catalog(document: dict[str, Any]) -> None:
             raise ValueError(f"{identifier}: pairs list required")
         if kind == "asr" and declared_pairs:
             raise ValueError(f"{identifier}: ASR does not translate")
-        if kind == "mt":
+        if kind in {"mt", "speech_translation"}:
             if not declared_pairs or not set(declared_pairs) <= PAIRS:
                 raise ValueError(f"{identifier}: invalid translation pairs")
             if len(declared_pairs) != len(set(declared_pairs)):
@@ -71,6 +71,13 @@ def validate_catalog(document: dict[str, Any]) -> None:
             if any(pair.split("->")[0] not in source_languages
                    for pair in declared_pairs):
                 raise ValueError(f"{identifier}: pair with unsupported source")
+        if kind == "speech_translation":
+            modalities = model.get("input_modalities")
+            if (not isinstance(modalities, list)
+                    or set(modalities) != {"audio", "text"}
+                    or not isinstance(model.get("audio_max_seconds"), int)
+                    or not 1 <= model["audio_max_seconds"] <= 30):
+                raise ValueError(f"{identifier}: audio model needs bounded input duration")
         license_data = model.get("license")
         if not isinstance(license_data, dict):
             raise ValueError(f"{identifier}: license evidence is required")
@@ -82,6 +89,7 @@ def validate_catalog(document: dict[str, Any]) -> None:
             raise ValueError(f"{identifier}: license evidence URL required")
         if status not in {
             VERIFIED, "pending_explicit_permission", "territory_excluded",
+            "terms_review_required", "noncommercial_research_only",
         }:
             raise ValueError(f"{identifier}: unsupported license status")
         if status == VERIFIED:
@@ -90,6 +98,12 @@ def validate_catalog(document: dict[str, Any]) -> None:
         elif status == "pending_explicit_permission":
             if territory != "unknown" or license_id != "unknown":
                 raise ValueError(f"{identifier}: unknown license must block execution")
+        elif status == "terms_review_required":
+            if license_id != "gemma" or territory != "terms_review":
+                raise ValueError(f"{identifier}: Gemma terms must be explicitly reviewed")
+        elif status == "noncommercial_research_only":
+            if license_id != "cc-by-nc-4.0" or territory != "noncommercial_only":
+                raise ValueError(f"{identifier}: noncommercial use must be disclosed")
         elif territory != "south_korea_excluded":
             raise ValueError(f"{identifier}: territory exclusion must be explicit")
         execution = model.get("execution")
@@ -100,7 +114,7 @@ def validate_catalog(document: dict[str, Any]) -> None:
             ("blocked_", "excluded_")
         ):
             raise ValueError(f"{identifier}: blocked license cannot enter experiment")
-        if kind == "mt" and not glossary:
+        if kind in {"mt", "speech_translation"} and not glossary:
             raise ValueError(f"{identifier}: MT glossary handling must be declared")
 
 
@@ -129,8 +143,9 @@ def report(document: dict[str, Any]) -> list[dict[str, Any]]:
         {
             "model_id": model["model_id"],
             "kind": model["kind"],
-            "directions": model["pairs"] if model["kind"] == "mt"
-                          else model["source_languages"],
+            "directions": model["pairs"] if model["kind"] in {
+                "mt", "speech_translation"
+            } else model["source_languages"],
             "license_research_eligible": licensed_for_research(model),
             "glossary_ablation_wired": glossary_ablation_available(model),
             "execution": model["execution"],
