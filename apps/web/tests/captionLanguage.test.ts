@@ -90,3 +90,23 @@ test("empty and whitespace-only translations are not treated as successful outpu
   assert.equal(captionTextForLanguage(event, "ja"), "日本語訳を利用できません。");
   assert.equal(captionTextForLanguage(event, "en"), initial.text);
 });
+
+test("language failure becomes unavailable while other target remains pending", () => {
+  const segment = {
+    ...initial,
+    translations: {},
+    translation_states: { ko: "failed", ja: "pending" } as const,
+  };
+  assert.equal(captionTextForLanguage(segment, "ko"), "한국어 번역을 사용할 수 없습니다.");
+  assert.equal(captionTextForLanguage(segment, "ja"), "日本語に翻訳中…");
+});
+
+test("available partial translation remains visible before other language completes", () => {
+  const segment = {
+    ...initial,
+    translations: { ko: "예수님은 구주이십니다" },
+    translation_states: { ko: "available", ja: "pending" } as const,
+  };
+  assert.equal(captionTextForLanguage(segment, "ko"), "예수님은 구주이십니다");
+  assert.equal(captionTextForLanguage(segment, "ja"), "日本語に翻訳中…");
+});
