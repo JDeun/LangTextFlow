@@ -518,3 +518,145 @@ async def test_low_resource_serializes_model_inference_with_same_outputs() -> No
 
     assert translator.max_active == 1
     assert events[-1].translations == {"en": "en: 말씀", "ja": "ja: 말씀"}
+
+
+class _BlockingFirstSegmentTranslator:
+    provider = "fake"
+    model = "blocking-first-segment"
+    def __init__(self) -> None:
+        self.blocked = asyncio.Event()
+        self.release = asyncio.Event()
+        self.active = 0
+        self.max_active = 0
+
+    async def prepare(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def translate(
+        self, text: str, *, source_language: str, target_language: str,
+        context: SessionContext,
+    ) -> str:
+        del source_language, context
+        self.active += 1
+        self.max_active = max(self.active, self.max_active)
+        try:
+            if text == "first":
+                self.blocked.set()
+                await self.release.wait()
+            return f"{target_language}: {text}"
+        finally:
+            self.active -= 1
+
+
+@pytest.mark.asyncio
+async def test_bounded_segment_workers_prevent_first_utterance_head_of_line_block() -> None:
+    sent: list[TranscriptEvent] = []
+    later_done = asyncio.Event()
+    translator = _BlockingFirstSegmentTranslator()
+
+    async def publish(event: TranscriptEvent) -> None:
+        sent.append(event)
+        if event.segment_id == "second" and event.stage is CaptionStage.COMMITTED:
+            later_done.set()
+
+    pipeline = PipelineWithTranslator(
+        publish, Settings(postprocess_max_parallel_segments=2), translator
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="demo",
+    ))
+    try:
+        for ident, word in [("first", "first"), ("second", "second")]:
+            await pipeline.ingest(TranscriptEvent(
+                segment_id=ident, version=1, stage=CaptionStage.STABLE,
+                source_language="ko", text=word, start_ms=0, end_ms=100,
+            ))
+        await asyncio.wait_for(translator.blocked.wait(), timeout=1)
+        await asyncio.wait_for(later_done.wait(), timeout=1)
+        assert any(x.segment_id == "second" and x.committed for x in sent)
+        assert not any(x.segment_id == "first" and x.committed for x in sent)
+        assert translator.max_active <= 2
+    finally:
+        translator.release.set()
+        await pipeline.stop()
+    assert pipeline._worker_task is None
+    assert pipeline._extra_workers == []
+
+
+@pytest.mark.asyncio
+async def test_low_resource_segment_budget_preserves_serial_inference() -> None:
+    sent: list[TranscriptEvent] = []
+    translator = _BlockingFirstSegmentTranslator()
+    second_done = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        sent.append(event)
+        if event.segment_id == "second" and event.committed:
+            second_done.set()
+
+    pipeline = PipelineWithTranslator(
+        publish, Settings(postprocess_max_parallel_segments=4), translator
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="demo", resource_profile="low",
+    ))
+    try:
+        for ident in ("first", "second"):
+            await pipeline.ingest(TranscriptEvent(
+                segment_id=ident, version=1, stage=CaptionStage.STABLE,
+                source_language="ko", text=ident, start_ms=0, end_ms=100,
+            ))
+        await asyncio.wait_for(translator.blocked.wait(), timeout=1)
+        assert not second_done.is_set()
+        assert len(pipeline._extra_workers) == 0
+        translator.release.set()
+        await asyncio.wait_for(second_done.wait(), timeout=1)
+        assert translator.max_active == 1
+    finally:
+        translator.release.set()
+        await pipeline.stop()
+
+
+class _FailOnceSegmentPipeline(CaptionPipeline):
+    async def _process_stable(self, event: TranscriptEvent) -> None:
+        if event.segment_id == "broken":
+            raise RuntimeError("simulated optional postprocessor failure")
+        await super()._process_stable(event)
+
+
+@pytest.mark.asyncio
+async def test_unexpected_segment_failure_does_not_kill_remaining_worker() -> None:
+    events: list[TranscriptEvent] = []
+    second_done = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        events.append(event)
+        if event.segment_id == "good" and event.committed:
+            second_done.set()
+
+    pipeline = _FailOnceSegmentPipeline(
+        publish, Settings(postprocess_max_parallel_segments=1)
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="demo",
+    ))
+    try:
+        for ident in ("broken", "good"):
+            await pipeline.ingest(TranscriptEvent(
+                segment_id=ident, version=1, stage=CaptionStage.STABLE,
+                source_language="ko", text=ident, start_ms=0, end_ms=100,
+            ))
+        await asyncio.wait_for(second_done.wait(), timeout=1)
+        assert pipeline.failed_postprocess_segments == 1
+        assert any(event.segment_id == "broken" and event.stage is CaptionStage.STABLE
+                   for event in events)
+        assert any(event.segment_id == "good" and event.committed
+                   for event in events)
+    finally:
+        await pipeline.stop()
