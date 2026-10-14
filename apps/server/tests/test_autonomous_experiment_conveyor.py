@@ -55,7 +55,6 @@ def run(stage, status="completed", conclusion="success", attempt=1,
         "display_title": f"ltf-stage-{stage} source={FROZEN}",
         "status": status, "conclusion": conclusion, "run_attempt": attempt,
         "event": "workflow_dispatch", "head_branch": "main",
-        "status": "completed",
         "head_repository": {"full_name": "JDeun/LangTextFlow"},
         "artifact_good": artifact_good,
     }
