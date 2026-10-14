@@ -52,6 +52,7 @@ async def test_hub_fanout_delivers_to_many_clients() -> None:
 
     assert all(client.messages == 1 for client in clients)
     assert hub.client_count == 128
+    await hub.close_all()
 
 
 @pytest.mark.asyncio
@@ -68,6 +69,7 @@ async def test_hub_fanout_evicts_slow_clients_without_dropping_fast_clients() ->
     assert all(client.messages == 1 for client in fast)
     assert all(client.messages == 0 for client in slow)
     assert hub.client_count == len(fast)
+    await hub.close_all()
 
 
 class _RecordedSocket(LoadSocket):
