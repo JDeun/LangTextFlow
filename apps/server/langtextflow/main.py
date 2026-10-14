@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .asr import AsrEngineError
+from .asr.capabilities import AsrCapability, asr_capabilities
 from .audience_security import AudienceJoinRateLimiter
 from .config import get_settings
 from .diagnostics import build_diagnostics_bundle
@@ -297,6 +298,13 @@ async def mdns_status(request: Request) -> dict[str, str | bool | None]:
         "ready": state.ready,
         "error": state.error,
     }
+
+
+@app.get("/api/v1/asr/providers", response_model=list[AsrCapability])
+async def available_asr_providers(request: Request) -> list[AsrCapability]:
+    """Operator-only adapter metadata, never a quality or installation guarantee."""
+    _require_operator(request)
+    return asr_capabilities()
 
 
 @app.get("/api/v1/preflight", response_model=SystemPreflight)
