@@ -10,9 +10,13 @@ from pydantic import BaseModel, Field
 
 from .models import GlossaryEntry, GlossaryRecord, ProductPreset
 
+MAX_PROJECT_GLOSSARY_ENTRIES = 500
+
 
 class ProjectGlossarySnapshot(BaseModel):
-    entries: list[GlossaryEntry] = Field(default_factory=list, max_length=500)
+    entries: list[GlossaryEntry] = Field(
+        default_factory=list, max_length=MAX_PROJECT_GLOSSARY_ENTRIES,
+    )
 
 
 class ProjectGlossaryRepository:
@@ -94,6 +98,12 @@ class ProjectGlossaryRepository:
         record_id = str(uuid4())
         with self._connect() as connection:
             self._validate_project(connection, project_id)
+            existing_count = connection.execute(
+                "SELECT COUNT(*) FROM project_glossary_entries WHERE project_id=?",
+                (project_id,),
+            ).fetchone()[0]
+            if existing_count >= MAX_PROJECT_GLOSSARY_ENTRIES:
+                raise ValueError("project glossary exceeds 500 entries")
             try:
                 connection.execute(
                     "INSERT INTO project_glossary_entries "
@@ -155,7 +165,7 @@ class ProjectGlossaryRepository:
         Preserve existing IDs and created_at for matching source/term keys.
         Validate the complete payload before any destructive SQL statements.
         """
-        if len(entries) > 500:
+        if len(entries) > MAX_PROJECT_GLOSSARY_ENTRIES:
             raise ValueError("project glossary snapshot exceeds 500 entries")
         validated = [GlossaryEntry.model_validate(item.model_dump()) for item in entries]
         keys = [(row.source_language, row.term.casefold()) for row in validated]
@@ -207,6 +217,15 @@ class ProjectGlossaryRepository:
                     "WHERE project_id=?", (project_id,),
                 )
             }
+            # Reserve room for *all* distinct new keys before mutating SQL.
+            # A partial import must never leave a project above the same 500
+            # entry limit enforced by create() and replace_snapshot().
+            new_keys = {
+                (entry.source_language, entry.term.casefold())
+                for entry in entries
+            } - existing.keys()
+            if len(existing) + len(new_keys) > MAX_PROJECT_GLOSSARY_ENTRIES:
+                raise ValueError("project glossary exceeds 500 entries")
             for entry in entries:
                 key = (entry.source_language, entry.term.casefold())
                 stamp = datetime.now(UTC).isoformat()
