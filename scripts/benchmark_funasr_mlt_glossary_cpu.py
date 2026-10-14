@@ -9,9 +9,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import statistics
 import tempfile
 import time
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +61,30 @@ def asr_hotwords(
             if len(terms) >= limit:
                 return terms
     return terms
+
+
+def observed_hotwords(text: str, hotwords: list[str]) -> list[str]:
+    """Lexical observation only; token boundaries protect English suffixes.
+
+    Do not use reference text to choose hotword prompts. The reference is
+    inspected only AFTER decoding to quantify off-target vocabulary insertions.
+    """
+    normalized_text = unicodedata.normalize("NFKC", text).casefold()
+    present: list[str] = []
+    for term in hotwords:
+        needle = unicodedata.normalize("NFKC", term).casefold().strip()
+        if not needle:
+            continue
+        if re.search(r"[a-z0-9]", needle):
+            found = re.search(
+                r"(?<![a-z0-9])" + re.escape(needle) + r"(?![a-z0-9])",
+                normalized_text,
+            ) is not None
+        else:
+            found = needle in normalized_text
+        if found:
+            present.append(term)
+    return present
 
 
 def snapshot_hashes(folder: Path) -> dict[str, str]:
@@ -123,6 +149,9 @@ def evaluate_samples(
                 model, wav, source_language, hotwords=terms
             )
             source_text = sample["text"]
+            reference_terms = set(observed_hotwords(source_text, terms))
+            off_terms = set(observed_hotwords(baseline, terms))
+            on_terms = set(observed_hotwords(assisted, terms))
             rows.append({
                 "id": sample["id"], "pcm_sha256": audio_sha,
                 "audio_seconds": round(duration, 3),
@@ -134,9 +163,12 @@ def evaluate_samples(
                 "baseline_inference_seconds": off_seconds,
                 "assisted_inference_seconds": on_seconds,
                 "source_glossary_terms_used": len(terms),
-                "reference_hotwords_present": [
-                    term for term in terms if term.casefold() in source_text.casefold()
-                ],
+                "reference_hotwords_present": sorted(reference_terms),
+                "baseline_off_target_hotwords": sorted(off_terms - reference_terms),
+                "assisted_off_target_hotwords": sorted(on_terms - reference_terms),
+                "new_off_target_hotwords": sorted(
+                    (on_terms - off_terms) - reference_terms
+                ),
                 "hypothesis_changed": baseline != assisted,
             })
     if not rows:
@@ -152,6 +184,16 @@ def evaluate_samples(
         "glossary_hotwords_sent": terms,
         "glossary_context_source": "source_language_scoped_operator_export",
         "reference_clips_with_glossary_terms": triggered,
+        "clips_changed_by_hotwords": sum(r["hypothesis_changed"] for r in rows),
+        "baseline_off_target_term_count": sum(
+            len(r["baseline_off_target_hotwords"]) for r in rows
+        ),
+        "assisted_off_target_term_count": sum(
+            len(r["assisted_off_target_hotwords"]) for r in rows
+        ),
+        "new_off_target_term_count": sum(
+            len(r["new_off_target_hotwords"]) for r in rows
+        ),
         "glossary_field_qualification": False,
         "glossary_test_status": (
             "lexical_observation_only" if triggered else "not_exercised"
