@@ -339,3 +339,182 @@ async def test_pipeline_stop_cancels_blocked_postprocessing() -> None:
     assert pipeline._worker_task is None
     assert pipeline.queue_depth == 0
     assert [event.stage for event in published] == [CaptionStage.STABLE]
+
+
+class ControllableTranslator:
+    """Deterministic independent-target fixture; no model downloads."""
+    provider = "controlled"
+    model = "fake"
+
+    def __init__(self, *, fail: str | None = None, stall: str | None = None) -> None:
+        self.fail = fail
+        self.stall = stall
+        self.started: set[str] = set()
+        self.both_started = asyncio.Event()
+        self.active = 0
+        self.max_active = 0
+
+    async def prepare(self) -> None:
+        pass
+
+    async def close(self) -> None:
+        pass
+
+    async def translate(
+        self, text: str, *, source_language: str, target_language: str,
+        context: SessionContext,
+    ) -> str:
+        del source_language, context
+        self.active += 1
+        self.max_active = max(self.max_active, self.active)
+        try:
+            # Simulate an awaited translation call. An immediate-return fake
+            # cannot demonstrate overlapping language inference even when
+            # the runtime correctly schedules concurrent target tasks.
+            await asyncio.sleep(0)
+            self.started.add(target_language)
+            if len(self.started) == 2:
+                self.both_started.set()
+            if self.stall == target_language:
+                await asyncio.Event().wait()
+            if self.fail == target_language:
+                raise RuntimeError("injected provider failure with private detail")
+            return f"{target_language}: {text}"
+        finally:
+            self.active -= 1
+
+
+class PipelineWithTranslator(CaptionPipeline):
+    def __init__(self, publish, settings: Settings, translator: ControllableTranslator):
+        super().__init__(publish, settings)
+        self.test_translator = translator
+
+    def _build_translator(self, request: StartSessionRequest):
+        del request
+        return self.test_translator
+
+
+@pytest.mark.asyncio
+async def test_parallel_target_translations_start_before_either_finishes() -> None:
+    events: list[TranscriptEvent] = []
+    committed = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        events.append(event)
+        if event.stage is CaptionStage.COMMITTED:
+            committed.set()
+
+    translator = ControllableTranslator()
+    pipeline = PipelineWithTranslator(publish, Settings(), translator)
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en", "ja"],
+        translation_provider="demo",
+    ))
+    try:
+        await pipeline.ingest(TranscriptEvent(
+            segment_id="one", version=1, stage=CaptionStage.STABLE,
+            text="안녕하세요", source_language="ko", start_ms=0, end_ms=100,
+        ))
+        await asyncio.wait_for(committed.wait(), timeout=1)
+    finally:
+        await pipeline.stop()
+
+    assert translator.max_active == 2
+    assert events[-1].translations == {"en": "en: 안녕하세요", "ja": "ja: 안녕하세요"}
+    assert pipeline.status.errors_by_language == {}
+
+
+@pytest.mark.asyncio
+async def test_target_exception_does_not_erase_other_language_output() -> None:
+    events: list[TranscriptEvent] = []
+    committed = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        events.append(event)
+        if event.stage is CaptionStage.COMMITTED:
+            committed.set()
+
+    pipeline = PipelineWithTranslator(
+        publish, Settings(), ControllableTranslator(fail="en"),
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en", "ja"],
+        translation_provider="demo",
+    ))
+    try:
+        await pipeline.ingest(TranscriptEvent(
+            segment_id="failure", version=1, stage=CaptionStage.STABLE,
+            text="성령", source_language="ko", start_ms=0, end_ms=100,
+        ))
+        await asyncio.wait_for(committed.wait(), timeout=1)
+    finally:
+        await pipeline.stop()
+
+    assert events[0].stage is CaptionStage.STABLE
+    assert events[-1].committed is True
+    assert events[-1].translations == {"ja": "ja: 성령"}
+    assert pipeline.status.errors_by_language == {
+        "en": "translation provider failed unexpectedly",
+    }
+    assert "en:" in (pipeline.status.error or "")
+
+
+@pytest.mark.asyncio
+async def test_target_timeout_is_bounded_and_keeps_other_translation() -> None:
+    events: list[TranscriptEvent] = []
+    committed = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        events.append(event)
+        if event.stage is CaptionStage.COMMITTED:
+            committed.set()
+
+    translator = ControllableTranslator(stall="en")
+    pipeline = PipelineWithTranslator(
+        publish, Settings(translation_target_timeout_seconds=0.05), translator,
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en", "ja"],
+        translation_provider="demo",
+    ))
+    try:
+        await pipeline.ingest(TranscriptEvent(
+            segment_id="timeout", version=1, stage=CaptionStage.STABLE,
+            text="복음", source_language="ko", start_ms=0, end_ms=100,
+        ))
+        await asyncio.wait_for(committed.wait(), timeout=1)
+    finally:
+        await pipeline.stop()
+
+    assert events[-1].translations == {"ja": "ja: 복음"}
+    assert "timed out" in pipeline.status.errors_by_language["en"]
+    assert translator.active == 0
+
+
+@pytest.mark.asyncio
+async def test_low_resource_serializes_model_inference_with_same_outputs() -> None:
+    events: list[TranscriptEvent] = []
+    committed = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        events.append(event)
+        if event.stage is CaptionStage.COMMITTED:
+            committed.set()
+
+    translator = ControllableTranslator()
+    pipeline = PipelineWithTranslator(publish, Settings(), translator)
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en", "ja"],
+        translation_provider="demo", resource_profile="low",
+    ))
+    try:
+        await pipeline.ingest(TranscriptEvent(
+            segment_id="low", version=1, stage=CaptionStage.STABLE,
+            text="말씀", source_language="ko", start_ms=0, end_ms=100,
+        ))
+        await asyncio.wait_for(committed.wait(), timeout=1)
+    finally:
+        await pipeline.stop()
+
+    assert translator.max_active == 1
+    assert events[-1].translations == {"en": "en: 말씀", "ja": "ja: 말씀"}
