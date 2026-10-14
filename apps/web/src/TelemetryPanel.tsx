@@ -199,6 +199,16 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
                 {" · "}{copy.duplicates} {metrics.postprocess_duplicate_asr_events_dropped}
               </small>
             </div>
+            <div className={`telemetry-metric ${metrics.websocket_overflow_evictions + metrics.websocket_send_failures > 0 ? "warning" : "normal"}`}>
+              <span>{copy.audienceClients}</span>
+              <strong>{queueValue(metrics.websocket_clients, metrics.websocket_client_capacity)}</strong>
+              <small>
+                {copy.dropped} {metrics.websocket_overflow_evictions}
+                {" · "}{copy.failed} {metrics.websocket_send_failures}
+                {" · "}{copy.rejected} {metrics.websocket_clients_rejected}
+                {" · "}{copy.peak} {metrics.websocket_client_queue_high_watermark}
+              </small>
+            </div>
             <div className={`telemetry-metric ${queueLevel(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}`}>
               <span>{copy.storage}</span>
               <strong>{queueValue(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}</strong>

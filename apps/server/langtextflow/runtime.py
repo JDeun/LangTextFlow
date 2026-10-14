@@ -270,6 +270,14 @@ class CaptionRuntime:
         self.metrics.persistence_queue_capacity = self._persistence_queue.maxsize
         self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
         self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
+        self.metrics.websocket_clients = self.hub.client_count
+        self.metrics.websocket_client_capacity = self.hub.max_clients
+        self.metrics.websocket_clients_rejected = self.hub.clients_rejected
+        self.metrics.websocket_overflow_evictions = self.hub.clients_evicted_overflow
+        self.metrics.websocket_send_failures = self.hub.clients_evicted_send_failure
+        self.metrics.websocket_client_queue_high_watermark = (
+            self.hub.client_queue_high_watermark
+        )
         self.metrics.postprocess_queue_high_watermark = max(
             self.metrics.postprocess_queue_high_watermark,
             self.pipeline.queue_depth,

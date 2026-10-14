@@ -69,6 +69,8 @@ async def test_hub_fanout_evicts_slow_clients_without_dropping_fast_clients() ->
     assert all(client.messages == 1 for client in fast)
     assert all(client.messages == 0 for client in slow)
     assert hub.client_count == len(fast)
+    assert hub.clients_evicted_send_failure == len(slow)
+    assert hub.clients_evicted_overflow == 0
     await hub.close_all()
 
 
@@ -130,6 +132,8 @@ async def test_slow_client_overflow_evicts_without_silent_revision_loss() -> Non
     for version in range(1, 6):
         hub.enqueue(_event().model_copy(update={"version": version}))
     assert hub.client_count == 0
+    assert hub.clients_evicted_overflow == 1
+    assert hub.client_queue_high_watermark == 2
     await hub.close_all()
     assert slow.closed is True
 
@@ -149,3 +153,17 @@ async def test_runtime_source_publish_does_not_wait_for_audience_send(tmp_path) 
         assert runtime.store.snapshot()[0].text == _event().text
     finally:
         await runtime.hub.close_all()
+
+
+@pytest.mark.asyncio
+async def test_hub_capacity_rejection_is_distinct_from_delivery_failure() -> None:
+    hub = WebSocketHub(max_clients=1, send_timeout_seconds=0.1)
+    first = LoadSocket()
+    rejected = LoadSocket()
+    assert await hub.connect(first)
+    assert not await hub.connect(rejected)
+    assert rejected.closed is True
+    assert hub.clients_rejected == 1
+    assert hub.clients_evicted_overflow == 0
+    assert hub.clients_evicted_send_failure == 0
+    await hub.close_all()

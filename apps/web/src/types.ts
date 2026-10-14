@@ -281,6 +281,12 @@ export interface RealtimeMetrics {
   persistence_queue_capacity: number;
   postprocess_queue_depth: number;
   postprocess_queue_capacity: number;
+  websocket_clients: number;
+  websocket_client_capacity: number;
+  websocket_clients_rejected: number;
+  websocket_overflow_evictions: number;
+  websocket_send_failures: number;
+  websocket_client_queue_high_watermark: number;
   postprocess_queue_high_watermark: number;
   postprocess_segments_dropped: number;
   postprocess_segments_failed: number;
