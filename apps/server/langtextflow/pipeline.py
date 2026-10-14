@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from contextlib import suppress
 from datetime import UTC, datetime
 
@@ -50,6 +51,12 @@ class CaptionPipeline:
         self._translation_limiter = asyncio.Semaphore(1)
         self.dropped_postprocess_segments = 0
         self.failed_postprocess_segments = 0
+        # A final ASR segment may be replayed/duplicated by a provider. Keep a
+        # bounded admission ledger so later PARTIAL/STABLE cannot regress its
+        # already corrected/translated source. Distinct IDs are never deduped
+        # by text, preserving legitimate repeated sentences.
+        self._seen_stable_sources: OrderedDict[str, None] = OrderedDict()
+        self.duplicate_asr_events_dropped = 0
 
     @property
     def queue_depth(self) -> int:
@@ -65,6 +72,8 @@ class CaptionPipeline:
         self._queue = asyncio.Queue(maxsize=128)
         self.dropped_postprocess_segments = 0
         self.failed_postprocess_segments = 0
+        self._seen_stable_sources.clear()
+        self.duplicate_asr_events_dropped = 0
         low_resource = (
             self.settings.resource_profile == "low" or request.resource_profile == "low"
         )
@@ -109,6 +118,19 @@ class CaptionPipeline:
         ]
 
     async def ingest(self, event: TranscriptEvent) -> None:
+        if (
+            event.stage in (CaptionStage.PARTIAL, CaptionStage.STABLE)
+            and event.segment_id in self._seen_stable_sources
+        ):
+            self.duplicate_asr_events_dropped += 1
+            return
+        if event.stage is CaptionStage.STABLE:
+            # Admit the first stable event by *segment identity* before
+            # awaiting publish. A duplicate arriving during its await cannot
+            # launch a second correction/MT worker for the same ID.
+            self._seen_stable_sources[event.segment_id] = None
+            if len(self._seen_stable_sources) > 8192:
+                self._seen_stable_sources.popitem(last=False)
         await self.publish(event)
         if event.stage is CaptionStage.STABLE:
             try:
