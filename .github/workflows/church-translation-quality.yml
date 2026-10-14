@@ -9,6 +9,7 @@ on:
       - "apps/server/langtextflow/translation/ollama.py"
       - "apps/server/langtextflow/translation_benchmark.py"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
