@@ -113,10 +113,7 @@ def test_infrastructure_retried_with_limit_but_negative_artifacts_preserved():
 
 def test_workflow_run_resumes_same_sha_and_hourly_never_creates_unseeded_run():
     api = FakeAPI({"catalog": [run("catalog")]})
-    event = {"workflow_run": {
-        "display_title": f"ltf-stage-m2m source={FROZEN}",
-        "event": "workflow_dispatch", "head_branch": "main",
-    }}
+    event = {"workflow_run": run("m2m")}
     assert sources(api, "workflow_run", event, PLAN) == [FROZEN]
     assert sources(api, "schedule", {}, PLAN) == [FROZEN]
     assert sources(FakeAPI(), "schedule", {}, PLAN) == []
