@@ -1,0 +1,117 @@
+name: Apple system Translation text probe (compile-only)
+
+run-name: ltf-stage-apple source=${{ inputs.source_sha || github.sha }}
+
+on:
+  pull_request:
+    paths:
+      - "experiments/apple_translation/**"
+      - "scripts/benchmark_apple_translation.py"
+      - "apps/server/tests/test_apple_translation_probe.py"
+      - "docs/APPLE_SYSTEM_TRANSLATION.md"
+      - ".github/workflows/apple-system-translation-research.yml"
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Frozen Apple Swift probe implementation revision
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  swift-api-compile:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - name: Report SDK and platform provenance
+        run: |
+          uname -a
+          xcodebuild -version
+          xcrun swiftc --version
+          xcrun --sdk macosx --show-sdk-version
+      - name: Compile native Apple Translation probe without loading models
+        run: |
+          xcrun swiftc -parse-as-library \
+            experiments/apple_translation/AppleTranslationProbe.swift \
+            -o "$RUNNER_TEMP/ltf-apple-translation-probe"
+          test -x "$RUNNER_TEMP/ltf-apple-translation-probe"
+      - name: Record KO EN JA language-pair installation state (not translation)
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          cat > "$RUNNER_TEMP/TranslationAvailability.swift" <<'SWIFT'
+          import Foundation
+          import Translation
+          struct Pair: Codable {
+              let source: String
+              let target: String
+              let status: String
+          }
+          struct Evidence: Codable {
+              let method: String
+              let translationExecuted: Bool
+              let results: [Pair]
+          }
+          @main struct Check {
+              @MainActor
+              static func main() async throws {
+                  let availability = LanguageAvailability()
+                  var results: [Pair] = []
+                  for source in ["ko", "en", "ja"] {
+                      for target in ["ko", "en", "ja"] where source != target {
+                          let status = await availability.status(
+                              from: Locale.Language(identifier: source),
+                              to: Locale.Language(identifier: target)
+                          )
+                          results.append(Pair(
+                              source: source, target: target,
+                              status: String(describing: status)
+                          ))
+                      }
+                  }
+                  let data = try JSONEncoder().encode(
+                      Evidence(method: "LanguageAvailability",
+                               translationExecuted: false, results: results)
+                  )
+                  print(String(decoding: data, as: UTF8.self))
+              }
+          }
+          SWIFT
+          xcrun swiftc -parse-as-library "$RUNNER_TEMP/TranslationAvailability.swift" \
+            -o "$RUNNER_TEMP/ltf-apple-available"
+          "$RUNNER_TEMP/ltf-apple-available" > artifacts/apple-language-availability.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("artifacts/apple-language-availability.json")
+          result = json.loads(path.read_text())
+          assert not result["translationExecuted"]
+          assert len(result["results"]) == 6
+          expected = {(s, t) for s in ("ko", "en", "ja")
+                      for t in ("ko", "en", "ja") if s != t}
+          assert {(item["source"], item["target"])
+                  for item in result["results"]} == expected
+          PY
+      - name: Upload Apple's actual hosted-runner language availability
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: apple-language-availability-only
+          path: artifacts/apple-language-availability.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: State experiment limits
+        run: |
+          {
+            echo "## Apple native Translation compile gate"
+            echo "macOS 26 Swift/Translation SDK syntax compiled."
+            echo "No language assets downloaded, no Apple translation executed."
+            echo "No iPhone executable, no speech Live Translation access."
+            echo "No measured latency, accuracy or real-session readiness."
+            echo "HighFidelity can fall back: requested != actual model identity."
+          } >> "$GITHUB_STEP_SUMMARY"
