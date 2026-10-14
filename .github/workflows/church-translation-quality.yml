@@ -132,3 +132,30 @@ jobs:
       - name: Diagnostics on failed execution
         if: failure()
         run: docker logs --tail 100 ltf-translation-ollama || true
+
+  notify-conveyor:
+    needs: [translation-quality]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.source_sha != '' && github.repository == 'JDeun/LangTextFlow' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Resume research DAG on scientific stage completion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          STAGE: church_quality
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
+          import json
+          import os
+          import re
+          source = os.environ['SOURCE_SHA']
+          assert re.fullmatch(r'[a-f0-9]{40}', source), 'invalid frozen SHA'
+          print(json.dumps({
+              'event_type': 'ltf-stage-finished',
+              'client_payload': {'source_sha': source, 'stage': os.environ['STAGE']},
+          }))
+          PY
