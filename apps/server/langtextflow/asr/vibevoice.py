@@ -52,6 +52,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         self._receiver_task: asyncio.Task[None] | None = None
         self._ended = False
         self._sequence = 0
+        self._transmitted_audio_bytes = 0
         self._failure: str | None = None
 
     @property
@@ -114,6 +115,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         self._queue = asyncio.Queue(maxsize=self.queue_chunks)
         self._ended = False
         self._sequence = 0
+        self._transmitted_audio_bytes = 0
         self._sender_task = asyncio.create_task(self._send_loop(), name="vibevoice-audio-sender")
         self._receiver_task = asyncio.create_task(
             self._receive_loop(), name="vibevoice-transcript-receiver"
@@ -172,6 +174,11 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                         await self._ws.send("end")
                         return
                     await self._ws.send(frame)
+                    # This is physical PCM accepted by the sidecar transport,
+                    # not transcription output count. The remote model has no
+                    # verified word timestamp contract, so never claim captions
+                    # exist later than actual audio provided to the sidecar.
+                    self._transmitted_audio_bytes += len(frame)
                 finally:
                     self._queue.task_done()
                 if self._ended and self._queue.empty():
@@ -205,8 +212,22 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                     continue
                 if len(text) > MAX_ASR_TEXT_CHARS:
                     raise AsrEngineError("VibeVoice transcript exceeded the safety length limit")
+                audio_end_ms = round(
+                    self._transmitted_audio_bytes / (4 * self._sample_rate) * 1000
+                )
+                if audio_end_ms <= 0:
+                    raise AsrEngineError(
+                        "VibeVoice emitted transcript before receiving PCM audio"
+                    )
                 self._sequence += 1
-                start_ms = int((self._sequence - 1) * self._chunk_seconds * 1000)
+                # Only a sequence-based estimate is available; use the
+                # transmitted PCM duration as a strict physical upper bound.
+                # Multiple sidecar segments per audio chunk may share bounds,
+                # rather than claiming fictional word-level alignment.
+                nominal_start = round((self._sequence - 1) * self._chunk_seconds * 1000)
+                nominal_end = round(self._sequence * self._chunk_seconds * 1000)
+                start_ms = min(audio_end_ms, nominal_start)
+                end_ms = max(start_ms, min(audio_end_ms, nominal_end))
                 await self.publish(
                     TranscriptEvent(
                         segment_id=f"vibe-{self._sequence:08d}",
@@ -215,7 +236,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                         source_language=self._request.source_language,
                         text=text,
                         start_ms=start_ms,
-                        end_ms=int(start_ms + self._chunk_seconds * 1000),
+                        end_ms=end_ms,
                     )
                 )
         except asyncio.CancelledError:
