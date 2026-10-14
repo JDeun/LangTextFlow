@@ -59,8 +59,8 @@ from .project_repository import (
     ProjectRepository,
     ProjectTranscriptMatch,
 )
-from .translation.capabilities import TranslationCapability, translation_capabilities
 from .runtime import CaptionRuntime
+from .translation.capabilities import TranslationCapability, translation_capabilities
 from .runtime_install import (
     RuntimeKind,
     RuntimeProvisionJob,
