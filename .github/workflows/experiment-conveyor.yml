@@ -14,6 +14,7 @@ on:
       - ".github/workflows/church-live-interpretation-cpu.yml"
       - ".github/workflows/apple-system-translation-research.yml"
       - "scripts/autonomous_experiment_conveyor.py"
+      - "benchmarks/.pause-autonomous-model-experiments"
       # Product-runtime changes are evaluated on the merged main revision,
       # not by repeating 90–120 minute CPU experiments for every PR revision.
       - "apps/server/langtextflow/pipeline.py"
@@ -73,6 +74,7 @@ jobs:
             --event-path "$GITHUB_EVENT_PATH" \
             --manifest benchmarks/translation-conveyor-preregistration.json \
             --state-out artifacts/autonomous-conveyor-state.json \
+            --pause-file benchmarks/.pause-autonomous-model-experiments \
             --execute
       - name: Summarize individual stage status without quality claims
         if: always()
@@ -85,6 +87,12 @@ jobs:
           if path.is_file():
               report = json.loads(path.read_text())
               lines = ["## LangTextFlow Autonomous Experiment Conveyor"]
+              if report.get("paused"):
+                  lines.append(
+                      "Automatic heavyweight model experiments are PAUSED during "
+                      "product architecture/feature stabilization. Historical "
+                      "scientific evidence is retained; no new stages dispatched."
+                  )
               for group in report.get("results", []):
                   lines.append("### Frozen source " + group["frozen_source_sha"])
                   lines.extend(
