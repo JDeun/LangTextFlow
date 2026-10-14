@@ -1,20 +1,31 @@
 name: Fun-ASR MLT CPU glossary hotword paired evaluation
 
+run-name: ltf-stage-funasr source=${{ inputs.source_sha || github.sha }}
+
 on:
   pull_request:
     paths:
-      - ".github/workflows/funasr-mlt-glossary-cpu.yml"
       - "scripts/benchmark_funasr_mlt_glossary_cpu.py"
       - "apps/server/tests/test_funasr_mlt_glossary_cpu.py"
       - "benchmarks/church_glossary_multilingual.v1.json"
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Frozen Fun-ASR study revision
+        type: string
+        required: false
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: funasr-mlt-cpu-${{ github.ref }}
-  cancel-in-progress: true
+  group: funasr-mlt-cpu-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   asr-hotwords-cpu:
@@ -22,6 +33,8 @@ jobs:
     timeout-minutes: 100
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
