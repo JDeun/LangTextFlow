@@ -6,6 +6,9 @@ import {
   type AudioInputDevice,
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
+import { AsrProviderSelect } from "./AsrProviderSelect";
+import { asrBlockReason } from "./asrCapabilities";
+import { useAsrCapabilities } from "./useAsrCapabilities";
 import { ContextDocumentManager } from "./ContextDocumentManager";
 import { captionTextForLanguage as displayCaption } from "./captionLanguage";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
@@ -217,6 +220,7 @@ function OperatorApp() {
   }
   const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);
   const [engine, setEngine] = useState("auto");
+  const asrRegistry = useAsrCapabilities();
   const [resourceProfile, setResourceProfile] = useState<"standard" | "low">("standard");
   const [correctionProvider, setCorrectionProvider] = useState("none");
   const [correctionModel, setCorrectionModel] = useState("qwen3.5:4b");
@@ -358,6 +362,10 @@ function OperatorApp() {
   }
 
   async function assertPreflightReady() {
+    const asrReason = asrBlockReason(asrRegistry, engine, sourceLanguage);
+    if (asrReason !== null) {
+      throw new Error(`ASR provider unavailable or unsupported (${asrReason})`);
+    }
     const reason = providerBlockReason(
       translationRegistry, translationProvider, sourceLanguage, targetLanguages, engine,
     );
@@ -534,6 +542,7 @@ function OperatorApp() {
         onEngineChange={changeEngine}
         onTranslationProviderChange={setTranslationProvider}
         translationRegistry={translationRegistry}
+        asrRegistry={asrRegistry}
         onTranslationModelChange={setTranslationModel}
         onSourceLanguageChange={changeSourceLanguage}
         onTargetLanguagesChange={changeTargetLanguages}
@@ -713,17 +722,13 @@ function OperatorApp() {
             <div className="settings-group-body">
           <label>
             {t("engines.asr")}
-            <select
-              data-testid="engine-select"
+            <AsrProviderSelect
               value={engine}
-              onChange={(event) => changeEngine(event.target.value)}
+              onChange={changeEngine}
               disabled={running}
-            >
-              <option value="auto">Auto · VibeVoice → faster-whisper</option>
-              <option value="vibevoice">VibeVoice Streaming (local sidecar)</option>
-              <option value="faster-whisper">faster-whisper (local fallback)</option>
-              <option value="mock">Demo engine</option>
-            </select>
+              sourceLanguage={sourceLanguage}
+              registry={asrRegistry}
+            />
             {engine === "auto" && (
               <small>{t("engines.autoHelp")}</small>
             )}
