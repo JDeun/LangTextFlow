@@ -68,3 +68,65 @@ async def test_hub_fanout_evicts_slow_clients_without_dropping_fast_clients() ->
     assert all(client.messages == 1 for client in fast)
     assert all(client.messages == 0 for client in slow)
     assert hub.client_count == len(fast)
+
+
+class _RecordedSocket(LoadSocket):
+    def __init__(self, *, delay: float = 0.0) -> None:
+        super().__init__(delay=delay)
+        self.payloads: list[dict[str, object]] = []
+
+    async def send_json(self, payload: dict[str, object]) -> None:
+        await super().send_json(payload)
+        self.payloads.append(payload)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_is_first_even_if_followup_event_is_immediate() -> None:
+    hub = WebSocketHub()
+    client = _RecordedSocket()
+    await hub.connect(
+        client,
+        initial_snapshot=lambda: {"type": "snapshot", "segments": []},
+    )
+    hub.enqueue(_event())
+    for _ in range(200):
+        if len(client.payloads) == 2:
+            break
+        await asyncio.sleep(0.001)
+    assert len(client.payloads) == 2
+    assert client.payloads[0] == {"type": "snapshot", "segments": []}
+    assert client.payloads[1]["segment_id"] == "fanout-load"
+    await hub.close_all()
+
+
+@pytest.mark.asyncio
+async def test_nonblocking_enqueue_avoids_stalled_client() -> None:
+    hub = WebSocketHub(send_timeout_seconds=0.05, max_pending_messages=4)
+    fast = _RecordedSocket()
+    slow = _RecordedSocket(delay=0.5)
+    assert await hub.connect(fast)
+    assert await hub.connect(slow)
+    async def send_many() -> None:
+        hub.enqueue(_event())
+        hub.enqueue(_event())
+    await asyncio.wait_for(send_many(), timeout=0.05)
+    for _ in range(150):
+        if fast.messages == 2 and hub.client_count == 1:
+            break
+        await asyncio.sleep(0.001)
+    assert fast.messages == 2
+    assert slow.messages == 0
+    assert hub.client_count == 1
+    await hub.close_all()
+
+
+@pytest.mark.asyncio
+async def test_slow_client_overflow_evicts_without_silent_revision_loss() -> None:
+    hub = WebSocketHub(send_timeout_seconds=0.3, max_pending_messages=2)
+    slow = _RecordedSocket(delay=0.5)
+    assert await hub.connect(slow)
+    for version in range(1, 6):
+        hub.enqueue(_event().model_copy(update={"version": version}))
+    assert hub.client_count == 0
+    await hub.close_all()
+    assert slow.closed is True
