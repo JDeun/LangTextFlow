@@ -33,6 +33,12 @@ class WebSocketHub:
         self._clients: dict[WebSocket, _ClientDelivery] = {}
         self._connect_lock = asyncio.Lock()
         self._closing_tasks: set[asyncio.Task[None]] = set()
+        # Admission/eviction statistics are process-local telemetry only; no
+        # client addresses, transcript contents or credentials are retained.
+        self.clients_rejected = 0
+        self.clients_evicted_overflow = 0
+        self.clients_evicted_send_failure = 0
+        self.client_queue_high_watermark = 0
 
     @property
     def client_count(self) -> int:
@@ -44,6 +50,7 @@ class WebSocketHub:
     ) -> bool:
         async with self._connect_lock:
             if len(self._clients) >= self.max_clients:
+                self.clients_rejected += 1
                 await websocket.close(code=1013, reason="caption client capacity reached")
                 return False
             await websocket.accept()
@@ -95,6 +102,7 @@ class WebSocketHub:
                     if acknowledgment is not None and not acknowledgment.done():
                         acknowledgment.set_result(succeeded)
                     if not succeeded:
+                        self.clients_evicted_send_failure += 1
                         self.disconnect(websocket)
                         await self._close_one(
                             websocket, code=1013, reason="caption delivery timed out"
@@ -126,8 +134,12 @@ class WebSocketHub:
             return False
         try:
             client.queue.put_nowait((payload, acknowledgment))
+            self.client_queue_high_watermark = max(
+                self.client_queue_high_watermark, client.queue.qsize(),
+            )
             return True
         except asyncio.QueueFull:
+            self.clients_evicted_overflow += 1
             # Resync via a new authorized snapshot instead of silently losing
             # middle revisions while keeping a client connected.
             self.disconnect(websocket)

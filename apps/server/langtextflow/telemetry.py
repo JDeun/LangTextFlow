@@ -32,6 +32,12 @@ class RealtimeMetrics(BaseModel):
     persistence_queue_capacity: int = 0
     postprocess_queue_depth: int = 0
     postprocess_queue_capacity: int = 0
+    websocket_clients: int = 0
+    websocket_client_capacity: int = 0
+    websocket_clients_rejected: int = 0
+    websocket_overflow_evictions: int = 0
+    websocket_send_failures: int = 0
+    websocket_client_queue_high_watermark: int = 0
     postprocess_queue_high_watermark: int = 0
     postprocess_segments_dropped: int = 0
     postprocess_segments_failed: int = 0
