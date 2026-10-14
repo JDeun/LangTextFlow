@@ -8,6 +8,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from langtextflow import main as main_module
 from langtextflow.audience_security import AudienceJoinRateLimiter
+from langtextflow.config import Settings
 from langtextflow.models import (
     AudioStreamInfo,
     CaptionStage,
@@ -15,6 +16,7 @@ from langtextflow.models import (
     SessionState,
     TranscriptEvent,
 )
+from langtextflow.translation.capabilities import translation_capabilities
 
 
 def _local_client() -> TestClient:
@@ -295,6 +297,26 @@ def test_declared_local_mt_capabilities_are_unverified_and_fail_closed() -> None
     # Model binaries may not be installed in a CI runner. A declaration of
     # support never implies the checkpoint is installed or quality-certified.
     assert isinstance(local["configured"], bool)
-    assert records["openai-compatible"]["local_only"] is False
+    assert isinstance(records["openai-compatible"]["local_only"], bool)
     assert records["ollama"]["supported_pairs"] is None
     assert all(not x["field_qualified"] for x in records.values())
+
+
+def test_translation_endpoint_location_capabilities_are_configuration_scoped() -> None:
+    local = {entry.provider: entry for entry in translation_capabilities(
+        Settings(
+            ollama_url="http://127.0.0.1:11434",
+            openai_compatible_url="http://localhost:1234/v1",
+        )
+    )}
+    assert local["ollama"].local_only is True
+    assert local["openai-compatible"].local_only is True
+
+    remote = {entry.provider: entry for entry in translation_capabilities(
+        Settings(
+            ollama_url="https://ollama.example.test",
+            openai_compatible_url="https://api.example.test/v1",
+        )
+    )}
+    assert remote["ollama"].local_only is False
+    assert remote["openai-compatible"].local_only is False
