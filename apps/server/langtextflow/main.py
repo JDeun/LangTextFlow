@@ -59,6 +59,7 @@ from .project_repository import (
     ProjectRepository,
     ProjectTranscriptMatch,
 )
+from .translation.capabilities import TranslationCapability, translation_capabilities
 from .runtime import CaptionRuntime
 from .runtime_install import (
     RuntimeKind,
@@ -297,6 +298,13 @@ async def mdns_status(request: Request) -> dict[str, str | bool | None]:
         "ready": state.ready,
         "error": state.error,
     }
+
+
+@app.get("/api/v1/translation/providers", response_model=list[TranslationCapability])
+async def available_translation_providers(request: Request) -> list[TranslationCapability]:
+    """Expose declared model compatibility, not unmeasured quality guarantees."""
+    _require_operator(request)
+    return translation_capabilities(settings)
 
 
 @app.get("/api/v1/preflight", response_model=SystemPreflight)
