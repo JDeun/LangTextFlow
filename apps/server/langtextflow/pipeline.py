@@ -177,7 +177,9 @@ class CaptionPipeline:
 
     async def _correct(self, text: str) -> tuple[str, CorrectionProvenance]:
         assert self.request is not None
-        deterministic = self.deterministic_corrector.correct(text, self.request.context)
+        deterministic = self.deterministic_corrector.correct(
+            text, self.request.context, source_language=self.request.source_language
+        )
         deterministic_changed = deterministic != text
         provider = self.request.correction_provider
         model = getattr(self.llm_corrector, "model", None)
