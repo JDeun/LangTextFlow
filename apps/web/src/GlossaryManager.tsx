@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GLOSSARY_COPY } from "./glossaryCopy";
+import { visibleGlossaryRows } from "./glossaryScope";
 import {
   existingGlossaryDraft, glossaryPayload, GLOSSARY_PRESETS,
   newGlossaryDraft, type GlossaryDraft,
@@ -46,7 +47,15 @@ export function GlossaryManager({
     ? `${apiUrl}/api/v1/projects/${encodeURIComponent(projectId)}/glossary`
     : `${apiUrl}/api/v1/glossary`;
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const [entries, setEntries] = useState<GlossaryRecord[]>([]);
+  // Never render rows fetched for an earlier project/global scope.
+  // Scope-tagged projections prevent a transient cross-project exposure before
+  // React's effect cleanup gets a chance to invalidate the stale request.
+  const [projection, setProjection] = useState<{
+    scope: string;
+    rows: GlossaryRecord[];
+  }>({ scope: glossaryRoot, rows: [] });
+  const entries = visibleGlossaryRows(projection, glossaryRoot);
+  const latestRefresh = useRef(0);
   const [draft, setDraft] = useState<GlossaryDraft>(() => newGlossaryDraft(preset, sourceLanguage));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importPolicy, setImportPolicy] = useState<ImportConflictPolicy>("upsert");
@@ -55,20 +64,34 @@ export function GlossaryManager({
   const [notice, setNotice] = useState("");
 
   const refresh = useCallback(async () => {
+    const request = ++latestRefresh.current;
     const response = await fetch(glossaryRoot);
     if (!response.ok) throw new Error(copy.loadFailed);
-    setEntries((await response.json()) as GlossaryRecord[]);
-  }, [glossaryRoot]);
+    const rows = (await response.json()) as GlossaryRecord[];
+    // A response cannot win after a scope switch or a newer refresh.
+    if (request === latestRefresh.current) {
+      setProjection({ scope: glossaryRoot, rows });
+    }
+  }, [glossaryRoot, copy.loadFailed]);
 
   useEffect(() => {
-    // Prevent a draft/edit selection from leaking across glossary scopes.
-    setEntries([]);
+    // The old projection becomes invisible *during render*, before this runs.
+    // Invalidate late reads, old draft selection and stale scope errors.
+    latestRefresh.current++;
+    setProjection({ scope: glossaryRoot, rows: [] });
     setEditingId(null);
     setDraft(newGlossaryDraft(preset, sourceLanguage));
     setError("");
     setNotice("");
-    refresh().catch((reason: Error) => setError(reason.message));
-  }, [refresh]);
+    let current = true;
+    refresh().catch((reason: Error) => {
+      if (current) setError(reason.message);
+    });
+    return () => {
+      current = false;
+      latestRefresh.current++;
+    };
+  }, [refresh, preset, sourceLanguage]);
 
   const applicableCount = useMemo(
     () => entries.filter(
