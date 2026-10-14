@@ -804,3 +804,80 @@ async def test_pipeline_stop_cancels_all_progressive_target_tasks() -> None:
     assert "en" in translator.started
     await asyncio.wait_for(pipeline.stop(), timeout=0.5)
     assert translator.active == 0
+
+
+@pytest.mark.asyncio
+async def test_replayed_stable_and_late_partial_cannot_regress_committed_source() -> None:
+    from langtextflow.store import CaptionStore
+
+    store = CaptionStore()
+    done = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        store.apply(event)
+        if event.segment_id == "replay" and event.committed:
+            done.set()
+
+    pipeline = CaptionPipeline(publish, Settings())
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="none",
+    ))
+    try:
+        partial = TranscriptEvent(
+            segment_id="replay", version=1, stage=CaptionStage.PARTIAL,
+            source_language="ko", text="은", start_ms=0,
+        )
+        stable = partial.model_copy(update={
+            "version": 2, "stage": CaptionStage.STABLE, "text": "은혜",
+            "end_ms": 500,
+        })
+        await pipeline.ingest(partial)
+        await pipeline.ingest(stable)
+        await asyncio.wait_for(done.wait(), timeout=1)
+        # These would trigger CaptionStore's backwards-stage/immutable checks
+        # without the source-admission fence.
+        await pipeline.ingest(stable.model_copy(update={"version": 10}))
+        await pipeline.ingest(partial.model_copy(update={"version": 11}))
+        assert pipeline.duplicate_asr_events_dropped == 2
+        assert pipeline.queue_depth == 0
+        persisted = store.snapshot()
+        assert len(persisted) == 1
+        assert persisted[0].committed
+        assert persisted[0].text == "은혜"
+    finally:
+        await pipeline.stop()
+
+
+@pytest.mark.asyncio
+async def test_identical_repeated_speech_with_new_segment_id_is_not_deduped() -> None:
+    from langtextflow.store import CaptionStore
+
+    store = CaptionStore()
+    committed: set[str] = set()
+    both = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        store.apply(event)
+        if event.committed:
+            committed.add(event.segment_id)
+            if len(committed) == 2:
+                both.set()
+
+    pipeline = CaptionPipeline(publish, Settings())
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="none",
+    ))
+    try:
+        for segment_id in ("first-amen", "second-amen"):
+            await pipeline.ingest(TranscriptEvent(
+                segment_id=segment_id, version=1, stage=CaptionStage.STABLE,
+                source_language="ko", text="아멘", start_ms=0, end_ms=200,
+            ))
+        await asyncio.wait_for(both.wait(), timeout=1)
+        assert committed == {"first-amen", "second-amen"}
+        assert pipeline.duplicate_asr_events_dropped == 0
+        assert len(store.snapshot()) == 2
+    finally:
+        await pipeline.stop()
