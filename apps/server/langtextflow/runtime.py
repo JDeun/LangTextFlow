@@ -327,7 +327,10 @@ class CaptionRuntime:
             self.history.project_exists, request.project_id,
         ):
             raise ValueError("project not found")
-        # Validate the new request before interrupting any active live event.
+        # Reject malformed provider IDs and unsupported directed language
+        # pairs before tearing down a healthy session from another operator.
+        # Provider readiness remains a separate recoverable preflight check.
+        self.pipeline.validate_provider_configuration(request)
         engine = self._build_engine(request)
         generation = object()
 
