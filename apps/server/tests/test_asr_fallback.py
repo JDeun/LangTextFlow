@@ -291,3 +291,35 @@ async def test_replay_fallback_fences_old_session_callbacks_across_restart() -> 
     await new.emit(segment_id="current", start_ms=0, end_ms=300, text="valid")
     assert [event.text for event in published] == ["old", "valid"]
     await wrapper.stop()
+
+
+@pytest.mark.asyncio
+async def test_replay_fallback_stop_does_not_wait_for_stuck_audio_lock() -> None:
+    import asyncio
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class StalledEngine(FakeEngine):
+        async def feed_audio(self, pcm_f32le: bytes) -> None:
+            started.set()
+            await release.wait()
+            await super().feed_audio(pcm_f32le)
+
+    async def publish(_event: TranscriptEvent) -> None:
+        pass
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("stalled", lambda sink: StalledEngine(sink))],
+        health_check_seconds=60.0,
+    )
+    await wrapper.start(StartSessionRequest(engine="auto"))
+    in_flight = asyncio.create_task(wrapper.feed_audio(pcm(20, 0.1)))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        # Provider callback fencing must not add an unbounded wait for _lock.
+        await asyncio.wait_for(wrapper.stop(), timeout=0.2)
+        assert wrapper.active_provider is None
+    finally:
+        release.set()
+        await asyncio.gather(in_flight, return_exceptions=True)
