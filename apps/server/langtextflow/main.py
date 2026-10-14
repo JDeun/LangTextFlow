@@ -68,6 +68,7 @@ from .runtime_install import (
     RuntimeStatus,
 )
 from .telemetry import RealtimeMetrics
+from .translation.capabilities import TranslationCapability, translation_capabilities
 from .vibevoice_lifecycle import VibeVoiceLifecycleManager, VibeVoiceLifecycleState
 
 settings = get_settings()
@@ -305,6 +306,13 @@ async def available_asr_providers(request: Request) -> list[AsrCapability]:
     """Operator-only adapter metadata, never a quality or installation guarantee."""
     _require_operator(request)
     return asr_capabilities()
+
+
+@app.get("/api/v1/translation/providers", response_model=list[TranslationCapability])
+async def available_translation_providers(request: Request) -> list[TranslationCapability]:
+    """Expose declared model compatibility, not unmeasured quality guarantees."""
+    _require_operator(request)
+    return translation_capabilities(settings)
 
 
 @app.get("/api/v1/preflight", response_model=SystemPreflight)

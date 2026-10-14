@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     resource_profile: Literal["standard", "low"] = "standard"
     low_resource_whisper_model: Literal["tiny", "base", "small"] = "base"
     low_resource_cpu_threads: int = Field(default=2, ge=1, le=16)
+    # Explicit local cache paths: no automatic Hugging Face download.
+    local_m2m100_ct2_dir: str = "data/model-cache/m2m100-ct2"
+    local_m2m100_tokenizer_dir: str = "data/model-cache/m2m100-tokenizer"
+    local_m2m100_cpu_threads: int = Field(default=2, ge=1, le=16)
     faster_whisper_model: str = "small"
     faster_whisper_device: str = "auto"
     faster_whisper_compute_type: str = "default"

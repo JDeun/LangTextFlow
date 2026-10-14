@@ -749,6 +749,7 @@ function OperatorApp() {
             >
               {engine === "mock" && <option value="demo">Demo translator</option>}
               <option value="ollama">Ollama (local)</option>
+              <option value="m2m100-ct2">M2M100 CT2 CPU (experimental; local cache)</option>
               <option value="openai-compatible">OpenAI-compatible API</option>
               <option value="none">{operatorCopy.noTranslation}</option>
             </select>

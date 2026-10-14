@@ -588,6 +588,9 @@ def _blocking_checks(
             blocking.append("openai-compatible")
         if not _is_ready(indexed.get("openai-compatible-model")):
             blocking.append("openai-compatible-model")
+    elif translation_provider == "m2m100-ct2":
+        if not _is_ready(indexed.get("m2m100-local")):
+            blocking.append("m2m100-local")
     elif translation_provider not in {"none", "demo"}:
         blocking.append("translation-provider")
 
@@ -702,6 +705,11 @@ async def run_preflight(
         *ollama,
         *openai_compatible,
     ]
+    if translation_provider == "m2m100-ct2":
+        # Lazy import avoids a module cycle with preflight's CheckStatus.
+        from .local_mt_preflight import local_m2m100_check
+
+        checks.append(local_m2m100_check(settings))
     if memory_gb is not None:
         checks.append(
             PreflightCheck(
@@ -741,6 +749,8 @@ async def run_preflight(
         selected_model = ollama_model
     elif translation_provider == "openai-compatible":
         selected_model = openai_model or None
+    elif translation_provider == "m2m100-ct2":
+        selected_model = "facebook/m2m100_418M (local CT2, experimental)"
 
     return SystemPreflight(
         requested_engine=engine,
