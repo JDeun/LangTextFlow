@@ -290,18 +290,29 @@ class CaptionPipeline:
         assert self.request is not None
         version = event.version + 1
         corrected_text, provenance = await self._correct(event.text)
+        targets = self.request.target_languages
+        enabled = self.translator is not None and self.status.available
+        states: dict[str, str] = {
+            language: (
+                "pending" if enabled else
+                "unsupported" if self.translator is None else "failed"
+            )
+            for language in targets
+        }
         corrected = self._next_event(
             event,
             version=version,
             stage=CaptionStage.CORRECTED,
             text=corrected_text,
             correction=provenance,
+            translation_states=states,
         )
         await self.publish(corrected)
 
         translations: dict[str, str] = {}
-        if self.translator is not None and self.status.available:
-            targets = self.request.target_languages
+        base = corrected
+        if enabled:
+            assert self.translator is not None
             limiter = self._translation_limiter
 
             async def translate_target(target: str) -> tuple[str, str | None, str | None]:
@@ -327,34 +338,50 @@ class CaptionPipeline:
                     except TranslationError as exc:
                         return target, None, str(exc)
                     except Exception:
-                        # Bad adapters must not tear down the caption worker.
-                        # Do not expose raw provider exceptions to audience or logs.
                         return target, None, "translation provider failed unexpectedly"
 
-            # A single slow target must not prevent another target starting.
-            # The bounded semaphore protects low-spec CPUs from model overload.
-            results = await asyncio.gather(*(translate_target(t) for t in targets))
-            errors = {target: error for target, _, error in results if error is not None}
-            self.status.errors_by_language = errors
-            self.status.error = "; ".join(
-                f"{target}: {error}" for target, error in errors.items()
-            ) or None
-            translations = {
-                target: result for target, result, error in results
-                if result is not None and error is None
-            }
-
-        base = corrected
-        if translations:
-            version += 1
-            base = self._next_event(
-                corrected,
-                version=version,
-                stage=CaptionStage.TRANSLATED,
-                text=corrected_text,
-                translations=translations,
-            )
-            await self.publish(base)
+            tasks = [
+                asyncio.create_task(
+                    translate_target(target), name=f"caption-mt-{target}"
+                ) for target in targets
+            ]
+            errors: dict[str, str] = {}
+            try:
+                # Publish each target's completion without awaiting unrelated
+                # languages; send cumulative translation snapshots, not deltas.
+                for result in asyncio.as_completed(tasks):
+                    target, translated, error = await result
+                    if error is not None:
+                        states[target] = (
+                            "timed_out" if error.startswith("translation timed out")
+                            else "failed"
+                        )
+                        errors[target] = error
+                    else:
+                        assert translated is not None
+                        states[target] = "available"
+                        translations[target] = translated
+                    self.status.errors_by_language = dict(errors)
+                    self.status.error = "; ".join(
+                        f"{language}: {reason}" for language, reason in errors.items()
+                    ) or None
+                    version += 1
+                    base = self._next_event(
+                        base,
+                        version=version,
+                        stage=CaptionStage.TRANSLATED,
+                        text=corrected_text,
+                        translations=translations,
+                        translation_states=states,
+                    )
+                    await self.publish(base)
+            finally:
+                # as_completed() launches target tasks eagerly. On session
+                # stop/restart, do not leave orphaned provider inference behind.
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         version += 1
         committed = self._next_event(
@@ -363,6 +390,7 @@ class CaptionPipeline:
             stage=CaptionStage.COMMITTED,
             text=corrected_text,
             translations=translations,
+            translation_states=states,
             committed=True,
         )
         await self.publish(committed)
@@ -375,6 +403,7 @@ class CaptionPipeline:
         stage: CaptionStage,
         text: str,
         translations: dict[str, str] | None = None,
+        translation_states: dict[str, str] | None = None,
         correction: CorrectionProvenance | None = None,
         committed: bool = False,
     ) -> TranscriptEvent:
@@ -384,7 +413,8 @@ class CaptionPipeline:
             stage=stage,
             source_language=previous.source_language,
             text=text,
-            translations=translations or {},
+            translations=dict(translations or {}),
+            translation_states=dict(translation_states or {}),
             start_ms=previous.start_ms,
             end_ms=previous.end_ms,
             speaker=previous.speaker,
