@@ -244,3 +244,39 @@ def test_repository_dispatch_does_not_accept_unknown_event_or_sha() -> None:
             "client_payload": {"source_sha": source, "stage": "catalog"},
         }
         assert sources(api, "repository_dispatch", event, PLAN) == []
+
+
+def test_real_preregistered_dag_advances_without_manual_intervention() -> None:
+    """Real six-stage manifest advances all ready branches on a callback."""
+    from pathlib import Path
+
+    manifest_path = (
+        Path(__file__).resolve().parents[3]
+        / "benchmarks/translation-conveyor-preregistration.json"
+    )
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    api = FakeAPI({"catalog": [run("catalog")]})
+
+    first = advance(api, FROZEN, manifest, execute=False)
+    assert set(first["actions"]) == {
+        "dispatch:m2m", "dispatch:apple", "dispatch:funasr",
+    }
+    assert first["stages"]["church_quality"] == "waiting_on_dependency"
+    assert first["stages"]["church_live"] == "waiting_on_dependency"
+
+    api.states["m2m"] = [run("m2m")]
+    second = advance(api, FROZEN, manifest, execute=False)
+    assert "dispatch:church_quality" in second["actions"]
+    assert "dispatch:church_live" not in second["actions"]
+
+    api.states["church_quality"] = [run("church_quality")]
+    third = advance(api, FROZEN, manifest, execute=False)
+    assert "dispatch:church_live" in third["actions"]
+
+    api.states["apple"] = [run("apple")]
+    api.states["funasr"] = [run("funasr")]
+    api.states["church_live"] = [run("church_live")]
+    done = advance(api, FROZEN, manifest, execute=False)
+    assert done["execution_complete"]
+    assert not done["field_ready"]
+    assert not done["translation_quality_certified"]
