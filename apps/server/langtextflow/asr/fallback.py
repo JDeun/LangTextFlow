@@ -418,11 +418,19 @@ class ReplayFallbackAsrEngine(AsrEngine):
         raise AsrEngineError(self._failure)
 
     def _remember_audio(self, pcm_f32le: bytes) -> None:
-        self._audio_frames.append(pcm_f32le)
-        self._buffer_bytes += len(pcm_f32le)
+        # Timeline always accounts for the *full* accepted audio frame, even
+        # when only its tail is eligible for replay after a provider failure.
         self._audio_cursor_ms += len(pcm_f32le) / 4 / self._sample_rate * 1000.0
         max_bytes = max(4, int(self.replay_seconds * self._sample_rate * 4))
-        while self._buffer_bytes > max_bytes and len(self._audio_frames) > 1:
+        # PCM f32 sample boundaries must stay aligned when trimming.
+        max_bytes = max(4, max_bytes - max_bytes % 4)
+        # A single audio frame may exceed the entire replay budget. Previously
+        # the ring retained such a frame because it only evicted while more
+        # than one item existed, defeating its memory bound.
+        replay_tail = pcm_f32le[-max_bytes:]
+        self._audio_frames.append(replay_tail)
+        self._buffer_bytes += len(replay_tail)
+        while self._buffer_bytes > max_bytes:
             removed = self._audio_frames.popleft()
             self._buffer_bytes -= len(removed)
 
