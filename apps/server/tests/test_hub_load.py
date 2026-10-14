@@ -130,3 +130,20 @@ async def test_slow_client_overflow_evicts_without_silent_revision_loss() -> Non
     assert hub.client_count == 0
     await hub.close_all()
     assert slow.closed is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_source_publish_does_not_wait_for_audience_send(tmp_path) -> None:
+    from langtextflow.config import Settings
+    from langtextflow.runtime import CaptionRuntime
+
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "fanout.db")))
+    stalled = _RecordedSocket(delay=0.5)
+    await runtime.hub.connect(stalled)
+    try:
+        # This fails with the old await hub.broadcast() runtime path,
+        # because the slow subscriber takes much longer than the deadline.
+        await asyncio.wait_for(runtime._publish(_event()), timeout=0.1)
+        assert runtime.store.snapshot()[0].text == _event().text
+    finally:
+        await runtime.hub.close_all()
