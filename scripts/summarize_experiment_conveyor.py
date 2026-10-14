@@ -9,6 +9,7 @@ STAGES = ("catalog", "m2m_cpu", "church_quality", "church_live", "apple")
 EXPECTED = {
     "metadata": {"catalog"},
     "cpu": {"catalog", "m2m_cpu"},
+    "mac": {"catalog", "apple"},
     "full": set(STAGES),
 }
 EVIDENCE = {
