@@ -26,6 +26,9 @@ import { PreflightPanel } from "./PreflightPanel";
 import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
 import { SessionHistory } from "./SessionHistory";
 import { DEFAULT_KOREAN_HOTWORDS } from "./sessionDefaults";
+import {
+  buildSessionStartPayload, translationProviderUsesModel,
+} from "./sessionStartPayload";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import { TranslationProviderSelect } from "./TranslationProviderSelect";
 import { providerBlockReason } from "./translationCapabilities";
@@ -49,13 +52,6 @@ const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lect
 const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 const DISPLAY_SETTINGS_STORAGE_KEY = "langtextflow:display:v1";
 
-function splitHotwords(value: string) {
-  return value
-    .split(/[,\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 function joinCodeFromPath(prefix: string) {
   const match = window.location.pathname.match(new RegExp(`^/${prefix}/([A-Za-z0-9]+)`));
   return match?.[1]?.toUpperCase() ?? null;
@@ -72,10 +68,6 @@ function reconcileTargets(sourceLanguage: string, targets: string[]) {
 
 function captionLanguages(sourceLanguage: string, targetLanguages: string[]) {
   return [sourceLanguage, ...targetLanguages.filter((code) => code !== sourceLanguage)];
-}
-
-function translationProviderUsesModel(provider: string) {
-  return provider === "ollama" || provider === "openai-compatible";
 }
 
 function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode: boolean }) {
@@ -413,35 +405,25 @@ function OperatorApp() {
       const response = await fetch(`${API_URL}/api/v1/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: selectedProjectId !== "all" && selectedProjectId !== "unassigned"
-            ? selectedProjectId
-            : null,
-          record_audio: recordAudio && needsAudio,
-          source_language: sourceLanguage,
-          target_languages: targetLanguages,
+        body: JSON.stringify(buildSessionStartPayload({
+          selectedProjectId,
+          recordAudio,
+          needsAudio,
+          sourceLanguage,
+          targetLanguages,
           engine,
-          resource_profile: resourceProfile,
-          correction_provider: correctionProvider,
-          correction_model: correctionProvider === "ollama" ? correctionModel : null,
-          translation_provider: translationProvider,
-          translation_model: translationProviderUsesModel(translationProvider)
-            ? translationModel
-            : null,
-          context: {
-            title,
-            presenter: presenter || null,
-            preset,
-            description: "",
-            hotwords: splitHotwords(hotwords),
-            glossary: [],
-            reference_documents: referenceDocuments,
-            reference_text: "",
-            output_modes: ["audience", "projector", "obs"],
-            audience_access: true,
-            display_settings: displaySettings,
-          },
-        }),
+          resourceProfile,
+          correctionProvider,
+          correctionModel,
+          translationProvider,
+          translationModel,
+          title,
+          presenter,
+          preset,
+          hotwords,
+          referenceDocuments,
+          displaySettings,
+        })),
       });
       if (!response.ok) throw new Error(await response.text());
       const nextSession = (await response.json()) as SessionState;
