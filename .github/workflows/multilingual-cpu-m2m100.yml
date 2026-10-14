@@ -185,3 +185,30 @@ jobs:
           path: artifacts/multilingual-cpu/
           if-no-files-found: warn
           retention-days: 14
+
+  notify-conveyor:
+    needs: [multilingual-cpu]
+    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.source_sha != '' && github.repository == 'JDeun/LangTextFlow' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Resume research DAG on scientific stage completion
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          STAGE: m2m
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' | gh api --method POST "repos/${GITHUB_REPOSITORY}/dispatches" --input -
+          import json
+          import os
+          import re
+          source = os.environ['SOURCE_SHA']
+          assert re.fullmatch(r'[a-f0-9]{40}', source), 'invalid frozen SHA'
+          print(json.dumps({
+              'event_type': 'ltf-stage-finished',
+              'client_payload': {'source_sha': source, 'stage': os.environ['STAGE']},
+          }))
+          PY
