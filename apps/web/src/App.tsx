@@ -399,7 +399,7 @@ function OperatorApp() {
   async function start() {
     setBusy(true);
     setError("");
-    let startRequestIssued = false;
+    let startConfirmed = false;
     try {
       await assertPreflightReady();
 
@@ -412,9 +412,8 @@ function OperatorApp() {
         if (!selectedDevice) throw new Error(t("audio.noDevice"));
       }
 
-      // Never roll back the server unless a start request was actually sent.
-      // Preflight/device failures must not stop another live operator tab.
-      startRequestIssued = true;
+      // An HTTP validation error is not evidence this tab owns the current
+      // server session. Roll back only after an acknowledged successful start.
       const response = await fetch(`${API_URL}/api/v1/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -449,6 +448,7 @@ function OperatorApp() {
         }),
       });
       if (!response.ok) throw new Error(await response.text());
+      startConfirmed = true;
       const nextSession = (await response.json()) as SessionState;
       setSession(nextSession);
       if (nextSession.context?.reference_documents) {
@@ -474,7 +474,7 @@ function OperatorApp() {
         await capture.start(selectedDevice);
       }
     } catch (reason) {
-      await rollbackFailedSessionStart(startRequestIssued, {
+      await rollbackFailedSessionStart(startConfirmed, {
         stopCapture: async () => {
           const capture = captureRef.current;
           captureRef.current = null;
@@ -484,7 +484,7 @@ function OperatorApp() {
           await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
         },
       });
-      if (startRequestIssued) {
+      if (startConfirmed) {
         setSession(null);
         setRecordAudio(false);
       }

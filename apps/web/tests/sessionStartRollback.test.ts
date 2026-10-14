@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { rollbackFailedSessionStart } from "../src/sessionStartRollback.ts";
 
-test("preflight or audio-device failure must not stop another operator session", async () => {
+test("preflight, device or rejected HTTP start must not stop another session", async () => {
   const actions: string[] = [];
   await rollbackFailedSessionStart(false, {
     stopCapture: async () => { actions.push("capture"); },

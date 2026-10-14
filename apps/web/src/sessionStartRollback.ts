@@ -1,17 +1,17 @@
 /** Cleanup only a session this tab may have started.
  *
  * A failed device/preflight check is not permission to stop a remote session
- * initiated from a different operator tab. If a server start was attempted,
+ * initiated from a different operator tab. If a server start was acknowledged,
  * always try its rollback even if stopping local microphone capture fails.
  */
 export async function rollbackFailedSessionStart(
-  startRequestIssued: boolean,
+  startConfirmed: boolean,
   operations: {
     stopCapture: () => Promise<void>;
     stopRemote: () => Promise<void>;
   },
 ): Promise<void> {
-  if (!startRequestIssued) return;
+  if (!startConfirmed) return;
   try {
     await operations.stopCapture();
   } catch {
