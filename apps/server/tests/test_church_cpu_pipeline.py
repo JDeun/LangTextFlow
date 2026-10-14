@@ -63,3 +63,62 @@ def test_model_ids_are_explicit_licensed_korean_to_english_candidates() -> None:
         "opus-small": "Helsinki-NLP/opus-mt-ko-en",
         "opus-big": "Helsinki-NLP/opus-mt-tc-big-ko-en",
     }
+
+
+def test_ct2_marian_uses_target_sentencepiece_not_source_token_ids() -> None:
+    """OPUS sepvoc target pieces cannot be decoded through source token IDs."""
+    from scripts.compare_church_cpu_pipeline import CTranslateMarian
+
+    class TargetPieceDecoder:
+        def decode_pieces(self, pieces):
+            assert pieces == ["▁The", "▁Lord", "▁lives", "."]
+            return "The Lord lives."
+
+    class SeparateVocabTokenizer:
+        all_special_tokens = ["</s>", "<pad>", "<unk>"]
+        spm_target = TargetPieceDecoder()
+
+        def encode(self, text):
+            assert text == "주님이 살아계십니다."
+            return [1, 2]
+
+        def convert_ids_to_tokens(self, tokens):
+            assert tokens == [1, 2]
+            return ["▁주님이", "</s>"]
+
+        def convert_tokens_to_ids(self, tokens):
+            raise AssertionError("Must not map target pieces through source vocabulary")
+
+    class FakeTranslator:
+        def translate_batch(self, sources, **kwargs):
+            assert sources == [["▁주님이", "</s>"]]
+            assert kwargs["beam_size"] == 1
+            return [type("Output", (), {"hypotheses": [
+                ["▁The", "▁Lord", "▁lives", ".", "</s>"]
+            ]})()]
+
+    translator = object.__new__(CTranslateMarian)
+    translator.tokenizer = SeparateVocabTokenizer()
+    translator.engine = FakeTranslator()
+    assert translator.translate("주님이 살아계십니다.") == "The Lord lives."
+
+
+def test_ct2_marian_fails_closed_without_target_decoder() -> None:
+    from scripts.compare_church_cpu_pipeline import CTranslateMarian
+
+    class IncompleteTokenizer:
+        all_special_tokens = ["</s>"]
+        def encode(self, text):
+            return [1]
+        def convert_ids_to_tokens(self, tokens):
+            return ["▁text", "</s>"]
+
+    class FakeTranslator:
+        def translate_batch(self, sources, **kwargs):
+            return [type("Output", (), {"hypotheses": [["▁text", "</s>"]]})()]
+
+    translator = object.__new__(CTranslateMarian)
+    translator.tokenizer = IncompleteTokenizer()
+    translator.engine = FakeTranslator()
+    with pytest.raises(RuntimeError, match="target SentencePiece decoder"):
+        translator.translate("임의 문장")
