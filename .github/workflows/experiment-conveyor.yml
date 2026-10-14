@@ -1,6 +1,11 @@
 name: Experiment Conveyor (controlled Linux CPU and macOS)
 
 on:
+  pull_request:
+    paths:
+      - ".github/workflows/experiment-conveyor.yml"
+      - "scripts/summarize_experiment_conveyor.py"
+      - "apps/server/tests/test_experiment_conveyor.py"
   workflow_dispatch:
     inputs:
       profile:
@@ -151,7 +156,7 @@ jobs:
       - name: Download completed evidence artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          PROFILE: ${{ github.event_name == 'schedule' && 'metadata' || inputs.profile }}
+          PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'metadata' }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/conveyor
@@ -162,7 +167,7 @@ jobs:
           fi
       - name: Fail closed on missing evidence or incomplete stage
         env:
-          PROFILE: ${{ github.event_name == 'schedule' && 'metadata' || inputs.profile }}
+          PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || 'metadata' }}
           STAGE_NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           set -euo pipefail
