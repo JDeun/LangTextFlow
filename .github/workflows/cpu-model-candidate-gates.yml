@@ -8,6 +8,7 @@ on:
       - "apps/server/tests/test_model_candidate_catalog.py"
       - ".github/workflows/cpu-model-candidate-gates.yml"
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
