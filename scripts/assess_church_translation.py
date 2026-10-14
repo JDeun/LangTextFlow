@@ -9,7 +9,6 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-
 # These checks detect obvious regressions; neither claims semantic equivalence.
 # Only evaluate negation in English, for which the patterns are explicit.
 _EN_NEGATION = re.compile(
