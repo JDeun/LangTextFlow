@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: church-translation-cpu-${{ github.ref }}
+  group: church-translation-cpu-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
