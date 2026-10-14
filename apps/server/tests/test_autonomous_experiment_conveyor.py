@@ -30,6 +30,7 @@ PLAN = {
 
 class FakeAPI:
     def __init__(self, states=None):
+        self.repo = "JDeun/LangTextFlow"
         self.states = states or {}
         self.dispatched = []
         self.retried = []
@@ -54,14 +55,17 @@ def run(stage, status="completed", conclusion="success", attempt=1,
         "display_title": f"ltf-stage-{stage} source={FROZEN}",
         "status": status, "conclusion": conclusion, "run_attempt": attempt,
         "event": "workflow_dispatch", "head_branch": "main",
+        "status": "completed",
+        "head_repository": {"full_name": "JDeun/LangTextFlow"},
         "artifact_good": artifact_good,
     }
 
 
 def test_push_triggers_new_frozen_experiment():
     api = FakeAPI()
-    assert sources(api, "push", {"after": FROZEN}, PLAN) == [FROZEN]
-    assert sources(api, "push", {"after": "main"}, PLAN) == []
+    assert sources(api, "push", {"after": FROZEN, "ref": "refs/heads/main"}, PLAN) == [FROZEN]
+    assert sources(api, "push", {"after": "main", "ref": "refs/heads/main"}, PLAN) == []
+    assert sources(api, "push", {"after": FROZEN, "ref": "refs/heads/other"}, PLAN) == []
 
 
 def test_first_advance_only_dispatches_catalog():
@@ -149,6 +153,22 @@ def test_pull_request_smoke_never_launches_unattended_scientific_cohort():
     api = FakeAPI({"catalog": [pr_run]})
     assert sources(api, "schedule", {}, PLAN) == []
     assert sources(api, "workflow_run", {"workflow_run": pr_run}, PLAN) == []
+
+
+
+def test_workflow_run_rejects_forked_or_incomplete_marked_stages():
+    for override in (
+        {"event": "pull_request"},
+        {"status": "in_progress"},
+        {"head_branch": "other"},
+        {"head_repository": {"full_name": "outsider/LangTextFlow"}},
+        {"head_repository": {}},
+    ):
+        event = run("funasr")
+        event.update(override)
+        assert sources(
+            FakeAPI(), "workflow_run", {"workflow_run": event}, PLAN
+        ) == []
 
 
 def test_repository_preregistration_advances_native_funasr_independently():
