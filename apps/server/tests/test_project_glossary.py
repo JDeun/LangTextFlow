@@ -79,7 +79,9 @@ def test_project_glossary_import_preserves_ids_and_cascades_project_deletion(sto
 
 def test_session_snapshot_project_precedence_and_source_isolation(monkeypatch, stores):
     _, global_terms, scoped, first, second = stores
-    global_terms.create(GlossaryEntry(term="grace", source_language="en", translations={"ko": "은혜"}))
+    global_terms.create(
+        GlossaryEntry(term="grace", source_language="en", translations={"ko": "은혜"})
+    )
     global_terms.create(_term("은혜"))
     scoped.create(
         first, GlossaryEntry(term="grace", source_language="en", translations={"ko": "풍성한 은혜"})
@@ -116,7 +118,8 @@ def test_session_snapshot_project_precedence_and_source_isolation(monkeypatch, s
     assert other.context.glossary[0].translations["ko"] == "은혜"
 
     korean_req = first_req.model_copy(update={"source_language": "ko", "target_languages": ["en"]})
-    assert all(x.term != "은혜" for x in main_module._with_saved_glossary(korean_req).context.glossary)
+    korean_context = main_module._with_saved_glossary(korean_req).context
+    assert all(entry.term != "은혜" for entry in korean_context.glossary)
 
 
 def test_project_glossary_api_is_operator_only_and_project_isolated(monkeypatch, stores):
