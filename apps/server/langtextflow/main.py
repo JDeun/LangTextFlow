@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +13,7 @@ from . import __version__
 from .asr import AsrEngineError
 from .asr.capabilities import AsrCapability, asr_capabilities
 from .audience_security import AudienceJoinRateLimiter
+from .church_glossary_seed import church_glossary_for_source
 from .config import get_settings
 from .diagnostics import build_diagnostics_bundle
 from .exports import export_json, export_srt, export_txt, export_vtt
@@ -50,7 +51,6 @@ from .network import (
 )
 from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
-from .presets import CHURCH_GLOSSARY
 from .project_archive import build_project_archive_manifest
 from .project_report import build_project_report
 from .project_repository import (
@@ -866,9 +866,12 @@ def delete_glossary(record_id: str, request: Request) -> Response:
 
 
 @app.post("/api/v1/glossary/presets/church", response_model=list[GlossaryRecord])
-def seed_church_glossary(request: Request) -> list[GlossaryRecord]:
+def seed_church_glossary(
+    request: Request,
+    source_language: Literal["ko", "en", "ja"] = "ko",
+) -> list[GlossaryRecord]:
     _require_operator(request)
-    return glossary_repository.seed(CHURCH_GLOSSARY)
+    return glossary_repository.seed(church_glossary_for_source(source_language))
 
 
 @app.post("/api/v1/session/start", response_model=SessionState)
