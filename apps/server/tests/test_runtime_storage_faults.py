@@ -102,3 +102,54 @@ async def test_worker_flushes_queue_on_multiple_failures_without_deadlock(
     finally:
         await asyncio.wait_for(runtime._stop_persistence_worker(), timeout=2.0)
     assert runtime._persistence_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_persistence_shutdown_timeout_marks_unflushed_queue_and_returns(tmp_path) -> None:
+    settings = Settings(
+        database_path=str(tmp_path / "history.db"),
+        persistence_drain_timeout_seconds=0.03,
+    )
+    runtime = CaptionRuntime(settings)
+    runtime.state.session_id = "test-session"
+    blocked = asyncio.Event()
+
+    async def stalled_writer() -> None:
+        # Simulate a worker indefinitely stuck before consuming the queue.
+        await blocked.wait()
+
+    runtime._persistence_task = asyncio.create_task(stalled_writer())
+    runtime._persistence_queue.put_nowait(("test-session", _event(1)))
+    runtime._persistence_queue.put_nowait(("test-session", _event(2)))
+    await asyncio.wait_for(runtime._stop_persistence_worker(), timeout=0.5)
+    assert runtime._persistence_task is None
+    assert runtime._persistence_queue.empty()
+    assert runtime.metrics.persistence_events_dropped == 2
+    assert runtime.metrics.persistence_events_failed == 0
+    assert runtime.state.persistence_error is not None
+    assert "may be incomplete" in runtime.state.persistence_error
+    assert runtime.metrics.persistence_queue_depth == 0
+
+
+@pytest.mark.asyncio
+async def test_persistence_normal_drain_keeps_all_events_and_no_loss(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    runtime = CaptionRuntime(Settings(
+        database_path=str(tmp_path / "history.db"),
+        persistence_drain_timeout_seconds=0.5,
+    ))
+    runtime.state.session_id = "test-session"
+    saved: list[str] = []
+
+    def write(_session_id: str, event: TranscriptEvent) -> None:
+        saved.append(event.segment_id)
+
+    monkeypatch.setattr(runtime.history, "upsert_segment", write)
+    runtime._start_persistence_worker()
+    runtime._persistence_queue.put_nowait(("test-session", _event(1)))
+    runtime._persistence_queue.put_nowait(("test-session", _event(2)))
+    await asyncio.wait_for(runtime._stop_persistence_worker(), timeout=1)
+    assert saved == ["section-1", "section-2"]
+    assert runtime.metrics.persistence_events_dropped == 0
+    assert runtime.state.persistence_error is None
