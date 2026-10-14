@@ -60,7 +60,6 @@ from .project_repository import (
     ProjectTranscriptMatch,
 )
 from .runtime import CaptionRuntime
-from .translation.capabilities import TranslationCapability, translation_capabilities
 from .runtime_install import (
     RuntimeKind,
     RuntimeProvisionJob,
@@ -68,6 +67,7 @@ from .runtime_install import (
     RuntimeStatus,
 )
 from .telemetry import RealtimeMetrics
+from .translation.capabilities import TranslationCapability, translation_capabilities
 from .vibevoice_lifecycle import VibeVoiceLifecycleManager, VibeVoiceLifecycleState
 
 settings = get_settings()
