@@ -88,3 +88,30 @@ GitHub Actions Linux/macOS 테스트는 가능합니다. 다만 Mac 호스티드
 - `scripts/autonomous_experiment_conveyor.py`: GitHub API 상태 확인·중복 방지·다음 단계 발행
 - `benchmarks/translation-conveyor-preregistration.json`: 독립 연구 DAG, 차단 후보, 복구 정책
 - `apps/server/tests/test_autonomous_experiment_conveyor.py`: 상태 전이, frozen SHA, 부정적 결과·재시도 방지 회귀
+
+
+## GitHub GITHUB_TOKEN 연쇄 실행 제한과 직접 완료 콜백
+
+자동 실험의 첫 실사용에서 `main` 병합에 따른 push 컨트롤러
+실행 및 Catalog 실행은 성공했지만, Catalog 완료 후 **일반
+`workflow_run` 이벤트로 연결되는 컨트롤러 실행이 관측되지
+않았습니다**. GitHub는 `GITHUB_TOKEN`으로 발생한 후속 이벤트를
+기본적으로 제한하며 `workflow_dispatch` 및
+`repository_dispatch`만 예외로 허용합니다.
+
+이를 위해 각 모델 실험 워크플로에 `notify-conveyor` 작업을 둡니다.
+실험 완료/실패 모두 `always()`로 감지하되, 오직
+`workflow_dispatch` + **사전에 고정한 source SHA**를 가진
+`main` 실험에서만 `repository_dispatch(ltf-stage-finished)`를
+전송합니다. 콜백은 해당 모델 단계를 자동 **성공 처리하지
+않습니다**. 컨트롤러가 GitHub에 존재하는 실제 동일 SHA의 실행을
+재조회하고 종료 상태·산출물 SHA-256을 독립적으로 확인해야만
+다음 단계가 실행됩니다.
+
+콜백이 마지막 작업보다 조금 먼저 도착할 수 있으므로 최대
+120초의 bounded 최종 상태 확인을 사용합니다. 콜백이 소실되거나
+권한 문제로 실패해도 매시간 schedule 복구 검사를 유지합니다.
+GitHub Actions의 `contents:write` 권한은 콜백용 개별 작업에만
+부여하며 모델 실행 작업에는 계속 읽기 권한만 부여합니다.
+
+참고: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow
