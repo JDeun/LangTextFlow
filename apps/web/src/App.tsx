@@ -6,6 +6,7 @@ import {
   type AudioInputDevice,
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
+import { rollbackFailedSessionStart } from "./sessionStartRollback";
 import { AsrProviderSelect } from "./AsrProviderSelect";
 import { asrBlockReason } from "./asrCapabilities";
 import { useAsrCapabilities } from "./useAsrCapabilities";
@@ -398,6 +399,7 @@ function OperatorApp() {
   async function start() {
     setBusy(true);
     setError("");
+    let startConfirmed = false;
     try {
       await assertPreflightReady();
 
@@ -410,6 +412,8 @@ function OperatorApp() {
         if (!selectedDevice) throw new Error(t("audio.noDevice"));
       }
 
+      // An HTTP validation error is not evidence this tab owns the current
+      // server session. Roll back only after an acknowledged successful start.
       const response = await fetch(`${API_URL}/api/v1/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -444,6 +448,7 @@ function OperatorApp() {
         }),
       });
       if (!response.ok) throw new Error(await response.text());
+      startConfirmed = true;
       const nextSession = (await response.json()) as SessionState;
       setSession(nextSession);
       if (nextSession.context?.reference_documents) {
@@ -469,11 +474,20 @@ function OperatorApp() {
         await capture.start(selectedDevice);
       }
     } catch (reason) {
-      await captureRef.current?.stop();
-      captureRef.current = null;
-      await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" }).catch(() => undefined);
-      setSession(null);
-      setRecordAudio(false);
+      await rollbackFailedSessionStart(startConfirmed, {
+        stopCapture: async () => {
+          const capture = captureRef.current;
+          captureRef.current = null;
+          await capture?.stop();
+        },
+        stopRemote: async () => {
+          await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
+        },
+      });
+      if (startConfirmed) {
+        setSession(null);
+        setRecordAudio(false);
+      }
       setError(reason instanceof Error ? reason.message : t("error.startFailed"));
     } finally {
       setBusy(false);
