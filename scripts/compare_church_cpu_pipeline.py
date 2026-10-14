@@ -83,10 +83,16 @@ class CTranslateMarian:
         translated = self.engine.translate_batch(
             [encoded], beam_size=1, max_decoding_length=256,
         )[0].hypotheses[0]
-        return self.tokenizer.decode(
-            self.tokenizer.convert_tokens_to_ids(translated),
-            skip_special_tokens=True,
-        ).strip()
+        # CT2 returns target-side pieces, not source tokenizer IDs. OPUS
+        # "sepvoc" checkpoints (including tc-big) have different source and
+        # target vocabularies; convert_tokens_to_ids() uses source IDs here
+        # and silently corrupts otherwise valid English output.
+        target_spm = getattr(self.tokenizer, "spm_target", None)
+        if target_spm is None:
+            raise RuntimeError("Marian target SentencePiece decoder is unavailable")
+        special_tokens = set(self.tokenizer.all_special_tokens)
+        pieces = [piece for piece in translated if piece not in special_tokens]
+        return target_spm.decode_pieces(pieces).strip()
 
 
 def text_benchmark(
