@@ -52,6 +52,7 @@ class CaptionPipeline:
         self._translation_limiter = asyncio.Semaphore(1)
         self.dropped_postprocess_segments = 0
         self.failed_postprocess_segments = 0
+        self.expired_postprocess_segments = 0
         # A final ASR segment may be replayed/duplicated by a provider. Keep a
         # bounded admission ledger so later PARTIAL/STABLE cannot regress its
         # already corrected/translated source. Distinct IDs are never deduped
@@ -77,6 +78,7 @@ class CaptionPipeline:
         self._queue = asyncio.Queue(maxsize=128)
         self.dropped_postprocess_segments = 0
         self.failed_postprocess_segments = 0
+        self.expired_postprocess_segments = 0
         self._seen_stable_sources.clear()
         self.duplicate_asr_events_dropped = 0
         self._worker_progress.clear()
@@ -187,6 +189,31 @@ class CaptionPipeline:
                 except Exception as exc:
                     if first_error is None:
                         first_error = exc
+        # No further workers can read this admission queue. Publish explicit
+        # timeout outcomes for STABLE sources admitted but never processed.
+        # Otherwise a stopped session can leave dozens of target tracks
+        # permanently pending with no visible explanation.
+        while True:
+            try:
+                pending = self._queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            try:
+                if pending is not None:
+                    self.expired_postprocess_segments += 1
+                    try:
+                        await asyncio.wait_for(
+                            self._finalize_failed_segment(
+                                pending, pending, pending_state="timed_out",
+                            ),
+                            timeout=0.2,
+                        )
+                    except Exception:
+                        # Publishing failure is visible in the session's
+                        # persistence/socket diagnostics; never block shutdown.
+                        pass
+            finally:
+                self._queue.task_done()
         self._queue = asyncio.Queue(maxsize=128)
 
         corrector = self.llm_corrector
@@ -271,6 +298,20 @@ class CaptionPipeline:
             try:
                 await self._process_stable(event)
             except asyncio.CancelledError:
+                # Stop-drain expired while optional inference was running.
+                # A source caption is already visible; explicitly finalize
+                # pending targets, retaining any successfully emitted ones.
+                self.expired_postprocess_segments += 1
+                latest = self._worker_progress.get(event.segment_id, event)
+                try:
+                    await asyncio.wait_for(
+                        self._finalize_failed_segment(
+                            event, latest, pending_state="timed_out",
+                        ),
+                        timeout=0.2,
+                    )
+                except Exception:
+                    pass
                 raise
             except Exception:
                 # Optional providers and progress publication must not kill the
@@ -296,7 +337,8 @@ class CaptionPipeline:
         self._worker_progress[event.segment_id] = event
 
     async def _finalize_failed_segment(
-        self, source: TranscriptEvent, latest: TranscriptEvent,
+        self, source: TranscriptEvent, latest: TranscriptEvent, *,
+        pending_state: str = "failed",
     ) -> None:
         if latest.committed:
             return
@@ -308,7 +350,7 @@ class CaptionPipeline:
                 states[language] = "available"
             elif states.get(language) not in {"failed", "timed_out", "unsupported"}:
                 states[language] = (
-                    "failed" if self.translator is not None else "unsupported"
+                    pending_state if self.translator is not None else "unsupported"
                 )
         terminal = self._next_event(
             latest, version=latest.version + 1, stage=CaptionStage.COMMITTED,
