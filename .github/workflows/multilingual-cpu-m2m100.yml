@@ -24,8 +24,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: multilingual-cpu-m2m100-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: multilingual-cpu-m2m100-${{ github.workflow }}-${{ inputs.source_sha || github.ref }}
+  cancel-in-progress: false
 
 jobs:
   multilingual-cpu:
