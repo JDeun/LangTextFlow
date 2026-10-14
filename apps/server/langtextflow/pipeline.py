@@ -67,7 +67,34 @@ class CaptionPipeline:
     def queue_capacity(self) -> int:
         return self._queue.maxsize
 
+    @staticmethod
+    def validate_provider_configuration(request: StartSessionRequest) -> None:
+        """Reject invalid provider IDs/pairs before interrupting a live session.
+
+        Availability/quality is handled separately by preflight and prepare();
+        this check never instantiates or downloads a model.
+        """
+        if request.correction_provider not in {"none", "ollama"}:
+            raise ValueError(
+                f"unsupported correction provider: {request.correction_provider}"
+            )
+        if request.translation_provider not in {
+            "none", "demo", "ollama", "openai-compatible", "m2m100-ct2",
+        }:
+            raise ValueError(
+                f"unsupported translation provider: {request.translation_provider}"
+            )
+        if request.translation_provider == "m2m100-ct2":
+            supported = {"ko", "en", "ja"}
+            if request.source_language not in supported or any(
+                target not in supported for target in request.target_languages
+            ):
+                raise ValueError(
+                    "Local M2M100 supports only the six directed ko/en/ja pairs"
+                )
+
     async def start(self, request: StartSessionRequest) -> None:
+        self.validate_provider_configuration(request)
         await self.stop()
         self.request = request
         self._queue = asyncio.Queue(maxsize=128)
@@ -217,13 +244,8 @@ class CaptionPipeline:
         if provider == "none":
             return None
         if provider == "m2m100-ct2":
-            supported = {"ko", "en", "ja"}
-            if (request.source_language not in supported
-                    or any(target not in supported
-                           for target in request.target_languages)):
-                raise ValueError(
-                    "Local M2M100 supports only the six directed ko/en/ja pairs"
-                )
+            # Shared validation runs before session teardown and again in
+            # pipeline.start, so unsupported pairs cannot affect old sessions.
             return M2M100CT2Translator(
                 model_dir=self.settings.local_m2m100_ct2_dir,
                 tokenizer_dir=self.settings.local_m2m100_tokenizer_dir,

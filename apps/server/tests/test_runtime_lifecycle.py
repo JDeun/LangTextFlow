@@ -374,3 +374,49 @@ async def test_previous_provider_change_callback_cannot_relabel_new_session(
     finally:
         await runtime.stop()
         await runtime.shutdown()
+
+
+
+@pytest.mark.asyncio
+async def test_invalid_new_provider_request_does_not_interrupt_active_session(tmp_path) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "runtime.db")))
+    first = await runtime.start(StartSessionRequest(
+        engine="mock", source_language="ko", target_languages=["en"],
+        translation_provider="none",
+    ))
+    original_id = first.session_id
+    original_join_code = first.join_code
+    try:
+        invalid_requests = [
+            StartSessionRequest(
+                engine="mock", source_language="ko", target_languages=["en"],
+                translation_provider="invented-translator",
+            ),
+            StartSessionRequest(
+                engine="mock", source_language="ko", target_languages=["en"],
+                correction_provider="invented-corrector",
+                translation_provider="none",
+            ),
+            StartSessionRequest(
+                engine="mock", source_language="ko", target_languages=["fr"],
+                translation_provider="m2m100-ct2",
+            ),
+            StartSessionRequest(
+                engine="mock", source_language="fr", target_languages=["ko"],
+                translation_provider="m2m100-ct2",
+            ),
+        ]
+        for invalid in invalid_requests:
+            with pytest.raises(ValueError, match="unsupported|six directed"):
+                await runtime.start(invalid)
+            assert runtime.state.running is True
+            assert runtime.state.session_id == original_id
+            assert runtime.state.join_code == original_join_code
+            assert runtime._persistence_task is not None
+            assert runtime.engine is not None
+    finally:
+        await runtime.stop()
+
+    saved = runtime.history.get_session(original_id)
+    assert saved is not None
+    assert saved.ended_at is not None
