@@ -21,9 +21,9 @@ from .models import (
 )
 from .translation import (
     DemoTranslator,
+    M2M100CT2Translator,
     OllamaTranslator,
     OpenAICompatibleTranslator,
-    M2M100CT2Translator,
     TranslationError,
     Translator,
 )
