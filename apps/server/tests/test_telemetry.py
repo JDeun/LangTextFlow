@@ -292,3 +292,39 @@ async def test_persistence_worker_counts_failed_sqlite_write(monkeypatch) -> Non
     finally:
         await runtime._persistence_queue.put(None)
         await asyncio.wait_for(worker, timeout=2)
+
+
+def test_runtime_partial_event_metrics_do_not_accumulate_unbounded_ids() -> None:
+    from langtextflow.config import Settings
+
+    runtime = CaptionRuntime(Settings(max_segments=2))
+    for n in range(100):
+        runtime._observe_event(TranscriptEvent(
+            segment_id=f"partial-{n}", version=1,
+            stage=CaptionStage.PARTIAL, source_language="en",
+            text="source", start_ms=0,
+        ))
+    assert runtime._stage_times == {}
+
+
+def test_runtime_incomplete_segment_latency_memory_is_bounded() -> None:
+    from langtextflow.config import Settings
+
+    runtime = CaptionRuntime(Settings(max_segments=2))
+    for n in range(100):
+        runtime._observe_event(TranscriptEvent(
+            segment_id=f"stable-{n}", version=1,
+            stage=CaptionStage.STABLE, source_language="ko",
+            text="원문", start_ms=0, end_ms=250,
+        ))
+        assert len(runtime._stage_times) <= 8
+
+    assert "stable-0" not in runtime._stage_times
+    assert "stable-99" in runtime._stage_times
+    last = TranscriptEvent(
+        segment_id="stable-99", version=2,
+        stage=CaptionStage.COMMITTED, source_language="ko",
+        text="원문", start_ms=0, end_ms=250, committed=True,
+    )
+    runtime._observe_event(last)
+    assert "stable-99" not in runtime._stage_times

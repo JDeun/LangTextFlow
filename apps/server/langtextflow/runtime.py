@@ -113,8 +113,20 @@ class CaptionRuntime:
 
     def _observe_event(self, event: TranscriptEvent) -> None:
         self.metrics.last_event_at = event.emitted_at
+        # Partial captions never contribute to stable->correction/translation
+        # latency. Keeping every partial-id forever would leak memory in long
+        # events with interrupted or aborted ASR utterances.
+        if event.stage is CaptionStage.PARTIAL:
+            return
         timings = self._stage_times.setdefault(event.segment_id, {})
         timings[event.stage] = event.emitted_at
+        # Retain recent timing information only: the durable caption store and
+        # persisted transcript are independent from these optional telemetry
+        # timestamps. dict preserves arrival insertion order in Python 3.11+.
+        max_tracked = max(8, self.settings.max_segments * 2)
+        if len(self._stage_times) > max_tracked:
+            oldest_segment = next(iter(self._stage_times))
+            self._stage_times.pop(oldest_segment, None)
 
         if event.stage is CaptionStage.STABLE:
             self.metrics.last_correction_latency_ms = None
