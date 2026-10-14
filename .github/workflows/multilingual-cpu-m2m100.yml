@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: multilingual-cpu-m2m100-${{ github.ref }}
+  group: multilingual-cpu-m2m100-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
