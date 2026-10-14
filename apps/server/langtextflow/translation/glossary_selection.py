@@ -25,17 +25,24 @@ def relevant_glossary(
     source_text: str,
     target_language: str,
     *,
+    source_language: str = "ko",
     limit: int = MAX_TRANSLATION_GLOSSARY_HINTS,
 ) -> list[tuple[GlossaryEntry, str]]:
-    """Observational lexical match only; source-language scope needs #130."""
+    """Source-scoped lexical hints, not forced decoding or quality certification.
+
+    The Korean default supports legacy direct calls; every production adapter
+    must pass its actual source language explicitly.
+    """
     if limit < 0:
         raise ValueError("glossary hint limit cannot be negative")
     if not source_text.strip() or not limit:
         return []
+    source = source_language.strip().lower().replace("_", "-")
     matches: list[tuple[GlossaryEntry, str]] = []
     for entry in context.glossary:
         target = entry.translations.get(target_language)
-        if not entry.enabled or not entry.applies_to(context.preset) or not target:
+        if (not entry.enabled or entry.source_language != source
+                or not entry.applies_to(context.preset) or not target):
             continue
         if any(_mentioned(source_text, term) for term in (entry.term, *entry.aliases)):
             matches.append((entry, target))
