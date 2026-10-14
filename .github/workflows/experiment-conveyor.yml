@@ -20,6 +20,8 @@ on:
       - "benchmarks/translation-conveyor-preregistration.json"
       - "benchmarks/lecture_multilingual_ko_en_ja.v1.jsonl"
       - "benchmarks/church_translation_quality.v1.jsonl"
+  repository_dispatch:
+    types: [ltf-stage-finished]
   workflow_run:
     workflows:
       - "CPU model candidate license and glossary gates"
