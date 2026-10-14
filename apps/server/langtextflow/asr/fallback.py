@@ -11,6 +11,10 @@ from langtextflow.models import StartSessionRequest, TranscriptEvent
 ProviderFactory = Callable[[PublishEvent], AsrEngine]
 ProviderChange = Callable[[str], Awaitable[None]]
 
+# A candidate which emits unlimited transcripts during startup/replay must
+# not grow an unbounded provisional event buffer.
+MAX_PENDING_PROVIDER_EVENTS = 128
+
 
 def _strip_exact_text_overlap(previous: str, current: str, *, minimum: int = 4) -> str:
     """Remove an exact suffix/prefix overlap while preserving the current wording.
@@ -155,6 +159,10 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._session_epoch = 0
         self._provider_origin_ms = 0.0
         self._pending_generation: int | None = None
+        self._candidate_serial = 0
+        self._pending_candidate_serial: int | None = None
+        self._active_candidate_serial: int | None = None
+        self._pending_overflowed = False
         self._pending_events: list[TranscriptEvent] = []
         self._audio_frames: deque[bytes] = deque()
         self._buffer_bytes = 0
@@ -221,6 +229,9 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._generation = 0
         self._provider_origin_ms = 0.0
         self._pending_generation = None
+        self._pending_candidate_serial = None
+        self._active_candidate_serial = None
+        self._pending_overflowed = False
         self._pending_events.clear()
         self._audio_frames.clear()
         self._buffer_bytes = 0
@@ -295,6 +306,9 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._active_index = -1
         self._request = None
         self._pending_generation = None
+        self._pending_candidate_serial = None
+        self._active_candidate_serial = None
+        self._pending_overflowed = False
         self._pending_events.clear()
         self._audio_frames.clear()
         self._buffer_bytes = 0
@@ -328,23 +342,34 @@ class ReplayFallbackAsrEngine(AsrEngine):
             raise AsrEngineError("ASR fallback session is not initialized")
         name, factory = self.candidates[index]
         epoch = self._session_epoch
+        self._candidate_serial += 1
+        candidate_serial = self._candidate_serial
         self._pending_generation = generation
+        self._pending_candidate_serial = candidate_serial
+        self._pending_overflowed = False
         self._pending_events.clear()
 
         async def provider_publish(event: TranscriptEvent) -> None:
-            await self._publish_from_provider(epoch, generation, event)
+            await self._publish_from_provider(
+                epoch, generation, candidate_serial, event,
+            )
 
         engine = factory(provider_publish)
         try:
             await engine.start(self._request)
+            if self._pending_overflowed:
+                raise AsrEngineError("ASR candidate startup event limit exceeded")
         except Exception:
             self._pending_generation = None
+            self._pending_candidate_serial = None
+            self._pending_overflowed = False
             self._pending_events.clear()
             with suppress(Exception):
                 await engine.stop()
             raise
         if index > 0 and engine.sample_rate != self._sample_rate:
             self._pending_generation = None
+            self._pending_candidate_serial = None
             self._pending_events.clear()
             with suppress(Exception):
                 await engine.stop()
@@ -367,6 +392,9 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._active = engine
         self._generation = generation
         self._provider_origin_ms = origin_ms
+        self._active_candidate_serial = self._pending_candidate_serial
+        self._pending_candidate_serial = None
+        self._pending_overflowed = False
         if index == 0 and self._audio_cursor_ms == 0:
             self._sample_rate = engine.sample_rate
         self._failure = None
@@ -384,6 +412,9 @@ class ReplayFallbackAsrEngine(AsrEngine):
         if old_engine is not None:
             with suppress(Exception):
                 await old_engine.stop()
+        # Old provider callbacks must not publish while a replacement is
+        # starting or failover-replaying under the same session.
+        self._active_candidate_serial = None
 
         replay_frames = tuple(self._audio_frames)
         replay_duration_ms = self._buffer_bytes / 4 / self._sample_rate * 1000.0
@@ -402,17 +433,23 @@ class ReplayFallbackAsrEngine(AsrEngine):
                     if self._ended:
                         raise AsrEngineError("ASR session ended during failover")
                     await engine.feed_audio(frame)
+                    if self._pending_overflowed:
+                        raise AsrEngineError(
+                            "ASR candidate replay event limit exceeded"
+                        )
                 if self._ended:
                     raise AsrEngineError("ASR session ended during failover")
             except Exception as exc:
-                if self._ended:
-                    return
                 failures.append(f"{name}: {exc}")
                 if engine is not None:
                     with suppress(Exception):
                         await engine.stop()
                 self._pending_generation = None
+                self._pending_candidate_serial = None
+                self._pending_overflowed = False
                 self._pending_events.clear()
+                if self._ended:
+                    return
                 continue
 
             self._activate_candidate(
@@ -443,14 +480,21 @@ class ReplayFallbackAsrEngine(AsrEngine):
             self._buffer_bytes -= len(removed)
 
     async def _publish_from_provider(
-        self, epoch: int, generation: int, event: TranscriptEvent,
+        self, epoch: int, generation: int, candidate_serial: int,
+        event: TranscriptEvent,
     ) -> None:
         if epoch != self._session_epoch:
             return
-        if generation == self._pending_generation:
-            self._pending_events.append(event)
+        if (generation == self._pending_generation
+                and candidate_serial == self._pending_candidate_serial):
+            if len(self._pending_events) >= MAX_PENDING_PROVIDER_EVENTS:
+                self._pending_overflowed = True
+            else:
+                self._pending_events.append(event)
             return
-        if generation != self._generation or self._active is None:
+        if (generation != self._generation
+                or candidate_serial != self._active_candidate_serial
+                or self._active is None):
             return
         await self._emit_rebased(event)
 

@@ -323,3 +323,83 @@ async def test_replay_fallback_stop_does_not_wait_for_stuck_audio_lock() -> None
     finally:
         release.set()
         await asyncio.gather(in_flight, return_exceptions=True)
+
+
+
+@pytest.mark.asyncio
+async def test_failed_asr_candidate_cannot_inject_callbacks_during_next_start() -> None:
+    published: list[TranscriptEvent] = []
+    failed: list[FakeEngine] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    class FailingStart(FakeEngine):
+        async def start(self, request: StartSessionRequest) -> None:
+            await super().start(request)
+            raise AsrEngineError("first candidate startup failed")
+
+    class HealthyStart(FakeEngine):
+        async def start(self, request: StartSessionRequest) -> None:
+            await super().start(request)
+            # Both callbacks have the same session and failover generation,
+            # but only the currently starting candidate may enter the buffer.
+            await failed[-1].emit(
+                segment_id="stale", start_ms=0, end_ms=100, text="old candidate",
+            )
+            await self.emit(
+                segment_id="current", start_ms=0, end_ms=100, text="healthy",
+            )
+
+    def build_failing(publish_event):
+        engine = FailingStart(publish_event)
+        failed.append(engine)
+        return engine
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("bad", build_failing), ("good", HealthyStart)],
+        health_check_seconds=60.0,
+    )
+    try:
+        await wrapper.start(StartSessionRequest(engine="auto"))
+        assert wrapper.active_provider == "good"
+        assert [x.text for x in published] == ["healthy"]
+    finally:
+        await wrapper.stop()
+
+
+@pytest.mark.asyncio
+async def test_flooding_startup_candidate_is_bounded_and_rejected() -> None:
+    published: list[TranscriptEvent] = []
+    bad: list[FakeEngine] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    class FloodingStart(FakeEngine):
+        async def start(self, request: StartSessionRequest) -> None:
+            await super().start(request)
+            for index in range(200):
+                await self.emit(
+                    segment_id=f"flood-{index}", start_ms=index,
+                    end_ms=index + 1, text="untrusted startup",
+                )
+
+    def make_flood(publish_event):
+        engine = FloodingStart(publish_event)
+        bad.append(engine)
+        return engine
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("flood", make_flood), ("good", FakeEngine)],
+        health_check_seconds=60.0,
+    )
+    try:
+        await wrapper.start(StartSessionRequest(engine="auto"))
+        assert wrapper.active_provider == "good"
+        assert bad[0].stopped is True
+        assert published == []
+        assert wrapper._pending_events == []
+        assert wrapper._pending_overflowed is False
+    finally:
+        await wrapper.stop()
