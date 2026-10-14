@@ -13,7 +13,7 @@ on:
         required: true
         default: metadata
         type: choice
-        options: [metadata, cpu, full]
+        options: [metadata, cpu, mac, full]
   schedule:
     - cron: "23 3 * * 1"
 
@@ -58,7 +58,7 @@ jobs:
 
   apple:
     name: Stage 2b - macOS installed Translation availability
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.profile == 'full' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.profile == 'mac' || inputs.profile == 'full') }}
     needs: [catalog]
     runs-on: macos-26
     timeout-minutes: 12
