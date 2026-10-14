@@ -52,6 +52,7 @@ from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .project_archive import build_project_archive_manifest
+from .project_glossary_repository import ProjectGlossaryInput, ProjectGlossaryRepository
 from .project_report import build_project_report
 from .project_repository import (
     ProjectAssignment,
@@ -78,6 +79,7 @@ os.environ.setdefault("HF_HOME", str(model_cache_root / "huggingface"))
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
 project_repository = ProjectRepository(settings.database_path)
+project_glossary_repository = ProjectGlossaryRepository(settings.database_path)
 post_event_archive = runtime.archive
 model_setup_manager = ModelSetupManager(settings)
 model_cache_manager = ModelCacheManager(settings)
@@ -139,6 +141,7 @@ async def _close_audio_socket_for_transition(reason: str) -> None:
 async def lifespan(_: FastAPI):
     glossary_repository.initialize()
     await runtime.initialize()
+    project_glossary_repository.initialize()
     await asyncio.to_thread(mdns_publisher.start)
     try:
         yield
@@ -260,10 +263,25 @@ def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
     merged: dict[tuple[str, str], GlossaryEntry] = {
         (entry.source_language, entry.term.casefold()): entry for entry in saved
     }
+    if request.project_id is not None:
+        for entry in project_glossary_repository.list_for(
+            request.project_id, request.source_language,
+        ):
+            if not entry.applies_to(request.context.preset):
+                continue
+            key = (entry.source_language, entry.term.casefold())
+            if entry.enabled:
+                merged[key] = entry
+            else:
+                merged.pop(key, None)
     for entry in request.context.glossary:
-        if (entry.enabled and entry.applies_to(request.context.preset)
+        if (entry.applies_to(request.context.preset)
                 and entry.source_language == request.source_language):
-            merged[(entry.source_language, entry.term.casefold())] = entry
+            key = (entry.source_language, entry.term.casefold())
+            if entry.enabled:
+                merged[key] = entry
+            else:
+                merged.pop(key, None)
     context = request.context.model_copy(update={"glossary": list(merged.values())})
     return request.model_copy(update={"context": context})
 
@@ -603,6 +621,36 @@ async def project_detail(request: Request, project_id: str) -> ProjectRecord:
     if project is None:
         raise HTTPException(status_code=404, detail="project not found")
     return project
+
+
+@app.get(
+    "/api/v1/projects/{project_id}/glossary",
+    response_model=list[GlossaryEntry],
+)
+def project_glossary_list(
+    request: Request, project_id: str,
+) -> list[GlossaryEntry]:
+    _require_operator(request)
+    try:
+        return project_glossary_repository.list_for(project_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+
+
+@app.put(
+    "/api/v1/projects/{project_id}/glossary",
+    response_model=list[GlossaryEntry],
+)
+def project_glossary_replace(
+    request: Request, project_id: str, payload: ProjectGlossaryInput,
+) -> list[GlossaryEntry]:
+    _require_operator(request)
+    try:
+        return project_glossary_repository.replace(project_id, payload.entries)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="project not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/projects/{project_id}/search", response_model=list[ProjectTranscriptMatch])
