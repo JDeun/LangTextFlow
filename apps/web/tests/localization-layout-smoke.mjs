@@ -84,7 +84,20 @@ async function setLocale(locale) {
       }
       throw error;
     }
-  }, `locale ${locale}`);
+  }, `locale ${locale}`).catch(async (error) => {
+    const observed = await evaluate(`JSON.stringify({
+      origin: location.origin,
+      pathname: location.pathname,
+      readyState: document.readyState,
+      htmlLang: document.documentElement.lang,
+      select: document.querySelector('[data-testid="locale-select"]')?.value ?? null,
+      storedLocale: localStorage.getItem("langtextflow:locale:v1"),
+      onboardingState: localStorage.getItem("langtextflow:onboarding:v1"),
+      appPresent: !!document.querySelector("#root"),
+      rootText: document.querySelector("#root")?.textContent?.slice(0, 160),
+    })`).catch((diagnosticError) => String(diagnosticError));
+    throw new Error(`${error.message}; observed browser state: ${observed}`);
+  });
 }
 
 // CDP target creation can finish while its first page navigation or React
