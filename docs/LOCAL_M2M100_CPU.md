@@ -17,7 +17,8 @@ In the Operator translation provider dropdown select **M2M100 CT2 CPU (experimen
 ## Runtime and cancellation caveats
 
 - A shared mutable M2M100 tokenizer is protected by a Python lock across inference calls; language identifiers and prefix decoding follow the six-direction research contract.
-- CPU inference runs in worker threads to avoid blocking the asyncio event loop, but **canceling an asyncio waiter does not forcibly stop the underlying CTranslate2/native worker**. The adapter captures references to prevent use-after-close; bounded resource lifecycle and worker termination are follow-on #157 work.
+- CPU inference uses a process-scoped single-worker ThreadPoolExecutor and an explicit maximum of four admitted jobs (one running, at most three queued). A fifth admission fails closed with an unavailable translation while the source caption remains visible.
+- **Canceling an asyncio waiter does not forcibly stop the underlying CTranslate2/native worker.** The native Future is shielded and retains its job-capacity slot and model/tokenizer references until completion; closing an old session cannot silently free still-running work. This prevents unbounded native CPU inference accumulation across session restarts. Forced worker termination/process isolation remains a later #157 acceptance item.
 - The adapter rejects empty/untranslated-looking/structured-envelope output and unexpected output language prefix; these are formatting gates, **not** semantic accuracy or hallucination detection.
 - Existing runtime correction and translation postprocessing budgets still apply; current per-segment scheduling PR stack #162→#165→#167 is independent and must be merged/tested before claiming sustained real-time multi-target operation.
 

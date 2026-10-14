@@ -1,6 +1,8 @@
 """CPU-local M2M100 adapter contracts without downloading a checkpoint."""
 from __future__ import annotations
 
+import asyncio
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -78,6 +80,54 @@ async def test_runtime_m2m100_routes_six_supported_directions(
     assert output == "Verified translation text"
     assert fake_tokenizer.seen == [source]
     assert fake_engine.targets == [f"__{target}__"]
+
+
+@pytest.mark.asyncio
+async def test_cancelled_native_translation_retains_slot_until_worker_finishes() -> None:
+    provider = M2M100CT2Translator(model_dir=".", tokenizer_dir=".")
+    provider._tokenizer = _FakeTokenizer()
+    started = Event()
+    release = Event()
+
+    class BlockingEngine(_FakeEngine):
+        def translate_batch(self, tokens, *, target_prefix, beam_size, max_decoding_length):
+            started.set()
+            if not release.wait(timeout=5):
+                raise RuntimeError("test worker was not released")
+            return super().translate_batch(
+                tokens, target_prefix=target_prefix,
+                beam_size=beam_size, max_decoding_length=max_decoding_length,
+            )
+
+    provider._engine = BlockingEngine()
+
+    def new_call():
+        return provider.translate(
+            "Source speech", source_language="ko", target_language="en",
+            context=SessionContext(),
+        )
+
+    first = asyncio.create_task(new_call())
+    queued = []
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+
+        # The cancelled waiter still occupies a real native worker slot.
+        queued = [asyncio.create_task(new_call()) for _ in range(3)]
+        await asyncio.sleep(0.05)
+        with pytest.raises(TranslationError, match="at capacity"):
+            await new_call()
+        # Session teardown must not invalidate captured native resources.
+        await provider.close()
+    finally:
+        release.set()
+        await asyncio.gather(*queued, return_exceptions=True)
+        await asyncio.gather(first, return_exceptions=True)
+
+    assert all(task.result() == "Verified translation text" for task in queued)
 
 
 @pytest.mark.asyncio
