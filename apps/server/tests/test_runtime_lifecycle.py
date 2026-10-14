@@ -340,25 +340,37 @@ async def test_late_asr_callback_is_fenced_after_session_stop(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_old_fallback_provider_change_cannot_relabel_new_session(tmp_path) -> None:
+async def test_previous_provider_change_callback_cannot_relabel_new_session(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from langtextflow.asr import MockStreamingAsrEngine
+
     runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "provider-epoch.db")))
+
+    def mock_with_provider_change(request: StartSessionRequest) -> MockStreamingAsrEngine:
+        del request
+        engine = MockStreamingAsrEngine(runtime.pipeline.ingest)
+        engine.on_provider_change = runtime._provider_changed
+        return engine
+
+    monkeypatch.setattr(runtime, "_build_engine", mock_with_provider_change)
     request = StartSessionRequest(
-        engine="auto", resource_profile="standard",
-        source_language="ko", target_languages=["en"], translation_provider="none",
+        engine="mock", source_language="ko",
+        target_languages=["en"], translation_provider="none",
     )
-    old_engine = runtime._build_engine(request)
-    # This is a fallback provider's change callback; no model is loaded.
-    assert old_engine.on_provider_change is not None
-    # Do not start the real ASR; create a fake previous-generation callback
-    # matching the runtime's generation arbitration invariant.
-    generation = object()
-    runtime._active_generation = generation
-    original_engine_name = runtime.state.engine
+    await runtime.start(request)
+    try:
+        assert runtime.engine is not None
+        stale_provider_callback = runtime.engine.on_provider_change
+        await runtime.start(request)
+        assert runtime.state.engine == "mock"
 
-    async def callback_from_old_provider(provider: str) -> None:
-        if runtime._active_generation is generation:
-            await runtime._provider_changed(provider)
+        await stale_provider_callback("faster-whisper")
+        assert runtime.state.engine == "mock"
 
-    runtime._active_generation = object()
-    await callback_from_old_provider("faster-whisper")
-    assert runtime.state.engine == original_engine_name
+        assert runtime.engine is not None
+        await runtime.engine.on_provider_change("vibevoice")
+        assert runtime.state.engine == "vibevoice"
+    finally:
+        await runtime.stop()
+        await runtime.shutdown()
