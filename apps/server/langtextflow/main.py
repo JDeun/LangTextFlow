@@ -264,9 +264,13 @@ def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
         (entry.source_language, entry.term.casefold()): entry for entry in saved
     }
     if request.project_id is not None:
-        for entry in project_glossary_repository.list_for(
-            request.project_id, request.source_language,
-        ):
+        try:
+            project_entries = project_glossary_repository.list_for(
+                request.project_id, request.source_language,
+            )
+        except KeyError as exc:
+            raise ValueError("project not found") from exc
+        for entry in project_entries:
             if not entry.applies_to(request.context.preset):
                 continue
             key = (entry.source_language, entry.term.casefold())
