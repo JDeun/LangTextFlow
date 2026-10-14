@@ -20,15 +20,25 @@ _CHURCH_ALIASES = {
 class DeterministicCorrector:
     """Meaning-preserving normalization using only explicit deterministic rules."""
 
-    def correct(self, text: str, context: SessionContext) -> str:
+    def correct(
+        self, text: str, context: SessionContext, *,
+        source_language: str = "ko",
+    ) -> str:
+        """Only apply operator alias rewrites for the verified source language.
+
+        The Korean default retains direct legacy API callers; the runtime
+        always supplies the actual StartSessionRequest.source_language.
+        """
+        language = source_language.strip().lower().replace("_", "-")
         value = unicodedata.normalize("NFC", text)
         value = re.sub(r"[ \t]+", " ", value).strip()
 
         aliases: dict[str, str] = {}
-        if context.preset is ProductPreset.CHURCH:
+        if context.preset is ProductPreset.CHURCH and language == "ko":
             aliases.update(_CHURCH_ALIASES)
         for entry in context.glossary:
-            if not entry.enabled:
+            if (not entry.enabled or entry.source_language != language
+                    or not entry.applies_to(context.preset)):
                 continue
             for alias in entry.aliases:
                 aliases[alias] = entry.term
@@ -39,5 +49,10 @@ class DeterministicCorrector:
             reverse=True,
         )
         for alias, canonical in ordered_aliases:
-            value = value.replace(alias, canonical)
+            if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9\s.'-]*", alias):
+                # Never rewrite 'cross' inside 'crossing' or 'act' inside 'action'.
+                pattern = r"(?<![a-zA-Z0-9])" + re.escape(alias) + r"(?![a-zA-Z0-9])"
+                value = re.sub(pattern, lambda _: canonical, value, flags=re.IGNORECASE)
+            else:
+                value = value.replace(alias, canonical)
         return value
