@@ -4,8 +4,48 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
+import unicodedata
 from pathlib import Path
 from typing import Any
+
+
+# These checks detect obvious regressions; neither claims semantic equivalence.
+# Only evaluate negation in English, for which the patterns are explicit.
+_EN_NEGATION = re.compile(
+    r"\b(?:not|no|never|without|neither|nor|cannot|can't|don't|doesn't|"
+    r"didn't|isn't|aren't|wasn't|weren't|won't|wouldn't|shouldn't|"
+    r"couldn't|nothing|nobody|nowhere)\b", re.IGNORECASE,
+)
+_DIGITS = re.compile(r"\d+")
+
+
+def semantic_sanity(reference: str, hypothesis: str, *, target: str) -> dict[str, Any]:
+    """Flag digit or English-negation changes without rewriting translations.
+
+    Numbers are compared as ordered decimal tokens, so scripture 3:16 and
+    'chapter 3 verse 16' have the same numeric signature. Spelled-out
+    numbers and cross-lingual negation scope still require human review.
+    """
+    expected = _DIGITS.findall(unicodedata.normalize("NFKC", reference))
+    observed = _DIGITS.findall(unicodedata.normalize("NFKC", hypothesis))
+    numeric_ok = expected == observed
+    negation_checked = target.lower() == "en"
+    reference_negative = bool(_EN_NEGATION.search(reference)) if negation_checked else None
+    hypothesis_negative = bool(_EN_NEGATION.search(hypothesis)) if negation_checked else None
+    polarity_ok = (
+        reference_negative == hypothesis_negative if negation_checked else None
+    )
+    return {
+        "expected_digits": expected,
+        "observed_digits": observed,
+        "digits_preserved": numeric_ok,
+        "english_negation_checked": negation_checked,
+        "reference_has_negation": reference_negative,
+        "hypothesis_has_negation": hypothesis_negative,
+        "negation_presence_preserved": polarity_ok,
+        "semantic_equivalence_certified": False,
+    }
 
 
 def assess(report: dict[str, Any], fixture_bytes: bytes) -> dict[str, Any]:
@@ -51,6 +91,22 @@ def assess(report: dict[str, Any], fixture_bytes: bytes) -> dict[str, Any]:
         missing = list(term_report.get("missing") or [])
         if missing:
             reasons.append(f"{fixture['id']}: missing critical terms {missing}")
+        target = str(fixture.get("target_language") or "en").lower()
+        # A numeric discrepancy in the reference itself invalidates the
+        # test case; do not grade a model against a corrupted fixture.
+        source_digits = _DIGITS.findall(
+            unicodedata.normalize("NFKC", fixture["source_text"])
+        )
+        reference_digits = _DIGITS.findall(
+            unicodedata.normalize("NFKC", fixture["reference_text"])
+        )
+        if source_digits and source_digits != reference_digits:
+            raise ValueError(f"fixture source/reference numbers differ: {fixture['id']}")
+        sanity = semantic_sanity(fixture["reference_text"], hypothesis, target=target)
+        if not sanity["digits_preserved"]:
+            reasons.append(f"{fixture['id']}: numeric/verse reference mismatch")
+        if sanity["negation_presence_preserved"] is False:
+            reasons.append(f"{fixture['id']}: English negation presence mismatch")
         score = (
             round(chrf.sentence_score(hypothesis, [fixture["reference_text"]]).score, 3)
             if chrf else None
@@ -65,6 +121,7 @@ def assess(report: dict[str, Any], fixture_bytes: bytes) -> dict[str, Any]:
             "chrf_plus_plus": score,
             "latency_ms": run.get("latency_ms"),
             "missing_critical_terms": missing,
+            "semantic_sanity": sanity,
         })
 
     return {
