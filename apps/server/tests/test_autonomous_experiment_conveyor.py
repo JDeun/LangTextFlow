@@ -208,3 +208,39 @@ def test_funasr_negative_scientific_result_does_not_disappear_on_retry():
     assert report["stages"]["funasr"] == "blocked_scientific_or_semantic_failure"
     assert report["stages"]["m2m"] == "dispatched_not_yet_completed"
     assert api.retried == []
+
+
+def test_repository_dispatch_callback_resumes_only_acknowledged_main_study() -> None:
+    event = {
+        "action": "ltf-stage-finished",
+        "client_payload": {"source_sha": FROZEN, "stage": "catalog"},
+    }
+    api = FakeAPI({"catalog": [run("catalog")]})
+    assert sources(api, "repository_dispatch", event, PLAN) == [FROZEN]
+
+    # Neither a forged stage nor an unknown run can seed a costly study.
+    assert sources(FakeAPI(), "repository_dispatch", event, PLAN) == []
+    bad = {"action": "ltf-stage-finished", "client_payload": {
+        "source_sha": FROZEN, "stage": "not_a_stage",
+    }}
+    assert sources(api, "repository_dispatch", bad, PLAN) == []
+
+    pr_run = run("catalog")
+    pr_run["head_branch"] = "not-main"
+    assert sources(
+        FakeAPI({"catalog": [pr_run]}), "repository_dispatch", event, PLAN
+    ) == []
+
+
+def test_repository_dispatch_does_not_accept_unknown_event_or_sha() -> None:
+    api = FakeAPI({"catalog": [run("catalog")]})
+    for action, source in (
+        ("other-event", FROZEN),
+        ("ltf-stage-finished", "main"),
+        ("ltf-stage-finished", "1" * 41),
+    ):
+        event = {
+            "action": action,
+            "client_payload": {"source_sha": source, "stage": "catalog"},
+        }
+        assert sources(api, "repository_dispatch", event, PLAN) == []
