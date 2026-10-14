@@ -281,12 +281,10 @@ class CaptionPipeline:
                     "postprocessing failed unexpectedly; source caption preserved"
                 )
                 latest = self._worker_progress.get(event.segment_id, event)
-                try:
+                # The publication sink itself may be unavailable. Count
+                # the segment failure but never kill the worker or loop.
+                with suppress(Exception):
                     await self._finalize_failed_segment(event, latest)
-                except Exception:
-                    # The publication sink itself may be unavailable. Count
-                    # the segment failure but never kill the worker or loop.
-                    pass
             finally:
                 self._worker_progress.pop(event.segment_id, None)
                 self._queue.task_done()
