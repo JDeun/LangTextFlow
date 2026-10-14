@@ -27,6 +27,34 @@ Hugging Face access acceptance** are required before downloading and before
 any distribution analysis. Never automate token/credential prompts, mirror
 gated weights, or bypass access controls.
 
+## Earlier NLLB alternatives in the same catalog
+
+PR #146 also registers the two comparison candidates that were previously
+mentioned but missing from the candidate list:
+
+- `facebook/nllb-200-distilled-600M` — direct six-direction multilingual
+  translation architecture similar to M2M100 / mBART; **CC BY-NC 4.0**
+  and the official model card describes research, **not production deployment**.
+  Catalog status is `noncommercial_research_only`, and no default/commercial
+  installation or redistribution is authorized. For opt-in noncommercial
+  experiments, the user still needs to review the license and ensure research
+  scope; merely appearing in the catalog is not authorization.
+  Official card: https://huggingface.co/facebook/nllb-200-distilled-600M.
+- `Qwen/Qwen3-0.6B` — Apache-2.0 **general text-generation LLM**,
+  not translation-specialized, and critically NOT the existing
+  `Qwen/Qwen3-ASR-0.6B` speech recognizer. Text-only six-direction
+  prompt-to-translation *research candidate* with exact language-output
+  and hallucination/negation safety validation.
+  Official card: https://huggingface.co/Qwen/Qwen3-0.6B.
+
+The other already registered NLLB-like candidates are
+`facebook/m2m100_418M` (six-way CPU result), `facebook/mbart-large-50-many-to-many-mmt`
+(checkpoint permission still unresolved), `Helsinki-NLP/opus-mt-ko-en`
+(only KO→EN), and `google/madlad400-3b-mt` (CPU feasibility not measured).
+
+These are catalog entries only, not five newly executed model benchmarks.
+No noncommercial/license-gated weights are fetched automatically.
+
 ## Comparison matrix (same licensed/consented evidence)
 
 Prioritize the 6 directed paths:
