@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_URL } from "./api";
+import { AsrProviderSelect } from "./AsrProviderSelect";
+import type { AsrRegistry } from "./asrCapabilities";
 import { useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { PANEL_COPY } from "./panelCopy";
@@ -24,6 +26,7 @@ interface OnboardingWizardProps {
   translationProvider: string;
   translationModel: string;
   translationRegistry: TranslationRegistry;
+  asrRegistry: AsrRegistry;
   sourceLanguage: string;
   targetLanguages: string[];
   preset: ProductPreset;
@@ -47,6 +50,7 @@ export function OnboardingWizard({
   translationProvider,
   translationModel,
   translationRegistry,
+  asrRegistry,
   sourceLanguage,
   targetLanguages,
   preset,
@@ -331,12 +335,12 @@ export function OnboardingWizard({
                 </label>
                 <label>
                   {copy.speechRecognition}
-                  <select value={engine} onChange={(event) => onEngineChange(event.target.value)}>
-                    <option value="auto">Auto</option>
-                    <option value="vibevoice">VibeVoice Streaming</option>
-                    <option value="faster-whisper">faster-whisper</option>
-                    <option value="mock">Demo engine</option>
-                  </select>
+                  <AsrProviderSelect
+                    value={engine}
+                    onChange={onEngineChange}
+                    sourceLanguage={sourceLanguage}
+                    registry={asrRegistry}
+                  />
                 </label>
                 <label>
                   {copy.translation}
