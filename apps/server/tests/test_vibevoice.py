@@ -240,3 +240,60 @@ async def test_vibevoice_end_audio_does_not_block_on_full_queue() -> None:
 
     await asyncio.wait_for(engine.end_audio(), timeout=0.1)
     assert engine._ended is True
+
+@pytest.mark.asyncio
+async def test_vibevoice_estimated_timestamps_cannot_exceed_transmitted_pcm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A short real input cannot yield a synthetic two-second transcript clock."""
+    events = []
+    event_ready = asyncio.Event()
+    fake_ws = FakeWebSocket()
+
+    async def publish(event) -> None:
+        events.append(event)
+        event_ready.set()
+
+    async def fake_connect(url: str, **kwargs: object) -> FakeWebSocket:
+        del url, kwargs
+        return fake_ws
+
+    monkeypatch.setattr("langtextflow.asr.vibevoice.httpx.AsyncClient", FakeHttpClient)
+    monkeypatch.setattr("langtextflow.asr.vibevoice.websockets.connect", fake_connect)
+    engine = VibeVoiceStreamingAsrEngine(
+        publish, base_url="http://127.0.0.1:8001", queue_chunks=2,
+    )
+    await engine.start(StartSessionRequest(source_language="ko", engine="vibevoice"))
+    try:
+        # 400 samples at 16 kHz = 25 ms, far below the 2-second remote chunk hint.
+        await engine.feed_audio(b"\x00\x00\x00\x00" * 400)
+        await asyncio.wait_for(event_ready.wait(), 1)
+        assert len(events) == 1
+        assert events[0].start_ms == 0
+        assert 0 <= events[0].end_ms <= 25
+        event_ready.clear()
+        await fake_ws.incoming.put(json.dumps({"text": "두 번째 발화"}))
+        await asyncio.wait_for(event_ready.wait(), 1)
+        assert len(events) == 2
+        assert 0 <= events[1].start_ms <= events[1].end_ms <= 25
+        assert events[1].segment_id != events[0].segment_id
+    finally:
+        await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_vibevoice_rejects_transcript_without_any_pcm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_ws = FakeWebSocket()
+    engine = await _start_engine(monkeypatch, fake_ws)
+    try:
+        await fake_ws.incoming.put(json.dumps({"text": "Prompt echoed without audio"}))
+        for _ in range(100):
+            if engine.failure is not None:
+                break
+            await asyncio.sleep(0.01)
+        assert engine.failure is not None
+        assert "before receiving PCM audio" in engine.failure
+    finally:
+        await engine.stop()
