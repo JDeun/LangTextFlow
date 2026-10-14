@@ -6,9 +6,9 @@ import json
 
 from scripts.autonomous_experiment_conveyor import (
     advance,
+    automatic_experiments_paused,
     frozen_preregistration,
     sources,
-    automatic_experiments_paused,
 )
 
 FROZEN = "a" * 40
