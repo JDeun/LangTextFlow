@@ -6,10 +6,10 @@ from types import SimpleNamespace
 import pytest
 
 from langtextflow.config import Settings
+from langtextflow.local_mt_preflight import local_m2m100_check
 from langtextflow.models import SessionContext, StartSessionRequest
 from langtextflow.pipeline import CaptionPipeline
 from langtextflow.translation import M2M100CT2Translator, TranslationError
-from langtextflow.local_mt_preflight import local_m2m100_check
 
 
 class _FakeTokenizer:
