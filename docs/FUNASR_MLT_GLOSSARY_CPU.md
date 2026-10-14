@@ -48,3 +48,32 @@ Stacking: PR #129 -> PR #135 -> this PR. This adds the ASR hotword stage but
 does not yet combine Fun-ASR with M2M100 in a single integrated product
 session. End-to-end four-way ASR/MT glossary ON/OFF is tracked in issue #139.
 No production or 4/8GB hardware claim follows from a green workflow.
+
+
+## First actual CPU result (2026-10-14)
+
+[GitHub Actions run 38479147801](https://github.com/JDeun/LangTextFlow/actions/runs/38479147801)
+successfully loaded the pinned Fun-ASR-MLT-Nano-2512 model and decoded **three**
+real FLEURS utterances per language (KO/EN/JA), with the same immutable
+9-entry source-language scoped glossary and OFF/ON prompts.
+
+| Spoken source | CER OFF | CER ON | Inference RTF OFF | Inference RTF ON | Reference clips with glossary terms |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| en | 0.0365 | 0.0279 | 0.5794 | 0.5994 | 0/3 |
+| ja | 0.0203 | 0.0203 | 0.5981 | 0.6206 | 0/3 |
+| ko | 0.0554 | 0.0792 | 0.7130 | 0.7335 | 0/3 |
+
+**Do not claim hotword improvement.** The actual read-speech references
+contained zero registered church terms, so these are background CER/RTF
+observations only. Korean CER worsened on this sample. OFF was always
+decoded first; order/warm-up effects remain. This first run cannot validate
+the product's core sermon-specific use case, and is not a substitute for
+meaningful church recordings.
+
+Follow-up experiment code adds a **negative-control false-insertion**
+measurement: any glossary term introduced into ON transcript when it was
+absent in both reference and OFF transcript is reported as
+`new_off_target_term_count`, never counted as success. This field is
+lexical, not a human determination of hallucination or semantic intent.
+Its counts require the **new** exact-head run to complete; do not project
+the older run's counts onto this new field.
