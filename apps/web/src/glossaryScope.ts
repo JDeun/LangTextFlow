@@ -9,3 +9,13 @@ export function visibleGlossaryRows<Row>(
 ): Row[] {
   return projection.scope === activeScope ? projection.rows : [];
 }
+
+/** Reject late old-scope reads even if their request counter is newer. */
+export function shouldApplyGlossaryResponse(
+  activeScope: string,
+  requestedScope: string,
+  requestedSequence: number,
+  latestSequence: number,
+): boolean {
+  return activeScope === requestedScope && requestedSequence === latestSequence;
+}

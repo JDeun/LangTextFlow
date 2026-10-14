@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GLOSSARY_COPY } from "./glossaryCopy";
-import { visibleGlossaryRows } from "./glossaryScope";
+import {
+  shouldApplyGlossaryResponse, visibleGlossaryRows,
+} from "./glossaryScope";
 import {
   existingGlossaryDraft, glossaryPayload, GLOSSARY_PRESETS,
   newGlossaryDraft, type GlossaryDraft,
@@ -56,6 +58,7 @@ export function GlossaryManager({
   }>({ scope: glossaryRoot, rows: [] });
   const entries = visibleGlossaryRows(projection, glossaryRoot);
   const latestRefresh = useRef(0);
+  const activeScope = useRef(glossaryRoot);
   const [draft, setDraft] = useState<GlossaryDraft>(() => newGlossaryDraft(preset, sourceLanguage));
   const [editingId, setEditingId] = useState<string | null>(null);
   const [importPolicy, setImportPolicy] = useState<ImportConflictPolicy>("upsert");
@@ -64,17 +67,23 @@ export function GlossaryManager({
   const [notice, setNotice] = useState("");
 
   const refresh = useCallback(async () => {
+    // An asynchronous mutation from an *old* scope must not even invalidate
+    // the newer scope's current read when it invokes refresh during cleanup.
+    if (activeScope.current !== glossaryRoot) return;
     const request = ++latestRefresh.current;
     const response = await fetch(glossaryRoot);
     if (!response.ok) throw new Error(copy.loadFailed);
     const rows = (await response.json()) as GlossaryRecord[];
     // A response cannot win after a scope switch or a newer refresh.
-    if (request === latestRefresh.current) {
+    if (shouldApplyGlossaryResponse(
+      activeScope.current, glossaryRoot, request, latestRefresh.current,
+    )) {
       setProjection({ scope: glossaryRoot, rows });
     }
   }, [glossaryRoot, copy.loadFailed]);
 
   useEffect(() => {
+    activeScope.current = glossaryRoot;
     // The old projection becomes invisible *during render*, before this runs.
     // Invalidate late reads, old draft selection and stale scope errors.
     latestRefresh.current++;
