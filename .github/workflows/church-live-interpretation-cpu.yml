@@ -5,7 +5,6 @@ on:
     paths:
       - "scripts/evaluate_live_fleurs_translation.py"
       - "apps/server/langtextflow/pipeline.py"
-      - ".github/workflows/church-live-interpretation-cpu.yml"
   workflow_dispatch:
   workflow_call:
 
