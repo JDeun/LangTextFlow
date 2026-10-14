@@ -51,7 +51,6 @@ def run(stage, status="completed", conclusion="success", attempt=1,
         artifact_good=True):
     return {
         "id": len(stage) * 10, "created_at": "2026-10-14T00:00:00Z",
-        "event": "workflow_dispatch",
         "display_title": f"ltf-stage-{stage} source={FROZEN}",
         "status": status, "conclusion": conclusion, "run_attempt": attempt,
         "event": "workflow_dispatch", "head_branch": "main",
