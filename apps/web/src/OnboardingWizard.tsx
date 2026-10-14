@@ -5,6 +5,8 @@ import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { PANEL_COPY } from "./panelCopy";
 import { ModelSetupControl } from "./ModelSetupControl";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
+import { TranslationProviderSelect } from "./TranslationProviderSelect";
+import type { TranslationRegistry } from "./translationCapabilities";
 import type { ProductPreset, RecommendedConfiguration, SystemPreflight } from "./types";
 import { VibeVoiceLifecycleControl } from "./VibeVoiceLifecycleControl";
 import "./onboarding.css";
@@ -21,6 +23,7 @@ interface OnboardingWizardProps {
   resourceProfile: "standard" | "low";
   translationProvider: string;
   translationModel: string;
+  translationRegistry: TranslationRegistry;
   sourceLanguage: string;
   targetLanguages: string[];
   preset: ProductPreset;
@@ -43,6 +46,7 @@ export function OnboardingWizard({
   resourceProfile,
   translationProvider,
   translationModel,
+  translationRegistry,
   sourceLanguage,
   targetLanguages,
   preset,
@@ -336,15 +340,14 @@ export function OnboardingWizard({
                 </label>
                 <label>
                   {copy.translation}
-                  <select
+                  <TranslationProviderSelect
                     value={translationProvider}
-                    onChange={(event) => onTranslationProviderChange(event.target.value)}
-                  >
-                    <option value="ollama">Ollama</option>
-                    <option value="openai-compatible">OpenAI-compatible API</option>
-                    <option value="none">{copy.noTranslation}</option>
-                    {engine === "mock" && <option value="demo">Demo translator</option>}
-                  </select>
+                    onChange={onTranslationProviderChange}
+                    sourceLanguage={sourceLanguage}
+                    targetLanguages={targetLanguages}
+                    engine={engine}
+                    registry={translationRegistry}
+                  />
                 </label>
                 {providerUsesModel(translationProvider) && (
                   <label>

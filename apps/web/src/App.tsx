@@ -24,6 +24,9 @@ import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
 import { SessionHistory } from "./SessionHistory";
 import { DEFAULT_KOREAN_HOTWORDS } from "./sessionDefaults";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
+import { TranslationProviderSelect } from "./TranslationProviderSelect";
+import { providerBlockReason } from "./translationCapabilities";
+import { useTranslationCapabilities } from "./useTranslationCapabilities";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
@@ -218,6 +221,7 @@ function OperatorApp() {
   const [correctionProvider, setCorrectionProvider] = useState("none");
   const [correctionModel, setCorrectionModel] = useState("qwen3.5:4b");
   const [translationProvider, setTranslationProvider] = useState("ollama");
+  const translationRegistry = useTranslationCapabilities();
   const [translationModel, setTranslationModel] = useState("translategemma:4b");
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
   const [deviceId, setDeviceId] = useState("");
@@ -354,6 +358,12 @@ function OperatorApp() {
   }
 
   async function assertPreflightReady() {
+    const reason = providerBlockReason(
+      translationRegistry, translationProvider, sourceLanguage, targetLanguages, engine,
+    );
+    if (reason !== null) {
+      throw new Error(`Translation provider unavailable or unsupported (${reason}); check provider configuration and languages`);
+    }
     const query = new URLSearchParams({
       engine,
       translation_provider: translationProvider,
@@ -523,6 +533,7 @@ function OperatorApp() {
         preset={preset}
         onEngineChange={changeEngine}
         onTranslationProviderChange={setTranslationProvider}
+        translationRegistry={translationRegistry}
         onTranslationModelChange={setTranslationModel}
         onSourceLanguageChange={changeSourceLanguage}
         onTargetLanguagesChange={changeTargetLanguages}
@@ -742,17 +753,15 @@ function OperatorApp() {
           )}
           <label>
             {t("engines.translation")}
-            <select
+            <TranslationProviderSelect
               value={translationProvider}
-              onChange={(event) => setTranslationProvider(event.target.value)}
+              onChange={setTranslationProvider}
               disabled={running}
-            >
-              {engine === "mock" && <option value="demo">Demo translator</option>}
-              <option value="ollama">Ollama (local)</option>
-              <option value="m2m100-ct2">M2M100 CT2 CPU (experimental; local cache)</option>
-              <option value="openai-compatible">OpenAI-compatible API</option>
-              <option value="none">{operatorCopy.noTranslation}</option>
-            </select>
+              sourceLanguage={sourceLanguage}
+              targetLanguages={targetLanguages}
+              engine={engine}
+              registry={translationRegistry}
+            />
           </label>
           {translationProviderUsesModel(translationProvider) && (
             <label>
