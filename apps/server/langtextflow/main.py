@@ -52,6 +52,7 @@ from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .presets import CHURCH_GLOSSARY
 from .project_archive import build_project_archive_manifest
+from .project_glossary_repository import ProjectGlossaryRepository
 from .project_report import build_project_report
 from .project_repository import (
     ProjectAssignment,
@@ -78,6 +79,7 @@ os.environ.setdefault("HF_HOME", str(model_cache_root / "huggingface"))
 runtime = CaptionRuntime()
 glossary_repository = GlossaryRepository(settings.database_path)
 project_repository = ProjectRepository(settings.database_path)
+project_glossary_repository = ProjectGlossaryRepository(settings.database_path)
 post_event_archive = runtime.archive
 model_setup_manager = ModelSetupManager(settings)
 model_cache_manager = ModelCacheManager(settings)
@@ -139,6 +141,7 @@ async def _close_audio_socket_for_transition(reason: str) -> None:
 async def lifespan(_: FastAPI):
     glossary_repository.initialize()
     await runtime.initialize()
+    await asyncio.to_thread(project_glossary_repository.initialize)
     await asyncio.to_thread(mdns_publisher.start)
     try:
         yield
@@ -260,10 +263,29 @@ def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
     merged: dict[tuple[str, str], GlossaryEntry] = {
         (entry.source_language, entry.term.casefold()): entry for entry in saved
     }
+    # Project overrides take precedence over global/preset entries. A disabled
+    # project entry explicitly suppresses its inherited global counterpart.
+    if request.project_id is not None:
+        for entry in project_glossary_repository.active_overrides(
+            request.project_id, request.context.preset, request.source_language
+        ):
+            key = (entry.source_language, entry.term.casefold())
+            if entry.enabled:
+                merged[key] = entry
+            else:
+                merged.pop(key, None)
+    # Explicit session overrides have highest precedence, including disabling
+    # a term for *this session only*. The materialized snapshot is persisted
+    # with the session and is never affected by later operator edits.
     for entry in request.context.glossary:
-        if (entry.enabled and entry.applies_to(request.context.preset)
-                and entry.source_language == request.source_language):
-            merged[(entry.source_language, entry.term.casefold())] = entry
+        if entry.applies_to(request.context.preset) and (
+            entry.source_language == request.source_language
+        ):
+            key = (entry.source_language, entry.term.casefold())
+            if entry.enabled:
+                merged[key] = entry
+            else:
+                merged.pop(key, None)
     context = request.context.model_copy(update={"glossary": list(merged.values())})
     return request.model_copy(update={"context": context})
 
@@ -767,6 +789,102 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
     for path in paths:
         with suppress(OSError):
             await asyncio.to_thread(path.unlink, missing_ok=True)
+    return Response(status_code=204)
+
+
+def _assert_project_glossary_access(project_id: str) -> None:
+    if project_repository.get(project_id) is None:
+        raise HTTPException(status_code=404, detail="project not found")
+
+
+@app.get("/api/v1/projects/{project_id}/glossary", response_model=list[GlossaryRecord])
+def list_project_glossary(request: Request, project_id: str) -> list[GlossaryRecord]:
+    _require_operator(request)
+    _assert_project_glossary_access(project_id)
+    return project_glossary_repository.list(project_id)
+
+
+@app.get("/api/v1/projects/{project_id}/glossary/export")
+def export_project_glossary(
+    request: Request, project_id: str,
+    export_format: Annotated[GlossaryTransferFormat, Query(alias="format")] = (
+        GlossaryTransferFormat.JSON
+    ),
+) -> Response:
+    _require_operator(request)
+    _assert_project_glossary_access(project_id)
+    content = export_glossary(project_glossary_repository.list(project_id), export_format)
+    return Response(
+        content=content, media_type=glossary_export_media_type(export_format),
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="langtextflow-project-glossary.{export_format.value}"'
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/glossary/import",
+    response_model=GlossaryImportResult,
+)
+def import_project_glossary(
+    request: Request, project_id: str, payload: GlossaryImportRequest,
+) -> GlossaryImportResult:
+    _require_operator(request)
+    _assert_project_glossary_access(project_id)
+    try:
+        entries = parse_glossary_import(payload)
+        created, updated, skipped = project_glossary_repository.import_entries(
+            project_id, entries, conflict_policy=payload.conflict_policy.value
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return GlossaryImportResult(
+        total=len(entries), created=created, updated=updated, skipped=skipped,
+    )
+
+
+@app.post(
+    "/api/v1/projects/{project_id}/glossary",
+    response_model=GlossaryRecord, status_code=201,
+)
+def create_project_glossary(
+    request: Request, project_id: str, entry: GlossaryEntry,
+) -> GlossaryRecord:
+    _require_operator(request)
+    _assert_project_glossary_access(project_id)
+    try:
+        return project_glossary_repository.create(project_id, entry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.put(
+    "/api/v1/projects/{project_id}/glossary/{record_id}",
+    response_model=GlossaryRecord,
+)
+def update_project_glossary(
+    request: Request, project_id: str, record_id: str, entry: GlossaryEntry,
+) -> GlossaryRecord:
+    _require_operator(request)
+    _assert_project_glossary_access(project_id)
+    try:
+        record = project_glossary_repository.update(project_id, record_id, entry)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if record is None:
+        raise HTTPException(status_code=404, detail="project glossary entry not found")
+    return record
+
+
+@app.delete("/api/v1/projects/{project_id}/glossary/{record_id}", status_code=204)
+def delete_project_glossary(request: Request, project_id: str, record_id: str) -> Response:
+    _require_operator(request)
+    _assert_project_glossary_access(project_id)
+    if not project_glossary_repository.delete(project_id, record_id):
+        raise HTTPException(status_code=404, detail="project glossary entry not found")
     return Response(status_code=204)
 
 
