@@ -1,0 +1,43 @@
+name: Apple system Translation text probe (compile-only)
+
+on:
+  pull_request:
+    paths:
+      - "experiments/apple_translation/**"
+      - "scripts/benchmark_apple_translation.py"
+      - "apps/server/tests/test_apple_translation_probe.py"
+      - "docs/APPLE_SYSTEM_TRANSLATION.md"
+      - ".github/workflows/apple-system-translation-research.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  swift-api-compile:
+    runs-on: macos-26
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Report SDK and platform provenance
+        run: |
+          uname -a
+          xcodebuild -version
+          xcrun swiftc --version
+          xcrun --sdk macosx --show-sdk-version
+      - name: Compile native Apple Translation probe without loading models
+        run: |
+          xcrun swiftc -parse-as-library \
+            experiments/apple_translation/AppleTranslationProbe.swift \
+            -o "$RUNNER_TEMP/ltf-apple-translation-probe"
+          test -x "$RUNNER_TEMP/ltf-apple-translation-probe"
+      - name: State experiment limits
+        run: |
+          {
+            echo "## Apple native Translation compile gate"
+            echo "macOS 26 Swift/Translation SDK syntax compiled."
+            echo "No language assets downloaded, no Apple translation executed."
+            echo "No iPhone executable, no speech Live Translation access."
+            echo "No measured latency, accuracy or real-session readiness."
+            echo "HighFidelity can fall back: requested != actual model identity."
+          } >> "$GITHUB_STEP_SUMMARY"
