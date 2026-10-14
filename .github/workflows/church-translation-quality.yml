@@ -5,7 +5,6 @@ on:
     paths:
       - "benchmarks/church_translation_quality.v1.jsonl"
       - "scripts/assess_church_translation.py"
-      - ".github/workflows/church-translation-quality.yml"
       - "apps/server/langtextflow/translation/ollama.py"
       - "apps/server/langtextflow/translation_benchmark.py"
   workflow_dispatch:
