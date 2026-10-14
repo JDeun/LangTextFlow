@@ -9,7 +9,10 @@ import {
   retryDelayMs,
   terminalMessage,
 } from "./captionSocketPolicy";
-import { applyScopedCaption, createScopedCaptions, visibleScopedCaptions } from "./scopedCaptions";
+import {
+  applyScopedCaption, createScopedCaptions, clearDisconnectedCaptionScope,
+  visibleScopedCaptions,
+} from "./scopedCaptions";
 import type { TranscriptEvent } from "./types";
 
 export function useCaptionSocket(path = "/ws/captions") {
@@ -50,10 +53,12 @@ export function useCaptionSocket(path = "/ws/captions") {
       activeSocket.onclose = (event) => {
         if (disposed || socket !== activeSocket) return;
         setConnection({ path, connected: false });
+        // A reconnect is not evidence the old transcript is still current.
+        // Clear the route's visible projection until the server sends a fresh
+        // authorized snapshot; do not erase captions from a newer route.
+        setScoped((current) => clearDisconnectedCaptionScope(current, path));
         if (isTerminalCloseCode(event.code)) {
-          // Auth/terminal failures must not leave another session's private
-          // transcript visible while the audience client is denied access.
-          setScoped(createScopedCaptions(path));
+          // Terminal authorization failures also remove prior captions.
           setTerminal({ path, message: terminalMessage(event.code, event.reason) });
           return;
         }

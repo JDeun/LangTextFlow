@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   applyScopedCaption, createScopedCaptions, visibleScopedCaptions,
+  clearDisconnectedCaptionScope,
 } from "../src/scopedCaptions.ts";
 import type { TranscriptEvent } from "../src/types.ts";
 
@@ -41,4 +42,34 @@ test("disposed old-path snapshot cannot overwrite a new session", () => {
     type: "snapshot", segments: [caption("secret", 1)],
   });
   assert.equal(other, next);
+});
+
+
+test("temporary WebSocket loss blanks stale captions until fresh snapshot arrives", () => {
+  const path = "/ws/captions";
+  const previous = applyScopedCaption(
+    createScopedCaptions(path), path, caption("prior-session", 4),
+  );
+  assert.equal(visibleScopedCaptions(previous, path).length, 1);
+
+  const disconnected = clearDisconnectedCaptionScope(previous, path);
+  assert.deepEqual(visibleScopedCaptions(disconnected, path), []);
+
+  const restored = applyScopedCaption(disconnected, path, {
+    type: "snapshot", segments: [caption("new-session", 1)],
+  });
+  assert.deepEqual(
+    visibleScopedCaptions(restored, path).map((x) => x.segment_id),
+    ["new-session"],
+  );
+});
+
+test("late closure from old audience route cannot clear new route's captions", () => {
+  const path = "/ws/audience/CURRENT";
+  const current = applyScopedCaption(
+    createScopedCaptions(path), path, caption("current", 1),
+  );
+  const result = clearDisconnectedCaptionScope(current, "/ws/audience/OLD");
+  assert.equal(result, current);
+  assert.equal(visibleScopedCaptions(result, path)[0].text, "current");
 });
