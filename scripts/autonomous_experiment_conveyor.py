@@ -127,12 +127,19 @@ def sources(api: GitHub, event_name: str, event: dict, manifest: dict) -> list[s
         sha = str(event.get("after") or "")
         return [sha] if SHA.fullmatch(sha) else []
     if event_name == "workflow_run":
-        title = str((event.get("workflow_run") or {}).get("display_title") or "")
+        completed = event.get("workflow_run") or {}
+        if (completed.get("event") != "workflow_dispatch"
+                or completed.get("head_branch") != "main"):
+            return []  # PR smoke run is NOT an automatic scientific cohort.
+        title = str(completed.get("display_title") or "")
         m = TITLE.fullmatch(title)
         return [m.group(2)] if m else []
     if event_name == "schedule":
         found: list[str] = []
         for row in api.runs(manifest["stages"][0]):
+            if (row.get("event") != "workflow_dispatch"
+                    or row.get("head_branch") != "main"):
+                continue  # Never dispatch costly models for PR merge refs.
             m = TITLE.fullmatch(str(row.get("display_title") or ""))
             if m and m.group(1) == "catalog" and m.group(2) not in found:
                 found.append(m.group(2))
