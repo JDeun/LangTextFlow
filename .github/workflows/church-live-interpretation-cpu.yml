@@ -1,6 +1,6 @@
 name: Church live interpretation - real speech Linux CPU
 
-run-name: ltf-stage-churchlive source=${{ inputs.source_sha || github.sha }}
+run-name: ltf-stage-church_live source=${{ inputs.source_sha || github.sha }}
 
 on:
   pull_request:
