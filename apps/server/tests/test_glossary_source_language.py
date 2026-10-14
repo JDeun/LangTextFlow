@@ -124,7 +124,7 @@ def test_session_snapshot_selects_only_matching_english_and_japanese_terms(
         context=SessionContext(preset=ProductPreset.CHURCH),
     ))
     assert [entry.term for entry in en.context.glossary] == ["grace"]
-    assert en.context.asr_hotwords() == ["grace", "grace alias"]
+    assert en.context.asr_hotwords(source_language="en") == ["grace", "grace alias"]
     prompt = OllamaTranslator.build_prompt(
         "The grace of God", source_language="en", target_language="ko",
         context=en.context,
@@ -197,3 +197,63 @@ def test_bulk_korean_church_seed_never_becomes_foreign_source_hotwords(tmp_path)
         japanese.term
     ]
     assert len(repo.active_for(ProductPreset.CHURCH, "ko")) == 157
+
+
+def test_asr_hotword_source_isolation_even_for_mixed_injected_session_context() -> None:
+    """Guard the ASR adapter boundary, not only the saved-glossary loader."""
+    context = SessionContext(
+        preset=ProductPreset.CHURCH,
+        hotwords=["Operator explicitly selected"],
+        glossary=[
+            GlossaryEntry(
+                source_language="ko", term="성령", aliases=["거룩한 영"],
+                translations={"en": "Holy Spirit"},
+                presets=[ProductPreset.CHURCH],
+            ),
+            GlossaryEntry(
+                source_language="en", term="Holy Spirit",
+                aliases=["Spirit of God"], translations={"ko": "성령"},
+                presets=[ProductPreset.CHURCH],
+            ),
+            GlossaryEntry(
+                source_language="ja", term="聖霊", aliases=["せいれい"],
+                translations={"ko": "성령"}, presets=[ProductPreset.CHURCH],
+            ),
+            GlossaryEntry(
+                source_language="en", term="Disabled hint", enabled=False,
+            ),
+            GlossaryEntry(
+                source_language="en", term="Conference only",
+                presets=[ProductPreset.CONFERENCE],
+            ),
+        ],
+    )
+    assert context.asr_hotwords(source_language="ko") == [
+        "Operator explicitly selected", "성령", "거룩한 영",
+    ]
+    assert context.asr_hotwords(source_language="en") == [
+        "Operator explicitly selected", "Holy Spirit", "Spirit of God",
+    ]
+    assert context.asr_hotwords(source_language="ja") == [
+        "Operator explicitly selected", "聖霊", "せいれい",
+    ]
+    # Unverified or unknown source cannot silently bias using all languages.
+    assert context.asr_hotwords() == ["Operator explicitly selected"]
+    assert context.asr_hotwords(source_language="xx") == [
+        "Operator explicitly selected",
+    ]
+
+
+def test_asr_adapters_pass_verified_source_language_to_glossary() -> None:
+    """Prevent accidental regression to unfiltered context.asr_hotwords()."""
+    from inspect import getsource
+
+    from langtextflow.asr.faster_whisper import FasterWhisperStreamingAsrEngine
+    from langtextflow.asr.vibevoice import VibeVoiceStreamingAsrEngine
+
+    assert "context.asr_hotwords(source_language=request.source_language)" in (
+        getsource(FasterWhisperStreamingAsrEngine)
+    )
+    assert "context.asr_hotwords(source_language=request.source_language)" in (
+        getsource(VibeVoiceStreamingAsrEngine)
+    )
