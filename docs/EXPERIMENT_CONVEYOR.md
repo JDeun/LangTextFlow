@@ -28,11 +28,12 @@ GitHub Actions 상태 감시, 정확한 소스 SHA 고정, 이벤트 기반 다�
 | --- | --- | --- | --- |
 | 1. Catalog | GitHub Actions Linux | 시작 SHA | 모델 후보 라이선스·검증 메타데이터 |
 | 2. M2M100 | Linux CPU | Catalog 성공 | Qwen3-ASR + M2M100 실제 모델, 6방향 텍스트 + 3개 언어 FLEURS 음성 |
-| 2b. Apple | macOS 26 러너 | Catalog 성공 | Swift Translation API 컴파일 + 6언어쌍 설치 상태 조회; **실제 번역 추론 아님** |
+| 2b. Apple | macOS 26 러너 | Catalog 성공 | 언어쌍 설치 상태 검사. 기존 설치된 언어 리소스가 있으면 Apple 저지연·고품질 텍스트 번역 자동 실험; 없으면 **not_exercised** (설치나 다운로드 강제하지 않음) |
+| 2c. Fun-ASR | Linux CPU | Catalog 성공 | Apache-2.0 Fun-ASR-MLT-Nano-2512 핫워드 OFF/ON, 3언어 FLEURS 3개씩, 오인식 신규 용어 삽입 추적 |
 | 3. Church quality | Linux CPU | M2M100 성공 및 원본 아티팩트 존재 | TranslateGemma 4B 교회 텍스트 20개 품질 스모크 |
 | 4. Live captions | Linux CPU | Church quality 성공 및 원본 아티팩트 존재 | 실제 읽기 음성을 ASR→MT→자막 경로로 재생 |
 
-2와 2b는 서로 기다릴 필요가 없으므로 선행 Catalog 후 병렬로 진행될
+2·2b·2c는 서로 기다릴 필요가 없으므로 선행 Catalog 후 병렬로 진행될
 수 있습니다. 두 작업이 실행 중이라고 해서 CI 체크 또는 품질 승인으로
 판정하지 않습니다.
 
@@ -58,13 +59,9 @@ SHA-256 digest가 없다면** 다음 연구 단계로 넘어가지 않습니다.
   전용 평가 어댑터가 필요함
 - Gemma 4 E2B, Qwen3 0.6B: 공개 후보는 등록했지만 해당 음성/텍스트
   평가 엔진 코드가 아직 없음
-- Fun-ASR-MLT 핫워드: 실측 워크플로는 있으나 연구 PR #140이 현재
-  미병합이므로 `main`의 자동 DAG에 포함되지 않음
 - OPUS-MT ko→en: 연구 PR #119가 미병합이고 tc-big 조건이 실패했으므로
   제품 후보로 자동 통과시킬 수 없음
-- Apple 시스템 번역: 호스팅 Mac에서 언어 리소스 가용성은 조회 가능하나
-  Apple 시스템 음성 실시간 번역 모델과 실제 텍스트 번역 정확도는
-  확인된 것이 아님
+- Apple 시스템 번역: GitHub의 macOS 러너에서 **설치된** 언어 쌍이면 실제 텍스트 번역을 자동 시도합니다. 언어 데이터가 없으면 명시적 미실행으로 남기며, Apple 비공개 음성 실시간 통역 모델이나 고품질 전략의 실제 백엔드 신원은 입증하지 못합니다
 
 실행할 수 없는 후보를 **성공으로 처리하거나 무단으로 라이선스에
 동의하지 않습니다.** 이 제한은 사용자가 매번 승인 버튼을 눌러야
