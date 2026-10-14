@@ -131,3 +131,29 @@ def test_equivalent_scripture_digit_punctuation_is_accepted() -> None:
     )
     assert sanity["digits_preserved"] is True
     assert sanity["semantic_equivalence_certified"] is False
+
+
+def test_quality_report_rejects_structured_json_caption_from_any_provider() -> None:
+    report, content = sample()
+    report["fixtures"][0]["runs"][0]["hypothesis"] = (
+        '{"source_text":"요한복음","session_title":"service","translation":"John"}'
+    )
+    evaluated = MODULE.assess(report, content)
+    assert evaluated["status"] == "needs-improvement"
+    assert any("JSON object/array in caption" in r for r in evaluated["reasons"])
+
+
+@pytest.mark.parametrize("duplicate_side", ["fixture", "report"])
+def test_quality_report_rejects_duplicate_case_ids(duplicate_side: str) -> None:
+    report, content = sample()
+    fixture = json.loads(content.decode().strip())
+    if duplicate_side == "fixture":
+        content += (json.dumps(fixture, ensure_ascii=False) + "\n").encode()
+        report["config"]["fixture_sha256"] = hashlib.sha256(content).hexdigest()
+        report["fixtures"].append(report["fixtures"][0].copy())
+        expected = "duplicate fixture ID"
+    else:
+        report["fixtures"].append(report["fixtures"][0].copy())
+        expected = "report IDs|duplicate inference"
+    with pytest.raises(ValueError, match=expected):
+        MODULE.assess(report, content)
