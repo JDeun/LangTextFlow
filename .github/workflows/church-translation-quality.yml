@@ -1,6 +1,6 @@
 name: Church translation quality - Linux CPU baseline
 
-run-name: ltf-stage-churchquality source=${{ inputs.source_sha || github.sha }}
+run-name: ltf-stage-church_quality source=${{ inputs.source_sha || github.sha }}
 
 on:
   pull_request:
