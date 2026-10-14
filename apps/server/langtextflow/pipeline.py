@@ -192,7 +192,9 @@ class CaptionPipeline:
         # No further workers can read this admission queue. Publish explicit
         # timeout outcomes for STABLE sources admitted but never processed.
         # Otherwise a stopped session can leave dozens of target tracks
-        # permanently pending with no visible explanation.
+        # permanently pending with no visible explanation. Bound the *whole*
+        # remaining publication budget, not 200 ms per queued utterance.
+        close_deadline = asyncio.get_running_loop().time() + 1.0
         while True:
             try:
                 pending = self._queue.get_nowait()
@@ -201,17 +203,17 @@ class CaptionPipeline:
             try:
                 if pending is not None:
                     self.expired_postprocess_segments += 1
-                    try:
-                        await asyncio.wait_for(
-                            self._finalize_failed_segment(
-                                pending, pending, pending_state="timed_out",
-                            ),
-                            timeout=0.2,
-                        )
-                    except Exception:
+                    remaining = close_deadline - asyncio.get_running_loop().time()
+                    if remaining > 0:
                         # Publishing failure is visible in the session's
                         # persistence/socket diagnostics; never block shutdown.
-                        pass
+                        with suppress(Exception):
+                            await asyncio.wait_for(
+                                self._finalize_failed_segment(
+                                    pending, pending, pending_state="timed_out",
+                                ),
+                                timeout=remaining,
+                            )
             finally:
                 self._queue.task_done()
         self._queue = asyncio.Queue(maxsize=128)
@@ -303,15 +305,13 @@ class CaptionPipeline:
                 # pending targets, retaining any successfully emitted ones.
                 self.expired_postprocess_segments += 1
                 latest = self._worker_progress.get(event.segment_id, event)
-                try:
+                with suppress(Exception):
                     await asyncio.wait_for(
                         self._finalize_failed_segment(
                             event, latest, pending_state="timed_out",
                         ),
                         timeout=0.2,
                     )
-                except Exception:
-                    pass
                 raise
             except Exception:
                 # Optional providers and progress publication must not kill the
@@ -322,12 +322,10 @@ class CaptionPipeline:
                     "postprocessing failed unexpectedly; source caption preserved"
                 )
                 latest = self._worker_progress.get(event.segment_id, event)
-                try:
+                # The publication sink itself may be unavailable. Count
+                # the segment failure but never kill the worker or loop.
+                with suppress(Exception):
                     await self._finalize_failed_segment(event, latest)
-                except Exception:
-                    # The publication sink itself may be unavailable. Count
-                    # the segment failure but never kill the worker or loop.
-                    pass
             finally:
                 self._worker_progress.pop(event.segment_id, None)
                 self._queue.task_done()
