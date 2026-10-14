@@ -51,28 +51,23 @@ async function evaluate(expression) {
   return result.result?.value;
 }
 
-let localePreloadScriptId = null;
-
 async function setLocale(locale) {
-  // Inject storage before React runs in the reloaded document. An immediate
-  // write on the old page can race LocaleProvider's startup effect and be
-  // overwritten with the old locale before Page.reload takes effect.
-  if (localePreloadScriptId) {
-    await cdp("Page.removeScriptToEvaluateOnNewDocument", {
-      identifier: localePreloadScriptId,
-    });
-  }
-  const preload = await cdp("Page.addScriptToEvaluateOnNewDocument", {
-    source: `try {
-      localStorage.setItem("langtextflow:onboarding:v1", "complete");
-      localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)});
-    } catch (_) { /* Non-app initial contexts may have no storage. */ }`,
-  });
-  localePreloadScriptId = preload.identifier;
-  // Navigate through Page rather than Runtime.evaluate; no destroyed-context
-  // response is awaited as part of the navigation itself.
-  await cdp("Page.reload", { ignoreCache: true });
-  await waitFor(async () => {
+  // Drive the real React language switcher instead of mutating storage behind
+  // LocaleProvider's back. Direct writes were overwritten by its state effect
+  // even when injected around a reload (observed locale/DOM/storage all "ko").
+  const changed = await evaluate(`(() => {
+    const select = document.querySelector('[data-testid="locale-select"]');
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype, "value"
+    )?.set;
+    if (!select || !nativeSetter) return false;
+    nativeSetter.call(select, ${JSON.stringify(locale)});
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  })()`);
+  if (!changed) throw new Error(`Locale selector not available for ${locale}`);
+
+  const checkLocale = async () => {
     try {
       return await evaluate(`document.readyState === "complete"
         && document.documentElement.lang === ${JSON.stringify(locale)}
@@ -84,20 +79,25 @@ async function setLocale(locale) {
       }
       throw error;
     }
-  }, `locale ${locale}`).catch(async (error) => {
-    const observed = await evaluate(`JSON.stringify({
-      origin: location.origin,
-      pathname: location.pathname,
-      readyState: document.readyState,
-      htmlLang: document.documentElement.lang,
-      select: document.querySelector('[data-testid="locale-select"]')?.value ?? null,
-      storedLocale: localStorage.getItem("langtextflow:locale:v1"),
-      onboardingState: localStorage.getItem("langtextflow:onboarding:v1"),
-      appPresent: !!document.querySelector("#root"),
-      rootText: document.querySelector("#root")?.textContent?.slice(0, 160),
-    })`).catch((diagnosticError) => String(diagnosticError));
-    throw new Error(`${error.message}; observed browser state: ${observed}`);
-  });
+  };
+  const assertLocale = async (phase) => {
+    await waitFor(checkLocale, `locale ${locale} (${phase})`).catch(async (error) => {
+      const observed = await evaluate(`JSON.stringify({
+        origin: location.origin,
+        readyState: document.readyState,
+        htmlLang: document.documentElement.lang,
+        select: document.querySelector('[data-testid="locale-select"]')?.value ?? null,
+        storedLocale: localStorage.getItem("langtextflow:locale:v1"),
+      })`).catch((diagnosticError) => String(diagnosticError));
+      throw new Error(`${error.message}; observed browser state: ${observed}`);
+    });
+  };
+
+  await assertLocale("UI change");
+  // Check persistence across reload only after React has written the new
+  // locale. Page.reload is issued through CDP, not Runtime.evaluate.
+  await cdp("Page.reload", { ignoreCache: true });
+  await assertLocale("reload persistence");
 }
 
 // CDP target creation can finish while its first page navigation or React
