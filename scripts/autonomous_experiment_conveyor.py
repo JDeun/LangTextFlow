@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 
 SHA = re.compile(r"[0-9a-f]{40}")
-TITLE = re.compile(r"ltf-stage-([a-z_]+) source=([0-9a-f]{40})")
+TITLE = re.compile(r"ltf-stage-([a-z0-9_]+) source=([0-9a-f]{40})")
 FAILURES = {"failure", "timed_out", "startup_failure"}
 
 
