@@ -10,6 +10,7 @@ from langtextflow.local_mt_preflight import local_m2m100_check
 from langtextflow.models import SessionContext, StartSessionRequest
 from langtextflow.pipeline import CaptionPipeline
 from langtextflow.translation import M2M100CT2Translator, TranslationError
+from langtextflow.translation.capabilities import translation_capabilities
 
 
 class _FakeTokenizer:
@@ -148,3 +149,28 @@ def test_local_m2m100_preflight_blocks_missing_artifacts(tmp_path) -> None:
 def test_local_m2m100_refuses_unbounded_threads(threads: int) -> None:
     with pytest.raises(ValueError, match="thread count"):
         M2M100CT2Translator(model_dir=".", tokenizer_dir=".", cpu_threads=threads)
+
+
+def test_provider_capabilities_do_not_mislabel_remote_proxy_as_local() -> None:
+    remote = Settings(
+        ollama_url="https://ollama.remote.example/api",
+        openai_compatible_url="https://api.example.invalid/v1",
+    )
+    descriptions = {
+        item.provider: item for item in translation_capabilities(remote)
+    }
+    assert descriptions["ollama"].local_only is False
+    assert descriptions["openai-compatible"].local_only is False
+    assert descriptions["ollama"].supported_pairs is None
+    assert descriptions["m2m100-ct2"].supported_pairs is not None
+    assert descriptions["m2m100-ct2"].field_qualified is False
+
+    local = Settings(
+        ollama_url="http://127.0.0.1:11434",
+        openai_compatible_url="http://localhost:1234/v1",
+    )
+    descriptions = {
+        item.provider: item for item in translation_capabilities(local)
+    }
+    assert descriptions["ollama"].local_only is True
+    assert descriptions["openai-compatible"].local_only is True
