@@ -12,8 +12,10 @@ def local_m2m100_check(settings: Settings) -> PreflightCheck:
     model = Path(settings.local_m2m100_ct2_dir)
     tokenizer = Path(settings.local_m2m100_tokenizer_dir)
     missing: list[str] = []
-    if not model.is_dir() or not (model / "model.bin").is_file():
-        missing.append("CTranslate2 converted model.bin")
+    if not model.is_dir() or not all(
+        (model / name).is_file() for name in ("model.bin", "config.json")
+    ):
+        missing.append("CTranslate2 model.bin/config.json")
     if not tokenizer.is_dir() or not (
         (tokenizer / "tokenizer_config.json").is_file()
     ):
