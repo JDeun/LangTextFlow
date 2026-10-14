@@ -252,3 +252,40 @@ async def test_replay_fallback_reports_exhaustion_after_last_provider_fails() ->
     assert "device lost" in engine.failure
 
     await engine.stop()
+
+
+
+@pytest.mark.asyncio
+async def test_replay_fallback_fences_old_session_callbacks_across_restart() -> None:
+    published: list[TranscriptEvent] = []
+    created: list[FakeEngine] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    def factory(provider_publish):
+        new = FakeEngine(provider_publish)
+        created.append(new)
+        return new
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("primary", factory)], health_check_seconds=60.0,
+    )
+    request = StartSessionRequest(engine="auto", source_language="en")
+    await wrapper.start(request)
+    old = created[-1]
+    await old.emit(segment_id="before-stop", start_ms=0, end_ms=300, text="old")
+    assert len(published) == 1
+
+    await wrapper.stop()
+    await old.emit(segment_id="after-stop", start_ms=350, end_ms=500, text="stale")
+    assert len(published) == 1
+
+    await wrapper.start(request)
+    new = created[-1]
+    assert new is not old
+    # Reused transcript generation=0 must not reuse the closed session epoch.
+    await old.emit(segment_id="old-late", start_ms=0, end_ms=300, text="stale")
+    await new.emit(segment_id="current", start_ms=0, end_ms=300, text="valid")
+    assert [event.text for event in published] == ["old", "valid"]
+    await wrapper.stop()
