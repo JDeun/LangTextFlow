@@ -1,0 +1,117 @@
+"""Idempotence, dependency gating, frozen SHA and retry decisions."""
+from __future__ import annotations
+
+from scripts.autonomous_experiment_conveyor import advance, sources
+
+FROZEN = "a" * 40
+PLAN = {
+    "schema_version": 1,
+    "stages": [
+        {"id": "catalog", "workflow": "catalog.yml", "deps": [],
+         "artifact": None},
+        {"id": "m2m", "workflow": "m2m.yml", "deps": ["catalog"],
+         "artifact": "m2m-canonical"},
+        {"id": "apple", "workflow": "apple.yml", "deps": ["catalog"],
+         "artifact": "apple-status"},
+        {"id": "church_quality", "workflow": "quality.yml", "deps": ["m2m"],
+         "artifact": "quality-report"},
+    ],
+    "infrastructure_recovery": {"max_run_attempts": 3},
+    "blocked_candidates": [{"model": "NLLB", "reason": "noncommercial"}],
+}
+
+
+class FakeAPI:
+    def __init__(self, states=None):
+        self.states = states or {}
+        self.dispatched = []
+        self.retried = []
+
+    def runs(self, stage):
+        return self.states.get(stage["id"], [])
+
+    def dispatch(self, stage, sha):
+        self.dispatched.append((stage["id"], sha))
+
+    def retry(self, run):
+        self.retried.append(run["id"])
+
+    def artifact_ok(self, stage, run):
+        return run.get("artifact_good", False)
+
+
+def run(stage, status="completed", conclusion="success", attempt=1,
+        artifact_good=True):
+    return {
+        "id": len(stage) * 10, "created_at": "2026-10-14T00:00:00Z",
+        "event": "workflow_dispatch",
+        "display_title": f"ltf-stage-{stage} source={FROZEN}",
+        "status": status, "conclusion": conclusion, "run_attempt": attempt,
+        "artifact_good": artifact_good,
+    }
+
+
+def test_push_triggers_new_frozen_experiment():
+    api = FakeAPI()
+    assert sources(api, "push", {"after": FROZEN}, PLAN) == [FROZEN]
+    assert sources(api, "push", {"after": "main"}, PLAN) == []
+
+
+def test_first_advance_only_dispatches_catalog():
+    api = FakeAPI()
+    report = advance(api, FROZEN, PLAN, execute=False)
+    assert report["actions"] == ["dispatch:catalog"]
+    assert report["stages"]["m2m"] == "waiting_on_dependency"
+    assert report["field_ready"] is False
+
+
+def test_successful_gate_dispatches_ready_siblings_without_duplicates():
+    api = FakeAPI({"catalog": [run("catalog")],
+                   "m2m": [run("m2m", status="in_progress")]})
+    report = advance(api, FROZEN, PLAN, execute=False)
+    assert report["stages"]["catalog"] == "success"
+    assert report["stages"]["m2m"] == "running_or_queued"
+    assert "dispatch:apple" in report["actions"]
+    assert "dispatch:m2m" not in report["actions"]
+    assert report["stages"]["church_quality"] == "waiting_on_dependency"
+
+
+def test_missing_artifact_fails_closed_not_counted_as_scientific_success():
+    api = FakeAPI({"catalog": [run("catalog")],
+                   "m2m": [run("m2m", artifact_good=False)]})
+    report = advance(api, FROZEN, PLAN, execute=False)
+    assert report["stages"]["m2m"] == "blocked_missing_canonical_artifact"
+    assert report["stages"]["church_quality"] == "waiting_on_dependency"
+
+
+def test_infrastructure_retried_with_limit_but_negative_artifacts_preserved():
+    api = FakeAPI({"catalog": [run("catalog")],
+                   "m2m": [run("m2m", conclusion="failure",
+                               attempt=1, artifact_good=False)]})
+    report = advance(api, FROZEN, PLAN, execute=True)
+    assert report["stages"]["m2m"] == "retrying_infrastructure"
+    assert api.retried == [30]
+    api.states["m2m"] = [run("m2m", conclusion="failure",
+                              attempt=3, artifact_good=False)]
+    report = advance(api, FROZEN, PLAN, execute=False)
+    assert report["stages"]["m2m"] == "blocked_retry_limit"
+    api.states["m2m"] = [run("m2m", conclusion="failure",
+                              attempt=1, artifact_good=True)]
+    report = advance(api, FROZEN, PLAN, execute=False)
+    assert report["stages"]["m2m"] == "blocked_scientific_or_semantic_failure"
+
+
+def test_workflow_run_resumes_same_sha_and_hourly_never_creates_unseeded_run():
+    api = FakeAPI({"catalog": [run("catalog")]})
+    event = {"workflow_run": {"display_title": f"ltf-stage-m2m source={FROZEN}"}}
+    assert sources(api, "workflow_run", event, PLAN) == [FROZEN]
+    assert sources(api, "schedule", {}, PLAN) == [FROZEN]
+    assert sources(FakeAPI(), "schedule", {}, PLAN) == []
+
+
+def test_frozen_sha_rejects_branch_name():
+    try:
+        advance(FakeAPI(), "main", PLAN, execute=False)
+        raise AssertionError("expected frozen SHA rejection")
+    except ValueError:
+        pass
