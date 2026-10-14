@@ -280,3 +280,33 @@ def test_real_preregistered_dag_advances_without_manual_intervention() -> None:
     assert done["execution_complete"]
     assert not done["field_ready"]
     assert not done["translation_quality_certified"]
+
+
+def test_all_registered_scientific_stage_names_match_workflow_and_callback() -> None:
+    """Manifest stage ids must agree with GitHub's actual run-name marker.
+
+    The controller uses an exact `ltf-stage-{id} source={sha}` match when
+    looking for completed runs. A hyphen/underscore mismatch silently causes
+    unlimited redispatches and prevents downstream stages from advancing.
+    """
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    plan = json.loads(
+        (root / "benchmarks/translation-conveyor-preregistration.json")
+        .read_text(encoding="utf-8")
+    )
+    for stage in plan["stages"]:
+        workflow = (root / ".github/workflows" / stage["workflow"]).read_text(
+            encoding="utf-8"
+        )
+        stage_id = stage["id"]
+        assert (
+            f"run-name: ltf-stage-{stage_id} source=" in workflow
+        ), f"{stage['workflow']} run-name does not match {stage_id}"
+        assert re.search(
+            r"^\\s*STAGE:\\s*" + re.escape(stage_id) + r"\\s*$",
+            workflow,
+            flags=re.MULTILINE,
+        ), f"{stage['workflow']} callback stage does not match {stage_id}"
