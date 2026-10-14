@@ -67,33 +67,60 @@ class ObservedSegment:
 
 
 class SegmentCollector:
+    """Collect one final hypothesis per segment, not every streaming revision.
+
+    Stable hypotheses can be corrected before a committed event. Retain the
+    latest version in first-seen segment order; an actual commit is terminal.
+    Distinct segment IDs are deliberately not text-deduplicated: genuine
+    repetitions must remain measurable by segment_quality().
+    """
+
     def __init__(self, *, pace: str) -> None:
         self.pace = pace
         self.started_at: float | None = None
         self.segments: list[ObservedSegment] = []
+        self._indices: dict[str, int] = {}
+        self._versions: dict[str, int] = {}
+        self._committed: set[str] = set()
 
     def start_clock(self) -> None:
         self.started_at = time.perf_counter()
 
     async def publish(self, event: TranscriptEvent) -> None:
-        if event.stage is not CaptionStage.STABLE:
+        if event.stage not in (CaptionStage.STABLE, CaptionStage.COMMITTED):
             return
         if self.started_at is None:
             raise RuntimeError("benchmark collector clock has not started")
+        segment_id = event.segment_id
+        previous_version = self._versions.get(segment_id, -1)
+        if segment_id in self._committed or event.version < previous_version:
+            return
+        # An identical stable revision must not inflate the reference error.
+        # A commit at the same version supersedes its earlier stable record.
+        if (event.version == previous_version
+                and event.stage is not CaptionStage.COMMITTED):
+            return
         elapsed_ms = (time.perf_counter() - self.started_at) * 1000.0
         lag_ms: float | None = None
         if self.pace == "realtime" and event.end_ms is not None:
             lag_ms = max(0.0, elapsed_ms - event.end_ms)
-        self.segments.append(
-            ObservedSegment(
-                segment_id=event.segment_id,
-                text=event.text.strip(),
-                start_ms=event.start_ms,
-                end_ms=event.end_ms,
-                received_elapsed_ms=round(elapsed_ms, 1),
-                realtime_lag_ms=round(lag_ms, 1) if lag_ms is not None else None,
-            )
+        observation = ObservedSegment(
+            segment_id=segment_id,
+            text=event.text.strip(),
+            start_ms=event.start_ms,
+            end_ms=event.end_ms,
+            received_elapsed_ms=round(elapsed_ms, 1),
+            realtime_lag_ms=round(lag_ms, 1) if lag_ms is not None else None,
         )
+        index = self._indices.get(segment_id)
+        if index is None:
+            self._indices[segment_id] = len(self.segments)
+            self.segments.append(observation)
+        else:
+            self.segments[index] = observation
+        self._versions[segment_id] = event.version
+        if event.stage is CaptionStage.COMMITTED:
+            self._committed.add(segment_id)
 
 
 class MemoryTracker:
