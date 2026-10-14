@@ -255,6 +255,158 @@ async def test_replay_fallback_reports_exhaustion_after_last_provider_fails() ->
 
 
 
+@pytest.mark.asyncio
+async def test_replay_fallback_fences_old_session_callbacks_across_restart() -> None:
+    published: list[TranscriptEvent] = []
+    created: list[FakeEngine] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    def factory(provider_publish):
+        new = FakeEngine(provider_publish)
+        created.append(new)
+        return new
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("primary", factory)], health_check_seconds=60.0,
+    )
+    request = StartSessionRequest(
+        engine="auto", source_language="en", target_languages=["ko"],
+    )
+    await wrapper.start(request)
+    original_epoch = wrapper._session_epoch
+    old = created[-1]
+    await old.emit(segment_id="before-stop", start_ms=0, end_ms=300, text="old")
+    assert len(published) == 1
+
+    await wrapper.stop()
+    await old.emit(segment_id="after-stop", start_ms=350, end_ms=500, text="stale")
+    assert len(published) == 1
+
+    await wrapper.start(request)
+    assert wrapper._session_epoch > original_epoch
+    new = created[-1]
+    assert new is not old
+    # Reused transcript generation=0 must not reuse the closed session epoch.
+    await old.emit(segment_id="old-late", start_ms=0, end_ms=300, text="stale")
+    await new.emit(segment_id="current", start_ms=0, end_ms=300, text="valid")
+    assert [event.text for event in published] == ["old", "valid"]
+    await wrapper.stop()
+
+
+@pytest.mark.asyncio
+async def test_replay_fallback_stop_does_not_wait_for_stuck_audio_lock() -> None:
+    import asyncio
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class StalledEngine(FakeEngine):
+        async def feed_audio(self, pcm_f32le: bytes) -> None:
+            started.set()
+            await release.wait()
+            await super().feed_audio(pcm_f32le)
+
+    async def publish(_event: TranscriptEvent) -> None:
+        pass
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("stalled", lambda sink: StalledEngine(sink))],
+        health_check_seconds=60.0,
+    )
+    await wrapper.start(StartSessionRequest(engine="auto"))
+    in_flight = asyncio.create_task(wrapper.feed_audio(pcm(20, 0.1)))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=1)
+        # Provider callback fencing must not add an unbounded wait for _lock.
+        await asyncio.wait_for(wrapper.stop(), timeout=0.2)
+        assert wrapper.active_provider is None
+    finally:
+        release.set()
+        await asyncio.gather(in_flight, return_exceptions=True)
+
+
+
+@pytest.mark.asyncio
+async def test_failed_asr_candidate_cannot_inject_callbacks_during_next_start() -> None:
+    published: list[TranscriptEvent] = []
+    failed: list[FakeEngine] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    class FailingStart(FakeEngine):
+        async def start(self, request: StartSessionRequest) -> None:
+            await super().start(request)
+            raise AsrEngineError("first candidate startup failed")
+
+    class HealthyStart(FakeEngine):
+        async def start(self, request: StartSessionRequest) -> None:
+            await super().start(request)
+            # Both callbacks have the same session and failover generation,
+            # but only the currently starting candidate may enter the buffer.
+            await failed[-1].emit(
+                segment_id="stale", start_ms=0, end_ms=100, text="old candidate",
+            )
+            await self.emit(
+                segment_id="current", start_ms=0, end_ms=100, text="healthy",
+            )
+
+    def build_failing(publish_event):
+        engine = FailingStart(publish_event)
+        failed.append(engine)
+        return engine
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("bad", build_failing), ("good", HealthyStart)],
+        health_check_seconds=60.0,
+    )
+    try:
+        await wrapper.start(StartSessionRequest(engine="auto"))
+        assert wrapper.active_provider == "good"
+        assert [x.text for x in published] == ["healthy"]
+    finally:
+        await wrapper.stop()
+
+
+@pytest.mark.asyncio
+async def test_flooding_startup_candidate_is_bounded_and_rejected() -> None:
+    published: list[TranscriptEvent] = []
+    bad: list[FakeEngine] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    class FloodingStart(FakeEngine):
+        async def start(self, request: StartSessionRequest) -> None:
+            await super().start(request)
+            for index in range(200):
+                await self.emit(
+                    segment_id=f"flood-{index}", start_ms=index,
+                    end_ms=index + 1, text="untrusted startup",
+                )
+
+    def make_flood(publish_event):
+        engine = FloodingStart(publish_event)
+        bad.append(engine)
+        return engine
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("flood", make_flood), ("good", FakeEngine)],
+        health_check_seconds=60.0,
+    )
+    try:
+        await wrapper.start(StartSessionRequest(engine="auto"))
+        assert wrapper.active_provider == "good"
+        assert bad[0].stopped is True
+        assert published == []
+        assert wrapper._pending_events == []
+        assert wrapper._pending_overflowed is False
+    finally:
+        await wrapper.stop()
+
+
 def test_replay_buffer_strictly_bounds_single_oversized_frame_and_keeps_true_clock() -> None:
     async def publish(_event: TranscriptEvent) -> None:
         pass
