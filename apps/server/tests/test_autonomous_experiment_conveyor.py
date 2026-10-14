@@ -1,7 +1,14 @@
 """Idempotence, dependency gating, frozen SHA and retry decisions."""
 from __future__ import annotations
 
-from scripts.autonomous_experiment_conveyor import advance, sources
+import base64
+import json
+
+from scripts.autonomous_experiment_conveyor import (
+    advance,
+    frozen_preregistration,
+    sources,
+)
 
 FROZEN = "a" * 40
 PLAN = {
@@ -115,3 +122,18 @@ def test_frozen_sha_rejects_branch_name():
         raise AssertionError("expected frozen SHA rejection")
     except ValueError:
         pass
+
+
+def test_preregistration_is_loaded_from_frozen_source_not_mutable_main():
+    class FrozenGitHub:
+        def api(self, method, path):
+            assert method == "GET"
+            assert path.endswith("?ref=" + FROZEN)
+            return {
+                "encoding": "base64",
+                "content": base64.b64encode(
+                    json.dumps(PLAN).encode()
+                ).decode(),
+            }
+
+    assert frozen_preregistration(FrozenGitHub(), FROZEN) == PLAN
