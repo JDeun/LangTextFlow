@@ -6,6 +6,7 @@ import {
   type AudioInputDevice,
 } from "./audioCapture";
 import { AudienceAccess } from "./AudienceAccess";
+import { rollbackFailedSessionStart } from "./sessionStartRollback";
 import { AsrProviderSelect } from "./AsrProviderSelect";
 import { asrBlockReason } from "./asrCapabilities";
 import { useAsrCapabilities } from "./useAsrCapabilities";
@@ -398,6 +399,7 @@ function OperatorApp() {
   async function start() {
     setBusy(true);
     setError("");
+    let startRequestIssued = false;
     try {
       await assertPreflightReady();
 
@@ -410,6 +412,9 @@ function OperatorApp() {
         if (!selectedDevice) throw new Error(t("audio.noDevice"));
       }
 
+      // Never roll back the server unless a start request was actually sent.
+      // Preflight/device failures must not stop another live operator tab.
+      startRequestIssued = true;
       const response = await fetch(`${API_URL}/api/v1/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -469,11 +474,20 @@ function OperatorApp() {
         await capture.start(selectedDevice);
       }
     } catch (reason) {
-      await captureRef.current?.stop();
-      captureRef.current = null;
-      await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" }).catch(() => undefined);
-      setSession(null);
-      setRecordAudio(false);
+      await rollbackFailedSessionStart(startRequestIssued, {
+        stopCapture: async () => {
+          const capture = captureRef.current;
+          captureRef.current = null;
+          await capture?.stop();
+        },
+        stopRemote: async () => {
+          await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
+        },
+      });
+      if (startRequestIssued) {
+        setSession(null);
+        setRecordAudio(false);
+      }
       setError(reason instanceof Error ? reason.message : t("error.startFailed"));
     } finally {
       setBusy(false);
