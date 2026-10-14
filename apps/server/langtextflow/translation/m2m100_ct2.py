@@ -79,21 +79,29 @@ class M2M100CT2Translator(Translator):
             raise TranslationError("Local M2M100 provider is not prepared")
         if not text.strip():
             raise TranslationError("Cannot translate an empty source caption")
+        # Capture strong references *before* scheduling native CPU inference.
+        # Closing a session may clear instance fields while an asyncio-cancelled
+        # worker thread still runs. Captured resources stay valid until it exits.
+        tokenizer = self._tokenizer
+        engine = self._engine
         try:
-            return await asyncio.to_thread(self._translate_sync, text, source_language,
-                                           target_language)
+            return await asyncio.to_thread(
+                self._translate_sync, text, source_language, target_language,
+                tokenizer, engine,
+            )
         except TranslationError:
             raise
         except Exception as exc:
             raise TranslationError("Local M2M100 inference failed") from exc
 
-    def _translate_sync(self, text: str, source: str, target: str) -> str:
+    def _translate_sync(
+        self, text: str, source: str, target: str, tokenizer: Any, engine: Any,
+    ) -> str:
         with self._inference_lock:
-            tokenizer = self._tokenizer
             tokenizer.src_lang = source
             source_tokens = tokenizer.convert_ids_to_tokens(tokenizer.encode(text))
             prefix = tokenizer.lang_code_to_token[target]
-            result = self._engine.translate_batch(
+            result = engine.translate_batch(
                 [source_tokens], target_prefix=[[prefix]],
                 beam_size=1, max_decoding_length=256,
             )
@@ -110,8 +118,8 @@ class M2M100CT2Translator(Translator):
             return candidate
 
     async def close(self) -> None:
-        # CTranslate2 inference in a Python worker thread cannot be forcibly
-        # stopped by asyncio cancellation. Releasing references is not proof
-        # of a terminated native call. Full teardown needs #157 lifecycle work.
+        # Native CPU inference cannot be interrupted by asyncio cancellation.
+        # In-flight calls captured their own engine/tokenizer references above.
+        # Resource-budgeted executor teardown remains a later #157 task.
         self._engine = None
         self._tokenizer = None
