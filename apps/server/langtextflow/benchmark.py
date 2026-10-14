@@ -82,6 +82,7 @@ class SegmentCollector:
         self._indices: dict[str, int] = {}
         self._versions: dict[str, int] = {}
         self._committed: set[str] = set()
+        self.first_stable_elapsed_ms: float | None = None
 
     def start_clock(self) -> None:
         self.started_at = time.perf_counter()
@@ -101,6 +102,9 @@ class SegmentCollector:
                 and event.stage is not CaptionStage.COMMITTED):
             return
         elapsed_ms = (time.perf_counter() - self.started_at) * 1000.0
+        if self.first_stable_elapsed_ms is None:
+            # Keep time-to-first-caption separate from the later final revision.
+            self.first_stable_elapsed_ms = round(elapsed_ms, 1)
         lag_ms: float | None = None
         if self.pace == "realtime" and event.end_ms is not None:
             lag_ms = max(0.0, elapsed_ms - event.end_ms)
@@ -547,7 +551,7 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
         if options.pace == "max"
         else None,
         "first_stable_ms": (
-            collector.segments[0].received_elapsed_ms if collector.segments else None
+            collector.first_stable_elapsed_ms
         ),
         "realtime_lag_p50_ms": percentile(lag_values, 0.50),
         "realtime_lag_p95_ms": percentile(lag_values, 0.95),
