@@ -137,10 +137,24 @@ class CaptionPipeline:
             try:
                 self._queue.put_nowait(event)
             except asyncio.QueueFull:
-                # Source has already been published. Preserve live ASR transport;
-                # flag the absence of postprocessing rather than stalling audio.
+                # Publish a terminal source-only outcome instead of leaving
+                # this segment's translation tracks permanently "pending".
+                # No correction/MT is attempted, and source text is immutable.
                 self.dropped_postprocess_segments += 1
                 self.status.error = "postprocessing queue full; source caption preserved"
+                targets = self.request.target_languages if self.request else []
+                terminal = self._next_event(
+                    event,
+                    version=event.version + 1,
+                    stage=CaptionStage.COMMITTED,
+                    text=event.text,
+                    translation_states={
+                        target: ("failed" if self.translator is not None else "unsupported")
+                        for target in targets
+                    },
+                    committed=True,
+                )
+                await self.publish(terminal)
 
     async def stop(self) -> None:
         first_error: Exception | None = None

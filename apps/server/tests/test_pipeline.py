@@ -881,3 +881,90 @@ async def test_identical_repeated_speech_with_new_segment_id_is_not_deduped() ->
         assert len(store.snapshot()) == 2
     finally:
         await pipeline.stop()
+
+@pytest.mark.asyncio
+async def test_postprocessing_queue_overflow_emits_terminal_source_only_status() -> None:
+    """An overloaded worker must not strand translated audience tracks pending."""
+    events: list[TranscriptEvent] = []
+    first_corrected = asyncio.Event()
+    release = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        events.append(event)
+        if event.segment_id == "busy" and event.stage is CaptionStage.CORRECTED:
+            first_corrected.set()
+            await release.wait()
+
+    pipeline = CaptionPipeline(
+        publish,
+        Settings(postprocess_max_parallel_segments=1),
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="en",
+        target_languages=["ko", "ja"],
+        translation_provider="demo",
+    ))
+    def stable(identity: str) -> TranscriptEvent:
+        return TranscriptEvent(
+            segment_id=identity,
+            stage=CaptionStage.STABLE,
+            version=1,
+            source_language="en",
+            text=f"Original sermon {identity}",
+            start_ms=0,
+            end_ms=500,
+        )
+
+    try:
+        await pipeline.ingest(stable("busy"))
+        await asyncio.wait_for(first_corrected.wait(), 1)
+        # Fill the production-size bounded queue while the sole worker is
+        # deliberately blocked in publish, then force exactly one overflow.
+        for index in range(pipeline.queue_capacity):
+            await pipeline.ingest(stable(f"queued-{index}"))
+        await pipeline.ingest(stable("overflow"))
+        overflow_events = [item for item in events if item.segment_id == "overflow"]
+        assert [event.stage for event in overflow_events] == [
+            CaptionStage.STABLE, CaptionStage.COMMITTED,
+        ]
+        assert overflow_events[-1].committed is True
+        assert overflow_events[-1].text == "Original sermon overflow"
+        assert overflow_events[-1].translations == {}
+        assert overflow_events[-1].translation_states == {
+            "ko": "failed", "ja": "failed",
+        }
+        assert overflow_events[-1].version > overflow_events[0].version
+        assert pipeline.dropped_postprocess_segments == 1
+    finally:
+        release.set()
+        await asyncio.wait_for(pipeline.stop(), 2)
+
+    assert any(event.segment_id == "queued-0" and event.committed for event in events)
+
+
+@pytest.mark.asyncio
+async def test_source_only_overflow_is_not_mislabeled_as_translation_failure() -> None:
+    """If translation was disabled, no target should appear to have run."""
+    events: list[TranscriptEvent] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        events.append(event)
+
+    pipeline = CaptionPipeline(publish, Settings())
+    pipeline.request = StartSessionRequest(
+        source_language="ja", target_languages=["ko"],
+        translation_provider="none",
+    )
+    pipeline._queue = asyncio.Queue(maxsize=1)
+    pipeline._queue.put_nowait(None)
+    await pipeline.ingest(TranscriptEvent(
+        segment_id="overloaded-source-only",
+        stage=CaptionStage.STABLE,
+        version=1,
+        source_language="ja",
+        text="原文",
+        start_ms=0,
+    ))
+    assert events[-1].stage is CaptionStage.COMMITTED
+    assert events[-1].translation_states == {"ko": "unsupported"}
+    assert events[-1].translations == {}
