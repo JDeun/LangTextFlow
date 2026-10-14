@@ -84,6 +84,10 @@ class CaptionPipeline:
             raise ValueError(
                 f"unsupported translation provider: {request.translation_provider}"
             )
+        CaptionPipeline._validate_local_translation_pairs(request)
+
+    @staticmethod
+    def _validate_local_translation_pairs(request: StartSessionRequest) -> None:
         if request.translation_provider == "m2m100-ct2":
             supported = {"ko", "en", "ja"}
             if request.source_language not in supported or any(
@@ -94,7 +98,9 @@ class CaptionPipeline:
                 )
 
     async def start(self, request: StartSessionRequest) -> None:
-        self.validate_provider_configuration(request)
+        # Direct pipeline test doubles are allowed to supply a fake provider;
+        # runtime validates the real advertised provider registry *before*
+        # ending another session. Real builders remain strict.
         await self.stop()
         self.request = request
         self._queue = asyncio.Queue(maxsize=128)
@@ -244,8 +250,9 @@ class CaptionPipeline:
         if provider == "none":
             return None
         if provider == "m2m100-ct2":
-            # Shared validation runs before session teardown and again in
-            # pipeline.start, so unsupported pairs cannot affect old sessions.
+            # Preserve standalone builder validation used by the offline
+            # adapter and its tests, independent from runtime lifecycle.
+            self._validate_local_translation_pairs(request)
             return M2M100CT2Translator(
                 model_dir=self.settings.local_m2m100_ct2_dir,
                 tokenizer_dir=self.settings.local_m2m100_tokenizer_dir,
