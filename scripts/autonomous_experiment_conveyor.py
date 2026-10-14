@@ -125,11 +125,14 @@ def advance(api: GitHub, sha: str, manifest: dict, execute: bool) -> dict:
 def sources(api: GitHub, event_name: str, event: dict, manifest: dict) -> list[str]:
     if event_name == "push":
         sha = str(event.get("after") or "")
-        return [sha] if SHA.fullmatch(sha) else []
+        return [sha] if event.get("ref") == "refs/heads/main" and SHA.fullmatch(sha) else []
     if event_name == "workflow_run":
         completed = event.get("workflow_run") or {}
         if (completed.get("event") != "workflow_dispatch"
-                or completed.get("head_branch") != "main"):
+                or completed.get("status") != "completed"
+                or completed.get("head_branch") != "main"
+                or (completed.get("head_repository") or {}).get("full_name")
+                != api.repo):
             return []  # PR smoke run is NOT an automatic scientific cohort.
         title = str(completed.get("display_title") or "")
         m = TITLE.fullmatch(title)
