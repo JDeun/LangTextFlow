@@ -58,6 +58,10 @@ class CaptionPipeline:
         # by text, preserving legitimate repeated sentences.
         self._seen_stable_sources: OrderedDict[str, None] = OrderedDict()
         self.duplicate_asr_events_dropped = 0
+        # Latest successfully published event for each active worker.
+        # A failed postprocessor must never regress an already translated
+        # language, or leave an unfinished language pending forever.
+        self._worker_progress: dict[str, TranscriptEvent] = {}
 
     @property
     def queue_depth(self) -> int:
@@ -75,6 +79,7 @@ class CaptionPipeline:
         self.failed_postprocess_segments = 0
         self._seen_stable_sources.clear()
         self.duplicate_asr_events_dropped = 0
+        self._worker_progress.clear()
         low_resource = (
             self.settings.resource_profile == "low" or request.resource_profile == "low"
         )
@@ -268,14 +273,51 @@ class CaptionPipeline:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # A broken optional provider must not permanently kill the
-                # segment worker and therefore the entire live ASR session.
+                # Optional providers and progress publication must not kill the
+                # whole realtime worker. Preserve already published language
+                # results, terminate remaining pending tracks and move on.
                 self.failed_postprocess_segments += 1
                 self.status.error = (
                     "postprocessing failed unexpectedly; source caption preserved"
                 )
+                latest = self._worker_progress.get(event.segment_id, event)
+                try:
+                    await self._finalize_failed_segment(event, latest)
+                except Exception:
+                    # The publication sink itself may be unavailable. Count
+                    # the segment failure but never kill the worker or loop.
+                    pass
             finally:
+                self._worker_progress.pop(event.segment_id, None)
                 self._queue.task_done()
+
+    async def _publish_postprocess(self, event: TranscriptEvent) -> None:
+        await self.publish(event)
+        self._worker_progress[event.segment_id] = event
+
+    async def _finalize_failed_segment(
+        self, source: TranscriptEvent, latest: TranscriptEvent,
+    ) -> None:
+        if latest.committed:
+            return
+        targets = self.request.target_languages if self.request else []
+        states = dict(latest.translation_states)
+        translations = dict(latest.translations)
+        for language in targets:
+            if language in translations:
+                states[language] = "available"
+            elif states.get(language) not in {"failed", "timed_out", "unsupported"}:
+                states[language] = (
+                    "failed" if self.translator is not None else "unsupported"
+                )
+        terminal = self._next_event(
+            latest, version=latest.version + 1, stage=CaptionStage.COMMITTED,
+            text=latest.text, translations=translations,
+            translation_states=states, committed=True,
+        )
+        # The source STABLE caption has already been sent by ingest().
+        # The terminal is always monotonically later than last published.
+        await self._publish_postprocess(terminal)
 
     async def _correct(self, text: str) -> tuple[str, CorrectionProvenance]:
         assert self.request is not None
@@ -364,7 +406,7 @@ class CaptionPipeline:
             correction=provenance,
             translation_states=states,
         )
-        await self.publish(corrected)
+        await self._publish_postprocess(corrected)
 
         translations: dict[str, str] = {}
         base = corrected
@@ -431,7 +473,7 @@ class CaptionPipeline:
                         translations=translations,
                         translation_states=states,
                     )
-                    await self.publish(base)
+                    await self._publish_postprocess(base)
             finally:
                 # as_completed() launches target tasks eagerly. On session
                 # stop/restart, do not leave orphaned provider inference behind.
@@ -450,7 +492,7 @@ class CaptionPipeline:
             translation_states=states,
             committed=True,
         )
-        await self.publish(committed)
+        await self._publish_postprocess(committed)
 
     @staticmethod
     def _next_event(

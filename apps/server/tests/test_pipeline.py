@@ -657,8 +657,13 @@ async def test_unexpected_segment_failure_does_not_kill_remaining_worker() -> No
             ))
         await asyncio.wait_for(second_done.wait(), timeout=1)
         assert pipeline.failed_postprocess_segments == 1
-        assert any(event.segment_id == "broken" and event.stage is CaptionStage.STABLE
-                   for event in events)
+        broken = [event for event in events if event.segment_id == "broken"]
+        assert [event.stage for event in broken] == [
+            CaptionStage.STABLE, CaptionStage.COMMITTED,
+        ]
+        assert broken[-1].translation_states == {"en": "failed"}
+        assert broken[-1].text == "broken"
+        assert broken[-1].committed is True
         assert any(event.segment_id == "good" and event.committed
                    for event in events)
     finally:
@@ -968,3 +973,60 @@ async def test_source_only_overflow_is_not_mislabeled_as_translation_failure() -
     assert events[-1].stage is CaptionStage.COMMITTED
     assert events[-1].translation_states == {"ko": "unsupported"}
     assert events[-1].translations == {}
+
+
+class _PartiallySuccessfulThenFailingPipeline(PipelineWithTranslator):
+    async def _process_stable(self, event: TranscriptEvent) -> None:
+        if event.segment_id != "partially-failed":
+            await super()._process_stable(event)
+            return
+        partial_result = self._next_event(
+            event,
+            version=event.version + 1,
+            stage=CaptionStage.TRANSLATED,
+            text=event.text,
+            translations={"en": "grace"},
+            translation_states={"en": "available", "ja": "pending"},
+        )
+        await self._publish_postprocess(partial_result)
+        raise RuntimeError("unexpected failure after successful target")
+
+
+@pytest.mark.asyncio
+async def test_unexpected_failure_preserves_successful_target_and_finalizes_pending() -> None:
+    from langtextflow.store import CaptionStore
+
+    events: list[TranscriptEvent] = []
+    store = CaptionStore()
+    terminal = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        store.apply(event)
+        events.append(event)
+        if event.segment_id == "partially-failed" and event.committed:
+            terminal.set()
+
+    pipeline = _PartiallySuccessfulThenFailingPipeline(
+        publish, Settings(), ControllableTranslator(),
+    )
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en", "ja"],
+        translation_provider="demo",
+    ))
+    try:
+        await pipeline.ingest(TranscriptEvent(
+            segment_id="partially-failed", version=1, stage=CaptionStage.STABLE,
+            source_language="ko", text="은혜", start_ms=0, end_ms=200,
+        ))
+        await asyncio.wait_for(terminal.wait(), timeout=1)
+        result = store.snapshot()[0]
+        assert result.committed is True
+        assert result.version == 3
+        assert result.translations == {"en": "grace"}
+        assert result.translation_states == {"en": "available", "ja": "failed"}
+        assert result.text == "은혜"
+        assert pipeline.failed_postprocess_segments == 1
+        assert pipeline.queue_depth == 0
+        assert pipeline._worker_progress == {}
+    finally:
+        await pipeline.stop()
