@@ -52,11 +52,22 @@ async function evaluate(expression) {
 }
 
 async function setLocale(locale) {
-  // Do not navigate inside Runtime.evaluate: reload can destroy the CDP
-  // execution context before its response resolves, causing false timeouts.
-  await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)}); true`);
-  await cdp("Page.reload", { ignoreCache: true });
-  await waitFor(async () => {
+  // Drive the real React language switcher instead of mutating storage behind
+  // LocaleProvider's back. Direct writes were overwritten by its state effect
+  // even when injected around a reload (observed locale/DOM/storage all "ko").
+  const changed = await evaluate(`(() => {
+    const select = document.querySelector('[data-testid="locale-select"]');
+    const nativeSetter = Object.getOwnPropertyDescriptor(
+      HTMLSelectElement.prototype, "value"
+    )?.set;
+    if (!select || !nativeSetter) return false;
+    nativeSetter.call(select, ${JSON.stringify(locale)});
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  })()`);
+  if (!changed) throw new Error(`Locale selector not available for ${locale}`);
+
+  const checkLocale = async () => {
     try {
       return await evaluate(`document.readyState === "complete"
         && document.documentElement.lang === ${JSON.stringify(locale)}
@@ -68,8 +79,42 @@ async function setLocale(locale) {
       }
       throw error;
     }
-  }, `locale ${locale}`);
+  };
+  const assertLocale = async (phase) => {
+    await waitFor(checkLocale, `locale ${locale} (${phase})`).catch(async (error) => {
+      const observed = await evaluate(`JSON.stringify({
+        origin: location.origin,
+        readyState: document.readyState,
+        htmlLang: document.documentElement.lang,
+        select: document.querySelector('[data-testid="locale-select"]')?.value ?? null,
+        storedLocale: localStorage.getItem("langtextflow:locale:v1"),
+      })`).catch((diagnosticError) => String(diagnosticError));
+      throw new Error(`${error.message}; observed browser state: ${observed}`);
+    });
+  };
+
+  await assertLocale("UI change");
+  // Check persistence across reload only after React has written the new
+  // locale. Page.reload is issued through CDP, not Runtime.evaluate.
+  await cdp("Page.reload", { ignoreCache: true });
+  await assertLocale("reload persistence");
 }
+
+// CDP target creation can finish while its first page navigation or React
+// bootstrap is still in flight. Do not change locale before the operator UI
+// and its locale selector are mounted on the intended origin.
+await waitFor(async () => {
+  try {
+    return await evaluate(`location.origin === "http://127.0.0.1:5173"
+      && document.readyState === "complete"
+      && !!document.querySelector('[data-testid="locale-select"]')`);
+  } catch (error) {
+    if (/Inspected target navigated or closed|Execution context was destroyed|Cannot find context with specified id/i.test(String(error))) {
+      return false;
+    }
+    throw error;
+  }
+}, "initial operator mount", 30_000);
 
 const stressSamples = {
   en: "ExtremelyLongLocalizedInterfaceStringWithoutNaturalBreaksForLayoutResilience".repeat(5),
