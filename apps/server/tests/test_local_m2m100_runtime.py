@@ -174,3 +174,21 @@ def test_provider_capabilities_do_not_mislabel_remote_proxy_as_local() -> None:
     }
     assert descriptions["ollama"].local_only is True
     assert descriptions["openai-compatible"].local_only is True
+
+
+@pytest.mark.parametrize(
+    ("source", "targets"),
+    [("fr", ["en"]), ("en", ["fr"]), ("ja", ["ko", "es"])],
+)
+def test_pipeline_fails_unsupported_local_mt_pairs_before_loading(
+    source: str, targets: list[str],
+) -> None:
+    pipeline = CaptionPipeline(lambda event: None, Settings())
+    with pytest.raises(ValueError, match="six directed ko/en/ja pairs"):
+        pipeline._build_translator(
+            StartSessionRequest(
+                source_language=source,
+                target_languages=targets,
+                translation_provider="m2m100-ct2",
+            )
+        )
