@@ -3,7 +3,6 @@ name: Multilingual local CPU ASR and M2M100 translation
 on:
   pull_request:
     paths:
-      - ".github/workflows/multilingual-cpu-m2m100.yml"
       - "scripts/compare_multilingual_m2m100_cpu.py"
       - "benchmarks/lecture_multilingual_ko_en_ja.v1.jsonl"
       - "apps/server/tests/test_multilingual_m2m100_cpu.py"
