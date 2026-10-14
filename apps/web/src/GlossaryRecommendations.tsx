@@ -13,9 +13,11 @@ interface Recommendation {
 
 export function GlossaryRecommendations({
   preset,
+  sourceLanguage,
   disabled,
 }: {
   preset: ProductPreset;
+  sourceLanguage: string;
   disabled: boolean;
 }) {
   const { locale } = useI18n();
@@ -26,14 +28,14 @@ export function GlossaryRecommendations({
 
   const refresh = useCallback(async () => {
     try {
-      const response = await fetch(`${API_URL}/api/v1/glossary/recommendations?limit=12`);
+      const response = await fetch(`${API_URL}/api/v1/glossary/recommendations?limit=12&source_language=${encodeURIComponent(sourceLanguage)}`);
       if (!response.ok) throw new Error("glossary recommendation request failed");
       setItems((await response.json()) as Recommendation[]);
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
-  }, []);
+  }, [sourceLanguage]);
 
   useEffect(() => {
     void refresh();
@@ -48,6 +50,7 @@ export function GlossaryRecommendations({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           term,
+          source_language: sourceLanguage,
           aliases: [],
           translations: {},
           category: "suggested",

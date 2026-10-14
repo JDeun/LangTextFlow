@@ -185,7 +185,11 @@ function OperatorApp() {
   const [title, setTitle] = useState(() => t("session.newTitle"));
   const [presenter, setPresenter] = useState("");
   const [preset, setPreset] = useState<ProductPreset>("church");
-  const [hotwords, setHotwords] = useState(DEFAULT_KOREAN_HOTWORDS);
+  // Manual hotwords are source-language-specific: do not send Korean hints for EN/JA speech.
+  const [hotwordsByLanguage, setHotwordsByLanguage] = useState<Record<string, string>>(
+    { ko: DEFAULT_KOREAN_HOTWORDS },
+  );
+  const hotwords = hotwordsByLanguage[sourceLanguage] ?? "";
   const [workspacePage, setWorkspacePage] = useState<"home" | "glossary">(
     () => window.location.hash === "#/glossary" ? "glossary" : "home",
   );
@@ -483,10 +487,11 @@ function OperatorApp() {
           <GlossaryManager
             apiUrl={API_URL}
             preset={preset}
+            sourceLanguage={sourceLanguage}
             targetLanguage={glossaryTargetLanguage}
             disabled={running}
           />
-          <GlossaryRecommendations preset={preset} disabled={running} />
+          <GlossaryRecommendations preset={preset} sourceLanguage={sourceLanguage} disabled={running} />
         </section>
       </main>
     );
@@ -636,7 +641,9 @@ function OperatorApp() {
             <textarea
               rows={4}
               value={hotwords}
-              onChange={(event) => setHotwords(event.target.value)}
+              onChange={(event) => setHotwordsByLanguage((values) => ({
+                ...values, [sourceLanguage]: event.target.value,
+              }))}
               disabled={running}
             />
             <small>{t("session.hotwordsHelp")}</small>

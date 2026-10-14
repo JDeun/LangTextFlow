@@ -56,3 +56,19 @@ test("prevents silent empty per-preset applicability", () => {
   draft.presets = [];
   assert.throws(() => glossaryPayload(draft), /Choose at least one preset/);
 });
+
+test("foreign missionary terms retain explicit English or Japanese source", () => {
+  const draft = newGlossaryDraft("church", "en");
+  draft.term = "grace";
+  draft.ko = "은혜";
+  draft.ja = "恵み";
+  const saved = glossaryPayload(draft);
+  assert.equal(saved.source_language, "en");
+  assert.equal(saved.translations.ko, "은혜");
+  assert.equal(saved.translations.ja, "恵み");
+
+  const japanese = { ...existing, source_language: "ja" };
+  const editor = existingGlossaryDraft(japanese);
+  assert.equal(editor.sourceLanguage, "ja");
+  assert.equal(glossaryPayload(editor, japanese).source_language, "ja");
+});

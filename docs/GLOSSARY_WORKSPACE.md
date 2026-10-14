@@ -13,7 +13,7 @@ button does not reload the React application or interrupt an active session.
 
 For every term the editor manages:
 
-- Canonical source term (currently **without explicit source-language metadata**) and ASR misrecognition aliases
+- Canonical term with explicit spoken/source-language metadata and same-language ASR aliases
 - **Korean (ko)**, **English (en)** and **Japanese (ja)** target translations
 - Category, relevance boost (0–20), enabled flag
 - Global scope or one/multiple preset scopes (`general`, `church`,
@@ -48,8 +48,8 @@ chapter/verse numbers.
 
 ## Church default seed
 
-The existing church seed now includes human-readable starter **en and ja**
-equivalents for eight terms. These are starter values, not a certified
+The church seed contains **157 editable Korean-source terms**, each with EN and JA
+equivalents. These are starter values, not a certified
 denominational translation: an editor may change them. Reimporting the seed
 does not replace existing matching canonical term entries.
 
@@ -61,12 +61,26 @@ source ASR errors. The initial hardware target for model ranking is the
 **GitHub Actions Linux CPU runner**, not 4GB/8GB physical machines; long
 continuous soundboard tests are a later acceptance gate.
 
-## Foreign-language source terms are tracked separately
+## Per-term language identity (source-language migration, #130)
 
-Adding Korean target translations to the editor does **not** yet make the
-runtime glossary source-language-aware. For an English or Japanese missionary
-sermon, a term should carry its recognized **source language** and be filtered
-at session start. That SQLite migration, prompt behavior, and safe language
-switch are tracked under [#130](https://github.com/JDeun/LangTextFlow/issues/130)
-(and the broader #122 provider-neutral glossary behavior). **Do not claim
-foreign-language glossary correctness from the UI fields alone.**
+The operator selects a **source/spoken language** for each canonical term.
+English sermon "grace" → Korean "은혜" is a separate glossary row from
+Korean sermon "은혜" → English "grace" or Japanese sermon "恵み" → Korean "은혜".
+Aliases apply only to their source language.
+
+The existing SQLite table gains `source_language TEXT NOT NULL DEFAULT 'ko'`
+via an idempotent migration. Legacy records retain their IDs, timestamps and
+translations and are assigned **Korean as a conservative compatibility default**.
+Review old imported technical/general English terms and explicitly change their
+source language; the migration **does not infer** source identity from spelling.
+
+At session creation, only rows matching the selected input language and preset
+are snapshotted to `SessionContext.glossary`. The session does not change when
+an operator edits a glossary record. JSON/CSV exports now include
+`source_language`; v1 legacy files without it import as Korean, and duplicate
+terms across different source languages are permitted.
+
+Caution: manually selecting a source language is currently necessary; automatic
+language identification, code-switching and constrained decoding have not been
+certified for actual missionary sermons. Language-tagged terminology fixes
+cross-language ASR hints but cannot establish semantic MT fidelity on its own.
