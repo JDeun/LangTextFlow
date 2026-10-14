@@ -143,6 +143,13 @@ class CaptionPipeline:
         if provider == "none":
             return None
         if provider == "m2m100-ct2":
+            supported = {"ko", "en", "ja"}
+            if (request.source_language not in supported
+                    or any(target not in supported
+                           for target in request.target_languages)):
+                raise ValueError(
+                    "Local M2M100 supports only the six directed ko/en/ja pairs"
+                )
             return M2M100CT2Translator(
                 model_dir=self.settings.local_m2m100_ct2_dir,
                 tokenizer_dir=self.settings.local_m2m100_tokenizer_dir,
