@@ -11,6 +11,7 @@ from scripts.benchmark_funasr_mlt_glossary_cpu import (
     SOURCE_TO_FUNASR,
     asr_hotwords,
     decode,
+    observed_hotwords,
     snapshot_hashes,
 )
 from scripts.glossary_cpu_contract import load_glossary_snapshot
@@ -104,3 +105,40 @@ def test_binary_model_digest_is_streamed_and_relative(tmp_path: Path) -> None:
     path.write_bytes(b"fake-test-weights")
     hashes = snapshot_hashes(tmp_path)
     assert hashes == {"model.pt": hashlib.sha256(b"fake-test-weights").hexdigest()}
+
+
+def test_observed_terms_do_not_match_unrelated_english_substrings() -> None:
+    hints = ["John chapter", "Holy Spirit", "salvation"]
+    assert observed_hotwords(
+        "The book mentions John chapters but does not say salvationist.",
+        hints,
+    ) == []
+    assert observed_hotwords(
+        "John chapter three mentions the Holy Spirit and salvation.",
+        hints,
+    ) == hints
+
+
+def test_observed_terms_are_case_and_unicode_width_normalized() -> None:
+    assert observed_hotwords(
+        "The HOLY SPIRIT is mentioned.",
+        ["Holy Spirit"],
+    ) == ["Holy Spirit"]
+    assert observed_hotwords(
+        "『ヨハネによる福音書』と聖霊について",
+        ["ヨハネによる福音書", "聖霊", "救い"],
+    ) == ["ヨハネによる福音書", "聖霊"]
+
+
+def test_reference_absence_is_a_negative_control_not_a_quality_pass() -> None:
+    terms = ["Holy Spirit", "salvation"]
+    reference = "The congregation gathers today."
+    base = "The congregation gathers today."
+    assisted = "The Holy Spirit congregation gathers today."
+    reference_terms = set(observed_hotwords(reference, terms))
+    off = set(observed_hotwords(base, terms))
+    on = set(observed_hotwords(assisted, terms))
+    assert reference_terms == set()
+    assert sorted((on - off) - reference_terms) == ["Holy Spirit"]
+    # Detect an introduced off-target term, even though no ground-truth
+    # glossary occurrence exists with which to measure positive recall.
