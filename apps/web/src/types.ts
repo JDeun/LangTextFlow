@@ -279,6 +279,9 @@ export interface RealtimeMetrics {
   asr_queue_high_watermark: number;
   persistence_queue_depth: number;
   persistence_queue_capacity: number;
+  persistence_queue_high_watermark: number;
+  persistence_events_dropped: number;
+  persistence_events_failed: number;
   postprocess_queue_depth: number;
   postprocess_queue_capacity: number;
   websocket_clients: number;

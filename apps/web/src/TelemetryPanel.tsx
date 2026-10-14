@@ -209,10 +209,15 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
                 {" · "}{copy.peak} {metrics.websocket_client_queue_high_watermark}
               </small>
             </div>
-            <div className={`telemetry-metric ${queueLevel(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}`}>
+            <div className={`telemetry-metric ${metrics.persistence_events_dropped + metrics.persistence_events_failed > 0 ? "warning" : queueLevel(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}`}>
               <span>{copy.storage}</span>
               <strong>{queueValue(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}</strong>
-              <small>{copy.writer}</small>
+              <small>
+                {copy.writer}
+                {" · "}{copy.peak} {metrics.persistence_queue_high_watermark}
+                {" · "}{copy.dropped} {metrics.persistence_events_dropped}
+                {" · "}{copy.failed} {metrics.persistence_events_failed}
+              </small>
             </div>
             <div className={`telemetry-metric ${latencyLevel(metrics.last_audio_enqueue_wait_ms, 50, 200)}`}>
               <span>{copy.enqueue}</span>
