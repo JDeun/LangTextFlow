@@ -52,7 +52,7 @@ class DeterministicCorrector:
             if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9\s.'-]*", alias):
                 # Never rewrite 'cross' inside 'crossing' or 'act' inside 'action'.
                 pattern = r"(?<![a-zA-Z0-9])" + re.escape(alias) + r"(?![a-zA-Z0-9])"
-                value = re.sub(pattern, lambda _: canonical, value, flags=re.IGNORECASE)
+                value = re.sub(pattern, lambda _, replacement=canonical: replacement, value, flags=re.IGNORECASE)
             else:
                 value = value.replace(alias, canonical)
         return value
