@@ -51,10 +51,26 @@ async function evaluate(expression) {
   return result.result?.value;
 }
 
+let localePreloadScriptId = null;
+
 async function setLocale(locale) {
-  // Do not navigate inside Runtime.evaluate: reload can destroy the CDP
-  // execution context before its response resolves, causing false timeouts.
-  await evaluate(`localStorage.setItem("langtextflow:onboarding:v1", "complete"); localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)}); true`);
+  // Inject storage before React runs in the reloaded document. An immediate
+  // write on the old page can race LocaleProvider's startup effect and be
+  // overwritten with the old locale before Page.reload takes effect.
+  if (localePreloadScriptId) {
+    await cdp("Page.removeScriptToEvaluateOnNewDocument", {
+      identifier: localePreloadScriptId,
+    });
+  }
+  const preload = await cdp("Page.addScriptToEvaluateOnNewDocument", {
+    source: `try {
+      localStorage.setItem("langtextflow:onboarding:v1", "complete");
+      localStorage.setItem("langtextflow:locale:v1", ${JSON.stringify(locale)});
+    } catch (_) { /* Non-app initial contexts may have no storage. */ }`,
+  });
+  localePreloadScriptId = preload.identifier;
+  // Navigate through Page rather than Runtime.evaluate; no destroyed-context
+  // response is awaited as part of the navigation itself.
   await cdp("Page.reload", { ignoreCache: true });
   await waitFor(async () => {
     try {
@@ -70,6 +86,22 @@ async function setLocale(locale) {
     }
   }, `locale ${locale}`);
 }
+
+// CDP target creation can finish while its first page navigation or React
+// bootstrap is still in flight. Do not change locale before the operator UI
+// and its locale selector are mounted on the intended origin.
+await waitFor(async () => {
+  try {
+    return await evaluate(`location.origin === "http://127.0.0.1:5173"
+      && document.readyState === "complete"
+      && !!document.querySelector('[data-testid="locale-select"]')`);
+  } catch (error) {
+    if (/Inspected target navigated or closed|Execution context was destroyed|Cannot find context with specified id/i.test(String(error))) {
+      return false;
+    }
+    throw error;
+  }
+}, "initial operator mount", 30_000);
 
 const stressSamples = {
   en: "ExtremelyLongLocalizedInterfaceStringWithoutNaturalBreaksForLayoutResilience".repeat(5),
