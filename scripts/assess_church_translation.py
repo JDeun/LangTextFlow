@@ -55,6 +55,9 @@ def assess(report: dict[str, Any], fixture_bytes: bytes) -> dict[str, Any]:
     ]
     if not fixtures:
         raise ValueError("empty translation corpus")
+    fixture_ids = [row["id"] for row in fixtures]
+    if len(set(fixture_ids)) != len(fixture_ids):
+        raise ValueError("duplicate fixture ID; quality evidence is ambiguous")
     expected_sha = hashlib.sha256(fixture_bytes).hexdigest()
     if report.get("config", {}).get("fixture_sha256") != expected_sha:
         raise ValueError("fixture SHA-256 mismatch; reference corpus changed")
@@ -65,6 +68,9 @@ def assess(report: dict[str, Any], fixture_bytes: bytes) -> dict[str, Any]:
         or {row.get("id") for row in reports} != {row["id"] for row in fixtures}
     ):
         raise ValueError("report IDs do not match translation corpus")
+    report_ids = [row["id"] for row in reports]
+    if len(set(report_ids)) != len(report_ids):
+        raise ValueError("duplicate inference result ID; quality evidence is ambiguous")
     by_id = {row["id"]: row for row in reports}
 
     try:
@@ -85,6 +91,15 @@ def assess(report: dict[str, Any], fixture_bytes: bytes) -> dict[str, Any]:
         hypothesis = str(run.get("hypothesis") or "").strip()
         if not hypothesis or hypothesis == fixture["source_text"].strip():
             reasons.append(f"{fixture['id']}: empty/untranslated output")
+        if hypothesis.startswith(("{", "[")):
+            # Structural outputs must be unwrapped before publishing captions.
+            # Reject valid JSON here independently of any particular provider.
+            try:
+                parsed_hypothesis = json.loads(hypothesis)
+            except json.JSONDecodeError:
+                parsed_hypothesis = None
+            if isinstance(parsed_hypothesis, (dict, list)):
+                reasons.append(f"{fixture['id']}: JSON object/array in caption")
         term_report = run.get("terminology") or {}
         if term_report.get("expected") != len(fixture.get("expected_terms", [])):
             raise ValueError(f"critical term accounting mismatch: {fixture['id']}")
