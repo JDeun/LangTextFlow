@@ -283,14 +283,14 @@ class ReplayFallbackAsrEngine(AsrEngine):
 
     async def stop(self) -> None:
         self._ended = True
-        # Fence callbacks immediately, before awaiting native/sidecar cleanup.
+        # Fence callbacks immediately; do not wait for the audio lock as a
+        # broken provider may still own it while blocked in feed_audio().
         self._session_epoch += 1
         await self._cancel_health_task()
-        async with self._lock:
-            if self._active is not None:
-                with suppress(Exception):
-                    await self._active.stop()
-            self._active = None
+        if self._active is not None:
+            with suppress(Exception):
+                await self._active.stop()
+        self._active = None
         self._active_name = None
         self._active_index = -1
         self._request = None
@@ -392,6 +392,8 @@ class ReplayFallbackAsrEngine(AsrEngine):
         failures: list[str] = []
 
         for index in range(self._active_index + 1, len(self.candidates)):
+            if self._ended:
+                return
             name = self.candidates[index][0]
             engine: AsrEngine | None = None
             try:
@@ -403,6 +405,8 @@ class ReplayFallbackAsrEngine(AsrEngine):
                 if self._ended:
                     raise AsrEngineError("ASR session ended during failover")
             except Exception as exc:
+                if self._ended:
+                    return
                 failures.append(f"{name}: {exc}")
                 if engine is not None:
                     with suppress(Exception):
