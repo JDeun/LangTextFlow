@@ -327,7 +327,9 @@ class CorrectionStatus(ProviderStatus):
 
 
 class TranslationStatus(ProviderStatus):
-    pass
+    # Status for the most recently processed segment; persistent per-segment
+    # target states will be handled by the revision-aware event protocol (#156).
+    errors_by_language: dict[str, str] = Field(default_factory=dict)
 
 
 class StartSessionRequest(BaseModel):
