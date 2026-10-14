@@ -1,5 +1,9 @@
 import type { CaptionStage, SnapshotEvent, TranscriptEvent } from "./types";
 
+const TARGET_STATES = new Set([
+  "pending", "available", "failed", "timed_out", "unsupported",
+]);
+
 const CAPTION_STAGES = new Set<CaptionStage>([
   "partial",
   "stable",
@@ -33,6 +37,12 @@ export function isTranscriptEvent(value: unknown): value is TranscriptEvent {
   if (typeof value.source_language !== "string" || !value.source_language) return false;
   if (typeof value.text !== "string") return false;
   if (!isTranslations(value.translations)) return false;
+  if (value.translation_states !== undefined && (
+    !isRecord(value.translation_states) ||
+    !Object.entries(value.translation_states).every(
+      ([language, state]) => language.length > 0 && TARGET_STATES.has(String(state)),
+    )
+  )) return false;
   if (!Number.isInteger(value.start_ms) || (value.start_ms as number) < 0) return false;
   if (
     value.end_ms !== null &&
