@@ -18,6 +18,7 @@ function providerUsesModel(provider: string) {
 interface OnboardingWizardProps {
   open: boolean;
   engine: string;
+  resourceProfile: "standard" | "low";
   translationProvider: string;
   translationModel: string;
   sourceLanguage: string;
@@ -39,6 +40,7 @@ type MicrophoneState = "unchecked" | "checking" | "ready" | "error";
 export function OnboardingWizard({
   open,
   engine,
+  resourceProfile,
   translationProvider,
   translationModel,
   sourceLanguage,
@@ -71,6 +73,7 @@ export function OnboardingWizard({
     try {
       const query = new URLSearchParams({
         engine,
+        resource_profile: resourceProfile,
         translation_provider: translationProvider,
       });
       if (providerUsesModel(translationProvider) && translationModel.trim()) {
@@ -87,7 +90,7 @@ export function OnboardingWizard({
     } finally {
       if (requestId === preflightRequestRef.current) setLoading(false);
     }
-  }, [copy.systemFailed, copy.systemHttp, engine, translationModel, translationProvider]);
+  }, [copy.systemFailed, copy.systemHttp, engine, resourceProfile, translationModel, translationProvider]);
 
   const handleRepairCompleted = useCallback(() => {
     void loadPreflight();

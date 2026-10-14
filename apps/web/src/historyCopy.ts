@@ -41,6 +41,7 @@ interface HistoryCopy {
   allJson: string;
   noCaptionMatch: string;
   noCaptions: string;
+  untranslated: string;
   projectLabel: string;
   projectAria: string;
   projectUnassigned: string;
@@ -58,7 +59,7 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     notesPlaceholder: "Record follow-up work, quality issues, or event information.", contextImmutable: "Session Context used by the models during the live session is not edited.",
     activeEditHint: " The active session can be edited after it ends.", saving: "Saving…", saveMetadata: "Save title / notes", displayLanguage: "Display language",
     source: "Source", transcriptSearch: "Transcript search", transcriptPlaceholder: "Search source, all translations, and speaker", allJson: "Full JSON",
-    noCaptionMatch: "No captions match the search.", noCaptions: "No saved captions.",
+    noCaptionMatch: "No captions match the search.", noCaptions: "No saved captions.", untranslated: "Not translated",
     projectLabel: "Project", projectAria: "Session project", projectUnassigned: "Unassigned",
   },
   ko: {
@@ -72,7 +73,7 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     notesPlaceholder: "후속 작업, 품질 이슈, 행사 정보 등을 기록하세요.", contextImmutable: "라이브 당시 모델 입력인 Session Context는 수정하지 않습니다.",
     activeEditHint: " 현재 진행 중인 세션은 종료 후 편집할 수 있습니다.", saving: "저장 중…", saveMetadata: "제목 / 메모 저장", displayLanguage: "표시 언어",
     source: "원문", transcriptSearch: "Transcript 검색", transcriptPlaceholder: "원문·모든 번역·speaker에서 검색", allJson: "전체 JSON",
-    noCaptionMatch: "검색어와 일치하는 자막이 없습니다.", noCaptions: "저장된 자막이 없습니다.",
+    noCaptionMatch: "검색어와 일치하는 자막이 없습니다.", noCaptions: "저장된 자막이 없습니다.", untranslated: "번역 없음",
     projectLabel: "소속 행사", projectAria: "세션 소속 프로젝트", projectUnassigned: "미분류",
   },
   ja: {
@@ -86,7 +87,7 @@ export const HISTORY_COPY: Record<Locale, HistoryCopy> = {
     notesPlaceholder: "フォローアップ、品質課題、イベント情報などを記録してください。", contextImmutable: "ライブ時にモデルへ渡した Session Context は変更しません。",
     activeEditHint: " 現在進行中のセッションは終了後に編集できます。", saving: "保存中…", saveMetadata: "タイトル / メモを保存", displayLanguage: "表示言語",
     source: "原文", transcriptSearch: "トランスクリプト検索", transcriptPlaceholder: "原文・全翻訳・speakerから検索", allJson: "全JSON",
-    noCaptionMatch: "検索語に一致する字幕はありません。", noCaptions: "保存された字幕はありません。",
+    noCaptionMatch: "検索語に一致する字幕はありません。", noCaptions: "保存された字幕はありません。", untranslated: "未翻訳",
     projectLabel: "所属イベント", projectAria: "セッションのプロジェクト", projectUnassigned: "未分類",
   },
 };

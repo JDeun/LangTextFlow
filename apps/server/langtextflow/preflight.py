@@ -550,6 +550,7 @@ def _blocking_checks(
     *,
     engine: str,
     translation_provider: str,
+    low_resource: bool = False,
 ) -> list[str]:
     indexed = {check.id: check for check in checks}
     blocking: list[str] = []
@@ -563,7 +564,12 @@ def _blocking_checks(
             blocking.append("faster-whisper")
         elif not _is_ready(indexed.get("faster-whisper-model")):
             blocking.append("faster-whisper-model")
-    elif engine == "auto" and not (vibevoice_ready or whisper_ready):
+    elif engine == "auto" and low_resource and not whisper_ready:
+        if not _is_ready(indexed.get("faster-whisper")):
+            blocking.append("faster-whisper")
+        else:
+            blocking.append("faster-whisper-model")
+    elif engine == "auto" and not (vibevoice_ready or whisper_ready) and not low_resource:
         blocking.append("vibevoice")
         if not _is_ready(indexed.get("faster-whisper")):
             blocking.append("faster-whisper")
@@ -593,14 +599,21 @@ def _recommended_configuration(
     *,
     model: str,
     openai_model: str | None = None,
+    low_resource: bool = False,
 ) -> RecommendedConfiguration:
     indexed = {check.id: check for check in checks}
     vibevoice_ready = _is_ready(indexed.get("vibevoice"))
     whisper_ready = _whisper_ready(indexed)
     reasons: list[str] = []
 
-    if vibevoice_ready and whisper_ready:
-        engine: str | None = "auto"
+    if low_resource:
+        engine: str | None = "faster-whisper" if whisper_ready else None
+        reasons.append(
+            "저사양 모드는 GPU/7B 모델 없이 CPU faster-whisper만 사용합니다. "
+            "ASR 모델 캐시를 먼저 준비하고 실기기 정확도·RTF를 확인하세요."
+        )
+    elif vibevoice_ready and whisper_ready:
+        engine = "auto"
         reasons.append(
             "VibeVoice와 faster-whisper model cache가 모두 준비되어 있어 "
             "Auto 복구 경로를 사용할 수 있습니다."
@@ -622,7 +635,14 @@ def _recommended_configuration(
     ollama_model_ready = _is_ready(indexed.get("translation-model"))
     compatible_ready = _is_ready(indexed.get("openai-compatible"))
     compatible_model_ready = _is_ready(indexed.get("openai-compatible-model"))
-    if ollama_ready and ollama_model_ready:
+    if low_resource:
+        translation_provider = "none"
+        translation_model: str | None = None
+        reasons.append(
+            "저사양 기본 권장은 원문 자막 전용입니다. 통역 번역은 "
+            "검증된 경량 모델 또는 명시적으로 선택한 제공자가 필요합니다."
+        )
+    elif ollama_ready and ollama_model_ready:
         translation_provider = "ollama"
         translation_model: str | None = model
         reasons.append(f"Ollama와 {model}이 준비되어 있어 로컬 번역을 사용할 수 있습니다.")
@@ -650,7 +670,9 @@ async def run_preflight(
     translation_model: str | None = None,
     engine: str = "auto",
     translation_provider: str = "ollama",
+    resource_profile: str = "standard",
 ) -> SystemPreflight:
+    low = settings.resource_profile == "low" or resource_profile == "low"
     ollama_model = (
         translation_model
         if translation_provider == "ollama" and translation_model
@@ -663,7 +685,10 @@ async def run_preflight(
     )
     nvidia, whisper, vibevoice, ollama, openai_compatible = await asyncio.gather(
         asyncio.to_thread(_nvidia_check),
-        asyncio.to_thread(_faster_whisper_checks, settings.faster_whisper_model),
+        asyncio.to_thread(
+            _faster_whisper_checks,
+            settings.low_resource_whisper_model if low else settings.faster_whisper_model,
+        ),
         _vibevoice_check(settings),
         _ollama_checks(settings, ollama_model),
         _openai_compatible_checks(settings, openai_model),
@@ -709,6 +734,7 @@ async def run_preflight(
         checks,
         engine=engine,
         translation_provider=translation_provider,
+        low_resource=low,
     )
     selected_model: str | None = None
     if translation_provider == "ollama":
@@ -733,5 +759,6 @@ async def run_preflight(
             checks,
             model=ollama_model,
             openai_model=openai_model or None,
+            low_resource=low,
         ),
     )

@@ -214,6 +214,7 @@ function OperatorApp() {
   }
   const [referenceDocuments, setReferenceDocuments] = useState<ReferenceDocument[]>([]);
   const [engine, setEngine] = useState("auto");
+  const [resourceProfile, setResourceProfile] = useState<"standard" | "low">("standard");
   const [correctionProvider, setCorrectionProvider] = useState("none");
   const [correctionModel, setCorrectionModel] = useState("qwen3.5:4b");
   const [translationProvider, setTranslationProvider] = useState("ollama");
@@ -310,6 +311,16 @@ function OperatorApp() {
     }
   }
 
+  function changeResourceProfile(value: "standard" | "low") {
+    setResourceProfile(value);
+    if (value === "low") {
+      // ASR is CPU-only; auxiliary local 4B LLMs are explicitly opt-in.
+      setEngine("auto");
+      setCorrectionProvider("none");
+      setTranslationProvider("none");
+    }
+  }
+
   function changeEngine(nextEngine: string) {
     setEngine(nextEngine);
     setTranslationProvider((current) => {
@@ -346,6 +357,7 @@ function OperatorApp() {
     const query = new URLSearchParams({
       engine,
       translation_provider: translationProvider,
+      resource_profile: resourceProfile,
     });
     if (translationProviderUsesModel(translationProvider) && translationModel.trim()) {
       query.set("translation_model", translationModel.trim());
@@ -390,6 +402,7 @@ function OperatorApp() {
           source_language: sourceLanguage,
           target_languages: targetLanguages,
           engine,
+          resource_profile: resourceProfile,
           correction_provider: correctionProvider,
           correction_model: correctionProvider === "ollama" ? correctionModel : null,
           translation_provider: translationProvider,
@@ -502,6 +515,7 @@ function OperatorApp() {
       <OnboardingWizard
         open={onboardingOpen && !running}
         engine={engine}
+        resourceProfile={resourceProfile}
         translationProvider={translationProvider}
         translationModel={translationModel}
         sourceLanguage={sourceLanguage}
@@ -594,6 +608,21 @@ function OperatorApp() {
               disabled={running}
               placeholder={t("session.optional")}
             />
+          </label>
+          <label>
+            {operatorCopy.resourceLabel}
+            <select
+              data-testid="resource-profile-select"
+              value={resourceProfile}
+              onChange={(event) => changeResourceProfile(
+                event.target.value as "standard" | "low",
+              )}
+              disabled={running}
+            >
+              <option value="standard">{operatorCopy.resourceStandard}</option>
+              <option value="low">{operatorCopy.resourceLow}</option>
+            </select>
+            <small>{operatorCopy.resourceHelp}</small>
           </label>
           <label>
             {t("session.preset")}
@@ -901,6 +930,7 @@ function OperatorApp() {
       {!running && (
         <PreflightPanel
           engine={engine}
+          resourceProfile={resourceProfile}
           translationProvider={translationProvider}
           translationModel={translationModel}
           onApplyRecommendation={applyRecommendation}
