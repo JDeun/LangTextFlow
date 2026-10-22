@@ -74,6 +74,12 @@
 | [`../SECURITY.md`](../SECURITY.md) | 공개 취약점 제보 정책 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 개발·검증·PR 기여 규칙 |
 
+## 연구 결과와 기술 의사결정
+
+- [연구 인덱스](research/README.md) — 기존 ASR/번역/경쟁제품 조사와 후속 검증 상태를 한곳에서 확인
+- [연구 문서 템플릿](research/RESEARCH_TEMPLATE.md) — 외부 주장·실측·미검증을 구분하고 라이선스/재현성 기록
+- [ADR 인덱스](decisions/README.md) — 채택된 아키텍처 결정과 대안·검증·롤백 기록
+
 ## 프로젝트 상태
 
 - [`ROADMAP.md`](ROADMAP.md) — 구현 상태와 남은 acceptance
