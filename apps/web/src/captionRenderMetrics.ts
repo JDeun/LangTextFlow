@@ -43,7 +43,9 @@ export function shouldObservePaint(
 /** Bounded, in-memory statistics; no transcript text or persistent identifiers. */
 export class CaptionRenderStats {
   private readonly samples = new Map<string, number[]>();
-  constructor(private readonly maxSamplesPerStage = 512) {
+  private readonly maxSamplesPerStage: number;
+  constructor(maxSamplesPerStage = 512) {
+    this.maxSamplesPerStage = maxSamplesPerStage;
     if (!Number.isInteger(maxSamplesPerStage) || maxSamplesPerStage < 1) {
       throw new RangeError("maxSamplesPerStage must be a positive integer");
     }
