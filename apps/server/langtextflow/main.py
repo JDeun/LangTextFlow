@@ -92,6 +92,7 @@ mdns_publisher = MdnsPublisher(settings)
 audience_latency_aggregate = AudienceLatencyAggregate()
 audience_metric_limiter = AudienceMetricRateLimiter()
 _audience_metric_session_id: str | None = None
+_audience_metrics_collection_enabled = False
 audience_join_limiter = AudienceJoinRateLimiter(
     max_failures=settings.audience_join_max_failures,
     window_seconds=settings.audience_join_window_seconds,
@@ -193,6 +194,21 @@ async def reject_remote_operator_api_before_body_parse(request: Request, call_ne
         and path.startswith("/api/v1/audience/")
         and path.endswith("/metrics/render")
     )
+    if is_metric_post:
+        # Fail closed until an operator-controlled opt-in policy is implemented.
+        if not _audience_metrics_collection_enabled:
+            return Response(
+                content='{"detail":"audience metrics collection disabled"}',
+                status_code=403,
+                media_type="application/json",
+            )
+        content_length = request.headers.get("content-length")
+        if content_length is None or not content_length.isdecimal() or int(content_length) > 512:
+            return Response(
+                content='{"detail":"invalid audience metrics content length"}',
+                status_code=413,
+                media_type="application/json",
+            )
     if is_audience_path and request.method not in {"GET", "HEAD", "OPTIONS"} and not is_metric_post:
         return Response(
             content='{"detail":"audience write API is disabled"}',
@@ -1097,6 +1113,8 @@ async def submit_audience_render_metric(
         raise HTTPException(status_code=403, detail="cross-origin telemetry is disabled")
     if request.headers.get("sec-fetch-site") == "cross-site":
         raise HTTPException(status_code=403, detail="cross-site telemetry is disabled")
+    if not _audience_metrics_collection_enabled:
+        raise HTTPException(status_code=403, detail="audience metrics collection disabled")
     host = request.client.host if request.client else None
     if not audience_metric_limiter.allow(host):
         raise HTTPException(status_code=429, detail="audience metrics rate limit exceeded")
