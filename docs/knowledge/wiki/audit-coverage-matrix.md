@@ -161,6 +161,17 @@ Follow-up after the #175–199 issue-state audit, using **current main source** 
 - PR #182 changed the project glossary repository, API, tests and operator editor; #184 also changed the project repository/API/tests; #188 changed the editor, `glossaryScope.ts` and tests. These are overlapping implementation iterations, **not three independent project-glossary subsystems**.
 - Parent #123 is still OPEN. Its acceptance also requires global < preset < project < session precedence, immutable start snapshot, authorization, migration, import/export and rename/revert behavior. **Do not close #123 solely from repository schema or the closed child PRs.** Follow up with exact session-context composition code, executed tests, and user workflows.
 
+## Project glossary session acceptance: source and test inspection (2026-10-22)
+
+This extends the earlier code-presence audit with exact current-main paths:
+
+- `apps/server/langtextflow/main.py:259–290` `_with_saved_glossary`: loads global/preset entries, applies project overrides, then session overrides, keyed by source language and case-folded term. Disabled project/session entries remove inherited matches; unrelated source languages are filtered. **VERIFIED-CODE** for precedence and language isolation.
+- `apps/server/tests/test_project_glossary.py:80–106`: `test_session_snapshot_project_precedence_and_source_isolation` asserts effective project translation and that subsequent project edits do not mutate the captured session request. **VERIFIED-CODE** test definition; no direct test execution in this review.
+- `apps/server/langtextflow/project_glossary_repository.py:160–199`: transactional full-snapshot replacement, max 500 entries, project FK/unique scope; tests in `test_project_glossary.py:151–207` cover atomic replacement and operator API boundary. **VERIFIED-CODE** for paths and test definitions.
+- `apps/server/langtextflow/main.py:795–901`: project-scoped operator glossary routes include list, replace, import, export, CRUD and project-access checks. **VERIFIED-CODE** for route surface.
+
+**Outstanding #123 acceptance:** execute the relevant tests on the target CI revision; verify actual session persistence/replay of the materialized glossary and UI rename/revert workflow. Code inspection supports much of the original acceptance but is insufficient to declare every edge case completed. The closed #182/#184 implementation PRs and still-open #123 parent must not be conflated.
+
 ## Reuse gate before opening a model or pipeline experiment
 
 1. Search this matrix and the prior-work ledger for model checkpoint, language direction, fixture hash, runner, and issue/PR.
