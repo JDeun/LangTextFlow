@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass, field
+from threading import Lock
 from typing import Literal
 
 Stage = Literal["partial", "stable", "translated", "committed"]
@@ -28,6 +29,7 @@ class AudienceLatencyAggregate:
 
     capacity_per_stage: int = 512
     _samples: dict[str, deque[float]] = field(default_factory=dict, init=False)
+    _lock: Lock = field(default_factory=Lock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if (
@@ -50,16 +52,18 @@ class AudienceLatencyAggregate:
             or not 0 <= receive_to_display_ms <= MAX_LATENCY_MS
         ):
             return False
-        samples = self._samples.setdefault(stage, deque(maxlen=self.capacity_per_stage))
-        samples.append(float(receive_to_display_ms))
+        with self._lock:
+            samples = self._samples.setdefault(stage, deque(maxlen=self.capacity_per_stage))
+            samples.append(float(receive_to_display_ms))
         return True
 
     def snapshot(self) -> dict[str, dict[str, float | int]]:
         result: dict[str, dict[str, float | int]] = {}
-        for stage, samples in self._samples.items():
-            if not samples:
+        with self._lock:
+            copied = {stage: sorted(samples) for stage, samples in self._samples.items()}
+        for stage, sorted_values in copied.items():
+            if not sorted_values:
                 continue
-            sorted_values = sorted(samples)
             result[stage] = {
                 "count": len(sorted_values),
                 "p50_ms": _quantile(sorted_values, 0.5),
@@ -69,4 +73,5 @@ class AudienceLatencyAggregate:
         return result
 
     def reset(self) -> None:
-        self._samples.clear()
+        with self._lock:
+            self._samples.clear()
