@@ -1,0 +1,26 @@
+name: Bug report
+ description: Reproducible runtime, UI or packaging failure
+ title: "bug: "
+ labels: ["type:bug"]
+ body:
+   - type: textarea
+     id: observed
+     attributes:
+       label: Observed behavior
+       description: Include expected versus actual results and sanitized logs.
+     validations:
+       required: true
+   - type: textarea
+     id: reproduce
+     attributes:
+       label: Reproduction steps
+       description: Include app revision, platform, source/target language and model/provider versions.
+     validations:
+       required: true
+   - type: textarea
+     id: evidence
+     attributes:
+       label: Evidence and regression gate
+       description: Include test/fixture and expected pass criteria. Never attach private speech without consent.
+     validations:
+       required: true
