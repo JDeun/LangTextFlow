@@ -1044,9 +1044,9 @@ async def stop_session(request: Request) -> SessionState:
     async with _audio_transition_lock:
         await _close_audio_socket_for_transition("caption session stopping")
         try:
-            return await runtime.stop()
-        finally:
-            _allow_audio_socket_acceptance()
+            state = await runtime.stop()
+            audience_latency_aggregate.reset()
+            return state
         finally:
             _allow_audio_socket_acceptance()
 
