@@ -28,6 +28,22 @@
 
 **These timing numbers are design targets for review, not externally validated commitments.** Do not label a test PASS where the rubric or corpus is not yet approved; use `BLOCKED: acceptance criterion incomplete`.
 
+## 2a. Threshold provenance and approval status (2026-10-22)
+
+**Important correction:** the 3 s / 5 s / 8 s / 12 s timing thresholds and 10 s queue-age alert were **author-proposed heuristic design targets**, not derived from a published user study, competitor measurement, field trial, or statistical analysis of this project's actual latency distribution. They must **not** be described as evidence-based pass/fail standards or accepted SLAs. The zero-silent-loss/stale-overwrite conditions are architectural safety invariants, not empirical performance estimates. The 30/60/90-minute durations are scenario coverage goals from the existing roadmap, not proven endurance limits.
+
+| Proposed value | Provenance | Confidence / next action |
+|---|---|---|
+| First source caption p95 ≤ 3 s | Heuristic UX hypothesis; no cited human usability study | UNVALIDATED: measure source-caption reading usability and real audio timestamps |
+| Stable source p95 ≤ 5 s | Heuristic budget; not derived from model latency | UNVALIDATED: trace VAD, ASR chunking and UI separately |
+| Translated p95 ≤ 8 s / p99 ≤ 12 s | Heuristic end-to-end budget; not calibrated to actual hardware or audience | UNVALIDATED: collect six-direction continuous speech distributions and user acceptance |
+| Oldest pending work ≤ 10 s | Heuristic overload warning, not an approved threshold | UNVALIDATED: characterize queue age and recovery under sustained load |
+| Zero silent loss / stale overwrite | Product safety invariants from versioned event architecture | REQUIRED INVARIANT: verify with deterministic fault injection |
+| 30/60/90 min soak | Existing roadmap's real-event test durations | SCENARIO TARGET: measure, do not claim passed |
+| ASR CER and MT meaning | No approved numerical thresholds | BLOCKED pending licensed corpus, bilingual rubric and review |
+
+**Evidence already in repository:** [prior-work ledger](knowledge/wiki/prior-work-ledger.md), [multilingual baseline](MULTILINGUAL_MISSIONARY_INTERPRETATION.md), [Fun-ASR A/B](FUNASR_MLT_GLOSSARY_CPU.md) and [TranslateGemma investigations](knowledge/wiki/audit-coverage-matrix.md) show that actual results depend on model, direction, clip length and runner; they **do not** establish these proposed timing cutoffs. Before making release decisions, freeze a measured baseline and user-reviewed target in a separate PR/ADR. Until then, report actual distributions and mark numerical timing qualification **BLOCKED (threshold unapproved)** rather than PASS or FAIL.
+
 ## 3. Sampling and evaluation
 
 - All six directed language pairs; mandatory EN→KO and JA→KO. Report each separately and **never average away failures**.
