@@ -44,6 +44,10 @@
 
 **Evidence already in repository:** [prior-work ledger](knowledge/wiki/prior-work-ledger.md), [multilingual baseline](MULTILINGUAL_MISSIONARY_INTERPRETATION.md), [Fun-ASR A/B](FUNASR_MLT_GLOSSARY_CPU.md) and [TranslateGemma investigations](knowledge/wiki/audit-coverage-matrix.md) show that actual results depend on model, direction, clip length and runner; they **do not** establish these proposed timing cutoffs. Before making release decisions, freeze a measured baseline and user-reviewed target in a separate PR/ADR. Until then, report actual distributions and mark numerical timing qualification **BLOCKED (threshold unapproved)** rather than PASS or FAIL.
 
+## External reference evidence
+
+See [External Benchmark & Commercial Service Evidence](EXTERNAL_BENCHMARK_RESEARCH.md) for source-linked IWSLT 2024/2025 simultaneous translation lag regimes, academic warnings about segmented-speech and computation-aware latency, and documented Microsoft Teams/Google Meet caption capabilities. **IWSLT EN→JA StreamLAAL 0–3.5s low / 3.5–5s high is a research lag regime, not an audio→audience p95 bound**; commercial help pages establish features but do not substantiate this project's 3/5/8/12-second timing hypotheses. Keep the provisional end-to-end numbers unapproved pending baseline and human UX study.
+
 ## 3. Sampling and evaluation
 
 - All six directed language pairs; mandatory EN→KO and JA→KO. Report each separately and **never average away failures**.
