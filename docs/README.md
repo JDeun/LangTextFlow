@@ -74,6 +74,10 @@
 | [`../SECURITY.md`](../SECURITY.md) | 공개 취약점 제보 정책 |
 | [`../CONTRIBUTING.md`](../CONTRIBUTING.md) | 개발·검증·PR 기여 규칙 |
 
+## LLM Wiki 지식베이스
+
+- [LLM Wiki 시작하기](knowledge/README.md) — 원본 출처 기록, LLM 관리 지식, 운영 스키마와 Ingest/Query/Lint/Promote 규칙
+
 ## 연구 결과와 기술 의사결정
 
 - [연구 인덱스](research/README.md) — 기존 ASR/번역/경쟁제품 조사와 후속 검증 상태를 한곳에서 확인
