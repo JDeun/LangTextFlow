@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import __version__
 from .asr import AsrEngineError
 from .asr.capabilities import AsrCapability, asr_capabilities
+from .audience_latency import AudienceLatencyAggregate
 from .audience_security import AudienceJoinRateLimiter
 from .church_glossary_seed import church_glossary_for_source
 from .config import get_settings
@@ -86,6 +87,7 @@ model_cache_manager = ModelCacheManager(settings)
 runtime_provision_manager = RuntimeProvisionManager(settings)
 vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
 mdns_publisher = MdnsPublisher(settings)
+audience_latency_aggregate = AudienceLatencyAggregate()
 audience_join_limiter = AudienceJoinRateLimiter(
     max_failures=settings.audience_join_max_failures,
     window_seconds=settings.audience_join_window_seconds,
@@ -537,6 +539,18 @@ async def clear_model_cache(request: Request, area: str) -> CacheInventory:
 async def get_state(request: Request) -> SessionState:
     _require_operator(request)
     return runtime.state
+
+
+@app.get("/api/v1/metrics/audience-render")
+async def audience_render_metrics(request: Request) -> dict[str, object]:
+    """Operator-only read; no audience ingestion or network reporting enabled."""
+    _require_operator(request)
+    return {
+        "measurement": "browser_receive_to_double_raf_estimate",
+        "scope": "audience",
+        "reporting_enabled": False,
+        "stages": audience_latency_aggregate.snapshot(),
+    }
 
 
 @app.get("/api/v1/metrics", response_model=RealtimeMetrics)
