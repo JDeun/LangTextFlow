@@ -39,7 +39,7 @@ def lint(root: Path = KNOWLEDGE) -> list[str]:
         if target.startswith(("http://", "https://")):
             continue
         resolved = (wiki / target).resolve()
-        if not resolved.is_relative_to(root.resolve()) or not resolved.is_file():
+        if not resolved.is_relative_to(root.resolve().parent) or not resolved.is_file():
             errors.append(f"wiki/index.md: broken local target {target}")
     return errors
 
