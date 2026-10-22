@@ -21,7 +21,7 @@
 | OPUS CPU ASR+MT | [#119](https://github.com/JDeun/LangTextFlow/pull/119) | VERIFIED-ARTIFACT: small arm measured, tc-big failed after decoder change | BLOCKED: draft/unmerged; model workflow failed; native-vs-CT2 target decoding differential needed |
 | Six-direction MT | [#139](https://github.com/JDeun/LangTextFlow/issues/139), #134, #135, #168 | VERIFIED-CODE: M2M100 CT2 provider runtime path exists | PLANNED/OPEN: six-direction glossary ON/OFF E2E and production quality |
 | Glossary and sermon terms | #124, #125, #129, #138, #140, #181, #182 | Merged glossary features and church seeds; source-language constraints researched | Compare actual operator UI, ASR hotwords, translation enforcement and six-direction quality |
-| Runtime modularization | #164, #199, #200, #201 | #200 glossary capacity and #201 stale WebSocket projection fixes **closed**; some architecture remains proposed; ASR fallback implementation exists | Inspect closed fixes in current code and open architecture issues separately; #202–#208 are dependency updates, **not runtime architecture** |
+| Runtime modularization | #154–#174, #199–#201 | Issue-state verified: architecture epic #154 and child #155–#158, #160–#161 **OPEN**, #159 **CLOSED**; implementation tasks #162–#167, #169–#171, #174 **CLOSED**; #164 docs ADR task closed, but design document remains proposed | Audit merged implementation against still-open acceptance criteria; closed implementation subtasks do not close their parent epic |
 | Hardware / acceptance | [#224](https://github.com/JDeun/LangTextFlow/issues/224), #106, #107 | Hosted Linux CPU experiment evidence | Physical 4GB/8GB and 30/60/90-min real audio acceptance absent |
 | Product ASR competitor research | #209–#222 | Research/benchmark issue inventory exists | Do not treat competitor features as implemented; inspect individual research conclusions before coding |
 | Post-event archive | #80–#85 | VERIFIED-ISSUE-STATE: #83 initial vertical slice, #85 Event Projects, #84 benchmark fix, #82 test hardening **closed**; #80 grounded summary and #81 completed-event history UI **open** | Closed issue ≠ complete post-event product; inspect merged code and UX for #80/#81 before closing epic |
@@ -44,6 +44,17 @@ Individual issue records were fetched (title, state, description); this is **iss
 | #202–#208 | OPEN | Seven dependency-update/Dependabot items (Tauri, FastAPI, Actions); do **not** classify as runtime modularization |
 
 **Correction:** Earlier workstream grouping incorrectly placed #202–#208 under runtime modularization and implied #80–85 were uniformly unverified. The above state check separates shipped initial slices, still-open acceptance issues and dependency maintenance.
+
+## Architecture issue-state audit: #154–174 (2026-10-22)
+
+Fetched 20 individual issue records; #168 is a PR rather than an issue in this subset and was covered in the MT ledger. State means GitHub issue state only, **not verified implementation or acceptance**.
+
+- **OPEN architecture acceptance:** [#154](https://github.com/JDeun/LangTextFlow/issues/154) epic; [#155](https://github.com/JDeun/LangTextFlow/issues/155) bounded workers; [#156](https://github.com/JDeun/LangTextFlow/issues/156) per-target isolation; [#157](https://github.com/JDeun/LangTextFlow/issues/157) local CPU provider; [#158](https://github.com/JDeun/LangTextFlow/issues/158) ASR revision contracts; [#160](https://github.com/JDeun/LangTextFlow/issues/160) glossary language scope; [#161](https://github.com/JDeun/LangTextFlow/issues/161) UI session/provider separation.
+- **CLOSED architecture issue:** [#159](https://github.com/JDeun/LangTextFlow/issues/159) nonblocking caption publication.
+- **CLOSED implementation / documentation tasks:** #162 (per-target MT), #163 (source-language glossary), #164 (architecture design), #165 (segment workers), #166 (fanout), #167 (progressive caption revision), #169 (late callback fencing), #170 (model-soak scheduling), #171 (ASR capability declarations), #174 (capability-driven provider UI).
+- **CLOSED browser smoke fixes:** #172 and #173 are test stability work, not core runtime architecture acceptance.
+
+**Interpretation:** several concrete refactors were tracked as completed, while parent acceptance issues remain open. Do not rerun a refactor from scratch without comparing its closed implementation task to the parent's remaining acceptance criteria. Verify code and behavioral tests before declaring architecture complete.
 
 ## Reuse gate before opening a model or pipeline experiment
 
