@@ -55,7 +55,13 @@ const ONBOARDING_STORAGE_KEY = "langtextflow:onboarding:v1";
 const DISPLAY_SETTINGS_STORAGE_KEY = "langtextflow:display:v1";
 
 // One collector per tab; mounted independently of operator/audience route changes.
-if (typeof window !== "undefined") installCaptionRenderCollector(window);
+if (typeof window !== "undefined") {
+  const globalWithCollector = window as Window & { __ltfCaptionCollectorInstalled?: boolean };
+  if (!globalWithCollector.__ltfCaptionCollectorInstalled) {
+    installCaptionRenderCollector(window);
+    globalWithCollector.__ltfCaptionCollectorInstalled = true;
+  }
+}
 
 function joinCodeFromPath(prefix: string) {
   const match = window.location.pathname.match(new RegExp(`^/${prefix}/([A-Za-z0-9]+)`));
