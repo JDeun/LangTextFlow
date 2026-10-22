@@ -1027,7 +1027,9 @@ async def start_session(request: Request, payload: StartSessionRequest) -> Sessi
     async with _audio_transition_lock:
         await _close_audio_socket_for_transition("caption session restarting")
         try:
-            return await runtime.start(_with_saved_glossary(payload))
+            state = await runtime.start(_with_saved_glossary(payload))
+            audience_latency_aggregate.reset()
+            return state
         except AsrEngineError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
         except ValueError as exc:
@@ -1042,7 +1044,9 @@ async def stop_session(request: Request) -> SessionState:
     async with _audio_transition_lock:
         await _close_audio_socket_for_transition("caption session stopping")
         try:
-            return await runtime.stop()
+            state = await runtime.stop()
+            audience_latency_aggregate.reset()
+            return state
         finally:
             _allow_audio_socket_acceptance()
 
