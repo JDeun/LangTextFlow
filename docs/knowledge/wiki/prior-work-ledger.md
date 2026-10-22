@@ -105,6 +105,15 @@ Downloaded and parsed original JSON files from runs [38315153468](https://github
 
 **Qualification:** Later failure is stronger evidence than a prior single passing run for reliability risk; neither run establishes 90-minute field readiness. These artifacts are now **directly inspected**, not merely issue-comment reports.
 
+### OPUS-MT alternative research (#119): first-run evidence and limitations
+
+[PR #119](https://github.com/JDeun/LangTextFlow/pull/119) is **OPEN, unmerged**, with `scripts/compare_church_cpu_pipeline.py` and `.github/workflows/church-cpu-opus-mt.yml` confined to its branch. Its original run [38420648895](https://github.com/JDeun/LangTextFlow/actions/runs/38420648895) has both original ZIP artifacts downloaded and inspected:
+
+- **OPUS-small (`Helsinki-NLP/opus-mt-ko-en`)**: 16/16 text outputs valid, chrF++ **40.924**, terminology **87.5%**, MT p95 **412.4ms**. Real three-clip co-resident Qwen3-ASR 0.6B + OPUS-small: source CER **0.0554**, WER **0.4068**, translated coverage **3/3**, inference-only RTF **0.3753**, peak process RSS **3652.6 MB**; 8GB/4GB physical readiness **not established**. Zipformer + OPUS-small: source CER **0.1641**, WER **0.9556**, translated coverage **3/3**, inference-only RTF **0.1126**, RSS **2368.5 MB**. Both are offline replay metrics, not live-caption p95.
+- **OPUS tc-big (`opus-mt-tc-big-ko-en`)**: original run **15/16** valid text, chrF++ **7.075**, terminology **0%**, and missing/garbled output. PR #119 explains a **separate target-vocabulary decoder bug** in the experiment harness, later fixed on its branch but **not requalified by this archived run**. Do not infer tc-big model quality from this broken decoder measurement.
+- **Comparability:** OPUS-small 16 synthetic text fixtures and TranslateGemma 20 synthetic cases are **not the same evaluation set**; raw chrF++/term percentages are not head-to-head rankings. Both sets require bilingual domain review.
+- **Decision:** OPUS-small offers measured much lower inference latency in this specific runner, but it has not been product-integrated, merged, or validated for six directions. #119 must retain its draft/experimental gate until exact-head rerun and co-resident field tests.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
