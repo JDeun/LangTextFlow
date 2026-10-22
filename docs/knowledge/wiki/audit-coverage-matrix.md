@@ -120,6 +120,18 @@ This pass inspected **current `main` source files** and changed-file lists for P
 
 **Important correction to issue-only audit:** source-language matching and safe missing-translation display are not merely proposals; current `main` contains the relevant code. This still does not close #130/#139 without acceptance tests and actual six-direction evidence.
 
+## Translation-provider glossary consumption cross-check (2026-10-22)
+
+Read the actual `main` provider source, not just PR file lists:
+
+- `apps/server/langtextflow/translation/ollama.py` and `openai_compatible.py` import and call `relevant_glossary` in their translation paths. **VERIFIED-CODE: glossary hints are used by these prompt-oriented providers**; output adherence and model behavior still require tests.
+- `apps/server/langtextflow/translation/m2m100_ct2.py` explicitly does **`del context`** in `translate` with the comment that glossary must be proven before enabling. Its runtime inference uses **beam_size=1** and returns a single candidate. **VERIFIED-CODE: production M2M100 CT2 provider does NOT consume the glossary**. Do not describe #135 as a shipped runtime glossary feature.
+- `scripts/compare_multilingual_m2m100_cpu.py` runs an **experimental** glossary-aware beam-4 candidate selection using `choose_candidate`, compares baseline/assisted, and records snapshot SHA, matched terms and intervention cost. This is **benchmark-only**, not the above runtime adapter.
+- `docs/GLOSSARY_CPU_QUALIFICATION.md` explicitly calls this a draft, says the reranker is not guaranteed, and leaves real bilingual samples, operator snapshot, ASR hotword-vs-MT intervention and production promotion unchecked.
+- `docs/MULTILINGUAL_MISSIONARY_INTERPRETATION.md` defines 12 synthetic samples × 6 directions (72 translations) plus 3 FLEURS utterances per source language, and warns these do not establish live streaming, human-reviewed translation, or 30–90 minute stability. **Documentation is a test design/description, not independently verified run output**.
+
+**Actionable acceptance gap:** #139 must compare actual runtime or an explicitly matched prototype across all six directions with glossary OFF/ON, including EN→KO and JA→KO. The experimental reranker cannot be promoted based solely on lexical match counts; verify semantic quality and overhead. Original workflow artifact numbers were not fetched in this pass.
+
 ## Reuse gate before opening a model or pipeline experiment
 
 1. Search this matrix and the prior-work ledger for model checkpoint, language direction, fixture hash, runner, and issue/PR.
