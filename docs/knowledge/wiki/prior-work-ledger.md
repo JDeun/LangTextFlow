@@ -85,7 +85,7 @@ All three artifact listings reported `expired=false` at inspection time. These r
 
 ## Later evidence discovered in issue comments (2026-10-13–14)
 
-**Do not mistake the original negative baseline for the latest available measurement.** These entries were read from issue comment histories; unlike the three archived ZIPs above, their **newer artifact contents have not yet been independently re-extracted in this audit**.
+**Do not mistake the original negative baseline for the latest available measurement.** These entries were read from issue comment histories; unlike the three archived ZIPs above, their **four newer artifact ZIPs have now been independently downloaded and their JSON reports inspected**.
 
 - [#101](https://github.com/JDeun/LangTextFlow/issues/101), matched FLEURS audio (same IDs and PCM SHA-256), 4-second vs 30-second decode, run [38315153468](https://github.com/JDeun/LangTextFlow/actions/runs/38315153468): tiny CPU INT8 mean CER **3.46697 → 0.21973**, WER **2.96147 → 0.66437**, RTF **0.78937 → 0.04540**. Strong evidence for chunk/context sensitivity; **not** evidence that 30-second live caption startup delay is acceptable.
 - [#117](https://github.com/JDeun/LangTextFlow/issues/117), post-fix runs [38341728611](https://github.com/JDeun/LangTextFlow/actions/runs/38341728611) and [38341593011](https://github.com/JDeun/LangTextFlow/actions/runs/38341593011): context JSON absent in measured public translation, live p95 **10,990.7ms** (down from 39,113ms), processing RTF **1.1801** (down from 2.1131); chrF++ **55.202** (from 42.134) but critical-term accuracy **78.18%** (from 81.82%). Still **field_ready=false**, with semantic errors.
@@ -93,6 +93,17 @@ All three artifact listings reported `expired=false` at inspection time. These r
 - [#118](https://github.com/JDeun/LangTextFlow/issues/118), same-three-clip ASR candidate measurements cited in comment: Qwen3-ASR 0.6B INT8 CER **0.0554**, RTF **0.2902**, peak RSS **3528 MB**; Qwen3-ASR 1.7B INT8 CER **0.0475**, RTF **0.5524**, peak RSS **4858 MB**; Zipformer Korean INT8 CER **0.1641**, RTF **0.0609**, peak RSS **2255 MB**; whisper.cpp base CER **0.1203**, RTF **0.2230**, peak RSS **2155 MB**. Different latency semantics (offline vs native partial); do not rank solely by CER/RTF or assume co-resident 4GB feasibility.
 
 **Priority follow-up:** download newer #101/#117 run artifacts, compare exact hashes/configurations and extract quality/latency regressions; then check #119 co-resident ASR+MT reports and current CI. #101, #117, #118 and #139 remain open despite historical merged test harnesses.
+
+### Independent verification of four later ZIP artifacts
+
+Downloaded and parsed original JSON files from runs [38315153468](https://github.com/JDeun/LangTextFlow/actions/runs/38315153468), [38341728611](https://github.com/JDeun/LangTextFlow/actions/runs/38341728611), [38341593011](https://github.com/JDeun/LangTextFlow/actions/runs/38341593011), and [38570380566](https://github.com/JDeun/LangTextFlow/actions/runs/38570380566). All artifact listings were non-expired at retrieval.
+
+- **30s tiny ASR:** `summary.json` confirms CER **0.2197333**, WER **0.6643667**, throughput RTF **0.0454** across three clips. Same pinned FLEURS revision and sample PCM hashes as earlier report; 30s decode window vs earlier 4s.
+- **Post-fix TranslateGemma standalone:** `church-translation-quality.json` confirms **55.202 chrF++**, **0.7818** terminology adherence, **8555.1ms** p95, **20** cases, `needs-improvement` and human review required.
+- **Post-fix live CPU:** `live-interpretation-report.json` confirms 4/4 translated committed, **10990.7ms** translated p95, **18980.7ms** first translation, **1.1801** processing RTF, `field_ready=false`.
+- **Later regression live CPU:** `live-interpretation-report.json` confirms `runtime-error` with **20.0s translation timeout**, **3/4** translated committed (coverage **0.75**), **24533.9ms** translated p95, **26854.4ms** first translation, **1.6996** processing RTF, `field_ready=false`. Same combined FLEURS PCM SHA-256 as post-fix live run; model manifest identifies same TranslateGemma 4B Q4_K_M digest `c49d986b0764f5881c476eb21435bb62b7abc62347aab3d4a6071e811be510a1`. Different run conditions remain possible; no root cause assigned.
+
+**Qualification:** Later failure is stronger evidence than a prior single passing run for reliability risk; neither run establishes 90-minute field readiness. These artifacts are now **directly inspected**, not merely issue-comment reports.
 
 ## Minimum handoff record for a failed or inconclusive experiment
 
