@@ -77,3 +77,11 @@ absent in both reference and OFF transcript is reported as
 lexical, not a human determination of hallucination or semantic intent.
 Its counts require the **new** exact-head run to complete; do not project
 the older run's counts onto this new field.
+
+## Source-code A/B protocol audit (2026-10-22)
+
+**VERIFIED-CODE:** `scripts/benchmark_funasr_mlt_glossary_cpu.py:130–215` uses the same WAV and PCM SHA for both arms, selects hotwords from the source-language scoped glossary **without** consulting the reference text, and measures CER, inference time, reference term presence, OFF/ON off-target terms, changed hypotheses and `new_off_target_term_count`. It labels a zero-reference-term run `not_exercised` and sets `glossary_field_qualification=false`.
+
+**Design caveat:** each sample always decodes OFF **before** ON (`decode(... hotwords=[])` then `decode(... hotwords=terms)`). This is a paired comparison but **not randomized/counterbalanced**; cache/warmup/order effects can confound latency and potentially output differences. The run does not independently establish glossary effectiveness without speech containing registered terms. A lexical off-target insertion is a negative-control signal, not by itself a human-reviewed hallucination label.
+
+**Next controlled experiment:** preregister a consented EN/JA/KO glossary-bearing audio fixture and independently checked transcript; balance OFF→ON and ON→OFF ordering (or report unavoidable bias), record per-clip term recall/precision and false insertion, and publish original artifacts plus bilingual semantic review. Keep this research-only until actual runtime ASR and MT integration is proven.
