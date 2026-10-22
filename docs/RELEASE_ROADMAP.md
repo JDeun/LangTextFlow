@@ -90,3 +90,6 @@ This is a git-managed roadmap document. The GitHub connector currently exposes n
 - [ ] Artifact retention policy, privacy/consent and reproducible command/results paths.
 
 **Handoff:** M0 documentation and checklist are prepared. Actual GitHub milestone/label setup and field fixtures remain external or unverified prerequisites; never mark those complete without evidence.
+
+## Completed issue classification audit
+The 47 open issues were individually checked for milestone numeric ID and taxonomy labels on 2026-10-22; see [M0 issue audit](M0_ISSUE_AUDIT.md) for exact issue numbers and stage totals. GitHub milestone titles and M5 creation remain unverified, as do human owner assignments.
