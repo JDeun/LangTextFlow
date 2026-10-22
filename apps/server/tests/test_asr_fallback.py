@@ -428,3 +428,37 @@ def test_replay_buffer_strictly_bounds_single_oversized_frame_and_keeps_true_clo
     assert b"".join(engine._audio_frames).endswith(next_frame)
     assert engine._audio_cursor_ms == pytest.approx(158.25)
     assert all(len(frame) % 4 == 0 for frame in engine._audio_frames)
+
+
+@pytest.mark.asyncio
+async def test_failover_fences_outgoing_callbacks_before_stop_yields() -> None:
+    """Late transcripts emitted by stop() must not escape the old provider."""
+    published: list[TranscriptEvent] = []
+    outgoing: list[FakeEngine] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    class EmitsWhileStopping(FakeEngine):
+        async def stop(self) -> None:
+            await self.emit(
+                segment_id="late-stop", start_ms=0, end_ms=200, text="stale stop callback",
+            )
+            await super().stop()
+
+    def primary_factory(sink):
+        engine = EmitsWhileStopping(sink)
+        outgoing.append(engine)
+        return engine
+
+    wrapper = ReplayFallbackAsrEngine(
+        publish, [("primary", primary_factory), ("fallback", FakeEngine)],
+        health_check_seconds=60.0,
+    )
+    try:
+        await wrapper.start(StartSessionRequest(engine="auto"))
+        await wrapper._failover_locked("forced failure")
+        assert wrapper.active_provider == "fallback"
+        assert published == []
+    finally:
+        await wrapper.stop()
