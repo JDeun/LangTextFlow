@@ -28,7 +28,7 @@ def plan(root: Path, source: Path) -> str:
     if not title:
         raise ValueError("Missing source title")
     pages = sorted((root / "wiki").rglob("*.md"))
-    terms = set(re.findall(r"[^\\W_]+", title.casefold(), flags=re.UNICODE))
+    terms = set(re.findall(r"[^\W_]+", title.casefold(), flags=re.UNICODE))
     candidates: list[tuple[int, Path]] = []
     for page in pages:
         text = page.read_text(encoding="utf-8").casefold()
