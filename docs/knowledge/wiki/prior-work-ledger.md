@@ -52,6 +52,18 @@ This reconciliation checks the named PRs' merge states, **not** all historical P
 - Named PRs above were individually fetched for merge status. No claim is made that all 178 PR file lists, 58 issue comment histories, workflow artifacts, or current runtime call paths have been inspected.
 - Before treating this ledger as exhaustive, reconcile every historical PR number and inspect relevant changed files and exact-head workflow artifacts. Preserve explicit `unverified` labels for uninspected entries.
 
+## Current main code cross-check (file existence only)
+
+PR changed-file lists for #12, #27, #28, #124, #125, #129, #134, #135, #138, #140, #146–#151, #168 and #199 were retrieved. Five critical implementation entrypoints were also fetched successfully from current `main`:
+
+- `apps/server/langtextflow/benchmark.py` — existing ASR benchmark implementation (#12, #150).
+- `apps/server/langtextflow/translation/m2m100_ct2.py` — existing experimental local MT adapter (#168).
+- `scripts/compare_multilingual_m2m100_cpu.py` — existing six-direction CPU MT evaluation (#129, #135, #140).
+- `scripts/autonomous_experiment_conveyor.py` — existing model experiment controller (#148, #149).
+- `apps/server/langtextflow/asr/fallback.py` — existing ASR fallback implementation (#199).
+
+**Evidence tier:** verified path exists in `main`, **not** proof that the feature is enabled, correct, benchmark-qualified or usable on target hardware. Next validation must inspect imports/configuration and run exact-head tests and real-model experiments.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
