@@ -29,7 +29,7 @@
 
 - **Real-model evidence exists:** PRs #89 (FLEURS ASR), #108 (20-case CPU translation), #109 (full CPU speech-to-caption), #116 (ASR candidate harness) were **merged**. These PRs establish runnable harnesses, **not** passing accuracy/latency gates. Reuse their pinned workflow inputs and reports.
 - **Known ASR instrumentation fix:** PR #150 was **merged** to deduplicate repeated STABLE revisions. Thus #101's original CER/WER numbers must not be used as a post-fix current baseline without a new pinned rerun.
-- **Architecture decision evidence:** PR #164 was **merged** with a runtime-v2 ADR. The formal ADR index currently says none accepted: reconcile the actual ADR file/status before claiming there are no decisions. Do not overwrite historical status.
+- **Architecture decision evidence:** PR #164 was **merged** but changed only `docs/REALTIME_ARCHITECTURE_V2.md`; that document explicitly says **Status: proposed**. The formal ADR index correctly says no **accepted formal ADR in `docs/decisions/`**. This is a proposed architecture record, not an accepted decision; no index correction is justified.
 - **Existing local MT:** PR #168 was **merged** and adds an **experimental M2M100 CTranslate2 CPU provider**. Do not start a second adapter without examining it and its six-direction qualification.
 - **Existing multilingual glossary:** PRs #181 and #182 were **merged** (missionary EN/JA seeds and project overlays). PR #184 was **closed without merge**; do not count it as a second implementation.
 - **Consolidated ASR fallback fixes:** PRs #197 and #198 were **closed without merge**, superseded by **merged #199**. Avoid reimplementing the abandoned stacked branches.
