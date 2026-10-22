@@ -45,6 +45,6 @@ def test_reject_invalid_evidence(tmp_path: Path) -> None:
 
 def test_reject_newline_injection(tmp_path: Path) -> None:
     fields = sample(tmp_path)
-    fields["title"] = "Bad\\n# Injected"
+    fields["title"] = "Bad\n# Injected"
     with pytest.raises(ValueError):
         register(**fields)
