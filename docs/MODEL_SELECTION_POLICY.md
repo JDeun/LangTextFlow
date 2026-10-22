@@ -44,6 +44,10 @@ All license, memory, speed and quality claims require the pinned run's source ev
 
 An adoption proposal must state: targeted PRD requirement and direction, baseline/alternative and model hashes, original run artifacts, hardware/license, quality/latency tradeoffs, glossary false-insertion controls, fallback, UI exposure, migration and rollback. Architectural selection gets an ADR in [decisions](decisions/README.md). A field regression or license failure revokes qualification for the affected scope; keep a last-known-good model option and visible operator warning.
 
+## External comparator discipline
+
+Use [external benchmark research](EXTERNAL_BENCHMARK_RESEARCH.md) as the reference for IWSLT simultaneous lag regimes and commercial translated-caption feature parity. Do **not** rank models against Microsoft Teams or Google Meet on undocumented p95 latency; no directly comparable public official SLA was established. Report StreamLAAL separately from actual microphone→audience p95/p99, and qualify the EN→KO / JA→KO founding cases on their own measured corpus.
+
 ## 6. Open decisions
 
 Which ASR meets **native-streaming** first-caption and bilingual proper-noun targets? Which per-direction MT or multilingual MT achieves semantic fidelity on the actual Linux CPU runner? Can any local provider reliably enforce glossary without doctrinal or latency regressions? Which actual field device profiles can sustain 90 minutes? Answer with measurements, not marketing or synthetic scores.
