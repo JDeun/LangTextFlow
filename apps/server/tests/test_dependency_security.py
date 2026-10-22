@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[3]
 @pytest.mark.parametrize(
     ("name", "minimum"),
     [
-        ("pypdf", (6, 19, 0)),
+        ("pypdf", (6, 21, 1)),
+        ("certifi", (2026, 10, 19)),
         ("urllib3", (2, 8, 0)),
     ],
 )
@@ -33,6 +34,6 @@ def test_patched_dependency_floor_in_uv_lock(name: str, minimum: tuple[int, ...]
 def test_direct_pypdf_constraint_also_excludes_vulnerable_version() -> None:
     project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     assert any(
-        requirement.startswith("pypdf>=6.19")
+        requirement.startswith("pypdf>=6.21.1")
         for requirement in project["project"]["dependencies"]
     )

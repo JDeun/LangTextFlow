@@ -15,7 +15,7 @@ dependencies = [
   "pydantic-settings>=2.7,<3",
   "httpx>=0.28,<1",
   "websockets>=15,<18",
-  "pypdf>=6.19,<7",
+  "pypdf>=6.21.1,<7",
   "defusedxml>=0.7.1,<1",
   "zeroconf>=0.151.3,<0.152",
 ]
