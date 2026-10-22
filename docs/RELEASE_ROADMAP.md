@@ -65,3 +65,28 @@ This is a git-managed roadmap document. The GitHub connector currently exposes n
 | Release owners, risk/rollback | Pending | Assign responsible maintainers and establish approval/rollback checklist before v1.0 release. |
 
 **Readiness verdict:** Development preparation is **not complete**. The checklist is an explicit blocker register, not a claim of GitHub configuration or model qualification. Do not mark M0 complete until all preparation rows are verified.
+
+## M0 preparation handoff (2026-10-22)
+### Decision register
+- **Ready for implementation planning:** scoped P0/P1 backlog, canonical documentation roles, merge discipline and automated test gates are defined. This is not release or field acceptance.
+- **Not ready to claim GitHub milestone completion:** only milestone numeric ID `1` was observed on issues #224 and #214. Its title and M0–M5 creation cannot be inspected using the available connector. Do not bulk reassign issues to guessed numeric IDs.
+- **Not ready to close #224:** GitHub milestone and label inventories, issue assignment coverage and human owners remain unverified.
+- **PR #119:** research-only CPU OPUS-MT comparison is open, its model conversion results are not qualified. Do not merge as a housekeeping shortcut.
+- **Merged research:** PR #215 and #223 are on main; `docs/research/OPEN_SOURCE_DICTATION_COMPARISON.md` is present. Do not treat research notes as verified model benchmarks.
+
+### Recommended GitHub configuration (requires repository settings/API access)
+1. List all existing milestones, preserving titles, numbers, descriptions and issue assignments; only create missing M0–M5 entries. Do not overwrite existing milestones.
+2. List existing labels before creating missing `priority:P0`, `priority:P1`, `priority:P2`, `area:asr`, `area:mt`, `area:runtime`, `area:docs`, `area:ux`, `type:research`, `type:bug`, `type:feature`, `type:test`.
+3. Assign open issues to verified milestone IDs by the table above, respecting cross-stage dependencies and existing assignments; log exceptions.
+4. Audit the remaining open PR #119 separately against its real-model qualification criteria.
+5. Require maintainers to name a release owner, field-validation operator, licensing reviewer and rollback approver before M5 exit.
+
+### Benchmark input readiness checklist (no inference runs)
+- [ ] Licensed/consented, hash-pinned ko/en/ja sermon or lecture WAV files, 16kHz mono PCM16.
+- [ ] Independent reviewed transcripts, source/target language metadata and glossary terminology references.
+- [ ] Hardware inventory (CPU/RAM/OS), cold/warm protocol, repeat count >=3, CPU/RSS measurement.
+- [ ] Measurable pass/fail thresholds for CER/WER, RTF, first partial/stable/commit latency, translation p95, dropped segments and term recall.
+- [ ] 30/60/90-minute soak, reconnection, cancellation and queue-overflow acceptance on target 4/8GB machines.
+- [ ] Artifact retention policy, privacy/consent and reproducible command/results paths.
+
+**Handoff:** M0 documentation and checklist are prepared. Actual GitHub milestone/label setup and field fixtures remain external or unverified prerequisites; never mark those complete without evidence.
