@@ -8,9 +8,9 @@ from __future__ import annotations
 import math
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Callable
 
 
 @dataclass
