@@ -184,6 +184,13 @@ async def reject_remote_operator_api_before_body_parse(request: Request, call_ne
     """
     path = request.url.path
     is_audience_path = path.startswith("/api/v1/audience/")
+    if is_audience_path and request.method not in {"GET", "HEAD", "OPTIONS"}:
+        return Response(
+            content='{"detail":"audience write API is disabled"}',
+            status_code=405,
+            media_type="application/json",
+            headers={"Allow": "GET, HEAD, OPTIONS"},
+        )
     if path.startswith("/api/v1/") and not is_audience_path:
         host = request.client.host if request.client else None
         if not is_loopback_client(host):
