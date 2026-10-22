@@ -106,6 +106,20 @@ Fetched 18 individual issue records. These are **issue-state and description che
 
 **Direction matrix:** KO→EN, KO→JA, EN→KO, EN→JA, JA→KO, JA→EN. The EN/JA→KO missionary sermon use case is a first-class P0 requirement. Record quality, latency, terminology ON/OFF, and model/license evidence **per direction**; one successful direction does not qualify the other five.
 
+## Merged-code versus issue cross-check (2026-10-22)
+
+This pass inspected **current `main` source files** and changed-file lists for PRs #124, #125, #129, #132, #134, #135, #140, #162, #163, #165, #166, #167, #174. This verifies the named code paths exist, **not** their runtime quality or every PR's full diff.
+
+| Acceptance claim | Current main evidence | Conclusion / remaining gate |
+|---|---|---|
+| Source-scoped glossary hints (#130/#134/#160) | `apps/server/langtextflow/translation/glossary_selection.py`: `relevant_glossary` requires enabled entry, matching `source_language`, and a target-language translation; hint cap 24 | VERIFIED-CODE selection filter; check each MT provider actually consumes the hints, not just selects them |
+| Glossary adherence (#125/#139) | `apps/server/langtextflow/glossary_adherence.py`: module explicitly says **observational**, `measure_glossary_adherence` detects missing target terms | VERIFIED-CODE measurement only; not ON/OFF evidence of causal ASR or MT improvement |
+| No source-language fallback (#131/#132) | `apps/web/src/captionLanguage.ts`: source text returned only if requested language equals `segment.source_language`; missing MT displays translating/unavailable state | VERIFIED-CODE helper behavior; audit every display/export consumer and E2E test for complete product acceptance |
+| Bounded translation (#155/#156/#162/#165) | `apps/server/langtextflow/pipeline.py`: documented bounded post-ASR worker; session-wide `asyncio.Semaphore(1)` for inference | VERIFIED-CODE concurrency control exists; compare actual backlog/deadline, cancellation and multi-target p95 under load before closing parents |
+| Six-direction and native hotword benchmarks (#129/#135/#140) | Changed-file lists include `scripts/compare_multilingual_m2m100_cpu.py`, `scripts/glossary_cpu_contract.py`, `scripts/benchmark_funasr_mlt_glossary_cpu.py` and associated workflows/tests | VERIFIED-CODE file presence from PR diffs only; original run artifacts and ON/OFF deltas **not yet checked in this pass** |
+
+**Important correction to issue-only audit:** source-language matching and safe missing-translation display are not merely proposals; current `main` contains the relevant code. This still does not close #130/#139 without acceptance tests and actual six-direction evidence.
+
 ## Reuse gate before opening a model or pipeline experiment
 
 1. Search this matrix and the prior-work ledger for model checkpoint, language direction, fixture hash, runner, and issue/PR.
