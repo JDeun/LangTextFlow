@@ -1,5 +1,20 @@
 # Product Roadmap
 
+> **North Star alignment (2026-10-22):** [Product North Star & Engineering Principles](PRODUCT_NORTH_STAR.md) is the product intent and qualification policy. A checked implementation task is **not** equivalent to model-quality, live-latency or field acceptance. See [evidence audit](knowledge/wiki/audit-coverage-matrix.md).
+
+## North Star release gates (separate from implementation checkboxes)
+
+| Gate | Open anchors | Evidence needed before promotion |
+|---|---|---|
+| P0 missionary language directions | #126, #127, #128 | Real EN→KO, JA→KO and KO→EN/JA ASR→MT, plus EN↔JA, each separately scored for meaning and latency |
+| P0 terminology efficacy | #130, #139 | Real ASR hotword and MT glossary ON/OFF per source language and target direction; compare semantic correctness, not only term hits |
+| P0 live reliability | #154–#158 | Sustained real audio, p50/p95/p99 caption timing, bounded memory/backlog, recovery, per-target failure isolation |
+| P0 project glossary workflow | #123 | Executed project isolation, persisted session snapshot, scoped import/export, rename/revert and operator E2E |
+| Release readiness | README pre-field-alpha caveats | Actual signed installers, field 30/60/90-min soak, human accessibility and privacy review |
+
+**Current disposition:** the above parent issues are OPEN at this review. Closed child issues and passing general CI must not be represented as these release gates passing. Set quantitative thresholds before qualification runs, pin model/data/runner revisions, and publish negative results.
+
+
 ## P0 — Foundation
 
 - [x] Monorepo 구조
