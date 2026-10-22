@@ -48,6 +48,8 @@
 
 See [External Benchmark & Commercial Service Evidence](EXTERNAL_BENCHMARK_RESEARCH.md) for source-linked IWSLT 2024/2025 simultaneous translation lag regimes, academic warnings about segmented-speech and computation-aware latency, and documented Microsoft Teams/Google Meet caption capabilities. **IWSLT EN→JA StreamLAAL 0–3.5s low / 3.5–5s high is a research lag regime, not an audio→audience p95 bound**; commercial help pages establish features but do not substantiate this project's 3/5/8/12-second timing hypotheses. Keep the provisional end-to-end numbers unapproved pending baseline and human UX study.
 
+**Specialist market cross-check:** [commercial service research](EXTERNAL_BENCHMARK_RESEARCH.md#specialist-commercial-services-primary-source-capability-comparison-2026-10-22) includes vendor-reported KUDO **4.1 s mean**, sotonis **within 2 s of first word**, and Mission21 **~1 s after sentence end**. These are **incompatible definitions and unverified vendor claims**, so they do not establish LangTextFlow's p95 3/5/8/12 s thresholds. Cuckoo and KUDO are useful feature-parity comparators for glossary, context, QR, projector and OBS.
+
 ## 3. Sampling and evaluation
 
 - All six directed language pairs; mandatory EN→KO and JA→KO. Report each separately and **never average away failures**.

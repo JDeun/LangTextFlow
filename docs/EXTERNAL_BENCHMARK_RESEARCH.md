@@ -15,6 +15,25 @@
 | [Google Meet translated captions](https://support.google.com/meet/answer/10964115?hl=en) | Commercial translated captions including KO/EN/JA; audience controls and caption appearance | **Capability benchmark only**: no published comparable p95 CPU/local SLA |
 | [Microsoft Teams Interpreter](https://support.microsoft.com/en-gb/teams/copilot/interpreter-in-microsoft-teams-meetings-and-calls) | Warns rapid exchanges, interruptions and overlapping speech may delay translation | Failure-mode/UX comparison; not numeric threshold evidence |
 
+
+## Specialist commercial services: primary-source capability comparison (2026-10-22)
+
+| Service | Official claim | Practical product parity to evaluate | Evidence limitation |
+|---|---|---|---|
+| [Cuckoo AI](https://www.cuckoo.so/ko) and [Cuckoo events](https://www.cuckoo.so/ko/events) | ~20 languages, meeting context documents, terminology glossary, automatic language recognition; event QR captions, projector/screen share, desktop overlay and OBS | Project/document context, glossary operator UX, QR/audience language selection, projector and OBS workflows | No independently audited per-pair CER/semantic score or comparable p95 latency in reviewed pages; product marketing is not an SLO |
+| [KUDO venues](https://kudo.ai/solutions/live-speech-translation-for-venues-and-rooms/) | 70+ languages, custom glossary, auto detection, QR browser captions/audio, venues including houses of worship; vendor **claims 4.1s average latency** and 4.1/5 fluency, 4.25/5 accuracy | Church/event deployment and audio interface, audience self-service, domain glossary, separate operator controls | **Vendor-reported mean**, not independently reproduced, not p95/p99, unclear per-language/CPU/definition; cloud/network solution |
+| [KUDO meeting setup](https://support.kudoway.com/hc/en-us/articles/40522205896087-Scheduling-KUDO-AI-Meetings) | Caption-only mode positioned as lower latency than speech+caption; operator/participant/viewer/mobile links, adjustable target languages | Caption-only product mode and audience roles, live target language controls | No numeric caption-only latency or KO/JA→KO fidelity SLA on this page |
+| [sotonis](https://sotonis.com/) | Church-specific Worship Mode, glossary, scripture/liturgy text preservation, QR audience, 82 languages, vendor claim **within 2s of first word** | Church preset, protected canonical liturgy, source/target views, operator console, accessibility | Vendor claim is not independently measured and may refer to **first output**, not complete translated utterance or p95 |
+| [Mission21 LiveCaption](https://mission21.com/livecaption/) | Worship/event-focused desktop captions, 13 languages including KO/EN/JA, mic and OBS/projector; vendor claim ~1s delay **after sentence ends** | Microphone/device selection and overlay integration, church-specific deployment | Sentence-end-relative vendor claim, not first-word lag or p95; not independently reproduced |
+
+**Metric incompatibility:** KUDO's claimed **mean 4.1s**, sotonis's **first-word-relative 2s**, and Mission21's **sentence-end-relative ~1s** measure different events (and may have different output modalities). They must **not** be combined into one target percentile or compared as equivalent to IWSLT StreamLAAL. The proper action is a matched-input, timestamp-instrumented external user study with vendor permission/terms and documented account/device conditions.
+
+**Prioritization impact:** Cuckoo and KUDO establish a strong **feature parity target** for QR audience language selection, glossary/document context, operator controls and projector/OBS delivery. Specialist church services suggest **domain-specific liturgy/scripture handling** should be evaluated, but do not prove that forcing canonical text is always semantically safe. Local/offline CPU and no silent cloud fallback remain LangTextFlow differentiators; do not infer competing providers are locally runnable.
+
+## IWSLT 2026 update
+
+The [IWSLT 2026 simultaneous track](https://iwslt.org/2026/simultaneous) now emphasizes **unsegmented long-form speech** and an **extra-context** track, but its listed directions are EN→DE/ZH/IT and CS→EN, **not** EN/JA→KO. Its main Docker track uses an H100 80GB GPU, so its measured system latency is not a like-for-like GitHub Actions Linux CPU baseline. Use this as methodology/architecture evidence, not an attainable CPU p95 promise.
+
 ## Target derivation: what can and cannot be justified
 
 - **Evidence-based benchmark reference:** track IWSLT 2025 **EN→JA StreamLAAL ≤3.5s low regime / 3.5–5s high regime** as an external **research comparison**, explicitly *not* a LangTextFlow browser end-to-end SLO. Use other IWSLT directions only for methodological context.
