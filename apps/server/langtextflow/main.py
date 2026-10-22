@@ -209,6 +209,23 @@ async def reject_remote_operator_api_before_body_parse(request: Request, call_ne
                 status_code=413,
                 media_type="application/json",
             )
+    if is_metric_post:
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > 512:
+                return Response(
+                    content='{"detail":"audience metrics body too large"}',
+                    status_code=413,
+                    media_type="application/json",
+                )
+            body.extend(chunk)
+        request._body = bytes(body)
+        if len(body) != int(content_length):
+            return Response(
+                content='{"detail":"audience metrics body length mismatch"}',
+                status_code=400,
+                media_type="application/json",
+            )
     if is_audience_path and request.method not in {"GET", "HEAD", "OPTIONS"} and not is_metric_post:
         return Response(
             content='{"detail":"audience write API is disabled"}',
