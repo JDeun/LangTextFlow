@@ -38,6 +38,20 @@
 
 This reconciliation checks the named PRs' merge states, **not** all historical PR diffs or CI artifacts. Unmerged PR bodies can describe code that never reached main.
 
+## Additional merged-work inventory (verified PR states)
+
+- **Existing benchmark harnesses:** #12 (ASR/runtime), #27 (translation), #28 (correction). Reuse these before designing new measurement scripts.
+- **Real-data benchmark workflows:** #89 (FLEURS), #108 (CPU MT), #109 (CPU end-to-end), #116 (five ASR candidates). Harness or workflow merged **does not** imply model passed.
+- **Multilingual and glossary qualification code:** #124 (operator editor and seeds), #125 (mapping/diagnostics), #129 (six-direction test), #134 (language-scoped terms), #135 (glossary-aware MT test), #138 (model qualification gates), #140 (Fun-ASR glossary ON/OFF test). All PRs verified **merged**, but their actual test reports and runtime coverage are not certified here.
+- **Model research automation:** #146 (candidate catalog), #147 (Apple translation experiment), #148 (model experiment DAG), #149 (controller repair) are **merged**; #176 later paused automatic expensive runs. Search these workflows before scheduling repeat experiments.
+- **Quality safeguards:** #150 (stable-revision deduplication) and #151 (scripture-number/negation assessment) are **merged**. Verify metric baselines against the commit that produced them.
+
+## Audit coverage accounting
+
+- GitHub search yielded **178 PR records** across three creation-date partitions and **58 issue records** in the repository; these are **inventory search results**, not 178 individually fetched PR diffs or 58 audited issue histories.
+- Named PRs above were individually fetched for merge status. No claim is made that all 178 PR file lists, 58 issue comment histories, workflow artifacts, or current runtime call paths have been inspected.
+- Before treating this ledger as exhaustive, reconcile every historical PR number and inspect relevant changed files and exact-head workflow artifacts. Preserve explicit `unverified` labels for uninspected entries.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
