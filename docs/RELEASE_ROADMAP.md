@@ -2,7 +2,7 @@
 2026-10-22 · Tracking #224 · **proposed milestone plan, not yet created GitHub Milestones**
 
 ## Scope and existing backlog
-Open issue search showed architecture #154–#161; multilingual #117–#139; ASR #100–#115; post-event #78–#86; new competitor research #209–#222. Research docs are pending review in PR #215 and #223, **not on main**.
+Open issue search showed architecture #154–#161; multilingual #117–#139; ASR #100–#115; post-event #78–#86; new competitor research #209–#222. Research documents from PR #215 and #223 have been merged into `main`. Runtime PRs #199 (ASR fallback), #200 (glossary capacity), and #201 (WebSocket caption projection) have also been merged. These changes do **not** establish field accuracy or hardware acceptance.
 
 ## Proposed sequential milestones
 | Milestone | Exit gate | Representative issues |
@@ -27,8 +27,8 @@ These are **completion gates, not calendar commitments**. Assign issues to actua
 - Avoid copying code from external repos before LICENSE/dependency/model weight audit.
 
 ## Immediate PR/document hygiene
-1. Review PR #215 and #223 for duplicated research content; maintain separate competitor-vs-open-source comparison docs with reciprocal links.
-2. Add index linking both after merge, avoid dead links on main.
+1. PR #215 and #223 were merged; review their distinct competitor-vs-open-source findings and maintain reciprocal links.
+2. Add or verify the research index and ensure no dead links remain on main.
 3. Review #209–#222 against older ASR, glossary and runtime issues; use 'related' rather than automatically 'duplicate'.
 4. Review architecture #154–#158 dependency ordering before refactors.
 5. Collect CI/lint/test status and preserve all existing issue history.
@@ -40,4 +40,28 @@ These are **completion gates, not calendar commitments**. Assign issues to actua
 - Operator/field acceptance, privacy/legal review.
 
 ## Status
-This is a git-managed roadmap document. The GitHub connector currently exposed no create/list milestone action, so **no milestone records or issue-to-milestone assignments are claimed**. See #224 for implementation and assignment tracking.
+This is a git-managed roadmap document. The GitHub connector currently exposes no create/list milestone action. Issue #224 has GitHub milestone number `1` assigned, but its name and the existence of M0–M5 milestone records have **not** been verified. Do not treat this roadmap's M0–M5 headings as existing GitHub milestones. See #224 for implementation and assignment tracking.
+
+## Verified integration evidence (2026-10-22)
+- PR #199: ASR fallback session/candidate fencing and dependency security; merged as `cd4acb0`; exact-head CI, CodeQL, Windows/macOS desktop packaging passed.
+- PR #200: project glossary 500-entry capacity contract; merged as `2f7c4b3`; exact-head CI, CodeQL, desktop packaging passed.
+- PR #201: disconnect/reconnect caption projection reset; merged as `9331dba`; exact-head CI, CodeQL, desktop packaging passed.
+- PR #215: proprietary competitor research; merged as `9e4d3ae`.
+- PR #223: seven open-source dictation project comparison; merged as `9d6eda9`.
+- PR #119 remains open; its model-quality conclusions must not be treated as validated.
+- CI and packaging prove build/test integrity, **not** real sermon CER/WER, six-direction translation quality, 4/8GB memory qualification, or 30/60/90-minute field soak.
+
+## Pre-development readiness checklist (tracking #224)
+| Preparation task | Status | Evidence / remaining action |
+|---|---|---|
+| Repository baseline | Partial | #199–#201 green before merge; main branch post-merge aggregate CI not independently audited here. |
+| Existing PR triage | Partial | #119 remains open; #215/#223 merged. Re-review any newly opened PR before scheduling. |
+| Canonical docs | Partial | README, ARCHITECTURE, MODEL_GUIDE, BENCHMARK and research documents identified; cross-link and stale-claim audit still needed. |
+| Actual GitHub milestones M0–M5 | **Unverified** | #224/#214 expose milestone number 1, but milestone titles and all six milestone records are not confirmed; requires milestone listing/creation permission. |
+| Issue-to-milestone assignments | **Incomplete/unverified** | Planning annotations in issue bodies do not imply actual assignment. Check every open issue after milestone records are confirmed. |
+| Labels and issue conventions | **Unverified** | Label taxonomy is proposed, not confirmed created; audit available labels before bulk assignment. |
+| Duplicate/overlap triage | Partial | #214 vs #100 and #209 research issues explicitly related; no premature closure. |
+| Benchmark protocol | Defined, evidence pending | #214; no reproducible real-speech baseline, operator hardware inventory or audio fixture rights documented as accepted. |
+| Release owners, risk/rollback | Pending | Assign responsible maintainers and establish approval/rollback checklist before v1.0 release. |
+
+**Readiness verdict:** Development preparation is **not complete**. The checklist is an explicit blocker register, not a claim of GitHub configuration or model qualification. Do not mark M0 complete until all preparation rows are verified.
