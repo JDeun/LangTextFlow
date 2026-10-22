@@ -32,6 +32,8 @@ jobs:
         run: uv run python scripts/repo_hygiene.py
       - name: Markdown link integrity
         run: uv run python scripts/check_markdown_links.py
+      - name: Knowledge wiki structural lint
+        run: uv run python scripts/check_knowledge_wiki.py
       - name: Hugging Face snapshot access policy
         run: uv run python scripts/check_hf_snapshot_calls.py
       - name: Python lint
