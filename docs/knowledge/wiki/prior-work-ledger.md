@@ -71,6 +71,18 @@ PR changed-file lists for #12, #27, #28, #124, #125, #129, #134, #135, #138, #14
 - **Evaluation is separately runnable.** `scripts/compare_multilingual_m2m100_cpu.py` has a CLI `main()` and independent test fixture/glossary logic; existence is not proof that all six directions passed semantic acceptance.
 - **Model readiness must be checked:** `local_mt_preflight.py` tests configured cache paths, so a provider visible in code can be unavailable on a new installation.
 
+## Archived CI artifact verification (downloaded and inspected)
+
+The following **original ZIP artifacts** were retrieved from GitHub Actions and their JSON reports inspected, rather than relying only on issue descriptions:
+
+| Run / artifact | Directly verified result | Interpretation |
+| --- | --- | --- |
+| [38274657250](https://github.com/JDeun/LangTextFlow/actions/runs/38274657250), `licensed-fleurs-asr-ko-tiny` | `summary.json`: FLEURS revision `fdd74f7...`, three Korean clips, faster-whisper tiny CPU INT8; mean CER **3.4669667**, WER **2.9614667**, RTF **0.7893667**. Per-clip CER **1.2679 / 8.8095 / 0.3235**. | Severe variance and error in this **pre-#150 pilot**; not a current baseline. |
+| [38318475793](https://github.com/JDeun/LangTextFlow/actions/runs/38318475793), `church-translation-cpu-baseline` | `church-translation-quality.json`: **needs-improvement**, 20 synthetic/unreviewed cases, chrF++ **42.134**, terminology **0.8182**, p95 **12916.1 ms**, eight cases with missing critical terms; model manifest TranslateGemma 4B Q4_K_M. | Model execution succeeded, translation quality **did not pass**. Metadata JSON appears in `church-translation-inference.json` hypotheses. |
+| [38319834291](https://github.com/JDeun/LangTextFlow/actions/runs/38319834291), `church-live-cpu-e2e` | `live-interpretation-report.json`: 33.22 s FLEURS KO speech → EN; ASR CER **0.1894**, WER **0.5**; 4/4 translated committed, first translation **28838.3 ms**, processing RTF **2.1131**, `field_ready=false`. `translated_hypothesis` contains JSON envelopes. | Functional end-to-end run **not real-time or field-qualified**; uses **base** ASR, not tiny. |
+
+All three artifact listings reported `expired=false` at inspection time. These reports are historical snapshots, **not** fresh same-SHA reruns or independent human translation assessment. In particular the FLEURS ASR pilot uses **tiny** while the full E2E run uses **base**; their CER/WER must not be directly compared as a controlled before/after.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
