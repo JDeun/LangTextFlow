@@ -1,5 +1,8 @@
 # Research and implementation audit coverage matrix
 
+- **Status:** issue-state audit in progress; not a field qualification
+- **Last reviewed:** 2026-10-22
+
 **Snapshot:** 2026-10-22. This page is a **triage inventory**, not a claim that every issue comment, changed file, or run artifact has been inspected. Refer to [prior-work ledger](prior-work-ledger.md) for independently extracted CPU artifacts and numerical results.
 
 ## Evidence labels
