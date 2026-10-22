@@ -172,6 +172,18 @@ This extends the earlier code-presence audit with exact current-main paths:
 
 **Outstanding #123 acceptance:** execute the relevant tests on the target CI revision; verify actual session persistence/replay of the materialized glossary and UI rename/revert workflow. Code inspection supports much of the original acceptance but is insufficient to declare every edge case completed. The closed #182/#184 implementation PRs and still-open #123 parent must not be conflated.
 
+## Session glossary persistence/replay trace (2026-10-22)
+
+**VERIFIED-CODE** end-to-end persistence wiring in current `main`:
+
+1. `apps/server/langtextflow/main.py:1011–1016` calls `runtime.start(_with_saved_glossary(payload))`; the glossary is materialized **before** runtime start.
+2. `main.py:259–290` constructs the source-language-filtered global/preset → project → session merged snapshot.
+3. `apps/server/langtextflow/session_repository.py:173–213` `create_session` stores `request.context.model_dump_json()` in SQLite `sessions.context_json` and assigns `project_sessions` in the same transaction.
+4. `session_repository.py:342–359` `detail` reads the stored `context_json` and validates it back into `SessionContext`, rather than recomputing the current glossary.
+5. `apps/server/tests/test_project_glossary.py:80–106` asserts that edits after materialization leave the captured glossary unchanged; separate persistence/reload integration execution was **not** observed in this pass.
+
+**Boundary:** this proves the save/read code path, not successful execution of a live-session persistence/restart test. Operator rename/revert semantics and end-to-end UI tests remain outstanding for #123. Distinguish historical snapshot integrity from whether a particular ASR/MT provider actually uses its terms (M2M100 runtime currently ignores them).
+
 ## Reuse gate before opening a model or pipeline experiment
 
 1. Search this matrix and the prior-work ledger for model checkpoint, language direction, fixture hash, runner, and issue/PR.
