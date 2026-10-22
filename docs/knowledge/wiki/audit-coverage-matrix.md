@@ -23,7 +23,7 @@
 | TranslateGemma CPU MT | [#117](https://github.com/JDeun/LangTextFlow/issues/117), [#118](https://github.com/JDeun/LangTextFlow/issues/118) | VERIFIED-ARTIFACT: original, post-fix, later timeout regression | Field-ready=false; latency, term fidelity and stability blocked |
 | OPUS CPU ASR+MT | [#119](https://github.com/JDeun/LangTextFlow/pull/119) | VERIFIED-ARTIFACT: small arm measured, tc-big failed after decoder change | BLOCKED: draft/unmerged; model workflow failed; native-vs-CT2 target decoding differential needed |
 | Six-direction MT | [#139](https://github.com/JDeun/LangTextFlow/issues/139), #134, #135, #168 | VERIFIED-CODE: M2M100 CT2 provider runtime path exists | PLANNED/OPEN: six-direction glossary ON/OFF E2E and production quality |
-| Glossary and sermon terms | #124, #125, #129, #138, #140, #181, #182 | Merged glossary features and church seeds; source-language constraints researched | Compare actual operator UI, ASR hotwords, translation enforcement and six-direction quality |
+| Glossary and sermon terms | #123–#140, #181, #182 | Issue-state verified: #124/#125/#129/#132–#136/#138/#140 closed; #123/#126–#128/#130/#137/#139 open; #131 closed as a bug report and #132 fix closed | Do not equate observational terminology diagnostics or six-direction test scaffolding with qualified ON/OFF ASR+MT; reconcile parent acceptance separately |
 | Runtime modularization | #154–#174, #199–#201 | Issue-state verified: architecture epic #154 and child #155–#158, #160–#161 **OPEN**, #159 **CLOSED**; implementation tasks #162–#167, #169–#171, #174 **CLOSED**; #164 docs ADR task closed, but design document remains proposed | Audit merged implementation against still-open acceptance criteria; closed implementation subtasks do not close their parent epic |
 | Hardware / acceptance | [#224](https://github.com/JDeun/LangTextFlow/issues/224), #106, #107 | Hosted Linux CPU experiment evidence | Physical 4GB/8GB and 30/60/90-min real audio acceptance absent |
 | Product ASR competitor research | #209–#222 | ISSUE-STATE VERIFIED: #215 research documentation **CLOSED**; parent #209, performance/UX #210–#214 and source investigations #216–#222 **OPEN** | Public product behavior and README claims are not verified source-code paths or benchmarks; audit source commit and compare to local implementation |
@@ -81,6 +81,30 @@ Individually fetched 14 issue records and checked issue title, state, and stated
 | #222 AuraScribe | OPEN | sherpa-onnx engine support, model language/license and CPU metrics audit pending |
 
 **Reuse decision:** do not create separate implementation PRs based solely on the seven README-level research issues. First capture upstream source path + commit, map to LangTextFlow implementation, then define a matched local test. The completed #215 is documentary evidence only, not an optimization result.
+
+## Glossary and missionary translation audit: #123–140 (2026-10-22)
+
+Fetched 18 individual issue records. These are **issue-state and description checks**, not a fresh six-direction model benchmark or full merged-code audit.
+
+| Issue(s) | State | Scope and evidence boundary |
+|---|---|---|
+| [#123](https://github.com/JDeun/LangTextFlow/issues/123) | OPEN | Per-project glossary overlays and session snapshots; #200 fixes capacity consistency but does not by itself close parent acceptance |
+| #124 | CLOSED | KO/EN/JA operator glossary editor and church terminology seed implementation |
+| #125 | CLOSED | Provider-neutral mapping and **observational** adherence diagnostics, not proof of glossary enforcement |
+| [#126](https://github.com/JDeun/LangTextFlow/issues/126) | OPEN | Bidirectional missionary interpretation product acceptance |
+| #127, #128 | OPEN | Native multilingual streaming ASR and all six CT2 MT directions still require qualification |
+| #129 | CLOSED | Six-direction CPU test experiment tracked as completed; inspect run results before accepting model quality |
+| [#130](https://github.com/JDeun/LangTextFlow/issues/130) | OPEN | Source-language metadata and Korean target terms parent acceptance; foundational #134 is closed |
+| #131, #132 | CLOSED | Incorrect source-text-as-translation bug and fix closed; verify UI behavior separately |
+| #133, #134 | CLOSED | Broader Korean church seed and language-scoped glossary foundation |
+| #135 | CLOSED | Six-direction glossary-aware MT test infrastructure; **not** end-to-end ASR+MT ON/OFF certification |
+| #136 | CLOSED | Public Cuckoo/REA research documentation; #137 remains OPEN for first-party UI audit |
+| #137 | OPEN | Evidence-based feature parity and actual UI validation |
+| #138 | CLOSED | Model licensing/language/glossary qualification gates documented or implemented in task scope |
+| [#139](https://github.com/JDeun/LangTextFlow/issues/139) | OPEN | **P0** full ASR+MT glossary ON/OFF effect across all six directions |
+| #140 | CLOSED | Native Fun-ASR MLT glossary hotword comparison task; do not extrapolate from a single model to all ASR providers |
+
+**Direction matrix:** KO→EN, KO→JA, EN→KO, EN→JA, JA→KO, JA→EN. The EN/JA→KO missionary sermon use case is a first-class P0 requirement. Record quality, latency, terminology ON/OFF, and model/license evidence **per direction**; one successful direction does not qualify the other five.
 
 ## Reuse gate before opening a model or pipeline experiment
 
