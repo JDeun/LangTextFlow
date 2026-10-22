@@ -114,6 +114,14 @@ Downloaded and parsed original JSON files from runs [38315153468](https://github
 - **Comparability:** OPUS-small 16 synthetic text fixtures and TranslateGemma 20 synthetic cases are **not the same evaluation set**; raw chrF++/term percentages are not head-to-head rankings. Both sets require bilingual domain review.
 - **Decision:** OPUS-small offers measured much lower inference latency in this specific runner, but it has not been product-integrated, merged, or validated for six directions. #119 must retain its draft/experimental gate until exact-head rerun and co-resident field tests.
 
+### PR #119 exact-head rerun (do not confuse CI with model qualification)
+
+At PR #119 head `182689719c3202bb2b90c2f861db4a4dad813a65`, general **CI, CodeQL and Desktop Packaging passed**, but the **Church CPU ASR plus OPUS translation candidates** workflow [38571001085](https://github.com/JDeun/LangTextFlow/actions/runs/38571001085) **failed**. Both arm artifacts (`church-cpu-opus-opus-small` and `church-cpu-opus-opus-big`) were downloaded and JSON inspected.
+
+- **OPUS-small rerun:** 16/16 valid, chrF++ **40.924**, terminology **87.5%**, p95 **412.4ms**; Qwen3-ASR 0.6B + OPUS-small CER **0.0554**, inference RTF **0.3753**, RSS **3652.6 MB**, translated coverage **3/3**. Same measured baseline as first run, **not a newly improved candidate**.
+- **OPUS tc-big rerun after target-token decoder fix:** still **15/16 valid**, chrF++ **7.075**, terminology **0%**, and output remains semantically invalid. The attempted decoder repair **has not resolved qualification**; inspect `opus-mt-tc-big-ko-en` tokenization/model-conversion and exact invalid sample before attributing all failure to the model.
+- **Gate:** #119 remains **DRAFT / OPEN**, with model workflow failed. Never promote either candidate or merge based solely on green generic CI.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
