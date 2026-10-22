@@ -92,6 +92,7 @@ mdns_publisher = MdnsPublisher(settings)
 audience_latency_aggregate = AudienceLatencyAggregate()
 audience_metric_limiter = AudienceMetricRateLimiter()
 _audience_metric_session_id: str | None = None
+_audience_metric_session_lock = Lock()
 _audience_metrics_collection_enabled = False
 audience_join_limiter = AudienceJoinRateLimiter(
     max_failures=settings.audience_join_max_failures,
@@ -1077,10 +1078,11 @@ async def start_session(request: Request, payload: StartSessionRequest) -> Sessi
         await _close_audio_socket_for_transition("caption session restarting")
         try:
             state = await runtime.start(_with_saved_glossary(payload))
-            audience_latency_aggregate.reset()
-            audience_metric_limiter.reset()
-            global _audience_metric_session_id
-            _audience_metric_session_id = None
+            with _audience_metric_session_lock:
+                audience_latency_aggregate.reset()
+                audience_metric_limiter.reset()
+                global _audience_metric_session_id
+                _audience_metric_session_id = None
             return state
         except AsrEngineError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -1138,10 +1140,14 @@ async def submit_audience_render_metric(
     view = _authorize_audience(host, join_code)
     if not view.running:
         raise HTTPException(status_code=409, detail="caption session is not running")
-    if _audience_metric_session_id != view.session_id:
-        audience_latency_aggregate.reset()
-        _audience_metric_session_id = view.session_id
-    audience_latency_aggregate.add(payload.stage, payload.receive_to_display_ms)
+    with _audience_metric_session_lock:
+        current = runtime.audience_view(join_code)
+        if not current.running or current.session_id != view.session_id:
+            raise HTTPException(status_code=409, detail="caption session changed")
+        if _audience_metric_session_id != current.session_id:
+            audience_latency_aggregate.reset()
+            _audience_metric_session_id = current.session_id
+        audience_latency_aggregate.add(payload.stage, payload.receive_to_display_ms)
     return Response(status_code=204)
 
 
