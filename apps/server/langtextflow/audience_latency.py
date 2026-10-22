@@ -30,15 +30,25 @@ class AudienceLatencyAggregate:
     _samples: dict[str, deque[float]] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
-        if isinstance(self.capacity_per_stage, bool) or not isinstance(self.capacity_per_stage, int) or self.capacity_per_stage < 1:
+        if (
+            isinstance(self.capacity_per_stage, bool)
+            or not isinstance(self.capacity_per_stage, int)
+            or self.capacity_per_stage < 1
+        ):
             raise ValueError("capacity_per_stage must be a positive integer")
 
     def add(self, stage: str, receive_to_display_ms: float) -> bool:
         if stage not in ALLOWED_STAGES:
             return False
-        if isinstance(receive_to_display_ms, bool) or not isinstance(receive_to_display_ms, (int, float)):
+        if (
+            isinstance(receive_to_display_ms, bool)
+            or not isinstance(receive_to_display_ms, (int, float))
+        ):
             return False
-        if not math.isfinite(receive_to_display_ms) or not 0 <= receive_to_display_ms <= MAX_LATENCY_MS:
+        if (
+            not math.isfinite(receive_to_display_ms)
+            or not 0 <= receive_to_display_ms <= MAX_LATENCY_MS
+        ):
             return False
         samples = self._samples.setdefault(stage, deque(maxlen=self.capacity_per_stage))
         samples.append(float(receive_to_display_ms))
