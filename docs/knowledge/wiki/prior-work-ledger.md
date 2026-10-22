@@ -122,6 +122,10 @@ At PR #119 head `182689719c3202bb2b90c2f861db4a4dad813a65`, general **CI, CodeQL
 - **OPUS tc-big rerun after target-token decoder fix:** still **15/16 valid**, chrF++ **7.075**, terminology **0%**, and output remains semantically invalid. The attempted decoder repair **has not resolved qualification**; inspect `opus-mt-tc-big-ko-en` tokenization/model-conversion and exact invalid sample before attributing all failure to the model.
 - **Gate:** #119 remains **DRAFT / OPEN**, with model workflow failed. Never promote either candidate or merge based solely on green generic CI.
 
+### OPUS tc-big investigation: actual decoder path (static inspection)
+
+At #119 head `1826897`, `scripts/compare_church_cpu_pipeline.py:68–95` loads a slow Marian tokenizer, passes `convert_ids_to_tokens(tokenizer.encode(text))` to CTranslate2, and decodes returned target tokens using `tokenizer.spm_target.decode_pieces`, explicitly excluding special tokens. Thus the previously suspected **target-piece→source-ID** conversion is **absent from the current branch code**. Despite this, exact-head artifact still shows **15/16** valid and **7.075 chrF++ / 0% terminology**. The old explanation alone is no longer sufficient. Next investigation should inspect exact target output samples and CT2 conversion metadata; compare tokenizer vocab/normalization and decoding against a native Marian inference on the **same** input. Do not patch speculative tokenization changes or label the model intrinsically poor before this controlled check.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
