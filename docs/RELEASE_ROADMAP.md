@@ -50,3 +50,18 @@ This is a git-managed roadmap document. The GitHub connector currently exposes n
 - PR #223: seven open-source dictation project comparison; merged as `9d6eda9`.
 - PR #119 remains open; its model-quality conclusions must not be treated as validated.
 - CI and packaging prove build/test integrity, **not** real sermon CER/WER, six-direction translation quality, 4/8GB memory qualification, or 30/60/90-minute field soak.
+
+## Pre-development readiness checklist (tracking #224)
+| Preparation task | Status | Evidence / remaining action |
+|---|---|---|
+| Repository baseline | Partial | #199–#201 green before merge; main branch post-merge aggregate CI not independently audited here. |
+| Existing PR triage | Partial | #119 remains open; #215/#223 merged. Re-review any newly opened PR before scheduling. |
+| Canonical docs | Partial | README, ARCHITECTURE, MODEL_GUIDE, BENCHMARK and research documents identified; cross-link and stale-claim audit still needed. |
+| Actual GitHub milestones M0–M5 | **Unverified** | #224/#214 expose milestone number 1, but milestone titles and all six milestone records are not confirmed; requires milestone listing/creation permission. |
+| Issue-to-milestone assignments | **Incomplete/unverified** | Planning annotations in issue bodies do not imply actual assignment. Check every open issue after milestone records are confirmed. |
+| Labels and issue conventions | **Unverified** | Label taxonomy is proposed, not confirmed created; audit available labels before bulk assignment. |
+| Duplicate/overlap triage | Partial | #214 vs #100 and #209 research issues explicitly related; no premature closure. |
+| Benchmark protocol | Defined, evidence pending | #214; no reproducible real-speech baseline, operator hardware inventory or audio fixture rights documented as accepted. |
+| Release owners, risk/rollback | Pending | Assign responsible maintainers and establish approval/rollback checklist before v1.0 release. |
+
+**Readiness verdict:** Development preparation is **not complete**. The checklist is an explicit blocker register, not a claim of GitHub configuration or model qualification. Do not mark M0 complete until all preparation rows are verified.
