@@ -87,6 +87,11 @@ export function useCaptionSocket(path = "/ws/captions") {
         if (payload.type === "transcript") {
           const key = `${payload.segment_id}:${payload.version}`;
           pendingPaint.current.set(key, { event: payload, receivedAt: performance.now() });
+          // Prevent unbounded pending metrics if React rendering is suspended.
+          if (pendingPaint.current.size > 256) {
+            const oldest = pendingPaint.current.keys().next().value;
+            if (oldest !== undefined) pendingPaint.current.delete(oldest);
+          }
         }
         setScoped((current) => applyScopedCaption(current, path, payload));
       };
@@ -95,6 +100,7 @@ export function useCaptionSocket(path = "/ws/captions") {
     connect();
     return () => {
       disposed = true;
+      pendingPaint.current.clear();
       if (retryTimer) window.clearTimeout(retryTimer);
       socket?.close();
     };
