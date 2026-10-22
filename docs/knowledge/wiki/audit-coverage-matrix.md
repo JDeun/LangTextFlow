@@ -132,6 +132,25 @@ Read the actual `main` provider source, not just PR file lists:
 
 **Actionable acceptance gap:** #139 must compare actual runtime or an explicitly matched prototype across all six directions with glossary OFF/ON, including EN→KO and JA→KO. The experimental reranker cannot be promoted based solely on lexical match counts; verify semantic quality and overhead. Original workflow artifact numbers were not fetched in this pass.
 
+## Runtime, glossary and reliability issue audit: #175–199 (2026-10-22)
+
+Fetched **all 25 issue records individually**; each currently reports CLOSED. This is issue-state verification, **not** proof that every acceptance condition is met. The records include stacked/overlapping fixes; do not count each as an independent feature.
+
+| Issues | Closed implementation scope | Remaining evidence boundary |
+|---|---|---|
+| #175, #178, #187, #191 | Operator metrics: postprocess drops/failures, WebSocket evictions, persistence failures, bounded latency tracking | Verify metric visibility and representative load behavior |
+| #176 | Heavy automatic model DAG paused during feature stabilization | Closed CI policy task does **not** imply benchmarks have run or passed |
+| #177, #179, #189, #190, #193, #194 | CT2 native cancellation capacity; overloaded/failed/stopped segment finalization; provider preflight; bounded SQLite stop drain | Stress cancellation/restart, deadline, persistent-storage failure on target runner |
+| #180, #186, #196–#199 | ASR capability discovery, timestamp bounding, replay memory and callback fencing | Test real ASR provider behavior, delayed callbacks and long sessions; #197/#198 overlap with consolidated #199 |
+| #181 | Optional EN/JA missionary sermon terminology seed | Default KO glossary remains unchanged; inspect actual seed and UI import behavior |
+| #182, #184, #188 | Per-project glossary and session snapshots; deterministic overlays; stale project fetch fencing | Implementation tasks CLOSED while parent #123 remains OPEN; inspect DB schema and runtime snapshot before parent closure |
+| #183, #192, #195 | Socket session isolation, failed-start safety, typed operator start request | E2E verify cross-session isolation and operator UX |
+| #185 | History summary staleness and explicit language/provider selection | Parent #81 remains OPEN; this fix is not the entire history UI |
+
+**Direct current-main spot check:** `apps/server/langtextflow/runtime.py` contains a 1024-entry bounded persistence queue, a configurable drain timeout and a counter for dropped persistence events, plus active generation tracking. This supports a **VERIFIED-CODE** label for those mechanisms, not long-duration qualification. A quick text search in `glossary_repository.py` and `session_repository.py` did not locate the project overlay/snapshot identifiers; **do not infer absence** because implementations may live in other modules. Locate the exact storage and snapshot code before upgrading #182/#184 evidence to VERIFIED-CODE.
+
+**Priority:** validate #123 project snapshot isolation, #139 glossary ON/OFF, and #155–#158 runtime stress acceptance before claiming P0 feature completion. Issue closure alone is not a substitute for end-to-end evidence.
+
 ## Reuse gate before opening a model or pipeline experiment
 
 1. Search this matrix and the prior-work ledger for model checkpoint, language direction, fixture hash, runner, and issue/PR.
