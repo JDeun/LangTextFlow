@@ -76,3 +76,53 @@ async def test_disabled_metric_request_does_not_reach_downstream() -> None:
     )
     assert result.status_code == 403
     assert not called
+
+
+@pytest.mark.asyncio
+async def test_metric_body_replayed_after_bounded_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(main, "_audience_metrics_collection_enabled", True)
+    body = b'{"stage":"stable"}'
+    sent = False
+
+    async def receive() -> dict[str, object]:
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    request = _request(content_length=str(len(body)))
+    request._receive = receive
+
+    async def downstream(request: Request) -> Response:
+        assert await request.body() == body
+        return Response(status_code=204)
+
+    result = await main.reject_remote_operator_api_before_body_parse(
+        request, downstream
+    )
+    assert result.status_code == 204
+
+
+@pytest.mark.asyncio
+async def test_metric_actual_body_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(main, "_audience_metrics_collection_enabled", True)
+    body = b"x" * 513
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    request = _request(content_length="10")
+    request._receive = receive
+
+    async def downstream(request: Request) -> Response:
+        pytest.fail("oversized body reached downstream")
+
+    result = await main.reject_remote_operator_api_before_body_parse(
+        request, downstream
+    )
+    assert result.status_code == 413
