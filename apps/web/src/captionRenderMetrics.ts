@@ -84,3 +84,24 @@ export class CaptionRenderStats {
     this.samples.clear();
   }
 }
+
+/** One browser-tab collector. Values stay local and contain no transcript text. */
+export const captionRenderStats = new CaptionRenderStats();
+
+export const CAPTION_RENDER_METRIC_EVENT = "langtextflow:caption-render-metric";
+export const CAPTION_RENDER_STATS_EVENT = "langtextflow:caption-render-stats";
+
+export function installCaptionRenderCollector(target: Window): () => void {
+  const collect = (raw: Event) => {
+    if (!(raw instanceof CustomEvent)) return;
+    const observation = raw.detail as CaptionRenderObservation | undefined;
+    if (!observation || typeof observation.stage !== "string" ||
+        typeof observation.receiveToPaintMs !== "number") return;
+    captionRenderStats.add(observation);
+    target.dispatchEvent(new CustomEvent(CAPTION_RENDER_STATS_EVENT, {
+      detail: captionRenderStats.summary(),
+    }));
+  };
+  target.addEventListener(CAPTION_RENDER_METRIC_EVENT, collect);
+  return () => target.removeEventListener(CAPTION_RENDER_METRIC_EVENT, collect);
+}
