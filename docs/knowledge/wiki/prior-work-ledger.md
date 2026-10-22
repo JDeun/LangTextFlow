@@ -8,7 +8,7 @@
 
 | Area | Already documented / attempted | Known outcome or uncertainty | Reuse / next gate |
 |---|---|---|---|
-| Korean real-speech ASR | faster-whisper tiny CPU int8, three licensed FLEURS clips | Issue #93 reports mean CER 3.467 / WER 2.961; this is a **pilot on three clips**, not a general model ranking | Reuse identical licensed fixtures, reference and metrics; investigate #93 and alternatives #111–#115 before repeating |
+| Korean real-speech ASR | faster-whisper tiny CPU int8, three licensed FLEURS clips | Issue #101 reports mean CER 3.467 / WER 2.961; this is a **pilot on three clips**, not a general model ranking | Reuse identical licensed fixtures, reference and metrics; investigate #101 and alternatives #111–#115 before repeating |
 | ASR→MT CPU end-to-end | FLEURS + TranslateGemma on GitHub Actions CPU | Issue #117 reports translated-caption p95 39.11s, pipeline RTF 2.1131 and context JSON leakage; CI success did **not** establish usable quality | Reproduce against pinned workflow/artifact before changing translator; compare #118 and #128 |
 | Six language directions | ko/en/ja bidirectional requirements | Requirement and benchmark plans exist, but six-direction field acceptance is not established | Consult #126, #128 and [translation protocol](../../TRANSLATION_BENCHMARK.md); do not infer support from a single direction |
 | Glossary/hotwords | CRUD, correction, prompt hints and starter terms described | Prompt inclusion is **not** guaranteed term enforcement; source-language scoping and six-direction ON/OFF remain open | Consult #130, #139 and [quality baseline](../../CHURCH_QUALITY_BASELINE.md); evaluate term recall and harmful replacements before adding a second glossary |
@@ -34,6 +34,6 @@ This ledger indexes claims already written in project issues. It does **not** in
 - [Benchmark protocol](../../BENCHMARK.md)
 - [Translation protocol](../../TRANSLATION_BENCHMARK.md)
 - [Research landscape](research-landscape.md)
-- [Issue #93](https://github.com/JDeun/LangTextFlow/issues/93), [#117](https://github.com/JDeun/LangTextFlow/issues/117), [#118](https://github.com/JDeun/LangTextFlow/issues/118), [#128](https://github.com/JDeun/LangTextFlow/issues/128), [#209](https://github.com/JDeun/LangTextFlow/issues/209)
+- [Issue #101](https://github.com/JDeun/LangTextFlow/issues/101), [#117](https://github.com/JDeun/LangTextFlow/issues/117), [#118](https://github.com/JDeun/LangTextFlow/issues/118), [#128](https://github.com/JDeun/LangTextFlow/issues/128), [#209](https://github.com/JDeun/LangTextFlow/issues/209)
 
 Return to the [knowledge index](index.md).
