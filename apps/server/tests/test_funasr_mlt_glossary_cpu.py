@@ -11,6 +11,7 @@ from scripts.benchmark_funasr_mlt_glossary_cpu import (
     SOURCE_TO_FUNASR,
     asr_hotwords,
     decode,
+    evaluate_samples,
     observed_hotwords,
     snapshot_hashes,
 )
@@ -142,3 +143,44 @@ def test_reference_absence_is_a_negative_control_not_a_quality_pass() -> None:
     assert sorted((on - off) - reference_terms) == ["Holy Spirit"]
     # Detect an introduced off-target term, even though no ground-truth
     # glossary occurrence exists with which to measure positive recall.
+
+
+def test_paired_glossary_experiment_alternates_order_and_preserves_arm_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, bool]] = []
+
+    def fake_wav(audio, path):
+        return 1.0, "same-pcm-digest"
+
+    def fake_decode(model, wav, language, *, hotwords):
+        on = bool(hotwords)
+        calls.append((wav.name, on))
+        return ("Holy Spirit" if on else "ordinary words"), (0.2 if on else 0.1)
+
+    monkeypatch.setattr(
+        "scripts.benchmark_funasr_mlt_glossary_cpu.write_pcm_wav", fake_wav
+    )
+    monkeypatch.setattr(
+        "scripts.benchmark_funasr_mlt_glossary_cpu.decode", fake_decode
+    )
+    samples = [
+        {"id": f"clip-{i}", "audio": None, "text": "Holy Spirit"}
+        for i in range(4)
+    ]
+    entries = [{
+        "term": "Holy Spirit", "source_language": "en",
+        "enabled": True, "presets": ["church"],
+    }]
+    result = evaluate_samples(None, samples, "en", entries)
+    assert [on for _, on in calls] == [
+        False, True, True, False, False, True, True, False,
+    ]
+    assert result["off_first_clips"] == result["on_first_clips"] == 2
+    assert result["ab_order_policy"] == "alternating_off_on_by_clip_index"
+    assert all(row["baseline_hypothesis"] == "ordinary words"
+               for row in result["speech_transcripts"])
+    assert all(row["assisted_hypothesis"] == "Holy Spirit"
+               for row in result["speech_transcripts"])
+    assert result["reference_clips_with_glossary_terms"] == 4
+    assert result["glossary_field_qualification"] is False
