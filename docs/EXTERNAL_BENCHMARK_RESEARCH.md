@@ -34,6 +34,20 @@
 
 The [IWSLT 2026 simultaneous track](https://iwslt.org/2026/simultaneous) now emphasizes **unsegmented long-form speech** and an **extra-context** track, but its listed directions are EN→DE/ZH/IT and CS→EN, **not** EN/JA→KO. Its main Docker track uses an H100 80GB GPU, so its measured system latency is not a like-for-like GitHub Actions Linux CPU baseline. Use this as methodology/architecture evidence, not an attainable CPU p95 promise.
 
+## IWSLT 2026 official protocol: important correction and new actionable targets
+
+**Official source:** https://iwslt.org/2026/simultaneous (checked 2026-10-22).
+
+- IWSLT 2026 main simultaneous **low** and **high** regimes are **non-computation-aware LongYAAL 0–2 s and 2–4 s**, respectively, **shared across listed language pairs**. The 2025 EN→JA StreamLAAL 0–3.5/3.5–5 s regimes belong to **2025**, and **must not** be described as current 2026 rules.
+- The 2026 primary ranking latency metric is **LongYAAL**; StreamLAAL is reported for historical comparison. The main translation quality metric is **XCOMET-XL**, with secondary chrF/BLEURT and human evaluation of primary submissions.
+- Official long-form test recordings are **unsegmented, up to 2.5 hours**. This supplies an evidence-based rationale for long-form endurance **test coverage**, not proof that 90 minutes is a sufficient commercial pass duration.
+- Official Docker submission evaluation uses **one H100 80GB GPU**. LangTextFlow's GitHub Actions Linux CPU is not performance-comparable; CPU runs should report both metric protocol compatibility and compute profile.
+- **KO is absent from official 2026 simultaneous language pairs**; JA is not a main 2026 simultaneous target either. The 2026 **offline** and **subtitling** tracks introduce Japanese but cannot be treated as KO/JA→KO simultaneous benchmark scores.
+- **Actionable protocol:** instrument output token/segment timestamps and source audio offsets so a future LongYAAL/StreamLAAL-compatible log can be produced; retain the product's independent microphone→audience p50/p95/p99 latency.
+- **Source:** https://iwslt.org/2026/metrics confirms that automatically segmented speech degrades conventional text-only quality metric reliability and compares quality estimation against human judgments. Therefore prioritize human semantic review and reference-free estimation only as a secondary signal.
+
+**Decision:** do not revise the provisional 3/5/8/12-second *end-to-end* thresholds to 2/4 seconds on the basis of IWSLT 2026. The benchmark metric is a different construct.
+
 ## Target derivation: what can and cannot be justified
 
 - **Evidence-based benchmark reference:** track IWSLT 2025 **EN→JA StreamLAAL ≤3.5s low regime / 3.5–5s high regime** as an external **research comparison**, explicitly *not* a LangTextFlow browser end-to-end SLO. Use other IWSLT directions only for methodological context.
