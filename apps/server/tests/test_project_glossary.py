@@ -202,3 +202,37 @@ def test_full_snapshot_replace_api_requires_operator_and_existing_project(monkey
     ]})
     assert response.status_code == 409
     assert operator.get(url).json()[0]["term"] == "grace"
+
+
+
+def test_project_glossary_capacity_is_consistent_across_add_import_snapshot(stores):
+    projects, global_terms, scoped, first, second = stores
+    snapshot = [GlossaryEntry(term=f"term-{index}") for index in range(500)]
+    original = scoped.replace_snapshot(first, snapshot)
+    assert len(original) == 500
+
+    with pytest.raises(ValueError, match="500"):
+        scoped.create(first, GlossaryEntry(term="term-501"))
+    with pytest.raises(ValueError, match="500"):
+        scoped.import_entries(
+            first,
+            [
+                GlossaryEntry(term="term-0", translations={"en": "edited"}),
+                GlossaryEntry(term="new-extra"),
+            ],
+        )
+    # Reject the entire import transaction, including modifications to rows
+    # that already existed earlier in the same payload.
+    after_rejected_import = scoped.list(first)
+    assert len(after_rejected_import) == 500
+    assert next(x for x in after_rejected_import if x.term == "term-0").translations == {}
+    assert scoped.list(second) == []
+    assert global_terms.list() == []
+
+    old_id = next(x.id for x in original if x.term == "term-499")
+    assert scoped.delete(first, old_id) is True
+    assert scoped.import_entries(
+        first, [GlossaryEntry(term="new-extra")],
+    ) == (1, 0, 0)
+    assert len(scoped.list(first)) == 500
+    assert projects.get(first) is not None
