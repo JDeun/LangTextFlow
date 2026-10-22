@@ -25,6 +25,8 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 
 **제품 북극성 및 개발 원칙:** [Product North Star & Engineering Principles](docs/PRODUCT_NORTH_STAR.md) — 목표, 우선순위, 설계 원칙과 현장 검증 기준을 정의합니다.
 
+**제품 사양 및 검증:** [PRD](docs/PRD.md) · [품질·현장 합격 기준](docs/QUALITY_ACCEPTANCE_PLAN.md) · [모델 선정 정책](docs/MODEL_SELECTION_POLICY.md)
+
 ## 화면
 
 <table>

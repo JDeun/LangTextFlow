@@ -50,6 +50,12 @@ Numeric thresholds belong in a versioned acceptance plan and must be declared **
 
 Identify the North Star outcome, language directions, operator impact, license/privacy/CPU budget, pinned comparison baseline, success/failure criteria, degraded behavior, and existing issues/PRs before starting work.
 
+## Canonical implementation and qualification documents
+
+- [Product Requirements (PRD)](PRD.md)
+- [Quality & Field Acceptance Plan](QUALITY_ACCEPTANCE_PLAN.md)
+- [Model Selection & Engineering Decision Policy](MODEL_SELECTION_POLICY.md)
+
 ## References
 
 - [README](../README.md) — public scope and maturity.
