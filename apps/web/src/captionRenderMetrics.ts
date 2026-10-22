@@ -6,6 +6,8 @@ export interface CaptionRenderObservation {
   version: number;
   stage: TranscriptEvent["stage"];
   receiveToPaintMs: number;
+  // True only for an approximate double-rAF post-paint observation.
+  timingMethod: "double_raf_estimate";
   // Emitted-at is server wall time. Client/server clock skew makes this diagnostic only.
   serverEmitToPaintEstimateMs: number | null;
 }
@@ -22,6 +24,7 @@ export function renderObservation(
     version: event.version,
     stage: event.stage,
     receiveToPaintMs: Math.max(0, paintedAtMonotonicMs - receivedAtMonotonicMs),
+    timingMethod: "double_raf_estimate",
     serverEmitToPaintEstimateMs: Number.isFinite(emittedMs)
       ? paintedAtWallMs - emittedMs : null,
   };
