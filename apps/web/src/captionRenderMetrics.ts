@@ -39,3 +39,48 @@ export function shouldObservePaint(
     item.segment_id === event.segment_id && item.version === event.version
   );
 }
+
+/** Bounded, in-memory statistics; no transcript text or persistent identifiers. */
+export class CaptionRenderStats {
+  private readonly samples = new Map<string, number[]>();
+  constructor(private readonly maxSamplesPerStage = 512) {
+    if (!Number.isInteger(maxSamplesPerStage) || maxSamplesPerStage < 1) {
+      throw new RangeError("maxSamplesPerStage must be a positive integer");
+    }
+  }
+
+  add(observation: CaptionRenderObservation): void {
+    if (!Number.isFinite(observation.receiveToPaintMs) ||
+        observation.receiveToPaintMs < 0) return;
+    const values = this.samples.get(observation.stage) ?? [];
+    values.push(observation.receiveToPaintMs);
+    if (values.length > this.maxSamplesPerStage) values.shift();
+    this.samples.set(observation.stage, values);
+  }
+
+  summary(): Record<string, { count: number; p50Ms: number; p95Ms: number; p99Ms: number }> {
+    const output: Record<string, {
+      count: number; p50Ms: number; p95Ms: number; p99Ms: number
+    }> = {};
+    for (const [stage, samples] of this.samples) {
+      const sorted = [...samples].sort((a, b) => a - b);
+      const quantile = (p: number) => {
+        const index = (sorted.length - 1) * p;
+        const low = Math.floor(index);
+        const high = Math.ceil(index);
+        return sorted[low] + (sorted[high] - sorted[low]) * (index - low);
+      };
+      output[stage] = {
+        count: sorted.length,
+        p50Ms: quantile(0.5),
+        p95Ms: quantile(0.95),
+        p99Ms: quantile(0.99),
+      };
+    }
+    return output;
+  }
+
+  reset(): void {
+    this.samples.clear();
+  }
+}
