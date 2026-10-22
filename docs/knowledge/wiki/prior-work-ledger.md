@@ -64,6 +64,13 @@ PR changed-file lists for #12, #27, #28, #124, #125, #129, #134, #135, #138, #14
 
 **Evidence tier:** verified path exists in `main`, **not** proof that the feature is enabled, correct, benchmark-qualified or usable on target hardware. Next validation must inspect imports/configuration and run exact-head tests and real-model experiments.
 
+## Current runtime wiring (static code inspection)
+
+- **M2M100 is not an orphaned experiment script.** `pipeline.py` explicitly accepts `translation_provider="m2m100-ct2"` (lines 86–102) and constructs `M2M100CT2Translator` (lines 284–299); `translation/capabilities.py` advertises it with a local model preflight, and `config.py` provides local model/tokenizer paths and bounded CPU thread settings. **It remains opt-in and requires provisioned local assets**; no automatic model download or default activation is inferred.
+- **Replay fallback is runtime-wired.** `runtime.py` imports and constructs `ReplayFallbackAsrEngine` (near line 265); `asr/fallback.py` implements the bounded replay/candidate lifecycle. Static wiring does **not** establish real-microphone recovery reliability.
+- **Evaluation is separately runnable.** `scripts/compare_multilingual_m2m100_cpu.py` has a CLI `main()` and independent test fixture/glossary logic; existence is not proof that all six directions passed semantic acceptance.
+- **Model readiness must be checked:** `local_mt_preflight.py` tests configured cache paths, so a provider visible in code can be unavailable on a new installation.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
