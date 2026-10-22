@@ -108,8 +108,9 @@ export function useCaptionSocket(path = "/ws/captions") {
     if (!connection.connected || connection.path !== path) return;
     // rAF executes before paint; the second rAF is a best-effort post-paint
     // observation, NOT an exact compositor/presentation timestamp.
+    let second: number | undefined;
     const first = window.requestAnimationFrame(() => {
-      window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => {
         const now = performance.now();
         const wall = Date.now();
         for (const [key, pending] of pendingPaint.current) {
@@ -124,7 +125,10 @@ export function useCaptionSocket(path = "/ws/captions") {
         }
       });
     });
-    return () => window.cancelAnimationFrame(first);
+    return () => {
+      window.cancelAnimationFrame(first);
+      if (second !== undefined) window.cancelAnimationFrame(second);
+    };
   }, [segments, connection.connected, connection.path, path]);
 
   return {
