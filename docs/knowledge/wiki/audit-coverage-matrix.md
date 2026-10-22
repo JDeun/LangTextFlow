@@ -21,11 +21,29 @@
 | OPUS CPU ASR+MT | [#119](https://github.com/JDeun/LangTextFlow/pull/119) | VERIFIED-ARTIFACT: small arm measured, tc-big failed after decoder change | BLOCKED: draft/unmerged; model workflow failed; native-vs-CT2 target decoding differential needed |
 | Six-direction MT | [#139](https://github.com/JDeun/LangTextFlow/issues/139), #134, #135, #168 | VERIFIED-CODE: M2M100 CT2 provider runtime path exists | PLANNED/OPEN: six-direction glossary ON/OFF E2E and production quality |
 | Glossary and sermon terms | #124, #125, #129, #138, #140, #181, #182 | Merged glossary features and church seeds; source-language constraints researched | Compare actual operator UI, ASR hotwords, translation enforcement and six-direction quality |
-| Runtime modularization | #164, #199, #200–#208 | Some proposed architecture and ASR fallback implementation | Open architecture issues are not completed merely because design docs exist |
+| Runtime modularization | #164, #199, #200, #201 | #200 glossary capacity and #201 stale WebSocket projection fixes **closed**; some architecture remains proposed; ASR fallback implementation exists | Inspect closed fixes in current code and open architecture issues separately; #202–#208 are dependency updates, **not runtime architecture** |
 | Hardware / acceptance | [#224](https://github.com/JDeun/LangTextFlow/issues/224), #106, #107 | Hosted Linux CPU experiment evidence | Physical 4GB/8GB and 30/60/90-min real audio acceptance absent |
 | Product ASR competitor research | #209–#222 | Research/benchmark issue inventory exists | Do not treat competitor features as implemented; inspect individual research conclusions before coding |
-| Post-event archive | #80–#85 | Issue inventory: recording, SQLite linkage, transcript, summary and projects | Inspect implementation and user-facing behavior independently |
+| Post-event archive | #80–#85 | VERIFIED-ISSUE-STATE: #83 initial vertical slice, #85 Event Projects, #84 benchmark fix, #82 test hardening **closed**; #80 grounded summary and #81 completed-event history UI **open** | Closed issue ≠ complete post-event product; inspect merged code and UX for #80/#81 before closing epic |
 | Knowledge reuse wiki | #230–#237 | Wiki scaffolding, ingestion/search/proposals and CPU ledger merged | Coverage completeness and navigation/index validation still pending |
+
+## Issue-state audit pass: #80–85 and #200–208 (2026-10-22)
+
+Individual issue records were fetched (title, state, description); this is **issue-state verification only**, not full PR diff or runtime verification.
+
+| Issue | State | Scope / important qualification |
+|---|---|---|
+| [#80](https://github.com/JDeun/LangTextFlow/issues/80) | OPEN | Grounded post-event summary with provenance; not delivered by closing initial slice |
+| [#81](https://github.com/JDeun/LangTextFlow/issues/81) | OPEN | Complete transcript/recording/summary history UI |
+| #82 | CLOSED | Coverage and failure-path tests; inspect associated PR before claiming every path covered |
+| #83 | CLOSED | Initial recording/archive/summary **vertical slice**, not final acceptance |
+| #84 | CLOSED | Invalid source=target ASR benchmark fix |
+| #85 | CLOSED | Event Projects and session linkage |
+| #200 | CLOSED | Project glossary capacity consistency fix |
+| #201 | CLOSED | WebSocket disconnect/reconnect stale caption projection fix |
+| #202–#208 | OPEN | Seven dependency-update/Dependabot items (Tauri, FastAPI, Actions); do **not** classify as runtime modularization |
+
+**Correction:** Earlier workstream grouping incorrectly placed #202–#208 under runtime modularization and implied #80–85 were uniformly unverified. The above state check separates shipped initial slices, still-open acceptance issues and dependency maintenance.
 
 ## Reuse gate before opening a model or pipeline experiment
 
