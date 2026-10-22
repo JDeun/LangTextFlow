@@ -409,12 +409,12 @@ class ReplayFallbackAsrEngine(AsrEngine):
             raise AsrEngineError("ASR fallback session is not initialized")
         old_engine = self._active
         old_name = self._active_name or "unknown"
+        # Fence the outgoing provider *before* awaiting stop(): stop() may
+        # yield and emit late transcripts that must not reach the audience.
+        self._active_candidate_serial = None
         if old_engine is not None:
             with suppress(Exception):
                 await old_engine.stop()
-        # Old provider callbacks must not publish while a replacement is
-        # starting or failover-replaying under the same session.
-        self._active_candidate_serial = None
 
         replay_frames = tuple(self._audio_frames)
         replay_duration_ms = self._buffer_bytes / 4 / self._sample_rate * 1000.0
