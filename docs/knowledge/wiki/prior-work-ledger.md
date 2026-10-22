@@ -83,6 +83,17 @@ The following **original ZIP artifacts** were retrieved from GitHub Actions and 
 
 All three artifact listings reported `expired=false` at inspection time. These reports are historical snapshots, **not** fresh same-SHA reruns or independent human translation assessment. In particular the FLEURS ASR pilot uses **tiny** while the full E2E run uses **base**; their CER/WER must not be directly compared as a controlled before/after.
 
+## Later evidence discovered in issue comments (2026-10-13–14)
+
+**Do not mistake the original negative baseline for the latest available measurement.** These entries were read from issue comment histories; unlike the three archived ZIPs above, their **newer artifact contents have not yet been independently re-extracted in this audit**.
+
+- [#101](https://github.com/JDeun/LangTextFlow/issues/101), matched FLEURS audio (same IDs and PCM SHA-256), 4-second vs 30-second decode, run [38315153468](https://github.com/JDeun/LangTextFlow/actions/runs/38315153468): tiny CPU INT8 mean CER **3.46697 → 0.21973**, WER **2.96147 → 0.66437**, RTF **0.78937 → 0.04540**. Strong evidence for chunk/context sensitivity; **not** evidence that 30-second live caption startup delay is acceptable.
+- [#117](https://github.com/JDeun/LangTextFlow/issues/117), post-fix runs [38341728611](https://github.com/JDeun/LangTextFlow/actions/runs/38341728611) and [38341593011](https://github.com/JDeun/LangTextFlow/actions/runs/38341593011): context JSON absent in measured public translation, live p95 **10,990.7ms** (down from 39,113ms), processing RTF **1.1801** (down from 2.1131); chrF++ **55.202** (from 42.134) but critical-term accuracy **78.18%** (from 81.82%). Still **field_ready=false**, with semantic errors.
+- [#117](https://github.com/JDeun/LangTextFlow/issues/117), later **regression/failure** in merged-runtime Actions run [38570380566](https://github.com/JDeun/LangTextFlow/actions/runs/38570380566): TranslateGemma 4B CPU target translation **timed out after 20.0s**. This is negative evidence after the above improvement, not a passed sustained-latency result.
+- [#118](https://github.com/JDeun/LangTextFlow/issues/118), same-three-clip ASR candidate measurements cited in comment: Qwen3-ASR 0.6B INT8 CER **0.0554**, RTF **0.2902**, peak RSS **3528 MB**; Qwen3-ASR 1.7B INT8 CER **0.0475**, RTF **0.5524**, peak RSS **4858 MB**; Zipformer Korean INT8 CER **0.1641**, RTF **0.0609**, peak RSS **2255 MB**; whisper.cpp base CER **0.1203**, RTF **0.2230**, peak RSS **2155 MB**. Different latency semantics (offline vs native partial); do not rank solely by CER/RTF or assume co-resident 4GB feasibility.
+
+**Priority follow-up:** download newer #101/#117 run artifacts, compare exact hashes/configurations and extract quality/latency regressions; then check #119 co-resident ASR+MT reports and current CI. #101, #117, #118 and #139 remain open despite historical merged test harnesses.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
