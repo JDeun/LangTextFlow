@@ -23,6 +23,8 @@ LangTextFlow는 **실시간 음성을 자막으로 만들고, AI로 안정화·�
 > [!IMPORTANT]
 > **현재 상태: pre-field alpha / code-complete candidate.** 코드로 닫을 수 있는 핵심 제품 경로와 자동 검증은 구현되어 있으며 Windows/macOS unsigned desktop bundle도 CI에서 생성됩니다. 다만 공개 production release로 간주하려면 실제 code signing/notarization, installer lifecycle, 실제 장비·현장 음원에서의 30/60/90분 acceptance가 남아 있습니다.
 
+**제품 북극성 및 개발 원칙:** [Product North Star & Engineering Principles](docs/PRODUCT_NORTH_STAR.md) — 목표, 우선순위, 설계 원칙과 현장 검증 기준을 정의합니다.
+
 ## 화면
 
 <table>
