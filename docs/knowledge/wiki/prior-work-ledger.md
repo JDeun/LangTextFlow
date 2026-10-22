@@ -83,6 +83,49 @@ The following **original ZIP artifacts** were retrieved from GitHub Actions and 
 
 All three artifact listings reported `expired=false` at inspection time. These reports are historical snapshots, **not** fresh same-SHA reruns or independent human translation assessment. In particular the FLEURS ASR pilot uses **tiny** while the full E2E run uses **base**; their CER/WER must not be directly compared as a controlled before/after.
 
+## Later evidence discovered in issue comments (2026-10-13–14)
+
+**Do not mistake the original negative baseline for the latest available measurement.** These entries were read from issue comment histories; unlike the three archived ZIPs above, their **four newer artifact ZIPs have now been independently downloaded and their JSON reports inspected**.
+
+- [#101](https://github.com/JDeun/LangTextFlow/issues/101), matched FLEURS audio (same IDs and PCM SHA-256), 4-second vs 30-second decode, run [38315153468](https://github.com/JDeun/LangTextFlow/actions/runs/38315153468): tiny CPU INT8 mean CER **3.46697 → 0.21973**, WER **2.96147 → 0.66437**, RTF **0.78937 → 0.04540**. Strong evidence for chunk/context sensitivity; **not** evidence that 30-second live caption startup delay is acceptable.
+- [#117](https://github.com/JDeun/LangTextFlow/issues/117), post-fix runs [38341728611](https://github.com/JDeun/LangTextFlow/actions/runs/38341728611) and [38341593011](https://github.com/JDeun/LangTextFlow/actions/runs/38341593011): context JSON absent in measured public translation, live p95 **10,990.7ms** (down from 39,113ms), processing RTF **1.1801** (down from 2.1131); chrF++ **55.202** (from 42.134) but critical-term accuracy **78.18%** (from 81.82%). Still **field_ready=false**, with semantic errors.
+- [#117](https://github.com/JDeun/LangTextFlow/issues/117), later **regression/failure** in merged-runtime Actions run [38570380566](https://github.com/JDeun/LangTextFlow/actions/runs/38570380566): TranslateGemma 4B CPU target translation **timed out after 20.0s**. This is negative evidence after the above improvement, not a passed sustained-latency result.
+- [#118](https://github.com/JDeun/LangTextFlow/issues/118), same-three-clip ASR candidate measurements cited in comment: Qwen3-ASR 0.6B INT8 CER **0.0554**, RTF **0.2902**, peak RSS **3528 MB**; Qwen3-ASR 1.7B INT8 CER **0.0475**, RTF **0.5524**, peak RSS **4858 MB**; Zipformer Korean INT8 CER **0.1641**, RTF **0.0609**, peak RSS **2255 MB**; whisper.cpp base CER **0.1203**, RTF **0.2230**, peak RSS **2155 MB**. Different latency semantics (offline vs native partial); do not rank solely by CER/RTF or assume co-resident 4GB feasibility.
+
+**Priority follow-up:** download newer #101/#117 run artifacts, compare exact hashes/configurations and extract quality/latency regressions; then check #119 co-resident ASR+MT reports and current CI. #101, #117, #118 and #139 remain open despite historical merged test harnesses.
+
+### Independent verification of four later ZIP artifacts
+
+Downloaded and parsed original JSON files from runs [38315153468](https://github.com/JDeun/LangTextFlow/actions/runs/38315153468), [38341728611](https://github.com/JDeun/LangTextFlow/actions/runs/38341728611), [38341593011](https://github.com/JDeun/LangTextFlow/actions/runs/38341593011), and [38570380566](https://github.com/JDeun/LangTextFlow/actions/runs/38570380566). All artifact listings were non-expired at retrieval.
+
+- **30s tiny ASR:** `summary.json` confirms CER **0.2197333**, WER **0.6643667**, throughput RTF **0.0454** across three clips. Same pinned FLEURS revision and sample PCM hashes as earlier report; 30s decode window vs earlier 4s.
+- **Post-fix TranslateGemma standalone:** `church-translation-quality.json` confirms **55.202 chrF++**, **0.7818** terminology adherence, **8555.1ms** p95, **20** cases, `needs-improvement` and human review required.
+- **Post-fix live CPU:** `live-interpretation-report.json` confirms 4/4 translated committed, **10990.7ms** translated p95, **18980.7ms** first translation, **1.1801** processing RTF, `field_ready=false`.
+- **Later regression live CPU:** `live-interpretation-report.json` confirms `runtime-error` with **20.0s translation timeout**, **3/4** translated committed (coverage **0.75**), **24533.9ms** translated p95, **26854.4ms** first translation, **1.6996** processing RTF, `field_ready=false`. Same combined FLEURS PCM SHA-256 as post-fix live run; model manifest identifies same TranslateGemma 4B Q4_K_M digest `c49d986b0764f5881c476eb21435bb62b7abc62347aab3d4a6071e811be510a1`. Different run conditions remain possible; no root cause assigned.
+
+**Qualification:** Later failure is stronger evidence than a prior single passing run for reliability risk; neither run establishes 90-minute field readiness. These artifacts are now **directly inspected**, not merely issue-comment reports.
+
+### OPUS-MT alternative research (#119): first-run evidence and limitations
+
+[PR #119](https://github.com/JDeun/LangTextFlow/pull/119) is **OPEN, unmerged**, with `scripts/compare_church_cpu_pipeline.py` and `.github/workflows/church-cpu-opus-mt.yml` confined to its branch. Its original run [38420648895](https://github.com/JDeun/LangTextFlow/actions/runs/38420648895) has both original ZIP artifacts downloaded and inspected:
+
+- **OPUS-small (`Helsinki-NLP/opus-mt-ko-en`)**: 16/16 text outputs valid, chrF++ **40.924**, terminology **87.5%**, MT p95 **412.4ms**. Real three-clip co-resident Qwen3-ASR 0.6B + OPUS-small: source CER **0.0554**, WER **0.4068**, translated coverage **3/3**, inference-only RTF **0.3753**, peak process RSS **3652.6 MB**; 8GB/4GB physical readiness **not established**. Zipformer + OPUS-small: source CER **0.1641**, WER **0.9556**, translated coverage **3/3**, inference-only RTF **0.1126**, RSS **2368.5 MB**. Both are offline replay metrics, not live-caption p95.
+- **OPUS tc-big (`opus-mt-tc-big-ko-en`)**: original run **15/16** valid text, chrF++ **7.075**, terminology **0%**, and missing/garbled output. PR #119 explains a **separate target-vocabulary decoder bug** in the experiment harness, later fixed on its branch but **not requalified by this archived run**. Do not infer tc-big model quality from this broken decoder measurement.
+- **Comparability:** OPUS-small 16 synthetic text fixtures and TranslateGemma 20 synthetic cases are **not the same evaluation set**; raw chrF++/term percentages are not head-to-head rankings. Both sets require bilingual domain review.
+- **Decision:** OPUS-small offers measured much lower inference latency in this specific runner, but it has not been product-integrated, merged, or validated for six directions. #119 must retain its draft/experimental gate until exact-head rerun and co-resident field tests.
+
+### PR #119 exact-head rerun (do not confuse CI with model qualification)
+
+At PR #119 head `182689719c3202bb2b90c2f861db4a4dad813a65`, general **CI, CodeQL and Desktop Packaging passed**, but the **Church CPU ASR plus OPUS translation candidates** workflow [38571001085](https://github.com/JDeun/LangTextFlow/actions/runs/38571001085) **failed**. Both arm artifacts (`church-cpu-opus-opus-small` and `church-cpu-opus-opus-big`) were downloaded and JSON inspected.
+
+- **OPUS-small rerun:** 16/16 valid, chrF++ **40.924**, terminology **87.5%**, p95 **412.4ms**; Qwen3-ASR 0.6B + OPUS-small CER **0.0554**, inference RTF **0.3753**, RSS **3652.6 MB**, translated coverage **3/3**. Same measured baseline as first run, **not a newly improved candidate**.
+- **OPUS tc-big rerun after target-token decoder fix:** still **15/16 valid**, chrF++ **7.075**, terminology **0%**, and output remains semantically invalid. The attempted decoder repair **has not resolved qualification**; inspect `opus-mt-tc-big-ko-en` tokenization/model-conversion and exact invalid sample before attributing all failure to the model.
+- **Gate:** #119 remains **DRAFT / OPEN**, with model workflow failed. Never promote either candidate or merge based solely on green generic CI.
+
+### OPUS tc-big investigation: actual decoder path (static inspection)
+
+At #119 head `1826897`, `scripts/compare_church_cpu_pipeline.py:68–95` loads a slow Marian tokenizer, passes `convert_ids_to_tokens(tokenizer.encode(text))` to CTranslate2, and decodes returned target tokens using `tokenizer.spm_target.decode_pieces`, explicitly excluding special tokens. Thus the previously suspected **target-piece→source-ID** conversion is **absent from the current branch code**. Despite this, exact-head artifact still shows **15/16** valid and **7.075 chrF++ / 0% terminology**. The old explanation alone is no longer sufficient. Next investigation should inspect exact target output samples and CT2 conversion metadata; compare tokenizer vocab/normalization and decoding against a native Marian inference on the **same** input. Do not patch speculative tokenization changes or label the model intrinsically poor before this controlled check.
+
 ## Minimum handoff record for a failed or inconclusive experiment
 
 1. **Question and previous attempt:** link the original issue, PR, exact commit and CI run/artifact.
