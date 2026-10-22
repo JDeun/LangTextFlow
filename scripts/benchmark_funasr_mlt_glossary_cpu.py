@@ -142,18 +142,24 @@ def evaluate_samples(
         for index, sample in enumerate(samples):
             wav = Path(tmp) / f"{source_language}-{index}.wav"
             duration, audio_sha = write_pcm_wav(sample["audio"], wav)
-            baseline, off_seconds = decode(
-                model, wav, source_language, hotwords=[]
-            )
-            assisted, on_seconds = decode(
-                model, wav, source_language, hotwords=terms
-            )
+            # Alternate first arm to reduce systematic cache/warmup bias.
+            # This is NOT a substitute for repeated randomized crossover runs.
+            decode_order = ("off", "on") if index % 2 == 0 else ("on", "off")
+            arm_results: dict[str, tuple[str, float]] = {}
+            for arm in decode_order:
+                arm_results[arm] = decode(
+                    model, wav, source_language,
+                    hotwords=[] if arm == "off" else terms,
+                )
+            baseline, off_seconds = arm_results["off"]
+            assisted, on_seconds = arm_results["on"]
             source_text = sample["text"]
             reference_terms = set(observed_hotwords(source_text, terms))
             off_terms = set(observed_hotwords(baseline, terms))
             on_terms = set(observed_hotwords(assisted, terms))
             rows.append({
                 "id": sample["id"], "pcm_sha256": audio_sha,
+                "decode_order": list(decode_order),
                 "audio_seconds": round(duration, 3),
                 "reference_source": source_text,
                 "baseline_hypothesis": baseline,
@@ -180,6 +186,9 @@ def evaluate_samples(
     return {
         "source_language": source_language,
         "clips": len(rows),
+        "ab_order_policy": "alternating_off_on_by_clip_index",
+        "off_first_clips": sum(r["decode_order"][0] == "off" for r in rows),
+        "on_first_clips": sum(r["decode_order"][0] == "on" for r in rows),
         "total_audio_seconds": round(durations, 3),
         "glossary_hotwords_sent": terms,
         "glossary_context_source": "source_language_scoped_operator_export",
