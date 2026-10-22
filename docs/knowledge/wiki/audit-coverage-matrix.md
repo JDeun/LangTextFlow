@@ -151,6 +151,16 @@ Fetched **all 25 issue records individually**; each currently reports CLOSED. Th
 
 **Priority:** validate #123 project snapshot isolation, #139 glossary ON/OFF, and #155–#158 runtime stress acceptance before claiming P0 feature completion. Issue closure alone is not a substitute for end-to-end evidence.
 
+## Project glossary code verification: #123 / #182 / #184 / #188 (2026-10-22)
+
+Follow-up after the #175–199 issue-state audit, using **current main source** and PR changed-file lists:
+
+- `apps/server/langtextflow/project_glossary_repository.py` exists (257 lines). It creates `project_glossary_entries` with `UNIQUE(project_id, source_language, term_key)` and project FK, provides project-scoped list/create/update/delete/import paths. **VERIFIED-CODE** for project isolation schema and repository surface.
+- `apps/server/tests/test_project_glossary.py` (239 lines) includes explicit tests for project isolation from global/other projects, disabled entries, import identity and project deletion. **VERIFIED-CODE** for test definitions, **not** an assertion that tests were executed in this pass.
+- `apps/web/src/GlossaryManager.tsx` (557 lines) implements scope-tagged row projection and invalidates late reads/old-scope refreshes, addressing the #188 stale-fetch class. **VERIFIED-CODE** for frontend guard presence.
+- PR #182 changed the project glossary repository, API, tests and operator editor; #184 also changed the project repository/API/tests; #188 changed the editor, `glossaryScope.ts` and tests. These are overlapping implementation iterations, **not three independent project-glossary subsystems**.
+- Parent #123 is still OPEN. Its acceptance also requires global < preset < project < session precedence, immutable start snapshot, authorization, migration, import/export and rename/revert behavior. **Do not close #123 solely from repository schema or the closed child PRs.** Follow up with exact session-context composition code, executed tests, and user workflows.
+
 ## Reuse gate before opening a model or pipeline experiment
 
 1. Search this matrix and the prior-work ledger for model checkpoint, language direction, fixture hash, runner, and issue/PR.
