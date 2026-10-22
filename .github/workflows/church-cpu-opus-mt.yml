@@ -1,0 +1,185 @@
+name: Church CPU ASR plus OPUS translation candidates
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/church-cpu-opus-mt.yml"
+      - "scripts/compare_church_cpu_pipeline.py"
+      - "apps/server/tests/test_church_cpu_pipeline.py"
+      - "benchmarks/church_translation_quality.v1.jsonl"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: church-cpu-opus-mt-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  opus-cpu:
+    name: CT2 INT8 ${{ matrix.mt }} / Qwen and Zipformer
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mt: opus-small
+            hf: Helsinki-NLP/opus-mt-ko-en
+            license: Apache-2.0
+          - mt: opus-big
+            hf: Helsinki-NLP/opus-mt-tc-big-ko-en
+            license: CC-BY-4.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Capture CPU and memory limits
+        run: |
+          mkdir -p artifacts/church-cpu
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "model=${{ matrix.hf }}"
+            echo "license=${{ matrix.license }}"
+            nproc
+            lscpu | grep -E 'Model name:|Architecture:' || true
+            free -h
+            df -h .
+          } | tee artifacts/church-cpu/hardware.txt
+      - name: Install pinned test tools without GPU
+        run: |
+          set -euo pipefail
+          python -m pip install "uv==0.12.13"
+          uv sync --locked --extra dev --extra benchmark
+          uv pip install --python .venv/bin/python "torch==2.6.0" \
+            --index-url https://download.pytorch.org/whl/cpu
+          uv pip install "ctranslate2==4.8.2" "transformers==4.57.3" \
+            "huggingface-hub==0.35.3" "sentencepiece==0.2.1" \
+            "sacrebleu==2.5.1" "sherpa-onnx==1.13.8" \
+            "datasets==4.4.1" "soundfile==0.13.1"
+          uv run --no-sync python -m pytest -q \
+            apps/server/tests/test_church_cpu_pipeline.py
+          uv run --no-sync ruff check scripts/compare_church_cpu_pipeline.py \
+            apps/server/tests/test_church_cpu_pipeline.py
+      - name: Resolve the exact model revision for this experiment
+        env:
+          HF_MODEL: ${{ matrix.hf }}
+          HF_HOME: ${{ runner.temp }}/hf-ct2
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ltf-hf
+          uv run --no-sync python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from huggingface_hub import HfApi, snapshot_download
+          model = os.environ["HF_MODEL"]
+          revision = HfApi().model_info(model).sha
+          snapshot_download(model, revision=revision, local_dir="/tmp/ltf-hf")
+          Path("artifacts/church-cpu/model-revision.json").write_text(
+              json.dumps({"model": model, "sha": revision,
+                          "license": "${{ matrix.license }}"}, indent=2)
+              + "\n", encoding="utf-8"
+          )
+          PY
+      - name: Convert pinned-in-run Marian model to CT2 CPU INT8
+        run: |
+          set -euo pipefail
+          uv run --no-sync ct2-transformers-converter \
+            --model /tmp/ltf-hf --output_dir /tmp/ltf-ct2 \
+            --quantization int8
+          find /tmp/ltf-ct2 -maxdepth 1 -type f -print0 \
+            | sort -z | xargs -0 -r sha256sum \
+            > artifacts/church-cpu/converted-model-sha256.txt
+      - name: Benchmark 16 fixed Korean to English synthetic sentences
+        run: |
+          timeout 1800 uv run --no-sync python -m scripts.compare_church_cpu_pipeline \
+            --model ${{ matrix.mt }} --ct2-dir /tmp/ltf-ct2 \
+            --tokenizer-dir /tmp/ltf-hf --mode text --threads 2 \
+            --output artifacts/church-cpu/text.json
+      - name: Benchmark two ASR engines with real audio and co-resident MT
+        env:
+          HF_HOME: ${{ runner.temp }}/fleurs-hf
+          HF_HUB_DISABLE_TELEMETRY: "1"
+        run: |
+          set -uo pipefail
+          failures=0
+          for asr in qwen3-0.6b zipformer-ko; do
+            echo "::group::Real speech with ${{ matrix.mt }} plus $asr"
+            log="artifacts/church-cpu/$asr.log"
+            model_dir="/tmp/ltf-$asr"
+            if timeout 900 bash scripts/provision_cpu_asr_candidate.sh \
+              "$asr" "$model_dir" > "$log" 2>&1; then
+              cp "$model_dir/model-sha256.txt" \
+                "artifacts/church-cpu/$asr-model-sha256.txt" || true
+              if timeout 600 uv run --no-sync python -m \
+                scripts.compare_church_cpu_pipeline \
+                --model ${{ matrix.mt }} --ct2-dir /tmp/ltf-ct2 \
+                --tokenizer-dir /tmp/ltf-hf --mode real-audio --threads 2 \
+                --asr "$asr" --asr-dir "$model_dir" \
+                --output "artifacts/church-cpu/$asr.json" \
+                >> "$log" 2>&1; then
+                echo "$asr MEASURED" | tee -a artifacts/church-cpu/status.txt
+              else
+                echo "$asr EVALUATION_FAILED" | tee -a artifacts/church-cpu/status.txt
+                failures=$((failures+1))
+              fi
+            else
+              echo "$asr PROVISION_FAILED" | tee -a artifacts/church-cpu/status.txt
+              failures=$((failures+1))
+            fi
+            tail -n 35 "$log" || true
+            rm -rf "$model_dir"
+            echo "::endgroup::"
+          done
+          test "$failures" -eq 0
+      - name: Write evidence summary with explicit caveats
+        if: always()
+        env:
+          MT: ${{ matrix.mt }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          base = Path("artifacts/church-cpu")
+          lines = [
+              "## Korean church CPU model experiment: " + os.environ["MT"],
+              "Synthetic text is unreviewed; 3 FLEURS clips are not sermons.",
+              "A green workflow does not imply field ready or 4GB/8GB supported.",
+              "",
+              "| Test | Output validity | CER | Inference RTF / MT p95 | Peak RSS MB |",
+              "|---|---|---:|---:|---:|",
+          ]
+          for name in ("text", "qwen3-0.6b", "zipformer-ko"):
+              path = base / (name + ".json")
+              if not path.is_file():
+                  lines.append(f"| {name} | NO RESULT | — | — | — |")
+                  continue
+              r = json.loads(path.read_text(encoding="utf-8"))
+              if name == "text":
+                  lines.append(
+                      f"| {name} | {r['valid_outputs']}/{r['cases']} | — | "
+                      f"{r['latency_p95_ms']}ms | {r['peak_co_resident_rss_mb']} |"
+                  )
+              else:
+                  cer = sum(s["source_quality"]["cer"] for s in r["samples"]) / 3
+                  lines.append(
+                      f"| {name} | {r['translated_coverage']}/3 | "
+                      f"{cer:.3f} | {r['inference_workload_rtf']} | "
+                      f"{r['peak_co_resident_rss_mb']} |"
+                  )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as out:
+              out.write("\n".join(lines) + "\n")
+          PY
+      - name: Upload full evidence even if a candidate fails
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: church-cpu-opus-${{ matrix.mt }}
+          path: artifacts/church-cpu/
+          if-no-files-found: warn
+          retention-days: 14
