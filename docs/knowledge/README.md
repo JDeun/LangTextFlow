@@ -24,3 +24,5 @@ Search existing raw and wiki Markdown locally (Unicode keyword matching; not sem
 Structural wiki validation: `uv run python scripts/check_knowledge_wiki.py`.
 
 These commands do not call a hosted LLM or modify approved ADRs. Query only returns matched file paths and excerpts; verify the underlying cited source before making technical decisions.
+
+Create a review-only wiki update plan from a registered source (no edits performed): `uv run python scripts/plan_knowledge_update.py docs/knowledge/raw/<source-record>.md`.
