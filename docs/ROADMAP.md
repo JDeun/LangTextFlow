@@ -15,6 +15,20 @@
 **Current disposition:** the above parent issues are OPEN at this review. Closed child issues and passing general CI must not be represented as these release gates passing. Set quantitative thresholds before qualification runs, pin model/data/runner revisions, and publish negative results.
 
 
+## Original ASR glossary A/B evidence versus North Star gate
+
+The existing [Fun-ASR MLT CPU report](FUNASR_MLT_GLOSSARY_CPU.md) records an actual [Actions run #38479147801](https://github.com/JDeun/LangTextFlow/actions/runs/38479147801), not merely a proposed workflow. Its **three FLEURS clips per source language** had **0/3 reference clips containing glossary terms** in **each** of EN, JA and KO. Therefore it does **not** exercise the P0 church-terminology acceptance gate despite ON/OFF inference completing.
+
+| Source | CER OFF → ON | RTF OFF → ON | Glossary-bearing reference clips |
+|---|---|---|---|
+| EN | 0.0365 → 0.0279 | 0.5794 → 0.5994 | 0/3 |
+| JA | 0.0203 → 0.0203 | 0.5981 → 0.6206 | 0/3 |
+| KO | 0.0554 → 0.0792 | 0.7130 → 0.7335 | 0/3 |
+
+**Interpretation:** this is a reported original-run result in the canonical research document; its artifact ZIP was **not re-downloaded in this documentation pass**. Do not call the EN CER difference a church glossary improvement, and note the Korean sample worsened. The later negative-control `new_off_target_term_count` requires a newer completed run; do not attribute it to the older run.
+
+**Next falsifiable qualification:** assemble consented, human-transcribed glossary-bearing EN/JA/KO church speech, preregister term occurrence and off-target insertion criteria, run matched ASR hotword OFF/ON and MT glossary OFF/ON, and review meaning in all six translation directions. Require actual original run artifacts, timing/RAM and per-direction failures before advancing #139.
+
 ## P0 — Foundation
 
 - [x] Monorepo 구조
