@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getWebSocketUrl } from "./api";
 import { parseCaptionPayload } from "./captionPayload";
 import {
@@ -14,6 +14,7 @@ import {
   visibleScopedCaptions,
 } from "./scopedCaptions";
 import type { TranscriptEvent } from "./types";
+import { renderObservation, shouldObservePaint } from "./captionRenderMetrics";
 
 export function useCaptionSocket(path = "/ws/captions") {
   // Pair transcript data with the source route. On an immediate route change,
@@ -21,6 +22,7 @@ export function useCaptionSocket(path = "/ws/captions") {
   const [scoped, setScoped] = useState(() => createScopedCaptions(path));
   const [connection, setConnection] = useState({ path, connected: false });
   const [terminal, setTerminal] = useState({ path, message: "" });
+  const pendingPaint = useRef(new Map<string, { event: TranscriptEvent; receivedAt: number }>());
 
   useEffect(() => {
     let socket: WebSocket | undefined;
@@ -29,6 +31,7 @@ export function useCaptionSocket(path = "/ws/captions") {
     let retryAttempt = 0;
     const wsUrl = getWebSocketUrl(path);
 
+    pendingPaint.current.clear();
     setScoped(createScopedCaptions(path));
     setConnection({ path, connected: false });
     setTerminal({ path, message: "" });
@@ -56,6 +59,7 @@ export function useCaptionSocket(path = "/ws/captions") {
         // A reconnect is not evidence the old transcript is still current.
         // Clear the route's visible projection until the server sends a fresh
         // authorized snapshot; do not erase captions from a newer route.
+        pendingPaint.current.clear();
         setScoped((current) => clearDisconnectedCaptionScope(current, path));
         if (isTerminalCloseCode(event.code)) {
           // Terminal authorization failures also remove prior captions.
@@ -80,6 +84,15 @@ export function useCaptionSocket(path = "/ws/captions") {
           activeSocket.close(CLIENT_PROTOCOL_ERROR_CODE, "invalid caption payload");
           return;
         }
+        if (payload.type === "transcript") {
+          const key = `${payload.segment_id}:${payload.version}`;
+          pendingPaint.current.set(key, { event: payload, receivedAt: performance.now() });
+          // Prevent unbounded pending metrics if React rendering is suspended.
+          if (pendingPaint.current.size > 256) {
+            const oldest = pendingPaint.current.keys().next().value;
+            if (oldest !== undefined) pendingPaint.current.delete(oldest);
+          }
+        }
         setScoped((current) => applyScopedCaption(current, path, payload));
       };
     };
@@ -87,6 +100,7 @@ export function useCaptionSocket(path = "/ws/captions") {
     connect();
     return () => {
       disposed = true;
+      pendingPaint.current.clear();
       if (retryTimer) window.clearTimeout(retryTimer);
       socket?.close();
     };
@@ -96,6 +110,33 @@ export function useCaptionSocket(path = "/ws/captions") {
     () => visibleScopedCaptions(scoped, path),
     [scoped, path],
   );
+  useEffect(() => {
+    if (!connection.connected || connection.path !== path) return;
+    // rAF executes before paint; the second rAF is a best-effort post-paint
+    // observation, NOT an exact compositor/presentation timestamp.
+    let second: number | undefined;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => {
+        const now = performance.now();
+        const wall = Date.now();
+        for (const [key, pending] of pendingPaint.current) {
+          if (shouldObservePaint(pending.event, segments)) {
+            const observation = renderObservation(pending.event, pending.receivedAt, now, wall);
+            window.dispatchEvent(new CustomEvent("langtextflow:caption-render-metric", {
+              detail: observation,
+            }));
+          }
+          // Drop superseded/filtered versions too: never replay stale samples.
+          pendingPaint.current.delete(key);
+        }
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(first);
+      if (second !== undefined) window.cancelAnimationFrame(second);
+    };
+  }, [segments, connection.connected, connection.path, path]);
+
   return {
     connected: connection.path === path && connection.connected,
     segments,
