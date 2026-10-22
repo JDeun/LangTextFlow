@@ -31,23 +31,23 @@ def register(
     if evidence not in {"external-reported", "reproduced", "hypothesis", "unverified"}:
         raise ValueError("Invalid evidence class")
     values = [title, url, retrieved, revision, rights, evidence, issue]
-    if any(not v.strip() or "\\n" in v or "\\r" in v for v in values):
+    if any(not v.strip() or "\n" in v or "\r" in v for v in values):
         raise ValueError("Fields must be nonempty single-line values")
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:55]
     if not slug:
         raise ValueError("Title must contain an ASCII letter or digit")
-    digest = hashlib.sha256(f"{url}\\n{revision}".encode()).hexdigest()[:12]
+    digest = hashlib.sha256(f"{url}\n{revision}".encode()).hexdigest()[:12]
     target = raw_dir / f"{retrieved}-{slug}-{digest}.md"
     content = (
-        f"# {title}\\n\\n"
-        f"- Source URL: {url}\\n"
-        f"- Retrieved: {retrieved}\\n"
-        f"- Revision/hash: {revision}\\n"
-        f"- License/rights: {rights}\\n"
-        f"- Evidence class: {evidence}\\n"
-        f"- Tracking issue: {issue}\\n\\n"
-        "## Verification gaps\\n\\nNot yet independently verified. "
-        "Link this record from a reviewed wiki synthesis PR.\\n"
+        f"# {title}\n\n"
+        f"- Source URL: {url}\n"
+        f"- Retrieved: {retrieved}\n"
+        f"- Revision/hash: {revision}\n"
+        f"- License/rights: {rights}\n"
+        f"- Evidence class: {evidence}\n"
+        f"- Tracking issue: {issue}\n\n"
+        "## Verification gaps\n\nNot yet independently verified. "
+        "Link this record from a reviewed wiki synthesis PR.\n"
     )
     raw_dir.mkdir(parents=True, exist_ok=True)
     # Exclusive create ensures immutable provenance even under concurrent invocations.
