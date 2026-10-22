@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import "./telemetry.css";
+import { CAPTION_RENDER_STATS_EVENT, captionRenderStats } from "./captionRenderMetrics";
 import { useI18n } from "./i18n";
 import type { RealtimeMetrics, SessionState } from "./types";
 import { UTILITY_COPY } from "./utilityCopy";
@@ -43,6 +44,13 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
   const { locale } = useI18n();
   const copy = UTILITY_COPY[locale].telemetry;
   const [metrics, setMetrics] = useState<RealtimeMetrics | null>(null);
+  const [browserStats, setBrowserStats] = useState(() => captionRenderStats.summary());
+
+  useEffect(() => {
+    const update = () => setBrowserStats(captionRenderStats.summary());
+    window.addEventListener(CAPTION_RENDER_STATS_EVENT, update);
+    return () => window.removeEventListener(CAPTION_RENDER_STATS_EVENT, update);
+  }, []);
   const [persistenceError, setPersistenceError] = useState("");
   const [error, setError] = useState("");
   const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
@@ -138,6 +146,19 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
         </div>
       </div>
 
+      <div className="telemetry-metric" data-testid="browser-caption-render-latency">
+        <span>Browser caption receive → display (this tab only, estimated)</span>
+        {Object.keys(browserStats).length === 0 ? (
+          <small>No local caption observations yet. Audience devices are not measured here.</small>
+        ) : (
+          Object.entries(browserStats).map(([stage, values]) => (
+            <div key={stage}>
+              <strong>{stage}: p95 {milliseconds(values.p95Ms)}</strong>
+              <small>p50 {milliseconds(values.p50Ms)} · p99 {milliseconds(values.p99Ms)} · n={values.count} (last 512)</small>
+            </div>
+          ))
+        )}
+      </div>
       {error && <div className="telemetry-empty">{error}</div>}
       {persistenceError && (
         <div className="error-box" role="alert" data-testid="persistence-error">
