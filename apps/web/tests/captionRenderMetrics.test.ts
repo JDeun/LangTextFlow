@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CaptionRenderStats, renderObservation, shouldObservePaint } from "../src/captionRenderMetrics";
-import type { TranscriptEvent } from "../src/types";
+import { CaptionRenderStats, renderObservation, shouldObservePaint } from "../src/captionRenderMetrics.ts";
+import type { TranscriptEvent } from "../src/types.ts";
 
 const event = {
   type: "transcript", segment_id: "s1", version: 2, stage: "translated",
