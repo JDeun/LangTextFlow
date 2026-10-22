@@ -50,6 +50,8 @@ See [External Benchmark & Commercial Service Evidence](EXTERNAL_BENCHMARK_RESEAR
 
 **Specialist market cross-check:** [commercial service research](EXTERNAL_BENCHMARK_RESEARCH.md#specialist-commercial-services-primary-source-capability-comparison-2026-10-22) includes vendor-reported KUDO **4.1 s mean**, sotonis **within 2 s of first word**, and Mission21 **~1 s after sentence end**. These are **incompatible definitions and unverified vendor claims**, so they do not establish LangTextFlow's p95 3/5/8/12 s thresholds. Cuckoo and KUDO are useful feature-parity comparators for glossary, context, QR, projector and OBS.
 
+**2026 research comparison protocol:** IWSLT 2026 uses non-computation-aware **LongYAAL 0–2 s (low) / 2–4 s (high)**, plus StreamLAAL for comparison and XCOMET-XL for quality; the official Docker runner is H100 GPU, not Linux CPU. These are **not** this product's end-to-end p95/p99 requirements. Record timestamped unsegmented streams to support future metric reproduction. See [protocol review](EXTERNAL_BENCHMARK_RESEARCH.md#iwslt-2026-official-protocol-important-correction-and-new-actionable-targets).
+
 ## 3. Sampling and evaluation
 
 - All six directed language pairs; mandatory EN→KO and JA→KO. Report each separately and **never average away failures**.
