@@ -1,0 +1,26 @@
+name: Benchmark or field qualification
+ description: Propose reproducible ASR/MT, latency or hardware acceptance work
+ title: "benchmark: "
+ labels: ["type:test"]
+ body:
+   - type: textarea
+     id: scope
+     attributes:
+       label: Scope and hypothesis
+       description: Identify language direction, provider, model SHA and target hardware.
+     validations:
+       required: true
+   - type: textarea
+     id: protocol
+     attributes:
+       label: Measurement protocol
+       description: Fixture provenance/consent/hash, cold/warm runs, repetitions, CER/WER, RTF, p50/p95, RSS and 30/60/90-minute soak as applicable.
+     validations:
+       required: true
+   - type: textarea
+     id: gate
+     attributes:
+       label: Acceptance and artifacts
+       description: Define thresholds and result JSON location before running tests. Do not claim field qualification from synthetic smoke tests.
+     validations:
+       required: true
