@@ -13,6 +13,8 @@ from . import __version__
 from .asr import AsrEngineError
 from .asr.capabilities import AsrCapability, asr_capabilities
 from .audience_latency import AudienceLatencyAggregate
+from .audience_latency_payload import AudienceLatencyPayload
+from .audience_metric_rate_limit import AudienceMetricRateLimiter
 from .audience_security import AudienceJoinRateLimiter
 from .church_glossary_seed import church_glossary_for_source
 from .config import get_settings
@@ -88,6 +90,10 @@ runtime_provision_manager = RuntimeProvisionManager(settings)
 vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
 mdns_publisher = MdnsPublisher(settings)
 audience_latency_aggregate = AudienceLatencyAggregate()
+audience_metric_limiter = AudienceMetricRateLimiter()
+_audience_metric_session_id: str | None = None
+_audience_metric_session_lock = Lock()
+_audience_metrics_collection_enabled = False
 audience_join_limiter = AudienceJoinRateLimiter(
     max_failures=settings.audience_join_max_failures,
     window_seconds=settings.audience_join_window_seconds,
@@ -184,7 +190,44 @@ async def reject_remote_operator_api_before_body_parse(request: Request, call_ne
     """
     path = request.url.path
     is_audience_path = path.startswith("/api/v1/audience/")
-    if is_audience_path and request.method not in {"GET", "HEAD", "OPTIONS"}:
+    is_metric_post = (
+        request.method == "POST"
+        and path.startswith("/api/v1/audience/")
+        and path.endswith("/metrics/render")
+    )
+    if is_metric_post:
+        # Fail closed until an operator-controlled opt-in policy is implemented.
+        if not _audience_metrics_collection_enabled:
+            return Response(
+                content='{"detail":"audience metrics collection disabled"}',
+                status_code=403,
+                media_type="application/json",
+            )
+        content_length = request.headers.get("content-length")
+        if content_length is None or not content_length.isdecimal() or int(content_length) > 512:
+            return Response(
+                content='{"detail":"invalid audience metrics content length"}',
+                status_code=413,
+                media_type="application/json",
+            )
+    if is_metric_post:
+        body = bytearray()
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > 512:
+                return Response(
+                    content='{"detail":"audience metrics body too large"}',
+                    status_code=413,
+                    media_type="application/json",
+                )
+            body.extend(chunk)
+        request._body = bytes(body)
+        if len(body) != int(content_length):
+            return Response(
+                content='{"detail":"audience metrics body length mismatch"}',
+                status_code=400,
+                media_type="application/json",
+            )
+    if is_audience_path and request.method not in {"GET", "HEAD", "OPTIONS"} and not is_metric_post:
         return Response(
             content='{"detail":"audience write API is disabled"}',
             status_code=405,
@@ -1035,7 +1078,11 @@ async def start_session(request: Request, payload: StartSessionRequest) -> Sessi
         await _close_audio_socket_for_transition("caption session restarting")
         try:
             state = await runtime.start(_with_saved_glossary(payload))
-            audience_latency_aggregate.reset()
+            with _audience_metric_session_lock:
+                audience_latency_aggregate.reset()
+                audience_metric_limiter.reset()
+                global _audience_metric_session_id
+                _audience_metric_session_id = None
             return state
         except AsrEngineError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -1052,7 +1099,11 @@ async def stop_session(request: Request) -> SessionState:
         await _close_audio_socket_for_transition("caption session stopping")
         try:
             state = await runtime.stop()
-            audience_latency_aggregate.reset()
+            with _audience_metric_session_lock:
+                audience_latency_aggregate.reset()
+                audience_metric_limiter.reset()
+                global _audience_metric_session_id
+                _audience_metric_session_id = None
             return state
         finally:
             _allow_audio_socket_acceptance()
@@ -1071,6 +1122,37 @@ async def audio_config(request: Request) -> AudioStreamInfo:
 async def audience_session(request: Request, join_code: str) -> AudienceSessionView:
     host = request.client.host if request.client else None
     return _authorize_audience(host, join_code)
+
+
+@app.post("/api/v1/audience/{join_code}/metrics/render", status_code=204)
+async def submit_audience_render_metric(
+    request: Request, join_code: str, payload: AudienceLatencyPayload
+) -> Response:
+    """Explicitly opt-in, session-scoped, best-effort aggregate-only telemetry."""
+    global _audience_metric_session_id
+    if request.headers.get("x-audience-metrics-consent") != "true":
+        raise HTTPException(status_code=403, detail="explicit metrics consent required")
+    if request.headers.get("origin"):
+        raise HTTPException(status_code=403, detail="cross-origin telemetry is disabled")
+    if request.headers.get("sec-fetch-site") == "cross-site":
+        raise HTTPException(status_code=403, detail="cross-site telemetry is disabled")
+    if not _audience_metrics_collection_enabled:
+        raise HTTPException(status_code=403, detail="audience metrics collection disabled")
+    host = request.client.host if request.client else None
+    if not audience_metric_limiter.allow(host):
+        raise HTTPException(status_code=429, detail="audience metrics rate limit exceeded")
+    view = _authorize_audience(host, join_code)
+    if not view.running:
+        raise HTTPException(status_code=409, detail="caption session is not running")
+    with _audience_metric_session_lock:
+        current = runtime.audience_view(join_code)
+        if not current.running or current.session_id != view.session_id:
+            raise HTTPException(status_code=409, detail="caption session changed")
+        if _audience_metric_session_id != current.session_id:
+            audience_latency_aggregate.reset()
+            _audience_metric_session_id = current.session_id
+        audience_latency_aggregate.add(payload.stage, payload.receive_to_display_ms)
+    return Response(status_code=204)
 
 
 @app.get("/api/v1/audience/{join_code}/captions", response_model=list[TranscriptEvent])
