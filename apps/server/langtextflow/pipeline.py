@@ -224,6 +224,7 @@ class CaptionPipeline:
                     await asyncio.gather(task, return_exceptions=True)
                 latest = self._worker_progress.get(event.segment_id)
                 if latest is not None and latest.committed:
+                    self._superseding_segments.discard(event.segment_id)
                     self.revised_asr_events_rejected += 1
                     return
                 revised = event.model_copy(
@@ -232,8 +233,12 @@ class CaptionPipeline:
                 try:
                     await self.publish(revised)
                 except ValueError:
+                    self._superseding_segments.discard(event.segment_id)
                     self.revised_asr_events_rejected += 1
                     return
+                except BaseException:
+                    self._superseding_segments.discard(event.segment_id)
+                    raise
                 self._source_revisions[event.segment_id] = revised.source_revision
                 self._superseding_segments.discard(event.segment_id)
                 self._stable_source_text[event.segment_id] = revised.text
@@ -530,9 +535,9 @@ class CaptionPipeline:
                 with suppress(Exception):
                     await self._finalize_failed_segment(event, latest)
             finally:
-                if self._processing_tasks.get(event.segment_id) is not None:
-                    if self._processing_tasks[event.segment_id].done():
-                        self._processing_tasks.pop(event.segment_id, None)
+                processing_task = self._processing_tasks.get(event.segment_id)
+                if processing_task is not None and processing_task.done():
+                    self._processing_tasks.pop(event.segment_id, None)
                 if event.segment_id not in self._superseding_segments and event.source_revision == self._source_revisions.get(
                     event.segment_id, event.source_revision
                 ):
