@@ -59,3 +59,8 @@ Issue #155 records prior implementation in stacked PRs #162/#165/#167 and outsta
 - Audit log reports `filelock==3.32.6` with **CVE-2026-112940, CVE-2026-112913, CVE-2026-112907**, fix version **4.2.1**. `uv.lock` pins `filelock==3.32.6`; it is not a direct `pyproject.toml` dependency.
 - **Security gate remains blocking.** Upgrade via reproducible `uv lock --upgrade-package filelock` with dependency compatibility checked, commit the regenerated `uv.lock`, and re-run `uv run pip-audit` and all CI checks. Do **not** manually alter only the version or skip the audit. Lock regeneration could not be verified from this connector-only editing environment.
 - **PR #275 must not merge while backend security audit fails.** Documentation-only changes did not cause the pinned vulnerable dependency; the failure reveals a baseline blocker.
+
+## Security blocker ownership
+
+- Opened [#276](https://github.com/JDeun/LangTextFlow/issues/276) as M0/P0 security remediation, explicitly requiring regenerated lockfile hashes, locked install, pip-audit and exact-head CI verification. This is a **real unresolved blocker**, not a documentation-only waiver.
+- The CI workflow runs `uv sync --locked --extra dev`, so changing only `pyproject.toml` or editing a `uv.lock` version without wheel hashes would break reproducibility. Do not merge #275 or mark M0 green until the lock is actually regenerated and security audit passes.
