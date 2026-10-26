@@ -51,7 +51,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self._worker_task: asyncio.Task[None] | None = None
         self._ended = False
         self._sequence = 0
-        self._audio_cursor_ms = 0.0
+        self._audio_cursor_samples = 0
         self._failure: str | None = None
 
     @property
@@ -99,7 +99,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self._queue = asyncio.Queue(maxsize=self.queue_chunks)
         self._ended = False
         self._sequence = 0
-        self._audio_cursor_ms = 0.0
+        self._audio_cursor_samples = 0
         self._worker_task = asyncio.create_task(
             self._worker(),
             name="faster-whisper-inference",
@@ -234,8 +234,13 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
 
     async def _process_chunk(self, pcm_f32le: bytes) -> None:
         assert self._request is not None
-        base_ms = self._audio_cursor_ms
-        duration_ms = len(pcm_f32le) / 4 / self._sample_rate * 1000.0
+        # Integer PCM sample clock avoids cumulative float drift during long sessions.
+        chunk_samples = len(pcm_f32le) // 4
+        base_ms = self._audio_cursor_samples * 1000 / self._sample_rate
+        chunk_end_ms = round(
+            (self._audio_cursor_samples + chunk_samples) * 1000 / self._sample_rate
+        )
+        duration_ms = chunk_samples * 1000 / self._sample_rate
         decoded = await asyncio.to_thread(
             self._transcribe_chunk_sync,
             pcm_f32le,
@@ -257,7 +262,6 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                     "faster-whisper returned out-of-bounds segment timestamps"
                 )
             self._sequence += 1
-            chunk_end_ms = int(round(base_ms + duration_ms))
             start_ms = min(
                 chunk_end_ms,
                 int(round(base_ms + max(0.0, segment.start_seconds) * 1000.0)),
@@ -279,4 +283,4 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                     end_ms=end_ms,
                 )
             )
-        self._audio_cursor_ms += duration_ms
+        self._audio_cursor_samples += chunk_samples
