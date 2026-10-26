@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import statistics
-from collections import deque
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from contextlib import suppress
 from datetime import UTC, datetime
 from time import monotonic
