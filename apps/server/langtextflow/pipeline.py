@@ -543,29 +543,34 @@ class CaptionPipeline:
             limiter = self._translation_limiter
 
             async def translate_target(target: str) -> tuple[str, str | None, str | None]:
-                async with limiter:
-                    try:
-                        translated = await asyncio.wait_for(
-                            self.translator.translate(
+                try:
+                    # The deadline includes time waiting for a CPU inference
+                    # slot, not just the provider call. Otherwise queued
+                    # targets can remain pending indefinitely under overload.
+                    async with asyncio.timeout(
+                        self.settings.translation_target_timeout_seconds
+                    ):
+                        async with limiter:
+                            translated = await self.translator.translate(
                                 corrected_text,
                                 source_language=self.request.source_language,
                                 target_language=target,
                                 context=self.request.context,
-                            ),
-                            timeout=self.settings.translation_target_timeout_seconds,
-                        )
-                        if not translated.strip():
-                            raise TranslationError("translation provider returned empty text")
-                        return target, translated.strip(), None
-                    except TimeoutError:
-                        return target, None, (
-                            f"translation timed out after "
-                            f"{self.settings.translation_target_timeout_seconds:.1f}s"
-                        )
-                    except TranslationError as exc:
-                        return target, None, str(exc)
-                    except Exception:
-                        return target, None, "translation provider failed unexpectedly"
+                            )
+                            if not translated.strip():
+                                raise TranslationError(
+                                    "translation provider returned empty text"
+                                )
+                            return target, translated.strip(), None
+                except TimeoutError:
+                    return target, None, (
+                        f"translation timed out after "
+                        f"{self.settings.translation_target_timeout_seconds:.1f}s"
+                    )
+                except TranslationError as exc:
+                    return target, None, str(exc)
+                except Exception:
+                    return target, None, "translation provider failed unexpectedly"
 
             tasks = [
                 asyncio.create_task(
