@@ -158,3 +158,26 @@ async def test_faster_whisper_rejects_decoder_timestamps_beyond_source_audio() -
     assert not published
     await engine.stop()
 
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_uses_integer_pcm_clock_across_many_chunks() -> None:
+    published = []
+
+    async def publish(event) -> None:
+        published.append(event)
+
+    engine = FakeFasterWhisperEngine(publish, chunk_seconds=0.001)
+    await engine.start(StartSessionRequest(engine="faster-whisper"))
+    # 16 samples per chunk: one millisecond at 16 kHz. Repeated chunks
+    # must not accumulate fractional floating-point timeline drift.
+    for _ in range(100):
+        await engine._process_chunk(pcm(0.001))
+    assert engine._audio_cursor_samples == 1600
+    assert published[0].start_ms == 0
+    assert published[-1].end_ms == 100
+    assert all(
+        earlier.end_ms <= later.start_ms
+        for earlier, later in zip(published, published[1:], strict=False)
+    )
+    await engine.stop()
