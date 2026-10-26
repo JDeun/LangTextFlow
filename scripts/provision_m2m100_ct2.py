@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -15,8 +16,8 @@ MODEL_ID = "facebook/m2m100_418M"
 
 def provision(*, model_dir: Path, tokenizer_dir: Path, revision: str) -> None:
     """Stage model/tokenizer and install only after conversion succeeds."""
-    if not revision or revision.lower() in {"main", "master", "latest"}:
-        raise ValueError("Provide an immutable Hugging Face commit revision")
+    if re.fullmatch(r"[0-9a-fA-F]{40}", revision) is None:
+        raise ValueError("Provide an immutable 40-character Hugging Face commit SHA")
     if model_dir.exists() or tokenizer_dir.exists():
         raise FileExistsError("Target cache already exists; refusing to overwrite")
     if model_dir.resolve() == tokenizer_dir.resolve():
