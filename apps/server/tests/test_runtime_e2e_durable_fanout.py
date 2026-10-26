@@ -37,7 +37,7 @@ async def test_runtime_source_to_translated_commit_and_durable_history(tmp_path)
         async def committed() -> bool:
             return any(
                 row.stage is CaptionStage.COMMITTED
-                for row in runtime.store.segments.values()
+                for row in runtime.store.snapshot()
             )
 
         for _ in range(100):
