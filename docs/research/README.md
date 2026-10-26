@@ -7,6 +7,7 @@ This directory stores **evidence and hypotheses**, not an unreviewed wiki or aut
 | Topic | Evidence | Status | Follow-up |
 |---|---|---|---|
 | Open-source dictation architectures (Handy, OpenWhispr, Wisper, FluidVoice, OpenWhisper, Hush, AuraScribe) | [Comparison](OPEN_SOURCE_DICTATION_COMPARISON.md) | README-level analysis; code audit, license review and measurements **pending** | #209, #216–#222 |
+| Whistle 16.9MB CPU ASR (English-focused, ko/ja unsupported) | [Evaluation note](whistle-cpu-asr-evaluation.md) | Third-party claims only; no independent benchmark or adapter | #274 |
 | ASR CPU candidates (SenseVoiceSmall, Qwen3-ASR, Zipformer, whisper.cpp) | [Model guide](../MODEL_GUIDE.md), [benchmark protocol](../BENCHMARK.md) | Candidates; no implied field qualification | #111–#115, #127 |
 | Translation model comparisons and six directions | [Gemma research](../GEMMA_TRANSLATION_RESEARCH.md), [translation protocol](../TRANSLATION_BENCHMARK.md) | Research/experiments; no implied model promotion | #117, #118, #128 |
 | Apple system translation | [Platform research](../APPLE_SYSTEM_TRANSLATION.md) | API/feasibility research; qualification pending | #128 |
