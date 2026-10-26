@@ -134,8 +134,10 @@ class CaptionPipeline:
         self.failed_postprocess_segments = 0
         self.expired_postprocess_segments = 0
         self._seen_stable_sources.clear()
+        self._stable_source_text.clear()
         self._active_stable_sources.clear()
         self.duplicate_asr_events_dropped = 0
+        self.revised_asr_events_rejected = 0
         self._worker_progress.clear()
         self._queue_admitted_at.clear()
         self._queue_lag_ms.clear()
