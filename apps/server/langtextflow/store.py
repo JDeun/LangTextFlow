@@ -29,9 +29,11 @@ class CaptionStore:
                 if event.translations.get(language) != translation:
                     raise ValueError("published translation cannot regress")
             for language, state in current.translation_states.items():
-                if state in {"available", "failed", "timed_out", "unsupported"}:
-                    if event.translation_states.get(language) != state:
-                        raise ValueError("terminal translation state cannot regress")
+                if (
+                    state in {"available", "failed", "timed_out", "unsupported"}
+                    and event.translation_states.get(language) != state
+                ):
+                    raise ValueError("terminal translation state cannot regress")
 
         self._segments[event.segment_id] = event
         self._segments.move_to_end(event.segment_id)
