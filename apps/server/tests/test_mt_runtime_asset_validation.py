@@ -21,7 +21,5 @@ async def test_m2m100_prepare_rejects_partial_tokenizer_without_native_import(tm
     provider = M2M100CT2Translator(
         model_dir=str(model), tokenizer_dir=str(tokenizer),
     )
-    with patch.object(provider, "_prepare_sync") as native_prepare:
-        with pytest.raises(TranslationError, match="missing"):
-            await provider.prepare()
+    with (\n        patch.object(provider, "_prepare_sync") as native_prepare,\n        pytest.raises(TranslationError, match="missing"),\n    ):\n        await provider.prepare()
     native_prepare.assert_not_called()
