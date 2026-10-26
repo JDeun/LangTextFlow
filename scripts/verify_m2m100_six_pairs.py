@@ -52,9 +52,12 @@ def _percentile(values: list[float], fraction: float) -> float:
 
 async def verify(
     model_dir: str, tokenizer_dir: str, cpu_threads: int, *, repetitions: int = 1,
+    warmup_runs: int = 0,
 ) -> dict:
     if repetitions < 1:
         raise ValueError("repetitions must be at least one")
+    if warmup_runs < 0:
+        raise ValueError("warmup runs must not be negative")
     memory_before = _linux_memory_kib()
     provider = M2M100CT2Translator(
         model_dir=model_dir, tokenizer_dir=tokenizer_dir, cpu_threads=cpu_threads,
@@ -71,21 +74,23 @@ async def verify(
                 durations = []
                 outputs = []
                 errors = []
-                for _ in range(repetitions):
+                for index in range(warmup_runs + repetitions):
                     started = perf_counter()
                     try:
                         result = await provider.translate(
                             SAMPLES[source], source_language=source,
                             target_language=target, context=SessionContext(),
                         )
-                        durations.append((perf_counter() - started) * 1000)
-                        outputs.append(result)
+                        if index >= warmup_runs:
+                            durations.append((perf_counter() - started) * 1000)
+                            outputs.append(result)
                     except Exception as exc:
                         errors.append(type(exc).__name__)
                 results.append({
                     "source": source, "target": target,
                     "status": "passed" if not errors else "failed",
-                    "runs": repetitions, "successful_runs": len(durations),
+                    "runs": repetitions, "warmup_runs": warmup_runs,
+                    "successful_runs": len(durations),
                     "errors": errors, "output": outputs[-1] if outputs else None,
                     "p50_ms": round(statistics.median(durations), 1) if durations else None,
                     "p95_ms": round(_percentile(durations, 0.95), 1) if durations else None,
@@ -99,6 +104,7 @@ async def verify(
         "memory_after_prepare": memory_after_prepare,
         "memory_after_inference": memory_after_inference,
         "cpu_threads": cpu_threads, "repetitions": repetitions,
+        "warmup_runs": warmup_runs,
         "results": results,
     }
 
@@ -109,11 +115,12 @@ def main() -> int:
     parser.add_argument("--tokenizer-dir", default="data/model-cache/m2m100-tokenizer")
     parser.add_argument("--cpu-threads", type=int, default=2)
     parser.add_argument("--repetitions", type=int, default=5)
+    parser.add_argument("--warmup-runs", type=int, default=1)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     report = asyncio.run(verify(
         args.model_dir, args.tokenizer_dir, args.cpu_threads,
-        repetitions=args.repetitions,
+        repetitions=args.repetitions, warmup_runs=args.warmup_runs,
     ))
     serialized = json.dumps(report, ensure_ascii=False, indent=2)
     if args.output:

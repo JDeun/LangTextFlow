@@ -114,7 +114,8 @@ class CaptionPipeline:
         if request.translation_provider == "m2m100-ct2":
             supported = {"ko", "en", "ja"}
             if request.source_language not in supported or any(
-                target not in supported for target in request.target_languages
+                target not in supported or target == request.source_language
+                for target in request.target_languages
             ):
                 raise ValueError(
                     "Local M2M100 supports only the six directed ko/en/ja pairs"
