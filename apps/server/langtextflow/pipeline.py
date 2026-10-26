@@ -439,7 +439,10 @@ class CaptionPipeline:
                     await self._finalize_failed_segment(event, latest)
             finally:
                 self._worker_progress.pop(event.segment_id, None)
-                self._active_stable_sources.discard(event.segment_id)
+                if event.source_revision == self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    self._active_stable_sources.discard(event.segment_id)
                 self._queue.task_done()
 
     async def _publish_postprocess(self, event: TranscriptEvent) -> None:
