@@ -61,7 +61,7 @@ class StubAsr(AsrEngine):
     async def emit(self, segment_id: str, text: str) -> None:
         await self.publish(TranscriptEvent(
             segment_id=segment_id, version=1, stage=CaptionStage.STABLE,
-            source_language="ko", text=text, start_ms=1000, end_ms=1500,
+            source_language="ko", text=text, start_ms=1500, end_ms=2000,
         ))
 
 
