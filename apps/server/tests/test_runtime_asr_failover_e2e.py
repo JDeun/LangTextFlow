@@ -101,6 +101,13 @@ async def test_runtime_asr_failover_preserves_translation_and_durable_history(tm
         assert runtime.engine.active_provider == "fallback"
         assert runtime.metrics.asr_failover_count == 1
         assert runtime.providers["fallback"].frames
+        # A delayed callback from the retired provider must not resurrect
+        # captions in the new ASR generation or reach durable history.
+        await runtime.providers["primary"].emit("retired-provider", "오래된 결과")
+        assert not any(
+            event.segment_id.endswith("retired-provider")
+            for event in runtime.store.snapshot()
+        )
         await runtime.providers["fallback"].emit("after-failover", "복음에 관하여")
         for _ in range(100):
             if any(
