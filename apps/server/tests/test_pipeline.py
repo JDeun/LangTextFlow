@@ -1122,3 +1122,49 @@ async def test_failed_source_publish_does_not_poison_stable_dedupe() -> None:
     assert [item.stage for item in published].count(CaptionStage.STABLE) == 1
     assert published[-1].committed is True
     assert pipeline.duplicate_asr_events_dropped == 0
+
+
+@pytest.mark.asyncio
+async def test_active_stable_remains_deduped_after_replay_ledger_eviction() -> None:
+    published: list[TranscriptEvent] = []
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+        if event.stage is CaptionStage.STABLE and event.segment_id == "active":
+            entered.set()
+            await release.wait()
+
+    pipeline = CaptionPipeline(publish, Settings())
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="none",
+    ))
+    event = TranscriptEvent(
+        segment_id="active", version=1, stage=CaptionStage.STABLE,
+        source_language="ko", text="복음", start_ms=0, end_ms=100,
+    )
+    try:
+        first = asyncio.create_task(pipeline.ingest(event))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        # Force the bounded replay ledger to evict the oldest key while the
+        # original source publication remains in flight.
+        for index in range(8192):
+            pipeline._seen_stable_sources[f"history-{index}"] = None
+        pipeline._seen_stable_sources.popitem(last=False)
+        assert "active" not in pipeline._seen_stable_sources
+        await pipeline.ingest(event)
+        assert pipeline.duplicate_asr_events_dropped == 1
+        release.set()
+        await asyncio.wait_for(first, timeout=1)
+    finally:
+        release.set()
+        await pipeline.stop()
+
+    stable_ids = [
+        item.segment_id for item in published
+        if item.stage is CaptionStage.STABLE
+    ]
+    assert stable_ids == ["active"]
+    assert not pipeline._active_stable_sources
