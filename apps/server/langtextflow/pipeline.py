@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
+import statistics
+from collections import OrderedDict, deque
 from contextlib import suppress
 from datetime import UTC, datetime
+from time import monotonic
 
 from .config import Settings
 from .correction import DeterministicCorrector
@@ -66,10 +68,23 @@ class CaptionPipeline:
         # A failed postprocessor must never regress an already translated
         # language, or leave an unfinished language pending forever.
         self._worker_progress: dict[str, TranscriptEvent] = {}
+        self._queue_admitted_at: dict[str, float] = {}
+        self._queue_lag_ms: deque[float] = deque(maxlen=512)
 
     @property
     def queue_depth(self) -> int:
         return self._queue.qsize()
+
+    @property
+    def queue_lag_p95_ms(self) -> float:
+        if not self._queue_lag_ms:
+            return 0.0
+        ordered = sorted(self._queue_lag_ms)
+        return ordered[(95 * (len(ordered) - 1)) // 100]
+
+    @property
+    def queue_lag_p50_ms(self) -> float:
+        return statistics.median(self._queue_lag_ms) if self._queue_lag_ms else 0.0
 
     @property
     def queue_capacity(self) -> int:
@@ -119,6 +134,8 @@ class CaptionPipeline:
         self._active_stable_sources.clear()
         self.duplicate_asr_events_dropped = 0
         self._worker_progress.clear()
+        self._queue_admitted_at.clear()
+        self._queue_lag_ms.clear()
         low_resource = (
             self.settings.resource_profile == "low" or request.resource_profile == "low"
         )
@@ -201,6 +218,7 @@ class CaptionPipeline:
                 return
             try:
                 self._queue.put_nowait(event)
+                self._queue_admitted_at[event.segment_id] = monotonic()
             except asyncio.QueueFull:
                 # Publish a terminal source-only outcome instead of leaving
                 # this segment's translation tracks permanently "pending".
@@ -277,6 +295,7 @@ class CaptionPipeline:
                             )
             finally:
                 if pending is not None:
+                    self._queue_admitted_at.pop(pending.segment_id, None)
                     self._active_stable_sources.discard(pending.segment_id)
                 self._queue.task_done()
         self._worker_progress.clear()
@@ -357,6 +376,9 @@ class CaptionPipeline:
             if event is None:
                 self._queue.task_done()
                 return
+            admitted_at = self._queue_admitted_at.pop(event.segment_id, None)
+            if admitted_at is not None:
+                self._queue_lag_ms.append((monotonic() - admitted_at) * 1000)
             try:
                 await self._process_stable(event)
             except asyncio.CancelledError:

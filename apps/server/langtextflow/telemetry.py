@@ -35,6 +35,8 @@ class RealtimeMetrics(BaseModel):
     persistence_events_failed: int = 0
     postprocess_queue_depth: int = 0
     postprocess_queue_capacity: int = 0
+    postprocess_queue_lag_p50_ms: float = 0.0
+    postprocess_queue_lag_p95_ms: float = 0.0
     websocket_clients: int = 0
     websocket_client_capacity: int = 0
     websocket_clients_rejected: int = 0

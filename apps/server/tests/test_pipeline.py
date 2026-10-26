@@ -1207,3 +1207,16 @@ async def test_inflight_stable_cannot_enqueue_after_generation_revocation() -> N
         await pipeline.stop()
 
     assert [item.stage for item in published] == [CaptionStage.STABLE]
+
+
+def test_queue_lag_metrics_are_bounded_and_resettable() -> None:
+    async def publish(event: TranscriptEvent) -> None:
+        del event
+
+    pipeline = CaptionPipeline(publish, Settings())
+    assert pipeline.queue_lag_p50_ms == 0.0
+    assert pipeline.queue_lag_p95_ms == 0.0
+    pipeline._queue_lag_ms.extend(float(i) for i in range(600))
+    assert len(pipeline._queue_lag_ms) == 512
+    assert pipeline.queue_lag_p50_ms == 343.5
+    assert pipeline.queue_lag_p95_ms == 573.0

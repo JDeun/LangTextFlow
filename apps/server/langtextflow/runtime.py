@@ -320,6 +320,8 @@ class CaptionRuntime:
         )
         self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
         self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
+        self.metrics.postprocess_queue_lag_p50_ms = self.pipeline.queue_lag_p50_ms
+        self.metrics.postprocess_queue_lag_p95_ms = self.pipeline.queue_lag_p95_ms
         self.metrics.websocket_clients = self.hub.client_count
         self.metrics.websocket_client_capacity = self.hub.max_clients
         self.metrics.websocket_clients_rejected = self.hub.clients_rejected
