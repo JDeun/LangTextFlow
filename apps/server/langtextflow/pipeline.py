@@ -74,6 +74,7 @@ class CaptionPipeline:
         self._processing_segments: set[str] = set()
         self._processing_tasks: dict[str, asyncio.Task[None]] = {}
         self._revision_locks: dict[str, asyncio.Lock] = {}
+        self._superseding_segments: set[str] = set()
         self._queue_admitted_at: dict[str, float] = {}
         self._queue_lag_ms: deque[float] = deque(maxlen=512)
 
@@ -147,6 +148,7 @@ class CaptionPipeline:
         self._processing_segments.clear()
         self._processing_tasks.clear()
         self._revision_locks.clear()
+        self._superseding_segments.clear()
         self._queue_admitted_at.clear()
         self._queue_lag_ms.clear()
         low_resource = (
@@ -217,6 +219,7 @@ class CaptionPipeline:
                 # cancels any per-target inference tasks before returning.
                 task = self._processing_tasks.get(event.segment_id)
                 if task is not None and not task.done():
+                    self._superseding_segments.add(event.segment_id)
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
                 latest = self._worker_progress.get(event.segment_id)
@@ -232,6 +235,7 @@ class CaptionPipeline:
                     self.revised_asr_events_rejected += 1
                     return
                 self._source_revisions[event.segment_id] = revised.source_revision
+                self._superseding_segments.discard(event.segment_id)
                 self._stable_source_text[event.segment_id] = revised.text
                 self._seen_stable_sources.move_to_end(event.segment_id)
                 self._worker_progress.pop(event.segment_id, None)
@@ -487,18 +491,14 @@ class CaptionPipeline:
                 except asyncio.CancelledError:
                     # A revision cancels only this segment's inference, not
                     # the shared queue worker that must process its successor.
-                    if event.source_revision != self._source_revisions.get(
-                        event.segment_id, event.source_revision
-                    ):
+                    if event.segment_id in self._superseding_segments:
                         continue
-                    if not processing.cancelled():
-                        raise
-                    continue
+                    raise
             except asyncio.CancelledError:
                 # Stop-drain expired while optional inference was running.
                 # A source caption is already visible; explicitly finalize
                 # pending targets, retaining any successfully emitted ones.
-                if event.source_revision != self._source_revisions.get(
+                if event.segment_id in self._superseding_segments or event.source_revision != self._source_revisions.get(
                     event.segment_id, event.source_revision
                 ):
                     raise
@@ -530,7 +530,10 @@ class CaptionPipeline:
                 with suppress(Exception):
                     await self._finalize_failed_segment(event, latest)
             finally:
-                if event.source_revision == self._source_revisions.get(
+                if self._processing_tasks.get(event.segment_id) is not None:
+                    if self._processing_tasks[event.segment_id].done():
+                        self._processing_tasks.pop(event.segment_id, None)
+                if event.segment_id not in self._superseding_segments and event.source_revision == self._source_revisions.get(
                     event.segment_id, event.source_revision
                 ):
                     self._processing_segments.discard(event.segment_id)
