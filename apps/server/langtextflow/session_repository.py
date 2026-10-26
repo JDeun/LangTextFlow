@@ -271,6 +271,26 @@ class SessionRepository:
                     committed = excluded.committed,
                     emitted_at = excluded.emitted_at
                 WHERE excluded.version > transcript_segments.version
+                    AND transcript_segments.committed = 0
+                    AND (
+                        CASE transcript_segments.stage
+                            WHEN 'partial' THEN 0
+                            WHEN 'stable' THEN 1
+                            WHEN 'corrected' THEN 2
+                            WHEN 'translated' THEN 3
+                            WHEN 'committed' THEN 4
+                            ELSE 99
+                        END
+                    ) <= (
+                        CASE excluded.stage
+                            WHEN 'partial' THEN 0
+                            WHEN 'stable' THEN 1
+                            WHEN 'corrected' THEN 2
+                            WHEN 'translated' THEN 3
+                            WHEN 'committed' THEN 4
+                            ELSE -1
+                        END
+                    )
                 """,
                 (
                     session_id,
