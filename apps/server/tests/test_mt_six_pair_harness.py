@@ -59,7 +59,7 @@ def test_linux_rss_parser_handles_missing_and_valid_proc_status() -> None:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     with patch.object(module.Path, "read_text", return_value=(
-        "Name:\\tpython\\nVmHWM:\\t8192 kB\\nVmRSS:\\t4096 kB\\n"
+        "Name:\tpython\nVmHWM:\t8192 kB\nVmRSS:\t4096 kB\n"
     )):
         assert module._linux_memory_kib() == {
             "rss_kib": 4096, "peak_rss_kib": 8192,
