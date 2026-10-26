@@ -112,3 +112,22 @@ async def test_warmup_inference_excluded_from_measured_runs() -> None:
     assert report["warmup_runs"] == 1
     assert all(row["successful_runs"] == 2 for row in report["results"])
     assert all(row["runs"] == 2 and row["warmup_runs"] == 1 for row in report["results"])
+
+
+@pytest.mark.asyncio
+async def test_warmup_failure_separated_from_measured_failures() -> None:
+    spec = importlib.util.spec_from_file_location("verify_m2m100_six_pairs", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with (
+        patch.object(module.M2M100CT2Translator, "prepare", new_callable=AsyncMock),
+        patch.object(module.M2M100CT2Translator, "translate", new_callable=AsyncMock) as mt,
+        patch.object(module.M2M100CT2Translator, "close", new_callable=AsyncMock),
+    ):
+        mt.side_effect = [RuntimeError("warmup failure"), "valid output"] * 6
+        report = await module.verify("model", "tokenizer", 2, repetitions=1, warmup_runs=1)
+    assert all(row["status"] == "failed" for row in report["results"])
+    assert all(row["successful_runs"] == 1 for row in report["results"])
+    assert all(row["errors"] == [] for row in report["results"])
+    assert all(row["warmup_errors"] == ["RuntimeError"] for row in report["results"])

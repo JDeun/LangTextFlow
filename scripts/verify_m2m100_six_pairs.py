@@ -74,6 +74,7 @@ async def verify(
                 durations = []
                 outputs = []
                 errors = []
+                warmup_errors = []
                 for index in range(warmup_runs + repetitions):
                     started = perf_counter()
                     try:
@@ -85,13 +86,17 @@ async def verify(
                             durations.append((perf_counter() - started) * 1000)
                             outputs.append(result)
                     except Exception as exc:
-                        errors.append(type(exc).__name__)
+                        if index < warmup_runs:
+                            warmup_errors.append(type(exc).__name__)
+                        else:
+                            errors.append(type(exc).__name__)
                 results.append({
                     "source": source, "target": target,
-                    "status": "passed" if not errors else "failed",
+                    "status": "passed" if not errors and not warmup_errors else "failed",
                     "runs": repetitions, "warmup_runs": warmup_runs,
                     "successful_runs": len(durations),
-                    "errors": errors, "output": outputs[-1] if outputs else None,
+                    "errors": errors, "warmup_errors": warmup_errors,
+                    "output": outputs[-1] if outputs else None,
                     "p50_ms": round(statistics.median(durations), 1) if durations else None,
                     "p95_ms": round(_percentile(durations, 0.95), 1) if durations else None,
                 })
