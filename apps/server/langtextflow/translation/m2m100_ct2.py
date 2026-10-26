@@ -13,6 +13,7 @@ from typing import Any
 
 from ..models import SessionContext
 from .base import TranslationError, Translator
+from .glossary_selection import relevant_glossary, _mentioned
 
 SUPPORTED_LANGUAGES = frozenset({"ko", "en", "ja"})
 MODEL_ID = "facebook/m2m100_418M"
@@ -90,7 +91,6 @@ class M2M100CT2Translator(Translator):
         self, text: str, *, source_language: str,
         target_language: str, context: SessionContext,
     ) -> str:
-        del context  # Glossary must be proven on generated candidates before enabling.
         if (source_language not in SUPPORTED_LANGUAGES
                 or target_language not in SUPPORTED_LANGUAGES
                 or source_language == target_language):
@@ -122,7 +122,18 @@ class M2M100CT2Translator(Translator):
             # Shield the native future from asyncio cancellation. A timed-out
             # session stops awaiting but cannot silently release its slot until
             # the underlying native operation actually terminates.
-            return await asyncio.shield(asyncio.wrap_future(job))
+            candidate = await asyncio.shield(asyncio.wrap_future(job))
+            # Do not silently publish a mistranslated operator-defined term.
+            # This is validation, not unsupported forced decoding: fail the
+            # target explicitly while retaining the original source caption.
+            for entry, required in relevant_glossary(
+                context, text, target_language, source_language=source_language,
+            ):
+                if not _mentioned(candidate, required):
+                    raise TranslationError(
+                        f"Local M2M100 glossary term not preserved: {entry.term}"
+                    )
+            return candidate
         except TranslationError:
             raise
         except Exception as exc:
