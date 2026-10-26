@@ -172,7 +172,15 @@ class CaptionPipeline:
             self._seen_stable_sources[event.segment_id] = None
             if len(self._seen_stable_sources) > 8192:
                 self._seen_stable_sources.popitem(last=False)
-        await self.publish(event)
+        try:
+            await self.publish(event)
+        except BaseException:
+            # Admission precedes the await to fence concurrent duplicate STABLE
+            # events. If publication fails, release the reservation so the ASR
+            # provider can retry the same segment instead of losing it forever.
+            if event.stage is CaptionStage.STABLE:
+                self._seen_stable_sources.pop(event.segment_id, None)
+            raise
         if event.stage is CaptionStage.STABLE:
             try:
                 self._queue.put_nowait(event)
