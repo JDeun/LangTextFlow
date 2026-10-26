@@ -496,6 +496,11 @@ class CaptionPipeline:
         except CorrectionError as exc:
             reason = f"{exc}; using deterministic result"
             self.correction_status.error = reason
+        except Exception:
+            # An unexpected optional LLM/provider failure must not discard
+            # the deterministic correction or skip downstream translation.
+            reason = "correction provider failed unexpectedly; using deterministic result"
+            self.correction_status.error = reason
 
         return deterministic, CorrectionProvenance(
             method="fallback",

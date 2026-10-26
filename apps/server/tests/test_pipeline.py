@@ -1220,3 +1220,43 @@ def test_queue_lag_metrics_are_bounded_and_resettable() -> None:
     assert len(pipeline._queue_lag_ms) == 512
     assert pipeline.queue_lag_p50_ms == 343.5
     assert pipeline.queue_lag_p95_ms == 573.0
+
+
+class UnexpectedFailureCorrector(ConstrainedCorrector):
+    provider = "fake"
+    model = "failing-corrector"
+
+    async def correct(self, text: str, *, source_language: str,
+                      context: SessionContext) -> str:
+        del text, source_language, context
+        raise RuntimeError("provider connection reset")
+
+
+@pytest.mark.asyncio
+async def test_unexpected_correction_exception_preserves_deterministic_caption() -> None:
+    published: list[TranscriptEvent] = []
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+
+    pipeline = PipelineWithCorrector(
+        publish, Settings(), UnexpectedFailureCorrector(),
+    )
+    request = StartSessionRequest(
+        engine="demo", correction_provider="ollama",
+        translation_provider="none", target_languages=["en"],
+    )
+    await pipeline.start(request)
+    await pipeline.ingest(TranscriptEvent(
+        segment_id="correction-error", version=1, stage=CaptionStage.STABLE,
+        source_language="ko", text="테스트 문장", start_ms=0, end_ms=500,
+    ))
+    await pipeline._queue.join()
+    assert [event.stage for event in published] == [
+        CaptionStage.STABLE, CaptionStage.CORRECTED, CaptionStage.COMMITTED,
+    ]
+    assert published[1].text == "테스트 문장"
+    assert published[1].correction is not None
+    assert published[1].correction.method == "fallback"
+    assert pipeline.failed_postprocess_segments == 0
+    await pipeline.stop()
