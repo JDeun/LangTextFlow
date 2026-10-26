@@ -55,10 +55,15 @@ class M2M100CT2Translator(Translator):
         self._inference_lock = Lock()
 
     async def prepare(self) -> None:
-        if not all((self.model_dir / name).is_file() for name in ("model.bin", "config.json")) or not all(
+        model_ready = all(
+            (self.model_dir / name).is_file()
+            for name in ("model.bin", "config.json")
+        )
+        tokenizer_ready = all(
             (self.tokenizer_dir / name).is_file()
             for name in ("tokenizer_config.json", "sentencepiece.bpe.model")
-        ):
+        )
+        if not model_ready or not tokenizer_ready:
             raise TranslationError(
                 "Local M2M100 model/tokenizer cache is missing. "
                 "Use the pinned CPU model provisioning process; no cloud fallback."
