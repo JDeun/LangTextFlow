@@ -27,6 +27,17 @@ SAMPLES = {
 }
 
 
+# Diagnostic reference anchors, not a semantic translation quality gate.
+REFERENCES = {
+    ("ko", "en"): "Today we learn about new possibilities together.",
+    ("ko", "ja"): "今日は一緒に新しい可能性について学びます。",
+    ("en", "ko"): "오늘 우리는 함께 새로운 가능성을 배웁니다.",
+    ("en", "ja"): "今日は一緒に新しい可能性について学びます。",
+    ("ja", "ko"): "오늘 우리는 함께 새로운 가능성을 배웁니다.",
+    ("ja", "en"): "Today we learn about new possibilities together.",
+}
+
+
 def _linux_memory_kib() -> dict[str, int] | None:
     """Linux-only process RSS and high-water mark from /proc/self/status."""
     try:
@@ -97,6 +108,10 @@ async def verify(
                     "successful_runs": len(durations),
                     "errors": errors, "warmup_errors": warmup_errors,
                     "output": outputs[-1] if outputs else None,
+                    "reference": REFERENCES[(source, target)],
+                    "exact_match_count": sum(
+                        output == REFERENCES[(source, target)] for output in outputs
+                    ),
                     "p50_ms": round(statistics.median(durations), 1) if durations else None,
                     "p95_ms": round(_percentile(durations, 0.95), 1) if durations else None,
                 })
