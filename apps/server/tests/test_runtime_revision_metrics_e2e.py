@@ -28,7 +28,10 @@ async def test_runtime_counts_rejected_revision_without_rewriting_durable_captio
     try:
         await runtime.pipeline.ingest(stable("은혜", 1))
         for _ in range(100):
-            if any(row.segment_id == "revision-e2e" and row.committed for row in runtime.store.snapshot()):
+            if any(
+                row.segment_id == "revision-e2e" and row.committed
+                for row in runtime.store.snapshot()
+            ):
                 break
             await asyncio.sleep(0.01)
         original = next(row for row in runtime.store.snapshot() if row.segment_id == "revision-e2e")
@@ -39,7 +42,11 @@ async def test_runtime_counts_rejected_revision_without_rewriting_durable_captio
         snapshot = runtime.metrics_snapshot()
         assert snapshot.postprocess_revised_asr_events_rejected == 1
         assert snapshot.postprocess_duplicate_asr_events_dropped == 2
-        assert next(row for row in runtime.store.snapshot() if row.segment_id == "revision-e2e") == original
+        actual = next(
+            row for row in runtime.store.snapshot()
+            if row.segment_id == "revision-e2e"
+        )
+        assert actual == original
     finally:
         await runtime.stop()
 
