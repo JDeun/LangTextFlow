@@ -462,3 +462,28 @@ async def test_failover_fences_outgoing_callbacks_before_stop_yields() -> None:
         assert published == []
     finally:
         await wrapper.stop()
+
+
+@pytest.mark.asyncio
+async def test_replay_fallback_sample_clock_tracks_exact_audio_and_resets() -> None:
+    async def publish(event: TranscriptEvent) -> None:
+        del event
+
+    def factory(callback):
+        return FakeEngine(callback, sample_rate=16000)
+
+    engine = ReplayFallbackAsrEngine(
+        publish, [("primary", factory)], replay_seconds=0.1,
+        health_check_seconds=60.0,
+    )
+    request = StartSessionRequest(engine="auto")
+    await engine.start(request)
+    frame = pcm(17, 0.1)
+    for _ in range(100):
+        await engine.feed_audio(frame)
+    assert engine._audio_cursor_samples == 1700
+    assert engine._buffer_bytes <= 16000 * 4 // 10
+    await engine.stop()
+    await engine.start(request)
+    assert engine._audio_cursor_samples == 0
+    await engine.stop()
