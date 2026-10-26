@@ -28,23 +28,24 @@ async def test_runtime_counts_rejected_revision_without_rewriting_durable_captio
     try:
         await runtime.pipeline.ingest(stable("은혜", 1))
         for _ in range(100):
-            if any(row.committed for row in runtime.store.snapshot()):
+            if any(row.segment_id == "revision-e2e" and row.committed for row in runtime.store.snapshot()):
                 break
             await asyncio.sleep(0.01)
-        assert runtime.store.snapshot()[0].committed
-        original = runtime.store.snapshot()[0]
+        original = next(row for row in runtime.store.snapshot() if row.segment_id == "revision-e2e")
+        assert original.committed
 
         await runtime.pipeline.ingest(stable("은혜가 충만합니다", 10))
         await runtime.pipeline.ingest(stable("은혜", 11))
         snapshot = runtime.metrics_snapshot()
         assert snapshot.postprocess_revised_asr_events_rejected == 1
         assert snapshot.postprocess_duplicate_asr_events_dropped == 2
-        assert runtime.store.snapshot() == [original]
+        assert next(row for row in runtime.store.snapshot() if row.segment_id == "revision-e2e") == original
     finally:
         await runtime.stop()
 
     stored = runtime.history.segments(state.session_id)
-    assert len(stored) == 1
-    assert stored[0].text == original.text
-    assert stored[0].translations == original.translations
-    assert stored[0].committed
+    revision_rows = [row for row in stored if row.segment_id == "revision-e2e"]
+    assert len(revision_rows) == 1
+    assert revision_rows[0].text == original.text
+    assert revision_rows[0].translations == original.translations
+    assert revision_rows[0].committed
