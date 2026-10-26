@@ -49,3 +49,20 @@ async def test_runtime_source_to_translated_commit_and_durable_history(tmp_path)
         await runtime.stop()
     assert runtime.metrics.persistence_events_failed == 0
     assert runtime.metrics.persistence_events_dropped == 0
+    stored = [
+        event for event in runtime.history.segments(state.session_id)
+        if event.segment_id == "runtime-e2e-1"
+    ]
+    assert len(stored) == 1
+    final = stored[0]
+    assert final.stage is CaptionStage.COMMITTED
+    assert final.committed is True
+    assert final.source_language == "ja"
+    assert final.translations == {
+        "ko": "[KO demo] 福音について話します",
+        "en": "[EN demo] 福音について話します",
+    }
+    detail = runtime.history.get_session(state.session_id)
+    assert detail is not None
+    assert detail.ended_at is not None
+    assert detail.interrupted is False
