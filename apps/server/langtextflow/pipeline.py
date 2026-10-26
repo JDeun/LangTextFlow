@@ -549,8 +549,11 @@ class CaptionPipeline:
                 ):
                     self._processing_segments.discard(event.segment_id)
                     self._worker_progress.pop(event.segment_id, None)
-                if event.source_revision == self._source_revisions.get(
-                    event.segment_id, event.source_revision
+                if (
+                    event.segment_id not in self._superseding_segments
+                    and event.source_revision == self._source_revisions.get(
+                        event.segment_id, event.source_revision
+                    )
                 ):
                     self._active_stable_sources.discard(event.segment_id)
                 self._queue.task_done()
