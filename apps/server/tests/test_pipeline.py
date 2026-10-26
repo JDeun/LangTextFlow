@@ -1083,3 +1083,42 @@ async def test_stop_timeout_finalizes_active_and_queued_sources_with_no_pending_
         versions = [item.version for item in events if item.segment_id == record.segment_id]
         assert versions == sorted(versions)
     assert pipeline._worker_progress == {}
+
+
+@pytest.mark.asyncio
+async def test_failed_source_publish_does_not_poison_stable_dedupe() -> None:
+    published: list[TranscriptEvent] = []
+    attempts = 0
+    committed = asyncio.Event()
+
+    async def publish(event: TranscriptEvent) -> None:
+        nonlocal attempts
+        if event.stage is CaptionStage.STABLE:
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("transient publication failure")
+        published.append(event)
+        if event.stage is CaptionStage.COMMITTED:
+            committed.set()
+
+    pipeline = CaptionPipeline(publish, Settings())
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="demo",
+    ))
+    event = TranscriptEvent(
+        segment_id="retry-stable", version=1, stage=CaptionStage.STABLE,
+        source_language="ko", text="복음", start_ms=0, end_ms=100,
+    )
+    try:
+        with pytest.raises(RuntimeError, match="transient publication failure"):
+            await pipeline.ingest(event)
+        await pipeline.ingest(event)
+        await asyncio.wait_for(committed.wait(), timeout=1.0)
+    finally:
+        await pipeline.stop()
+
+    assert attempts == 2
+    assert [item.stage for item in published].count(CaptionStage.STABLE) == 1
+    assert published[-1].committed is True
+    assert pipeline.duplicate_asr_events_dropped == 0
