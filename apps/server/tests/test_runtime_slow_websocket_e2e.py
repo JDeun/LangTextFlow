@@ -41,6 +41,11 @@ async def test_slow_websocket_client_does_not_block_caption_commit_or_sqlite(tmp
             ):
                 break
             await asyncio.sleep(0.01)
+        for _ in range(100):
+            if runtime.hub.clients_evicted_send_failure:
+                break
+            await asyncio.sleep(0.01)
+        assert runtime.hub.clients_evicted_send_failure > 0
         assert any(
             event.segment_id == "slow-client-segment"
             and event.stage is CaptionStage.COMMITTED
