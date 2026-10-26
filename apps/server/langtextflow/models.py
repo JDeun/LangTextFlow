@@ -288,6 +288,7 @@ class TranscriptEvent(BaseModel):
     type: str = Field(default="transcript", max_length=32)
     segment_id: str = Field(min_length=1, max_length=128)
     version: int = Field(ge=1)
+    source_revision: int = Field(default=1, ge=1)
     stage: CaptionStage
     source_language: str = Field(min_length=2, max_length=16)
     text: str = Field(max_length=MAX_TRANSCRIPT_TEXT_CHARS)
