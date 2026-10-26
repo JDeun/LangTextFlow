@@ -29,3 +29,25 @@ async def test_real_model_harness_covers_six_directed_pairs() -> None:
         ("en", "ja"), ("ja", "ko"), ("ja", "en"),
     }
     assert all(row["status"] == "passed" for row in report["results"])
+    assert all(row["successful_runs"] == 1 for row in report["results"])
+    assert all(row["p50_ms"] is not None for row in report["results"])
+
+
+@pytest.mark.asyncio
+async def test_benchmark_repetitions_and_failed_run_are_reported() -> None:
+    spec = importlib.util.spec_from_file_location("verify_m2m100_six_pairs", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with (
+        patch.object(module.M2M100CT2Translator, "prepare", new_callable=AsyncMock),
+        patch.object(module.M2M100CT2Translator, "translate", new_callable=AsyncMock) as mt,
+        patch.object(module.M2M100CT2Translator, "close", new_callable=AsyncMock),
+    ):
+        mt.side_effect = ["caption", RuntimeError("test failure")] * 6
+        report = await module.verify("model", "tokenizer", 2, repetitions=2)
+    assert len(report["results"]) == 6
+    assert all(row["status"] == "failed" for row in report["results"])
+    assert all(row["successful_runs"] == 1 for row in report["results"])
+    assert all(row["errors"] == ["RuntimeError"] for row in report["results"])
+    assert all(row["p95_ms"] is not None for row in report["results"])
