@@ -71,6 +71,7 @@ class CaptionPipeline:
         # language, or leave an unfinished language pending forever.
         self._worker_progress: dict[str, TranscriptEvent] = {}
         self._source_revisions: dict[str, int] = {}
+        self._processing_segments: set[str] = set()
         self._queue_admitted_at: dict[str, float] = {}
         self._queue_lag_ms: deque[float] = deque(maxlen=512)
 
@@ -141,6 +142,7 @@ class CaptionPipeline:
         self.revised_asr_events_rejected = 0
         self._worker_progress.clear()
         self._source_revisions.clear()
+        self._processing_segments.clear()
         self._queue_admitted_at.clear()
         self._queue_lag_ms.clear()
         low_resource = (
@@ -189,6 +191,50 @@ class CaptionPipeline:
     async def ingest(
         self, event: TranscriptEvent, *, is_current=None,
     ) -> None:
+        # Accept a sequential explicit revision while the original STABLE is
+        # still queued. Once correction/translation has started, its published
+        # version and commit boundary require active-worker cancellation; do
+        # not claim support for that case until cancellation is implemented.
+        previous_revision = self._source_revisions.get(event.segment_id)
+        queued_revision = (
+            event.stage is CaptionStage.STABLE
+            and previous_revision is not None
+            and event.source_revision == previous_revision + 1
+            and event.segment_id not in self._processing_segments
+            and event.segment_id in self._active_stable_sources
+            and event.text != self._stable_source_text.get(event.segment_id)
+        )
+        if queued_revision:
+            if is_current is not None and not is_current():
+                return
+            # Publish first: CaptionStore enforces sequential epochs, clean
+            # target state, monotonic versions and immutable commits. A
+            # rejected revision must not poison the admission ledger.
+            try:
+                await self.publish(event)
+            except ValueError:
+                self.revised_asr_events_rejected += 1
+                return
+            self._source_revisions[event.segment_id] = event.source_revision
+            self._stable_source_text[event.segment_id] = event.text
+            self._seen_stable_sources.move_to_end(event.segment_id)
+            try:
+                self._queue.put_nowait(event)
+                self._queue_admitted_at[event.segment_id] = monotonic()
+            except asyncio.QueueFull:
+                self.dropped_postprocess_segments += 1
+                terminal = self._next_event(
+                    event, version=event.version + 1,
+                    stage=CaptionStage.COMMITTED, text=event.text,
+                    translation_states={
+                        target: ("failed" if self.translator is not None else "unsupported")
+                        for target in (self.request.target_languages if self.request else [])
+                    },
+                    committed=True,
+                )
+                await self.publish(terminal)
+                self._active_stable_sources.discard(event.segment_id)
+            return
         if (
             event.stage in (CaptionStage.PARTIAL, CaptionStage.STABLE)
             and (
@@ -414,6 +460,7 @@ class CaptionPipeline:
                     event.segment_id, event.source_revision
                 ):
                     continue
+                self._processing_segments.add(event.segment_id)
                 await self._process_stable(event)
             except asyncio.CancelledError:
                 # Stop-drain expired while optional inference was running.
@@ -454,6 +501,7 @@ class CaptionPipeline:
                 if event.source_revision == self._source_revisions.get(
                     event.segment_id, event.source_revision
                 ):
+                    self._processing_segments.discard(event.segment_id)
                     self._worker_progress.pop(event.segment_id, None)
                 if event.source_revision == self._source_revisions.get(
                     event.segment_id, event.source_revision
