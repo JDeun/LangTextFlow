@@ -100,6 +100,7 @@ async def test_runtime_asr_failover_preserves_translation_and_durable_history(tm
         await runtime.feed_audio(frame)
         assert runtime.engine.active_provider == "fallback"
         assert runtime.metrics.asr_failover_count == 1
+        assert runtime.metrics_snapshot().postprocess_revised_asr_events_rejected == 0
         assert runtime.providers["fallback"].frames
         # A delayed callback from the retired provider must not resurrect
         # captions in the new ASR generation or reach durable history.
