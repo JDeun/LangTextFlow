@@ -21,7 +21,10 @@ async def test_slow_websocket_client_does_not_block_caption_commit_or_sqlite(tmp
         )
     )
     socket = AsyncMock()
-    socket.send_json.side_effect = lambda _: asyncio.sleep(10)
+    async def slow_send(_payload: object) -> None:
+        await asyncio.sleep(10)
+
+    socket.send_json.side_effect = slow_send
     runtime.hub.send_timeout_seconds = 0.05
     connected = await runtime.hub.connect(socket)
     assert connected
