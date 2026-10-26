@@ -42,7 +42,7 @@ async def test_sqlite_write_failure_does_not_block_live_caption(tmp_path) -> Non
                 ) and runtime.metrics.persistence_events_failed:
                     break
                 await asyncio.sleep(0.01)
-            assert runtime.store.snapshot()[0].stage is CaptionStage.COMMITTED
+            assert next(\n                event for event in runtime.store.snapshot()\n                if event.segment_id == "disk-failure"\n            ).stage is CaptionStage.COMMITTED
             assert runtime.metrics.persistence_events_failed > 0
             assert runtime.state.persistence_error is not None
     finally:
