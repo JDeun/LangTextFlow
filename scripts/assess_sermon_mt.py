@@ -22,6 +22,12 @@ def assess(
     if max_p95_ms <= 0 or not 0 <= min_terminology_accuracy <= 1:
         raise ValueError("invalid assessment thresholds")
     reviews = reviews or {}
+    expected_directions = {
+        f"{source}->{target}"
+        for source in ("ko", "en", "ja")
+        for target in ("ko", "en", "ja")
+        if source != target
+    }
     groups: dict[str, list[dict]] = defaultdict(list)
     for row in report["records"]:
         groups[f'{row["source_language"]}->{row["target_language"]}'].append(row)
@@ -31,6 +37,12 @@ def assess(
         durations = sorted(float(row["latency_ms"]) for row in successes)
         p95 = durations[max(0, math.ceil(len(durations) * 0.95) - 1)] if durations else None
         reviewed = [reviews[row["id"]] for row in rows if row["id"] in reviews]
+        for review in reviewed:
+            if not isinstance(review, dict) or any(
+                type(review.get(key)) is not bool
+                for key in ("terminology_correct", "meaning_preserved")
+            ):
+                raise ValueError("human reviews require explicit boolean judgments")
         terminology = [review["terminology_correct"] for review in reviewed]
         semantic = [review["meaning_preserved"] for review in reviewed]
         terminology_accuracy = (
@@ -56,7 +68,8 @@ def assess(
         }
     return {
         "directions": directions,
-        "overall_status": "pass" if directions and all(
+        "missing_directions": sorted(expected_directions - set(directions)),
+        "overall_status": "pass" if set(directions) == expected_directions and all(
             item["runtime_status"] == "pass" and item["quality_status"] == "pass"
             for item in directions.values()
         ) else "not_verified",
