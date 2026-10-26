@@ -53,6 +53,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         self._ended = False
         self._sequence = 0
         self._transmitted_audio_bytes = 0
+        self._last_transcript_end_ms = 0
         self._failure: str | None = None
 
     @property
@@ -116,6 +117,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         self._ended = False
         self._sequence = 0
         self._transmitted_audio_bytes = 0
+        self._last_transcript_end_ms = 0
         self._sender_task = asyncio.create_task(self._send_loop(), name="vibevoice-audio-sender")
         self._receiver_task = asyncio.create_task(
             self._receive_loop(), name="vibevoice-transcript-receiver"
@@ -226,8 +228,13 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                 # rather than claiming fictional word-level alignment.
                 nominal_start = round((self._sequence - 1) * self._chunk_seconds * 1000)
                 nominal_end = round(self._sequence * self._chunk_seconds * 1000)
-                start_ms = min(audio_end_ms, nominal_start)
+                # A sidecar may emit several transcripts for the same chunk.
+                # Never assign a later transcript a start before an earlier
+                # emitted transcript's end, even when nominal chunk estimates
+                # overlap. All bounds remain within transmitted audio.
+                start_ms = max(self._last_transcript_end_ms, min(audio_end_ms, nominal_start))
                 end_ms = max(start_ms, min(audio_end_ms, nominal_end))
+                self._last_transcript_end_ms = end_ms
                 await self.publish(
                     TranscriptEvent(
                         segment_id=f"vibe-{self._sequence:08d}",
