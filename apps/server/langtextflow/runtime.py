@@ -373,7 +373,9 @@ class CaptionRuntime:
             # stop/restart invalidates this generation. Do not let that stale
             # callback enqueue postprocessing work in the next session.
             pipeline = self.pipeline
-            await pipeline.ingest(event)
+            await pipeline.ingest(
+                event, is_current=lambda: self._active_generation is generation,
+            )
 
         # All built-in AsrEngine implementations expose a writable publish
         # callback; ReplayFallbackAsrEngine forwards through self.publish.
