@@ -111,7 +111,7 @@ async def test_runtime_asr_failover_preserves_translation_and_durable_history(tm
                 break
             await asyncio.sleep(0.01)
         assert any(
-            event.segment_id == "after-failover"
+            event.segment_id == "auto-01-after-failover"
             and event.stage is CaptionStage.COMMITTED
             for event in runtime.store.snapshot()
         ), [(event.segment_id, event.stage.value) for event in runtime.store.snapshot()]
@@ -119,7 +119,7 @@ async def test_runtime_asr_failover_preserves_translation_and_durable_history(tm
         await runtime.stop()
     stored = [
         event for event in runtime.history.segments(state.session_id)
-        if event.segment_id == "after-failover"
+        if event.segment_id == "auto-01-after-failover"
     ]
     assert len(stored) == 1
     assert stored[0].stage is CaptionStage.COMMITTED
