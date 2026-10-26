@@ -24,6 +24,7 @@ async def test_obsolete_worker_result_is_not_published() -> None:
 
     pipeline = object.__new__(CaptionPipeline)
     pipeline.publish = publish
+    pipeline._superseding_segments = set()
     pipeline._source_revisions = {"same": 2}
     pipeline._worker_progress = {}
 
@@ -39,6 +40,7 @@ async def test_obsolete_worker_result_is_not_published() -> None:
 @pytest.mark.asyncio
 async def test_progress_does_not_regress_when_epoch_changes_during_publish() -> None:
     pipeline = object.__new__(CaptionPipeline)
+    pipeline._superseding_segments = set()
     pipeline._source_revisions = {"same": 1}
     pipeline._worker_progress = {}
 
