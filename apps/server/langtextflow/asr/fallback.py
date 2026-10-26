@@ -166,7 +166,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._pending_events: list[TranscriptEvent] = []
         self._audio_frames: deque[bytes] = deque()
         self._buffer_bytes = 0
-        self._audio_cursor_ms = 0.0
+        self._audio_cursor_samples = 0
         self._last_published_end_ms = 0
         self._recent_text = ""
         self._failure: str | None = None
@@ -235,7 +235,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._pending_events.clear()
         self._audio_frames.clear()
         self._buffer_bytes = 0
-        self._audio_cursor_ms = 0.0
+        self._audio_cursor_samples = 0
         self._last_published_end_ms = 0
         self._recent_text = ""
         self._failover_count = 0
@@ -395,7 +395,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._active_candidate_serial = self._pending_candidate_serial
         self._pending_candidate_serial = None
         self._pending_overflowed = False
-        if index == 0 and self._audio_cursor_ms == 0:
+        if index == 0 and self._audio_cursor_samples == 0:
             self._sample_rate = engine.sample_rate
         self._failure = None
         self._pending_generation = None
@@ -417,8 +417,10 @@ class ReplayFallbackAsrEngine(AsrEngine):
                 await old_engine.stop()
 
         replay_frames = tuple(self._audio_frames)
-        replay_duration_ms = self._buffer_bytes / 4 / self._sample_rate * 1000.0
-        origin_ms = max(0.0, self._audio_cursor_ms - replay_duration_ms)
+        # Rebase from integer PCM samples, not accumulated float milliseconds.
+        replay_samples = self._buffer_bytes // 4
+        origin_samples = max(0, self._audio_cursor_samples - replay_samples)
+        origin_ms = origin_samples * 1000 / self._sample_rate
         generation = self._generation + 1
         failures: list[str] = []
 
@@ -473,7 +475,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
     def _remember_audio(self, pcm_f32le: bytes) -> None:
         # Timeline always accounts for the *full* accepted audio frame, even
         # when only its tail is eligible for replay after a provider failure.
-        self._audio_cursor_ms += len(pcm_f32le) / 4 / self._sample_rate * 1000.0
+        self._audio_cursor_samples += len(pcm_f32le) // 4
         max_bytes = max(4, int(self.replay_seconds * self._sample_rate * 4))
         # PCM f32 sample boundaries must stay aligned when trimming.
         max_bytes = max(4, max_bytes - max_bytes % 4)
