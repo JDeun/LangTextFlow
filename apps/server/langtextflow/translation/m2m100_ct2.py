@@ -13,7 +13,7 @@ from typing import Any
 
 from ..models import SessionContext
 from .base import TranslationError, Translator
-from .glossary_selection import relevant_glossary, _mentioned
+from .glossary_selection import _mentioned, relevant_glossary
 
 SUPPORTED_LANGUAGES = frozenset({"ko", "en", "ja"})
 MODEL_ID = "facebook/m2m100_418M"
