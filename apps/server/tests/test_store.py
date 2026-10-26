@@ -64,3 +64,46 @@ def test_cumulative_language_updates_are_monotonic_and_stale_reply_rejected() ->
     with pytest.raises(ValueError, match="version"):
         store.apply(first)
     assert store.snapshot()[0].translations == second.translations
+
+
+@pytest.mark.parametrize("change", ["missing", "rewritten", "state"])
+def test_rejects_cumulative_translation_regression(change: str) -> None:
+    store = CaptionStore()
+    initial = event(3, CaptionStage.TRANSLATED).model_copy(update={
+        "translations": {"en": "Grace"},
+        "translation_states": {"en": "available", "ja": "pending"},
+    })
+    store.apply(initial)
+    translations = {"en": "Grace"}
+    states = {"en": "available", "ja": "available"}
+    if change == "missing":
+        translations = {}
+    elif change == "rewritten":
+        translations = {"en": "Different"}
+    else:
+        states = {"en": "pending", "ja": "available"}
+    updated = event(4, CaptionStage.TRANSLATED).model_copy(update={
+        "translations": translations,
+        "translation_states": states,
+    })
+    with pytest.raises(ValueError, match="regress"):
+        store.apply(updated)
+    assert store.snapshot()[0] == initial
+
+
+def test_terminal_failure_cannot_be_reopened_by_later_event() -> None:
+    store = CaptionStore()
+    first = event(3, CaptionStage.TRANSLATED).model_copy(update={
+        "translations": {"ja": "恵み"},
+        "translation_states": {"en": "failed", "ja": "available"},
+    })
+    store.apply(first)
+    second = event(4, CaptionStage.COMMITTED, committed=True).model_copy(
+        update={
+            "translations": {"ja": "恵み"},
+            "translation_states": {"en": "available", "ja": "available"},
+        }
+    )
+    with pytest.raises(ValueError, match="terminal translation state"):
+        store.apply(second)
+    assert store.snapshot()[0] == first

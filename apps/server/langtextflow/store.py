@@ -22,6 +22,18 @@ class CaptionStore:
                 raise ValueError("event version must increase monotonically")
             if STAGE_ORDER[event.stage] < STAGE_ORDER[current.stage]:
                 raise ValueError("caption stage cannot move backwards")
+            # Per-language events are cumulative snapshots. A later event
+            # must not erase or silently rewrite an already published target,
+            # even if its segment version increases.
+            for language, translation in current.translations.items():
+                if event.translations.get(language) != translation:
+                    raise ValueError("published translation cannot regress")
+            for language, state in current.translation_states.items():
+                if (
+                    state in {"available", "failed", "timed_out", "unsupported"}
+                    and event.translation_states.get(language) != state
+                ):
+                    raise ValueError("terminal translation state cannot regress")
 
         self._segments[event.segment_id] = event
         self._segments.move_to_end(event.segment_id)
