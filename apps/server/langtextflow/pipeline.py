@@ -296,6 +296,7 @@ class CaptionPipeline:
                             )
             finally:
                 if pending is not None:
+                    self._queue_admitted_at.pop(pending.segment_id, None)
                     self._active_stable_sources.discard(pending.segment_id)
                 self._queue.task_done()
         self._worker_progress.clear()
