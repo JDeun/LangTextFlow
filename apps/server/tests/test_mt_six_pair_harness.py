@@ -112,3 +112,22 @@ async def test_warmup_inference_excluded_from_measured_runs() -> None:
     assert report["warmup_runs"] == 1
     assert all(row["successful_runs"] == 2 for row in report["results"])
     assert all(row["runs"] == 2 and row["warmup_runs"] == 1 for row in report["results"])
+
+
+@pytest.mark.asyncio
+async def test_reference_exact_match_is_diagnostic_not_a_pass_gate() -> None:
+    spec = importlib.util.spec_from_file_location("verify_m2m100_six_pairs", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    with (
+        patch.object(module.M2M100CT2Translator, "prepare", new_callable=AsyncMock),
+        patch.object(module.M2M100CT2Translator, "translate", new_callable=AsyncMock) as mt,
+        patch.object(module.M2M100CT2Translator, "close", new_callable=AsyncMock),
+    ):
+        mt.return_value = "valid paraphrase not exactly matching reference"
+        report = await module.verify("model", "tokenizer", 2)
+    assert len(report["results"]) == 6
+    assert all(row["reference"] for row in report["results"])
+    assert all(row["exact_match_count"] == 0 for row in report["results"])
+    assert all(row["status"] == "passed" for row in report["results"])
