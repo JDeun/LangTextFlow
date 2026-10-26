@@ -58,6 +58,9 @@ class CaptionPipeline:
         # already corrected/translated source. Distinct IDs are never deduped
         # by text, preserving legitimate repeated sentences.
         self._seen_stable_sources: OrderedDict[str, None] = OrderedDict()
+        # The bounded replay ledger may evict old IDs; admitted work must
+        # remain protected from duplicate publication until it is finalized.
+        self._active_stable_sources: set[str] = set()
         self.duplicate_asr_events_dropped = 0
         # Latest successfully published event for each active worker.
         # A failed postprocessor must never regress an already translated
@@ -113,6 +116,7 @@ class CaptionPipeline:
         self.failed_postprocess_segments = 0
         self.expired_postprocess_segments = 0
         self._seen_stable_sources.clear()
+        self._active_stable_sources.clear()
         self.duplicate_asr_events_dropped = 0
         self._worker_progress.clear()
         low_resource = (
@@ -161,7 +165,10 @@ class CaptionPipeline:
     async def ingest(self, event: TranscriptEvent) -> None:
         if (
             event.stage in (CaptionStage.PARTIAL, CaptionStage.STABLE)
-            and event.segment_id in self._seen_stable_sources
+            and (
+                event.segment_id in self._seen_stable_sources
+                or event.segment_id in self._active_stable_sources
+            )
         ):
             self.duplicate_asr_events_dropped += 1
             return
@@ -170,6 +177,7 @@ class CaptionPipeline:
             # awaiting publish. A duplicate arriving during its await cannot
             # launch a second correction/MT worker for the same ID.
             self._seen_stable_sources[event.segment_id] = None
+            self._active_stable_sources.add(event.segment_id)
             if len(self._seen_stable_sources) > 8192:
                 self._seen_stable_sources.popitem(last=False)
         try:
@@ -180,6 +188,7 @@ class CaptionPipeline:
             # provider can retry the same segment instead of losing it forever.
             if event.stage is CaptionStage.STABLE:
                 self._seen_stable_sources.pop(event.segment_id, None)
+                self._active_stable_sources.discard(event.segment_id)
             raise
         if event.stage is CaptionStage.STABLE:
             try:
@@ -202,7 +211,10 @@ class CaptionPipeline:
                     },
                     committed=True,
                 )
-                await self.publish(terminal)
+                try:
+                    await self.publish(terminal)
+                finally:
+                    self._active_stable_sources.discard(event.segment_id)
 
     async def stop(self) -> None:
         first_error: Exception | None = None
@@ -256,6 +268,8 @@ class CaptionPipeline:
                                 timeout=remaining,
                             )
             finally:
+                if pending is not None:
+                    self._active_stable_sources.discard(pending.segment_id)
                 self._queue.task_done()
         self._worker_progress.clear()
         self._queue = asyncio.Queue(maxsize=128)
@@ -366,6 +380,7 @@ class CaptionPipeline:
                     await self._finalize_failed_segment(event, latest)
             finally:
                 self._worker_progress.pop(event.segment_id, None)
+                self._active_stable_sources.discard(event.segment_id)
                 self._queue.task_done()
 
     async def _publish_postprocess(self, event: TranscriptEvent) -> None:
