@@ -70,6 +70,7 @@ class CaptionPipeline:
         # A failed postprocessor must never regress an already translated
         # language, or leave an unfinished language pending forever.
         self._worker_progress: dict[str, TranscriptEvent] = {}
+        self._source_revisions: dict[str, int] = {}
         self._queue_admitted_at: dict[str, float] = {}
         self._queue_lag_ms: deque[float] = deque(maxlen=512)
 
@@ -431,8 +432,16 @@ class CaptionPipeline:
                 self._queue.task_done()
 
     async def _publish_postprocess(self, event: TranscriptEvent) -> None:
+        # A superseded source epoch must never publish an obsolete correction,
+        # translation or commit. This is a second fence beyond store validation:
+        # the async publication sink may otherwise fail after observing a
+        # stale event, taking down a healthy postprocess worker.
+        latest_revision = self._source_revisions.get(event.segment_id, 1)
+        if event.source_revision != latest_revision:
+            return
         await self.publish(event)
-        self._worker_progress[event.segment_id] = event
+        if event.source_revision == self._source_revisions.get(event.segment_id, 1):
+            self._worker_progress[event.segment_id] = event
 
     async def _finalize_failed_segment(
         self, source: TranscriptEvent, latest: TranscriptEvent, *,
