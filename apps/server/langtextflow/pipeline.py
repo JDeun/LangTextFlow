@@ -162,7 +162,9 @@ class CaptionPipeline:
             for index in range(1, worker_count)
         ]
 
-    async def ingest(self, event: TranscriptEvent) -> None:
+    async def ingest(
+        self, event: TranscriptEvent, *, is_current=None,
+    ) -> None:
         if (
             event.stage in (CaptionStage.PARTIAL, CaptionStage.STABLE)
             and (
@@ -191,6 +193,12 @@ class CaptionPipeline:
                 self._active_stable_sources.discard(event.segment_id)
             raise
         if event.stage is CaptionStage.STABLE:
+            # Source publication may suspend across a session restart.
+            # Do not admit optional work from a revoked ASR generation.
+            if is_current is not None and not is_current():
+                self._seen_stable_sources.pop(event.segment_id, None)
+                self._active_stable_sources.discard(event.segment_id)
+                return
             try:
                 self._queue.put_nowait(event)
             except asyncio.QueueFull:

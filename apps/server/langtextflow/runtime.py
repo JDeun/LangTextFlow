@@ -369,7 +369,9 @@ class CaptionRuntime:
             if self._active_generation is not generation:
                 self.stale_asr_events_dropped += 1
                 return
-            await self.pipeline.ingest(event)
+            await self.pipeline.ingest(
+                event, is_current=lambda: self._active_generation is generation,
+            )
 
         # All built-in AsrEngine implementations expose a writable publish
         # callback; ReplayFallbackAsrEngine forwards through self.publish.
