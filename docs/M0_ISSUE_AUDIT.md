@@ -51,3 +51,11 @@ GitHub issue search returned **49 open issues** and **11 closed issues** on 2026
 ## #155 runtime implementation handoff
 
 Issue #155 records prior implementation in stacked PRs #162/#165/#167 and outstanding revision coalescing, per-segment failure status, generation fencing, RSS and actual-audio throughput. Those PRs are not among the 13 open PRs at the 2026-10-26 snapshot. **Inspect merged runtime code and existing tests before introducing new queue workers**; target missing invariants, not reimplementation. The issue remains open.
+
+## Exact-head CI investigation (2026-10-26, PR #275)
+
+- Commit `51dde131153439a67fe45800bfe2c4c8065ed330`: CI run **40259337100 failed**, CodeQL run **40259337095 passed**.
+- CI jobs: frontend, Browser E2E, Windows and macOS smoke **passed**; backend **failed** at **Python vulnerability audit and CycloneDX SBOM**. Backend tests themselves reported **699 passed, 78.50% coverage** (70% minimum).
+- Audit log reports `filelock==3.32.6` with **CVE-2026-112940, CVE-2026-112913, CVE-2026-112907**, fix version **4.2.1**. `uv.lock` pins `filelock==3.32.6`; it is not a direct `pyproject.toml` dependency.
+- **Security gate remains blocking.** Upgrade via reproducible `uv lock --upgrade-package filelock` with dependency compatibility checked, commit the regenerated `uv.lock`, and re-run `uv run pip-audit` and all CI checks. Do **not** manually alter only the version or skip the audit. Lock regeneration could not be verified from this connector-only editing environment.
+- **PR #275 must not merge while backend security audit fails.** Documentation-only changes did not cause the pinned vulnerable dependency; the failure reveals a baseline blocker.
