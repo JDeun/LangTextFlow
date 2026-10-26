@@ -31,7 +31,8 @@ def _release_native_job_slot(job: Future[str]) -> None:
     # Consume failures from orphaned/cancelled asyncio waiters; the worker
     # itself always finishes or fails before its capacity slot is reclaimed.
     try:
-        job.exception()
+        if not job.cancelled():
+            job.exception()
     finally:
         _NATIVE_JOB_SLOTS.release()
 
