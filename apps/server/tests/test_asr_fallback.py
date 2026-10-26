@@ -420,7 +420,7 @@ def test_replay_buffer_strictly_bounds_single_oversized_frame_and_keeps_true_clo
     budget = int(0.01 * 16000 * 4)
     assert engine._buffer_bytes == budget
     assert b"".join(engine._audio_frames) == oversized[-budget:]
-    assert engine._audio_cursor_ms == pytest.approx(156.25)
+    assert engine._audio_cursor_samples == 2500
 
     next_frame = pcm(32, 0.3)
     engine._remember_audio(next_frame)
