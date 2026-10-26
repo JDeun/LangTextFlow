@@ -517,7 +517,10 @@ class CaptionPipeline:
         assert self.request is not None
         version = event.version + 1
         corrected_text, provenance = await self._correct(event.text)
-        targets = self.request.target_languages
+        # Snapshot request fields before any await: a stop/restart can
+        # otherwise swap session settings underneath in-flight workers.
+        request = self.request
+        targets = list(request.target_languages)
         enabled = self.translator is not None and self.status.available
         states: dict[str, str] = {
             language: (
@@ -553,9 +556,9 @@ class CaptionPipeline:
                         async with limiter:
                             translated = await self.translator.translate(
                                 corrected_text,
-                                source_language=self.request.source_language,
+                                source_language=request.source_language,
                                 target_language=target,
-                                context=self.request.context,
+                                context=request.context,
                             )
                             if not translated.strip():
                                 raise TranslationError(
