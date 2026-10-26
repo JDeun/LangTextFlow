@@ -215,11 +215,11 @@ class CaptionPipeline:
                     return
                 if is_current is not None and not is_current():
                     return
-                # Cancellation is cooperative: _process_stable's finally block
-                # cancels any per-target inference tasks before returning.
+                # Fence stale outputs before cancellation; a worker may be
+                # suspended in its publication callback when the revision arrives.
                 task = self._processing_tasks.get(event.segment_id)
+                self._superseding_segments.add(event.segment_id)
                 if task is not None and not task.done():
-                    self._superseding_segments.add(event.segment_id)
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
                 latest = self._worker_progress.get(event.segment_id)
@@ -561,7 +561,10 @@ class CaptionPipeline:
         # the async publication sink may otherwise fail after observing a
         # stale event, taking down a healthy postprocess worker.
         latest_revision = self._source_revisions.get(event.segment_id, 1)
-        if event.source_revision != latest_revision:
+        if (
+            event.source_revision != latest_revision
+            or event.segment_id in self._superseding_segments
+        ):
             return
         await self.publish(event)
         if event.source_revision == self._source_revisions.get(event.segment_id, 1):
