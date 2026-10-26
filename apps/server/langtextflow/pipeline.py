@@ -415,6 +415,10 @@ class CaptionPipeline:
                 # A source caption is already visible; explicitly finalize
                 # pending targets, retaining any successfully emitted ones.
                 self.expired_postprocess_segments += 1
+                if event.source_revision != self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    raise
                 latest = self._worker_progress.get(event.segment_id, event)
                 with suppress(Exception):
                     await asyncio.wait_for(
@@ -432,6 +436,10 @@ class CaptionPipeline:
                 self.status.error = (
                     "postprocessing failed unexpectedly; source caption preserved"
                 )
+                if event.source_revision != self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    continue
                 latest = self._worker_progress.get(event.segment_id, event)
                 # The publication sink itself may be unavailable. Count
                 # the segment failure but never kill the worker or loop.
