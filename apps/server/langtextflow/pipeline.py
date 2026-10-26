@@ -438,7 +438,10 @@ class CaptionPipeline:
                 with suppress(Exception):
                     await self._finalize_failed_segment(event, latest)
             finally:
-                self._worker_progress.pop(event.segment_id, None)
+                if event.source_revision == self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    self._worker_progress.pop(event.segment_id, None)
                 if event.source_revision == self._source_revisions.get(
                     event.segment_id, event.source_revision
                 ):
