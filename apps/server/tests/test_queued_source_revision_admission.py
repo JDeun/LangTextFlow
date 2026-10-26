@@ -26,6 +26,7 @@ async def test_sequential_revision_replaces_queued_source_and_skips_old_work() -
     pipeline._processing_tasks = {}
     pipeline._revision_locks = {}
     pipeline._superseding_segments = set()
+    pipeline._worker_progress = {}
     pipeline._seen_stable_sources = __import__("collections").OrderedDict()
     pipeline._stable_source_text = __import__("collections").OrderedDict()
     pipeline._active_stable_sources = set()
