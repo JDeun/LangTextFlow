@@ -1162,5 +1162,9 @@ async def test_active_stable_remains_deduped_after_replay_ledger_eviction() -> N
         release.set()
         await pipeline.stop()
 
-    assert [item.segment_id for item in published if item.stage is CaptionStage.STABLE] == ["active"]
+    stable_ids = [
+        item.segment_id for item in published
+        if item.stage is CaptionStage.STABLE
+    ]
+    assert stable_ids == ["active"]
     assert not pipeline._active_stable_sources
