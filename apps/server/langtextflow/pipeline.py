@@ -402,6 +402,13 @@ class CaptionPipeline:
             if admitted_at is not None:
                 self._queue_lag_ms.append((monotonic() - admitted_at) * 1000)
             try:
+                # A newer source epoch may supersede an event while it waits
+                # behind other segments in the bounded postprocess queue.
+                # Never spend scarce CPU inference capacity on that stale work.
+                if event.source_revision != self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    continue
                 await self._process_stable(event)
             except asyncio.CancelledError:
                 # Stop-drain expired while optional inference was running.
