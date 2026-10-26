@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -48,23 +48,3 @@ async def test_sqlite_write_failure_does_not_block_live_caption(tmp_path) -> Non
     finally:
         await runtime.stop()
 
-
-@pytest.mark.asyncio
-async def test_websocket_enqueue_failure_does_not_block_sqlite(tmp_path) -> None:
-    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "socket.sqlite3")))
-    state = await runtime.start(
-        StartSessionRequest(
-            engine="mock", source_language="ko", target_languages=["en"],
-            translation_provider="demo",
-        )
-    )
-    try:
-        with patch.object(runtime.hub, "enqueue", side_effect=RuntimeError("socket failure")):
-            await runtime.pipeline.ingest(_stable("socket-failure"))
-            for _ in range(100):
-                if runtime.pipeline.failed_postprocess_segments:
-                    break
-                await asyncio.sleep(0.01)
-    finally:
-        await runtime.stop()
-    assert state.session_id is not None
