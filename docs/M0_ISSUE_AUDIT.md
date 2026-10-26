@@ -64,3 +64,7 @@ Issue #155 records prior implementation in stacked PRs #162/#165/#167 and outsta
 
 - Opened [#276](https://github.com/JDeun/LangTextFlow/issues/276) as M0/P0 security remediation, explicitly requiring regenerated lockfile hashes, locked install, pip-audit and exact-head CI verification. This is a **real unresolved blocker**, not a documentation-only waiver.
 - The CI workflow runs `uv sync --locked --extra dev`, so changing only `pyproject.toml` or editing a `uv.lock` version without wheel hashes would break reproducibility. Do not merge #275 or mark M0 green until the lock is actually regenerated and security audit passes.
+
+## Snapshot delta (2026-10-26, after audit)
+
+The 49-issue table above is a **point-in-time snapshot before issue #276**. Creating M0/P0 security issue #276 increased the open issue count to **at least 50**, and the M0 count to **at least 11**; the other stage counts are unchanged unless further GitHub activity occurred. Do not use the 49-row table as a live dashboard. Meta #224 has been updated with this caveat and the CI blocker.
