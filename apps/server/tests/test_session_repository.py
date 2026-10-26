@@ -301,3 +301,35 @@ def test_old_translation_rows_default_to_no_states_after_migration(tmp_path) -> 
     restored = SessionRepository(str(repo.database_path))
     restored.initialize()
     assert restored.segments("session-1")[0].translation_states == {}
+
+
+def test_persisted_committed_segment_rejects_higher_version_replay(tmp_path) -> None:
+    repository = SessionRepository(str(tmp_path / "immutable.db"))
+    repository.initialize()
+    repository.create_session(_state(), _request())
+    final = TranscriptEvent(
+        segment_id="immutable", version=4, stage=CaptionStage.COMMITTED,
+        source_language="ko", text="복음", translations={"en": "Gospel"},
+        start_ms=0, committed=True,
+    )
+    repository.upsert_segment("session-1", final)
+    repository.upsert_segment("session-1", final.model_copy(update={
+        "version": 5, "text": "stale replacement",
+        "translations": {"en": "Wrong"},
+    }))
+    assert repository.segments("session-1")[0] == final
+
+
+def test_persisted_stage_cannot_regress_despite_newer_version(tmp_path) -> None:
+    repository = SessionRepository(str(tmp_path / "stage.db"))
+    repository.initialize()
+    repository.create_session(_state(), _request())
+    corrected = TranscriptEvent(
+        segment_id="stage", version=3, stage=CaptionStage.CORRECTED,
+        source_language="ko", text="corrected", start_ms=0,
+    )
+    repository.upsert_segment("session-1", corrected)
+    repository.upsert_segment("session-1", corrected.model_copy(update={
+        "version": 4, "stage": CaptionStage.STABLE, "text": "old",
+    }))
+    assert repository.segments("session-1")[0] == corrected
