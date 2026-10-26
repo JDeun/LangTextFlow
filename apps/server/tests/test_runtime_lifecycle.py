@@ -420,3 +420,42 @@ async def test_invalid_new_provider_request_does_not_interrupt_active_session(tm
     saved = runtime.history.get_session(original_id)
     assert saved is not None
     assert saved.ended_at is not None
+
+
+@pytest.mark.asyncio
+async def test_asr_callback_is_fenced_during_blocked_engine_shutdown(
+    tmp_path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "stop-race.db")))
+    await runtime.start(StartSessionRequest(
+        engine="mock", source_language="ko",
+        target_languages=["en"], translation_provider="none",
+    ))
+    assert runtime.engine is not None
+    engine = runtime.engine
+    old_publish = engine.publish
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    original_stop = engine.stop
+
+    async def blocked_stop() -> None:
+        entered.set()
+        await release.wait()
+        await original_stop()
+
+    monkeypatch.setattr(engine, "stop", blocked_stop)
+    task = asyncio.create_task(runtime.stop())
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        before = len(runtime.store.snapshot())
+        await old_publish(TranscriptEvent(
+            segment_id="during-stop", version=1,
+            stage=CaptionStage.STABLE, source_language="ko",
+            text="obsolete", start_ms=0,
+        ))
+        assert len(runtime.store.snapshot()) == before
+        assert runtime.stale_asr_events_dropped >= 1
+    finally:
+        release.set()
+        await asyncio.wait_for(task, timeout=2)
+        await runtime.shutdown()
