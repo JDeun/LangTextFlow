@@ -302,7 +302,9 @@ class CaptionPipeline:
             except asyncio.QueueEmpty:
                 break
             try:
-                if pending is not None:
+                if pending is not None and pending.source_revision == self._source_revisions.get(
+                    pending.segment_id, pending.source_revision
+                ):
                     self.expired_postprocess_segments += 1
                     remaining = close_deadline - asyncio.get_running_loop().time()
                     if remaining > 0:
@@ -318,7 +320,10 @@ class CaptionPipeline:
             finally:
                 if pending is not None:
                     self._queue_admitted_at.pop(pending.segment_id, None)
-                    self._active_stable_sources.discard(pending.segment_id)
+                    if pending.source_revision == self._source_revisions.get(
+                        pending.segment_id, pending.source_revision
+                    ):
+                        self._active_stable_sources.discard(pending.segment_id)
                 self._queue.task_done()
         self._worker_progress.clear()
         self._queue = asyncio.Queue(maxsize=128)
@@ -414,11 +419,11 @@ class CaptionPipeline:
                 # Stop-drain expired while optional inference was running.
                 # A source caption is already visible; explicitly finalize
                 # pending targets, retaining any successfully emitted ones.
-                self.expired_postprocess_segments += 1
                 if event.source_revision != self._source_revisions.get(
                     event.segment_id, event.source_revision
                 ):
                     raise
+                self.expired_postprocess_segments += 1
                 latest = self._worker_progress.get(event.segment_id, event)
                 with suppress(Exception):
                     await asyncio.wait_for(
@@ -432,14 +437,14 @@ class CaptionPipeline:
                 # Optional providers and progress publication must not kill the
                 # whole realtime worker. Preserve already published language
                 # results, terminate remaining pending tracks and move on.
-                self.failed_postprocess_segments += 1
-                self.status.error = (
-                    "postprocessing failed unexpectedly; source caption preserved"
-                )
                 if event.source_revision != self._source_revisions.get(
                     event.segment_id, event.source_revision
                 ):
                     continue
+                self.failed_postprocess_segments += 1
+                self.status.error = (
+                    "postprocessing failed unexpectedly; source caption preserved"
+                )
                 latest = self._worker_progress.get(event.segment_id, event)
                 # The publication sink itself may be unavailable. Count
                 # the segment failure but never kill the worker or loop.
