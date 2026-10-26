@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from .models import STAGE_ORDER, TranscriptEvent
+from .models import CaptionStage, STAGE_ORDER, TranscriptEvent
 
 
 class CaptionStore:
@@ -18,6 +18,20 @@ class CaptionStore:
         if current is not None:
             if current.committed:
                 raise ValueError(f"segment {event.segment_id} is already committed")
+            if event.source_revision < current.source_revision:
+                raise ValueError("source revision cannot regress")
+            if event.source_revision > current.source_revision:
+                if event.source_revision != current.source_revision + 1:
+                    raise ValueError("source revision must advance by one")
+                if event.stage is not CaptionStage.STABLE:
+                    raise ValueError("new source revision must begin at stable stage")
+                if event.translations or event.translation_states or event.committed:
+                    raise ValueError("new source revision must invalidate target results")
+                if event.version <= current.version:
+                    raise ValueError("event version must increase monotonically")
+                self._segments[event.segment_id] = event
+                self._segments.move_to_end(event.segment_id)
+                return event
             if event.version <= current.version:
                 raise ValueError("event version must increase monotonically")
             if STAGE_ORDER[event.stage] < STAGE_ORDER[current.stage]:
