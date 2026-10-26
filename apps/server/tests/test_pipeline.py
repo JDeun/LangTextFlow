@@ -848,7 +848,11 @@ async def test_replayed_stable_and_late_partial_cannot_regress_committed_source(
         # without the source-admission fence.
         await pipeline.ingest(stable.model_copy(update={"version": 10}))
         await pipeline.ingest(partial.model_copy(update={"version": 11}))
-        assert pipeline.duplicate_asr_events_dropped == 2
+        await pipeline.ingest(stable.model_copy(update={
+            "version": 12, "text": "은혜가 충만합니다",
+        }))
+        assert pipeline.duplicate_asr_events_dropped == 3
+        assert pipeline.revised_asr_events_rejected == 1
         assert pipeline.queue_depth == 0
         persisted = store.snapshot()
         assert len(persisted) == 1
