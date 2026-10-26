@@ -64,6 +64,8 @@ class CaptionPipeline:
         # remain protected from duplicate publication until it is finalized.
         self._active_stable_sources: set[str] = set()
         self.duplicate_asr_events_dropped = 0
+        self.revised_asr_events_rejected = 0
+        self._stable_source_text: OrderedDict[str, str] = OrderedDict()
         # Latest successfully published event for each active worker.
         # A failed postprocessor must never regress an already translated
         # language, or leave an unfinished language pending forever.
@@ -191,15 +193,25 @@ class CaptionPipeline:
             )
         ):
             self.duplicate_asr_events_dropped += 1
+            if event.stage is CaptionStage.STABLE and (
+                previous_text := self._stable_source_text.get(event.segment_id)
+            ) is not None and previous_text != event.text:
+                # A changed STABLE is not an exact replay. Until revision-aware
+                # cancellation is implemented, reject it rather than publish a
+                # new source over a potentially committed translation.
+                self.revised_asr_events_rejected += 1
             return
         if event.stage is CaptionStage.STABLE:
             # Admit the first stable event by *segment identity* before
             # awaiting publish. A duplicate arriving during its await cannot
             # launch a second correction/MT worker for the same ID.
             self._seen_stable_sources[event.segment_id] = None
+            self._stable_source_text[event.segment_id] = event.text
             self._active_stable_sources.add(event.segment_id)
             if len(self._seen_stable_sources) > 8192:
-                self._seen_stable_sources.popitem(last=False)
+                old_id, _ = self._seen_stable_sources.popitem(last=False)
+                if old_id not in self._active_stable_sources:
+                    self._stable_source_text.pop(old_id, None)
         try:
             await self.publish(event)
         except BaseException:
@@ -208,6 +220,7 @@ class CaptionPipeline:
             # provider can retry the same segment instead of losing it forever.
             if event.stage is CaptionStage.STABLE:
                 self._seen_stable_sources.pop(event.segment_id, None)
+                self._stable_source_text.pop(event.segment_id, None)
                 self._active_stable_sources.discard(event.segment_id)
             raise
         if event.stage is CaptionStage.STABLE:
