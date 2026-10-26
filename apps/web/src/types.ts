@@ -284,6 +284,8 @@ export interface RealtimeMetrics {
   persistence_events_failed: number;
   postprocess_queue_depth: number;
   postprocess_queue_capacity: number;
+  postprocess_queue_lag_p50_ms: number;
+  postprocess_queue_lag_p95_ms: number;
   websocket_clients: number;
   websocket_client_capacity: number;
   websocket_clients_rejected: number;

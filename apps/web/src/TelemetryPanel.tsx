@@ -219,6 +219,8 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
                 {" · "}{copy.failed} {metrics.postprocess_segments_failed}
                 {" · "}{copy.expired} {metrics.postprocess_segments_expired}
                 {" · "}{copy.duplicates} {metrics.postprocess_duplicate_asr_events_dropped}
+                {" · "}Queue wait p50 {milliseconds(metrics.postprocess_queue_lag_p50_ms ?? 0)}
+                {" · "}p95 {milliseconds(metrics.postprocess_queue_lag_p95_ms ?? 0)}
               </small>
             </div>
             <div className={`telemetry-metric ${metrics.websocket_overflow_evictions + metrics.websocket_send_failures > 0 ? "warning" : "normal"}`}>
