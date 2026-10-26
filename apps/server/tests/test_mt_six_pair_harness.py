@@ -66,3 +66,30 @@ def test_linux_rss_parser_handles_missing_and_valid_proc_status() -> None:
         }
     with patch.object(module.Path, "read_text", side_effect=OSError):
         assert module._linux_memory_kib() is None
+
+
+@pytest.mark.asyncio
+async def test_memory_snapshot_occurs_before_provider_close() -> None:
+    spec = importlib.util.spec_from_file_location("verify_m2m100_six_pairs", SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    events = []
+
+    async def close() -> None:
+        events.append("close")
+
+    def memory() -> dict[str, int]:
+        events.append("memory")
+        return {"rss_kib": 1, "peak_rss_kib": 2}
+
+    with (
+        patch.object(module.M2M100CT2Translator, "prepare", new_callable=AsyncMock),
+        patch.object(module.M2M100CT2Translator, "translate", new_callable=AsyncMock) as mt,
+        patch.object(module.M2M100CT2Translator, "close", side_effect=close),
+        patch.object(module, "_linux_memory_kib", side_effect=memory),
+    ):
+        mt.return_value = "caption"
+        report = await module.verify("model", "tokenizer", 2)
+    assert events == ["memory", "memory", "memory", "close"]
+    assert report["memory_after_inference"] == {"rss_kib": 1, "peak_rss_kib": 2}
