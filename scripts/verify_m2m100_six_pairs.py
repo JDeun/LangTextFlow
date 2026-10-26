@@ -27,6 +27,23 @@ SAMPLES = {
 }
 
 
+def _linux_memory_kib() -> dict[str, int] | None:
+    """Linux-only process RSS and high-water mark from /proc/self/status."""
+    try:
+        status = Path("/proc/self/status").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    values: dict[str, int] = {}
+    for line in status.splitlines():
+        if line.startswith(("VmRSS:", "VmHWM:")):
+            parts = line.split()
+            if len(parts) == 3 and parts[2] == "kB" and parts[1].isdigit():
+                values[parts[0].rstrip(":")] = int(parts[1])
+    if not all(key in values for key in ("VmRSS", "VmHWM")):
+        return None
+    return {"rss_kib": values["VmRSS"], "peak_rss_kib": values["VmHWM"]}
+
+
 def _percentile(values: list[float], fraction: float) -> float:
     """Nearest-rank percentile; conservative for small benchmark samples."""
     ordered = sorted(values)
@@ -38,10 +55,12 @@ async def verify(
 ) -> dict:
     if repetitions < 1:
         raise ValueError("repetitions must be at least one")
+    memory_before = _linux_memory_kib()
     provider = M2M100CT2Translator(
         model_dir=model_dir, tokenizer_dir=tokenizer_dir, cpu_threads=cpu_threads,
     )
     await provider.prepare()
+    memory_after_prepare = _linux_memory_kib()
     results = []
     try:
         for source in ("ko", "en", "ja"):
@@ -74,6 +93,9 @@ async def verify(
         await provider.close()
     return {
         "model_dir": model_dir, "tokenizer_dir": tokenizer_dir,
+        "memory_before_prepare": memory_before,
+        "memory_after_prepare": memory_after_prepare,
+        "memory_after_inference": _linux_memory_kib(),
         "cpu_threads": cpu_threads, "repetitions": repetitions,
         "results": results,
     }
