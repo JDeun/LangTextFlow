@@ -340,6 +340,9 @@ class CaptionRuntime:
         self.metrics.postprocess_duplicate_asr_events_dropped = (
             self.pipeline.duplicate_asr_events_dropped
         )
+        self.metrics.postprocess_revised_asr_events_rejected = (
+            self.pipeline.revised_asr_events_rejected
+        )
         self.metrics.stale_asr_events_dropped = self.stale_asr_events_dropped
         self.state.correction_status = self.pipeline.correction_status
         self.state.translation_status = self.pipeline.status
