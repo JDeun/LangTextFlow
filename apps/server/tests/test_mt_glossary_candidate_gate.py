@@ -24,10 +24,10 @@ async def test_local_mt_rejects_missing_required_glossary_translation(tmp_path) 
         patch.object(provider, "_translate_sync", return_value="The spirit came."),
         pytest.raises(TranslationError, match="glossary term not preserved"),
     ):
-            await provider.translate(
-                "성령이 오셨습니다", source_language="ko",
-                target_language="en", context=context,
-            )
+        await provider.translate(
+            "성령이 오셨습니다", source_language="ko",
+            target_language="en", context=context,
+        )
 
 
 @pytest.mark.asyncio
