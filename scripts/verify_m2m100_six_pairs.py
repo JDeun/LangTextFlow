@@ -62,6 +62,7 @@ async def verify(
     await provider.prepare()
     memory_after_prepare = _linux_memory_kib()
     results = []
+    memory_after_inference = None
     try:
         for source in ("ko", "en", "ja"):
             for target in ("ko", "en", "ja"):
@@ -90,12 +91,13 @@ async def verify(
                     "p95_ms": round(_percentile(durations, 0.95), 1) if durations else None,
                 })
     finally:
+        memory_after_inference = _linux_memory_kib()
         await provider.close()
     return {
         "model_dir": model_dir, "tokenizer_dir": tokenizer_dir,
         "memory_before_prepare": memory_before,
         "memory_after_prepare": memory_after_prepare,
-        "memory_after_inference": _linux_memory_kib(),
+        "memory_after_inference": memory_after_inference,
         "cpu_threads": cpu_threads, "repetitions": repetitions,
         "results": results,
     }
