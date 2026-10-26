@@ -50,12 +50,13 @@ async def test_sequential_revision_replaces_queued_source_and_skips_old_work() -
 
 
 @pytest.mark.asyncio
-async def test_active_worker_revision_is_not_admitted() -> None:
+async def test_active_worker_revision_is_admitted() -> None:
     store = CaptionStore()
     pipeline = object.__new__(CaptionPipeline)
     pipeline.publish = lambda event: publish(store, event)
     pipeline._source_revisions = {"utterance": 1}
     pipeline._processing_segments = {"utterance"}
+    pipeline._worker_progress = {}
     pipeline._processing_tasks = {}
     pipeline._revision_locks = {}
     pipeline._superseding_segments = set()
@@ -75,8 +76,9 @@ async def test_active_worker_revision_is_not_admitted() -> None:
     store.apply(stable(1, 1, "원본"))
 
     await pipeline.ingest(stable(2, 2, "수정본"))
-    assert store.snapshot()[0].source_revision == 1
-    assert pipeline.revised_asr_events_rejected == 1
+    assert store.snapshot()[0].source_revision == 2
+    assert pipeline.revised_asr_events_rejected == 0
+    assert pipeline._queue.get_nowait().source_revision == 2
 
 
 async def publish(store: CaptionStore, event: TranscriptEvent) -> None:
