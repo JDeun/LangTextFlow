@@ -46,7 +46,7 @@ async def test_multiple_sidecar_segments_do_not_overlap_or_exceed_pcm() -> None:
     assert all(0 <= event.start_ms <= event.end_ms <= 3000 for event in published)
     assert all(
         earlier.end_ms <= later.start_ms
-        for earlier, later in zip(published, published[1:])
+        for earlier, later in zip(published, published[1:], strict=False)
     )
     assert published[-1].start_ms == 3000
     assert published[-1].end_ms == 3000
