@@ -40,3 +40,14 @@ GitHub issue search returned **49 open issues** and **11 closed issues** on 2026
 3. Reconcile #100/#214 benchmark overlap; preserve distinct micro-ASR versus full-runtime acceptance evidence.
 4. Review PR #119 and #264 independently, with CI and sample results; no automatic merge.
 5. Once the GitHub milestone inventory and CI statuses can be read, update the exact milestone completion percentages and M0 exit gate.
+
+## Benchmark overlap decision (#100 vs #214)
+
+- **#100 (M3 / ID 4):** CI reproducibility for *licensed actual speech* through streaming ASR → correction/MT fan-out → audience WebSocket; independent reference transcripts, CER/WER, real versus mocked MT and failover/reconnect evidence. This is the **integration/fixture qualification** issue.
+- **#214 (M0 / ID 1):** common baseline and regression protocol across Korean, English and Japanese, cold/warm, repeated same-hardware runs, p50/p95, RTF, RSS, 30/60/90-minute acceptance and candidate comparisons. This is the **measurement protocol/baseline** issue.
+- These overlap in CER/WER and runtime reporting but have different exit gates. **Do not close either as duplicate.** #214 defines the repeatable protocol; #100 supplies licensed actual-audio CI integration evidence; #106/#107 remain physical field/hardware acceptance.
+- Evidence gap: neither issue body establishes an accepted reproducible real-sermon run; no benchmark score or CI success is inferred here.
+
+## #155 runtime implementation handoff
+
+Issue #155 records prior implementation in stacked PRs #162/#165/#167 and outstanding revision coalescing, per-segment failure status, generation fencing, RSS and actual-audio throughput. Those PRs are not among the 13 open PRs at the 2026-10-26 snapshot. **Inspect merged runtime code and existing tests before introducing new queue workers**; target missing invariants, not reimplementation. The issue remains open.
