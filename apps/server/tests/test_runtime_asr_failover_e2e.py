@@ -114,7 +114,7 @@ async def test_runtime_asr_failover_preserves_translation_and_durable_history(tm
             event.segment_id == "after-failover"
             and event.stage is CaptionStage.COMMITTED
             for event in runtime.store.snapshot()
-        )
+        ), [(event.segment_id, event.stage.value) for event in runtime.store.snapshot()]
     finally:
         await runtime.stop()
     stored = [
