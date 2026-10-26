@@ -659,6 +659,7 @@ class CaptionPipeline:
         return TranscriptEvent(
             segment_id=previous.segment_id,
             version=version,
+            source_revision=previous.source_revision,
             stage=stage,
             source_language=previous.source_language,
             text=text,
