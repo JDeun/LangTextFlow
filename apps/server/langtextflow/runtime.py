@@ -480,6 +480,10 @@ class CaptionRuntime:
         was_running = self.state.running
         session_id = self.state.session_id
         self.state.running = False
+        # Revoke old ASR callbacks before awaiting engine.stop(): providers
+        # can emit late callbacks while their shutdown is suspended.
+        # Postprocessing drain still publishes through runtime._publish.
+        self._active_generation = None
         first_error: Exception | None = None
 
         engine = self.engine
@@ -496,10 +500,6 @@ class CaptionRuntime:
         except Exception as exc:
             if first_error is None:
                 first_error = exc
-        # Engine shutdown and postprocessor drain have completed or failed;
-        # obsolete source callbacks are no longer permitted to publish.
-        self._active_generation = None
-
         try:
             await self._stop_persistence_worker()
         except Exception as exc:
