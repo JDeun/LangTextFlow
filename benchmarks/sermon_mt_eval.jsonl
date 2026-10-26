@@ -1,0 +1,9 @@
+{"id":"sermon-001","source_language":"ko","target_language":"en","source":"예수님께서는 우리를 위해 십자가에서 단번에 희생하셨습니다.","reference":"Jesus sacrificed himself once for all on the cross for us.","category":"atonement"}
+{"id":"sermon-002","source_language":"ko","target_language":"ja","source":"우리는 행위가 아니라 은혜로 구원을 받습니다.","reference":"私たちは行いによってではなく、恵みによって救われます。","category":"grace-negation"}
+{"id":"sermon-003","source_language":"en","target_language":"ko","source":"The resurrection of Jesus Christ is the foundation of our hope.","reference":"예수 그리스도의 부활은 우리 소망의 기초입니다.","category":"resurrection"}
+{"id":"sermon-004","source_language":"en","target_language":"ja","source":"Peter denied Jesus three times before the rooster crowed.","reference":"ペテロは鶏が鳴く前に三度イエスを否認しました。","category":"named-entity-negation"}
+{"id":"sermon-005","source_language":"ja","target_language":"ko","source":"パウロはダマスコへ向かう途中で主に出会いました。","reference":"바울은 다메섹으로 가는 길에서 주님을 만났습니다.","category":"proper-noun"}
+{"id":"sermon-006","source_language":"ja","target_language":"en","source":"私たちは恐れではなく信仰によって歩みます。","reference":"We walk by faith, not by fear.","category":"faith-negation"}
+{"id":"sermon-007","source_language":"ko","target_language":"en","source":"하나님은 악인이 죽는 것을 기뻐하지 않으십니다.","reference":"God does not delight in the death of the wicked.","category":"negation"}
+{"id":"sermon-008","source_language":"en","target_language":"ko","source":"The Holy Spirit comforts and guides the church.","reference":"성령께서는 교회를 위로하시고 인도하십니다.","category":"theology"}
+{"id":"sermon-009","source_language":"ja","target_language":"en","source":"主の祈りをともにささげましょう。","reference":"Let us offer the Lord's Prayer together.","category":"worship"}
