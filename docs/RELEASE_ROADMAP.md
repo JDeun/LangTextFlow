@@ -1,10 +1,10 @@
 # Release Roadmap & Repository Hygiene
-2026-10-22 · Tracking #224 · **proposed milestone plan, not yet created GitHub Milestones**
+2026-10-26 · Tracking #224 · **existing numeric milestone assignments observed; milestone inventory/title verification pending**
 
 ## Scope and existing backlog
 Open issue search showed architecture #154–#161; multilingual #117–#139; ASR #100–#115; post-event #78–#86; new competitor research #209–#222. Research documents from PR #215 and #223 have been merged into `main`. Runtime PRs #199 (ASR fallback), #200 (glossary capacity), and #201 (WebSocket caption projection) have also been merged. These changes do **not** establish field accuracy or hardware acceptance.
 
-## Proposed sequential milestones
+## Existing planned milestone ladder (issue assignment IDs 1–5 observed)
 | Milestone | Exit gate | Representative issues |
 |---|---|---|
 | M0 Repository Hygiene & Baseline | docs/PR index coherent, duplicates cross-linked, CI green, benchmark baseline captured | #224, #209, #214 |
@@ -14,7 +14,7 @@ Open issue search showed architecture #154–#161; multilingual #117–#139; ASR
 | M4 Product Completion | archive UX, project knowledge, operator workflow, signed installer and privacy/security review | #78–#81, #86, #137 |
 | M5 v1.0 Stable Release | all blocking gates met, changelog, signed deliverables, upgrade/rollback & support | #224 |
 
-These are **completion gates, not calendar commitments**. Assign issues to actual GitHub Milestones after they are created.
+These are **completion gates, not calendar commitments**. Issues are already assigned to numeric GitHub milestone IDs 1–5. Exact milestone titles and M5 existence require the milestone-list API; do not create duplicates. See [M0 issue audit](M0_ISSUE_AUDIT.md).
 
 ## Hygiene conventions
 - Issue title: `[area/P0|P1|P2] Verb + measurable outcome` or `research:` for exploratory work.
@@ -40,7 +40,7 @@ These are **completion gates, not calendar commitments**. Assign issues to actua
 - Operator/field acceptance, privacy/legal review.
 
 ## Status
-This is a git-managed roadmap document. The GitHub connector currently exposes no create/list milestone action. Issue #224 has GitHub milestone number `1` assigned, but its name and the existence of M0–M5 milestone records have **not** been verified. Do not treat this roadmap's M0–M5 headings as existing GitHub milestones. See #224 for implementation and assignment tracking.
+This is a git-managed roadmap document. Individual issue fetches verified numeric milestone IDs 1–5 for 47 issues on 2026-10-22; #254 and #274 were newly assigned to IDs 4 and 3 on 2026-10-26. The connector still lacks a milestone-list action, so **exact titles, due dates, aggregate completion, and M5 existence remain unverified**. Do not create or rename milestones based on numeric guesses. See #224 for implementation and assignment tracking.
 
 ## Verified integration evidence (2026-10-22)
 - PR #199: ASR fallback session/candidate fencing and dependency security; merged as `cd4acb0`; exact-head CI, CodeQL, Windows/macOS desktop packaging passed.
@@ -92,4 +92,11 @@ This is a git-managed roadmap document. The GitHub connector currently exposes n
 **Handoff:** M0 documentation and checklist are prepared. Actual GitHub milestone/label setup and field fixtures remain external or unverified prerequisites; never mark those complete without evidence.
 
 ## Completed issue classification audit
-The 47 open issues were individually checked for milestone numeric ID and taxonomy labels on 2026-10-22; see [M0 issue audit](M0_ISSUE_AUDIT.md) for exact issue numbers and stage totals. GitHub milestone titles and M5 creation remain unverified, as do human owner assignments.
+The original 47 open issues were individually checked for milestone numeric ID and taxonomy labels on 2026-10-22; see [M0 issue audit](M0_ISSUE_AUDIT.md) for exact issue numbers and stage totals. GitHub milestone titles and M5 creation remain unverified, as do human owner assignments.
+
+## 2026-10-26 M0 reconciliation
+
+- Open issue inventory: **49**; 47 previously audited plus #254 (M3 / numeric ID 4) and #274 (M2 / numeric ID 3), both assigned and labelled today.
+- Open PRs at snapshot: 13 before audit PR #275; **14 including #275**. Functional PR #264 relates to #254; CPU experiment PR #119 is not field-qualified. Remaining 11 were dependency/CI updates.
+- Audit change tracked in PR #275; do not close #224 before milestone inventory, CI verification, and benchmark evidence are confirmed.
+- [M0 audit](M0_ISSUE_AUDIT.md) is the canonical issue-number breakdown; this roadmap remains the gate definition.
