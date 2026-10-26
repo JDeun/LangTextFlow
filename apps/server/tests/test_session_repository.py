@@ -301,3 +301,47 @@ def test_old_translation_rows_default_to_no_states_after_migration(tmp_path) -> 
     restored = SessionRepository(str(repo.database_path))
     restored.initialize()
     assert restored.segments("session-1")[0].translation_states == {}
+
+
+def test_persisted_stage_rejects_newer_stage_rollback(tmp_path) -> None:
+    repository = SessionRepository(str(tmp_path / "stage.db"))
+    repository.initialize()
+    repository.create_session(_state(), _request())
+    for version, stage, text in (
+        (1, CaptionStage.STABLE, "stable"),
+        (2, CaptionStage.CORRECTED, "corrected"),
+        (3, CaptionStage.STABLE, "stale replay"),
+    ):
+        repository.upsert_segment(
+            "session-1",
+            TranscriptEvent(
+                segment_id="seg-1", version=version, stage=stage,
+                source_language="ko", text=text, start_ms=0,
+            ),
+        )
+    stored = repository.segments("session-1")[0]
+    assert stored.version == 2
+    assert stored.text == "corrected"
+
+
+def test_persisted_committed_operator_revision_stays_supported(tmp_path) -> None:
+    repository = SessionRepository(str(tmp_path / "revisions.db"))
+    repository.initialize()
+    repository.create_session(_state(), _request())
+    for version, stage, text in (
+        (1, CaptionStage.COMMITTED, "original"),
+        (2, CaptionStage.COMMITTED, "operator revision"),
+        (3, CaptionStage.STABLE, "late asr replay"),
+    ):
+        repository.upsert_segment(
+            "session-1",
+            TranscriptEvent(
+                segment_id="seg-1", version=version, stage=stage,
+                source_language="ko", text=text, start_ms=0,
+                committed=stage is CaptionStage.COMMITTED,
+            ),
+        )
+    stored = repository.segments("session-1")[0]
+    assert stored.version == 2
+    assert stored.committed is True
+    assert stored.text == "operator revision"
