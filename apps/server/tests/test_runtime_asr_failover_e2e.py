@@ -104,7 +104,7 @@ async def test_runtime_asr_failover_preserves_translation_and_durable_history(tm
         await runtime.providers["fallback"].emit("after-failover", "복음에 관하여")
         for _ in range(100):
             if any(
-                event.segment_id == "after-failover"
+                event.segment_id == "auto-01-after-failover"
                 and event.stage is CaptionStage.COMMITTED
                 for event in runtime.store.snapshot()
             ):
