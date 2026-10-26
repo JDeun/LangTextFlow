@@ -23,6 +23,9 @@ async def test_sequential_revision_replaces_queued_source_and_skips_old_work() -
     pipeline.publish = lambda event: publish(store, event)
     pipeline._source_revisions = {}
     pipeline._processing_segments = set()
+    pipeline._processing_tasks = {}
+    pipeline._revision_locks = {}
+    pipeline._superseding_segments = set()
     pipeline._seen_stable_sources = __import__("collections").OrderedDict()
     pipeline._stable_source_text = __import__("collections").OrderedDict()
     pipeline._active_stable_sources = set()
@@ -52,6 +55,9 @@ async def test_active_worker_revision_is_not_admitted() -> None:
     pipeline.publish = lambda event: publish(store, event)
     pipeline._source_revisions = {"utterance": 1}
     pipeline._processing_segments = {"utterance"}
+    pipeline._processing_tasks = {}
+    pipeline._revision_locks = {}
+    pipeline._superseding_segments = set()
     pipeline._seen_stable_sources = __import__("collections").OrderedDict(
         [("utterance", None)]
     )
