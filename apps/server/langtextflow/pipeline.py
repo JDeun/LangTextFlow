@@ -188,6 +188,7 @@ class CaptionPipeline:
             # callback must not enqueue optional work into the next session.
             if is_current is not None and not is_current():
                 self._seen_stable_sources.pop(event.segment_id, None)
+                self._active_stable_sources.discard(event.segment_id)
                 return
             try:
                 self._queue.put_nowait(event)
