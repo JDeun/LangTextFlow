@@ -16,10 +16,14 @@ def local_m2m100_check(settings: Settings) -> PreflightCheck:
         (model / name).is_file() for name in ("model.bin", "config.json")
     ):
         missing.append("CTranslate2 model.bin/config.json")
-    if not tokenizer.is_dir() or not (
-        (tokenizer / "tokenizer_config.json").is_file()
+    # tokenizer_config.json alone is insufficient: transformers may attempt
+    # network resolution or fail during prepare if the SentencePiece model
+    # is missing. Report unavailable before offering the provider in the UI.
+    if not tokenizer.is_dir() or not all(
+        (tokenizer / name).is_file()
+        for name in ("tokenizer_config.json", "sentencepiece.bpe.model")
     ):
-        missing.append("M2M100 tokenizer files")
+        missing.append("M2M100 tokenizer config/SentencePiece vocabulary")
     if importlib.util.find_spec("ctranslate2") is None:
         missing.append("ctranslate2 optional Python dependency")
     if importlib.util.find_spec("transformers") is None:
