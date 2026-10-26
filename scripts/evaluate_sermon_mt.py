@@ -17,9 +17,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "server"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from validate_sermon_mt_eval import CORPUS, validate  # noqa: E402
+
 from langtextflow.models import SessionContext  # noqa: E402
 from langtextflow.translation.m2m100_ct2 import M2M100CT2Translator  # noqa: E402
-from validate_sermon_mt_eval import CORPUS, validate  # noqa: E402
 
 
 async def evaluate(
