@@ -7,7 +7,7 @@ import pytest
 
 from langtextflow.config import Settings
 from langtextflow.llm_correction import ConstrainedCorrector, CorrectionError
-from langtextflow.models import CaptionStage, SessionContext, StartSessionRequest, TranscriptEvent
+from langtextflow.models import CaptionStage, ProductPreset, SessionContext, StartSessionRequest, TranscriptEvent
 from langtextflow.pipeline import CaptionPipeline
 from langtextflow.store import CaptionStore
 
@@ -63,6 +63,7 @@ async def test_combined_correction_and_translation_failures_commit_source() -> N
     await pipeline.start(StartSessionRequest(
         source_language="ko", target_languages=["en", "ja"],
         correction_provider="broken", translation_provider="broken",
+        context=SessionContext(preset=ProductPreset.CHURCH),
     ))
     try:
         await pipeline.ingest(TranscriptEvent(
