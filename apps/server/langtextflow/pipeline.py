@@ -503,8 +503,11 @@ class CaptionPipeline:
                 # Stop-drain expired while optional inference was running.
                 # A source caption is already visible; explicitly finalize
                 # pending targets, retaining any successfully emitted ones.
-                if event.segment_id in self._superseding_segments or event.source_revision != self._source_revisions.get(
-                    event.segment_id, event.source_revision
+                if (
+                    event.segment_id in self._superseding_segments
+                    or event.source_revision != self._source_revisions.get(
+                        event.segment_id, event.source_revision
+                    )
                 ):
                     raise
                 self.expired_postprocess_segments += 1
@@ -538,8 +541,11 @@ class CaptionPipeline:
                 processing_task = self._processing_tasks.get(event.segment_id)
                 if processing_task is not None and processing_task.done():
                     self._processing_tasks.pop(event.segment_id, None)
-                if event.segment_id not in self._superseding_segments and event.source_revision == self._source_revisions.get(
-                    event.segment_id, event.source_revision
+                if (
+                    event.segment_id not in self._superseding_segments
+                    and event.source_revision == self._source_revisions.get(
+                        event.segment_id, event.source_revision
+                    )
                 ):
                     self._processing_segments.discard(event.segment_id)
                     self._worker_progress.pop(event.segment_id, None)
