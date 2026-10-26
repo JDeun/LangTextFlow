@@ -16,7 +16,7 @@ def _load_provisioner():
 
 def test_revision_must_be_immutable(tmp_path):
     provision = _load_provisioner().provision
-    for revision in ("", "main", "latest", "master"):
+    for revision in ("", "main", "latest", "master", "0123456789abcdef", "g" * 40, "a" * 39):
         with pytest.raises(ValueError, match="immutable"):
             provision(model_dir=tmp_path / "model",
                       tokenizer_dir=tmp_path / "tokenizer", revision=revision)
@@ -28,4 +28,4 @@ def test_existing_cache_is_not_overwritten(tmp_path):
     existing.mkdir()
     with pytest.raises(FileExistsError):
         provision(model_dir=existing, tokenizer_dir=tmp_path / "tokenizer",
-                  revision="0123456789abcdef")
+                  revision="0123456789abcdef0123456789abcdef01234567")
