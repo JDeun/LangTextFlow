@@ -1,6 +1,6 @@
 from collections import OrderedDict
 
-from .models import CaptionStage, STAGE_ORDER, TranscriptEvent
+from .models import STAGE_ORDER, CaptionStage, TranscriptEvent
 
 
 class CaptionStore:
