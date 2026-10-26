@@ -402,6 +402,13 @@ class CaptionPipeline:
             if admitted_at is not None:
                 self._queue_lag_ms.append((monotonic() - admitted_at) * 1000)
             try:
+                # A newer source epoch may supersede an event while it waits
+                # behind other segments in the bounded postprocess queue.
+                # Never spend scarce CPU inference capacity on that stale work.
+                if event.source_revision != self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    continue
                 await self._process_stable(event)
             except asyncio.CancelledError:
                 # Stop-drain expired while optional inference was running.
@@ -431,8 +438,14 @@ class CaptionPipeline:
                 with suppress(Exception):
                     await self._finalize_failed_segment(event, latest)
             finally:
-                self._worker_progress.pop(event.segment_id, None)
-                self._active_stable_sources.discard(event.segment_id)
+                if event.source_revision == self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    self._worker_progress.pop(event.segment_id, None)
+                if event.source_revision == self._source_revisions.get(
+                    event.segment_id, event.source_revision
+                ):
+                    self._active_stable_sources.discard(event.segment_id)
                 self._queue.task_done()
 
     async def _publish_postprocess(self, event: TranscriptEvent) -> None:
