@@ -140,6 +140,7 @@ class CaptionPipeline:
         self.duplicate_asr_events_dropped = 0
         self.revised_asr_events_rejected = 0
         self._worker_progress.clear()
+        self._source_revisions.clear()
         self._queue_admitted_at.clear()
         self._queue_lag_ms.clear()
         low_resource = (
@@ -210,12 +211,14 @@ class CaptionPipeline:
             # awaiting publish. A duplicate arriving during its await cannot
             # launch a second correction/MT worker for the same ID.
             self._seen_stable_sources[event.segment_id] = None
+            self._source_revisions[event.segment_id] = event.source_revision
             self._stable_source_text[event.segment_id] = event.text
             self._active_stable_sources.add(event.segment_id)
             if len(self._seen_stable_sources) > 8192:
                 old_id, _ = self._seen_stable_sources.popitem(last=False)
                 if old_id not in self._active_stable_sources:
                     self._stable_source_text.pop(old_id, None)
+                    self._source_revisions.pop(old_id, None)
         try:
             await self.publish(event)
         except BaseException:
@@ -225,6 +228,7 @@ class CaptionPipeline:
             if event.stage is CaptionStage.STABLE:
                 self._seen_stable_sources.pop(event.segment_id, None)
                 self._stable_source_text.pop(event.segment_id, None)
+                self._source_revisions.pop(event.segment_id, None)
                 self._active_stable_sources.discard(event.segment_id)
             raise
         if event.stage is CaptionStage.STABLE:
