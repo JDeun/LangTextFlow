@@ -7,7 +7,13 @@ import pytest
 
 from langtextflow.config import Settings
 from langtextflow.llm_correction import ConstrainedCorrector, CorrectionError
-from langtextflow.models import CaptionStage, ProductPreset, SessionContext, StartSessionRequest, TranscriptEvent
+from langtextflow.models import (
+    CaptionStage,
+    ProductPreset,
+    SessionContext,
+    StartSessionRequest,
+    TranscriptEvent,
+)
 from langtextflow.pipeline import CaptionPipeline
 from langtextflow.store import CaptionStore
 
