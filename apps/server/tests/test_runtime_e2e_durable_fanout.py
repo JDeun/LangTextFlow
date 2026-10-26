@@ -49,7 +49,10 @@ async def test_runtime_source_to_translated_commit_and_durable_history(tmp_path)
         await runtime.stop()
     assert runtime.metrics.persistence_events_failed == 0
     assert runtime.metrics.persistence_events_dropped == 0
-    stored = [\n        event for event in runtime.history.segments(state.session_id)\n        if event.segment_id == "runtime-e2e-1"\n    ]
+    stored = [
+        event for event in runtime.history.segments(state.session_id)
+        if event.segment_id == "runtime-e2e-1"
+    ]
     assert len(stored) == 1
     final = stored[0]
     assert final.stage is CaptionStage.COMMITTED
