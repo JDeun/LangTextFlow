@@ -1168,3 +1168,42 @@ async def test_active_stable_remains_deduped_after_replay_ledger_eviction() -> N
     ]
     assert stable_ids == ["active"]
     assert not pipeline._active_stable_sources
+
+
+@pytest.mark.asyncio
+async def test_inflight_stable_cannot_enqueue_after_generation_revocation() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    published: list[TranscriptEvent] = []
+    current = True
+
+    async def publish(event: TranscriptEvent) -> None:
+        published.append(event)
+        if event.stage is CaptionStage.STABLE:
+            entered.set()
+            await release.wait()
+
+    pipeline = CaptionPipeline(publish, Settings())
+    await pipeline.start(StartSessionRequest(
+        source_language="ko", target_languages=["en"],
+        translation_provider="demo",
+    ))
+    event = TranscriptEvent(
+        segment_id="revoked", version=1, stage=CaptionStage.STABLE,
+        source_language="ko", text="복음", start_ms=0, end_ms=100,
+    )
+    try:
+        task = asyncio.create_task(
+            pipeline.ingest(event, is_current=lambda: current)
+        )
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        current = False
+        release.set()
+        await asyncio.wait_for(task, timeout=1)
+        assert pipeline.queue_depth == 0
+        assert "revoked" not in pipeline._seen_stable_sources
+    finally:
+        release.set()
+        await pipeline.stop()
+
+    assert [item.stage for item in published] == [CaptionStage.STABLE]
