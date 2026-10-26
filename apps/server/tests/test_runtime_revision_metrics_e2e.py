@@ -41,7 +41,7 @@ async def test_runtime_counts_rejected_revision_without_rewriting_durable_captio
         await runtime.pipeline.ingest(stable("은혜", 11))
         snapshot = runtime.metrics_snapshot()
         assert snapshot.postprocess_revised_asr_events_rejected == 1
-        assert snapshot.postprocess_duplicate_asr_events_dropped == 2
+        assert snapshot.postprocess_duplicate_asr_events_dropped == 1
         actual = next(
             row for row in runtime.store.snapshot()
             if row.segment_id == "revision-e2e"

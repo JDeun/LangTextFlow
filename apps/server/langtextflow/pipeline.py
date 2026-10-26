@@ -194,7 +194,6 @@ class CaptionPipeline:
                 or event.segment_id in self._active_stable_sources
             )
         ):
-            self.duplicate_asr_events_dropped += 1
             if event.stage is CaptionStage.STABLE and (
                 previous_text := self._stable_source_text.get(event.segment_id)
             ) is not None and previous_text != event.text:
@@ -202,6 +201,8 @@ class CaptionPipeline:
                 # cancellation is implemented, reject it rather than publish a
                 # new source over a potentially committed translation.
                 self.revised_asr_events_rejected += 1
+            else:
+                self.duplicate_asr_events_dropped += 1
             return
         if event.stage is CaptionStage.STABLE:
             # Admit the first stable event by *segment identity* before
