@@ -2,9 +2,10 @@
 
 import sqlite3
 
+from test_session_repository import _request, _state
+
 from langtextflow.models import CaptionStage, TranscriptEvent
 from langtextflow.session_repository import SessionRepository
-from test_session_repository import _request, _state
 
 
 def event(version: int, revision: int, stage: CaptionStage, text: str,
