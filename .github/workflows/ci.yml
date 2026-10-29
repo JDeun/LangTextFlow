@@ -24,6 +24,14 @@ jobs:
           python-version: "3.11"
       - name: Install pinned uv bootstrap
         run: python -m pip install "uv==0.12.13"
+      - name: Regenerate patched msgpack lock for security fix
+        run: uv lock --upgrade-package msgpack
+      - name: Export regenerated lock for review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: msgpack-patched-uv-lock
+          path: uv.lock
+          retention-days: 2
       - name: Sync locked backend dependencies
         run: uv sync --locked --extra dev
       - name: Verify installed dependency consistency
