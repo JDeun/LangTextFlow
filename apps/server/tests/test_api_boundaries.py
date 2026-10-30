@@ -186,6 +186,9 @@ def test_audio_websocket_rejects_frame_above_configured_limit(
         lambda: AudioStreamInfo(engine="test", required=True, sample_rate=16000),
     )
     monkeypatch.setattr(main_module.runtime, "feed_audio", unexpected_feed)
+    # This test exercises frame size validation with an admitted active session.
+    monkeypatch.setattr(main_module.runtime.state, "running", True)
+    monkeypatch.setattr(main_module.runtime.state, "session_id", "oversize-test")
 
     client = _local_client()
     with client.websocket_connect(
