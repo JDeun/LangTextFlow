@@ -109,6 +109,7 @@ class SessionRepository:
                     session_id TEXT NOT NULL,
                     segment_id TEXT NOT NULL,
                     version INTEGER NOT NULL,
+                    source_revision INTEGER NOT NULL DEFAULT 1,
                     stage TEXT NOT NULL,
                     source_language TEXT NOT NULL,
                     text TEXT NOT NULL,
@@ -132,6 +133,11 @@ class SessionRepository:
                     "PRAGMA table_info(transcript_segments)"
                 ).fetchall()
             }
+            if "source_revision" not in segment_columns:
+                connection.execute(
+                    "ALTER TABLE transcript_segments ADD COLUMN "
+                    "source_revision INTEGER NOT NULL DEFAULT 1"
+                )
             if "correction_json" not in segment_columns:
                 connection.execute(
                     "ALTER TABLE transcript_segments ADD COLUMN correction_json TEXT"
@@ -251,13 +257,14 @@ class SessionRepository:
             connection.execute(
                 """
                 INSERT INTO transcript_segments (
-                    session_id, segment_id, version, stage, source_language,
+                    session_id, segment_id, version, source_revision, stage, source_language,
                     text, translations_json, translation_states_json,
                     start_ms, end_ms, speaker, confidence, correction_json,
                     committed, emitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, segment_id) DO UPDATE SET
                     version = excluded.version,
+                    source_revision = excluded.source_revision,
                     stage = excluded.stage,
                     source_language = excluded.source_language,
                     text = excluded.text,
@@ -271,7 +278,14 @@ class SessionRepository:
                     committed = excluded.committed,
                     emitted_at = excluded.emitted_at
                 WHERE excluded.version > transcript_segments.version
+                  AND excluded.source_revision >= transcript_segments.source_revision
                   AND (
+                    excluded.source_revision > transcript_segments.source_revision
+                    AND excluded.source_revision = transcript_segments.source_revision + 1
+                    AND excluded.stage = 'stable'
+                    AND transcript_segments.stage != 'committed'
+                    OR excluded.source_revision = transcript_segments.source_revision
+                    AND (
                     transcript_segments.stage = 'committed'
                     AND excluded.stage = 'committed'
                     OR transcript_segments.stage != 'committed'
@@ -290,12 +304,14 @@ class SessionRepository:
                         WHEN 'committed' THEN 4
                         ELSE 5
                     END
+                    )
                   )
                 """,
                 (
                     session_id,
                     event.segment_id,
                     event.version,
+                    event.source_revision,
                     event.stage.value,
                     event.source_language,
                     event.text,
@@ -448,6 +464,7 @@ class SessionRepository:
         return TranscriptEvent(
             segment_id=str(row["segment_id"]),
             version=int(row["version"]),
+            source_revision=int(row["source_revision"]),
             stage=str(row["stage"]),
             source_language=str(row["source_language"]),
             text=str(row["text"]),

@@ -72,6 +72,9 @@ class CaptionPipeline:
         self._worker_progress: dict[str, TranscriptEvent] = {}
         self._source_revisions: dict[str, int] = {}
         self._processing_segments: set[str] = set()
+        self._processing_tasks: dict[str, asyncio.Task[None]] = {}
+        self._revision_locks: dict[str, asyncio.Lock] = {}
+        self._superseding_segments: set[str] = set()
         self._queue_admitted_at: dict[str, float] = {}
         self._queue_lag_ms: deque[float] = deque(maxlen=512)
 
@@ -143,6 +146,9 @@ class CaptionPipeline:
         self._worker_progress.clear()
         self._source_revisions.clear()
         self._processing_segments.clear()
+        self._processing_tasks.clear()
+        self._revision_locks.clear()
+        self._superseding_segments.clear()
         self._queue_admitted_at.clear()
         self._queue_lag_ms.clear()
         low_resource = (
@@ -191,49 +197,69 @@ class CaptionPipeline:
     async def ingest(
         self, event: TranscriptEvent, *, is_current=None,
     ) -> None:
-        # Accept a sequential explicit revision while the original STABLE is
-        # still queued. Once correction/translation has started, its published
-        # version and commit boundary require active-worker cancellation; do
-        # not claim support for that case until cancellation is implemented.
+        # A changed STABLE may supersede either queued or running work.
+        # Serialize revisions per segment so concurrent ASR callbacks cannot
+        # race on version allocation or publish the same epoch twice.
         previous_revision = self._source_revisions.get(event.segment_id)
-        queued_revision = (
+        if (
             event.stage is CaptionStage.STABLE
             and previous_revision is not None
             and event.source_revision == previous_revision + 1
-            and event.segment_id not in self._processing_segments
-            and event.segment_id in self._active_stable_sources
             and event.text != self._stable_source_text.get(event.segment_id)
-        )
-        if queued_revision:
-            if is_current is not None and not is_current():
-                return
-            # Publish first: CaptionStore enforces sequential epochs, clean
-            # target state, monotonic versions and immutable commits. A
-            # rejected revision must not poison the admission ledger.
-            try:
-                await self.publish(event)
-            except ValueError:
-                self.revised_asr_events_rejected += 1
-                return
-            self._source_revisions[event.segment_id] = event.source_revision
-            self._stable_source_text[event.segment_id] = event.text
-            self._seen_stable_sources.move_to_end(event.segment_id)
-            try:
-                self._queue.put_nowait(event)
-                self._queue_admitted_at[event.segment_id] = monotonic()
-            except asyncio.QueueFull:
-                self.dropped_postprocess_segments += 1
-                terminal = self._next_event(
-                    event, version=event.version + 1,
-                    stage=CaptionStage.COMMITTED, text=event.text,
-                    translation_states={
-                        target: ("failed" if self.translator is not None else "unsupported")
-                        for target in (self.request.target_languages if self.request else [])
-                    },
-                    committed=True,
+            and event.segment_id in self._active_stable_sources
+        ):
+            lock = self._revision_locks.setdefault(event.segment_id, asyncio.Lock())
+            async with lock:
+                if event.source_revision != self._source_revisions.get(event.segment_id, 0) + 1:
+                    self.revised_asr_events_rejected += 1
+                    return
+                if is_current is not None and not is_current():
+                    return
+                # Fence stale outputs before cancellation; a worker may be
+                # suspended in its publication callback when the revision arrives.
+                task = self._processing_tasks.get(event.segment_id)
+                self._superseding_segments.add(event.segment_id)
+                if task is not None and not task.done():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                latest = self._worker_progress.get(event.segment_id)
+                if latest is not None and latest.committed:
+                    self._superseding_segments.discard(event.segment_id)
+                    self.revised_asr_events_rejected += 1
+                    return
+                revised = event.model_copy(
+                    update={"version": max(event.version, (latest.version + 1) if latest else 1)}
                 )
-                await self.publish(terminal)
-                self._active_stable_sources.discard(event.segment_id)
+                try:
+                    await self.publish(revised)
+                except ValueError:
+                    self._superseding_segments.discard(event.segment_id)
+                    self.revised_asr_events_rejected += 1
+                    return
+                except BaseException:
+                    self._superseding_segments.discard(event.segment_id)
+                    raise
+                self._source_revisions[event.segment_id] = revised.source_revision
+                self._superseding_segments.discard(event.segment_id)
+                self._stable_source_text[event.segment_id] = revised.text
+                self._seen_stable_sources.move_to_end(event.segment_id)
+                self._worker_progress.pop(event.segment_id, None)
+                try:
+                    self._queue.put_nowait(revised)
+                    self._queue_admitted_at[event.segment_id] = monotonic()
+                except asyncio.QueueFull:
+                    self.dropped_postprocess_segments += 1
+                    terminal = self._next_event(
+                        revised, version=revised.version + 1,
+                        stage=CaptionStage.COMMITTED, text=revised.text,
+                        translation_states={
+                            target: ("failed" if self.translator is not None else "unsupported")
+                            for target in (self.request.target_languages if self.request else [])
+                        },
+                        committed=True,
+                    )
+                    await self.publish(terminal)
+                    self._active_stable_sources.discard(event.segment_id)
             return
         if (
             event.stage in (CaptionStage.PARTIAL, CaptionStage.STABLE)
@@ -461,13 +487,27 @@ class CaptionPipeline:
                 ):
                     continue
                 self._processing_segments.add(event.segment_id)
-                await self._process_stable(event)
+                processing = asyncio.create_task(
+                    self._process_stable(event), name=f"caption-segment-{event.segment_id}"
+                )
+                self._processing_tasks[event.segment_id] = processing
+                try:
+                    await processing
+                except asyncio.CancelledError:
+                    # A revision cancels only this segment's inference, not
+                    # the shared queue worker that must process its successor.
+                    if event.segment_id in self._superseding_segments:
+                        continue
+                    raise
             except asyncio.CancelledError:
                 # Stop-drain expired while optional inference was running.
                 # A source caption is already visible; explicitly finalize
                 # pending targets, retaining any successfully emitted ones.
-                if event.source_revision != self._source_revisions.get(
-                    event.segment_id, event.source_revision
+                if (
+                    event.segment_id in self._superseding_segments
+                    or event.source_revision != self._source_revisions.get(
+                        event.segment_id, event.source_revision
+                    )
                 ):
                     raise
                 self.expired_postprocess_segments += 1
@@ -498,13 +538,22 @@ class CaptionPipeline:
                 with suppress(Exception):
                     await self._finalize_failed_segment(event, latest)
             finally:
-                if event.source_revision == self._source_revisions.get(
-                    event.segment_id, event.source_revision
+                processing_task = self._processing_tasks.get(event.segment_id)
+                if processing_task is not None and processing_task.done():
+                    self._processing_tasks.pop(event.segment_id, None)
+                if (
+                    event.segment_id not in self._superseding_segments
+                    and event.source_revision == self._source_revisions.get(
+                        event.segment_id, event.source_revision
+                    )
                 ):
                     self._processing_segments.discard(event.segment_id)
                     self._worker_progress.pop(event.segment_id, None)
-                if event.source_revision == self._source_revisions.get(
-                    event.segment_id, event.source_revision
+                if (
+                    event.segment_id not in self._superseding_segments
+                    and event.source_revision == self._source_revisions.get(
+                        event.segment_id, event.source_revision
+                    )
                 ):
                     self._active_stable_sources.discard(event.segment_id)
                 self._queue.task_done()
@@ -515,7 +564,10 @@ class CaptionPipeline:
         # the async publication sink may otherwise fail after observing a
         # stale event, taking down a healthy postprocess worker.
         latest_revision = self._source_revisions.get(event.segment_id, 1)
-        if event.source_revision != latest_revision:
+        if (
+            event.source_revision != latest_revision
+            or event.segment_id in self._superseding_segments
+        ):
             return
         await self.publish(event)
         if event.source_revision == self._source_revisions.get(event.segment_id, 1):
