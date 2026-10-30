@@ -1156,6 +1156,7 @@ async def audio_socket(websocket: WebSocket) -> None:
     # Bind each audio producer to the session that accepted it; an old
     # WebSocket must never inject frames into a replacement ASR session.
     audio_session_id = runtime.state.session_id
+    audio_engine = runtime.engine
     if not _claim_audio_socket(websocket):
         await websocket.close(code=4409, reason="another audio source is already connected")
         return
@@ -1168,7 +1169,11 @@ async def audio_socket(websocket: WebSocket) -> None:
                 message = await websocket.receive()
                 if message["type"] == "websocket.disconnect":
                     break
-                if runtime.state.session_id != audio_session_id or not runtime.state.running:
+                if (
+                    runtime.state.session_id != audio_session_id
+                    or runtime.engine is not audio_engine
+                    or not runtime.state.running
+                ):
                     await websocket.close(code=4409, reason="audio session changed")
                     break
                 frame = message.get("bytes")
