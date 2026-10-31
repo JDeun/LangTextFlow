@@ -1,3 +1,4 @@
+pub mod transport;
 //! LangTextFlow's transport-neutral worker protocol and stale-result fence.
 //! Inference remains owned by Python; this crate never loads ASR/MT models.
 
