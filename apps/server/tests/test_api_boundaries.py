@@ -186,6 +186,9 @@ def test_audio_websocket_rejects_frame_above_configured_limit(
         lambda: AudioStreamInfo(engine="test", required=True, sample_rate=16000),
     )
     monkeypatch.setattr(main_module.runtime, "feed_audio", unexpected_feed)
+    # This test exercises frame size validation with an admitted active session.
+    monkeypatch.setattr(main_module.runtime.state, "running", True)
+    monkeypatch.setattr(main_module.runtime.state, "session_id", "oversize-test")
 
     client = _local_client()
     with client.websocket_connect(
@@ -198,6 +201,32 @@ def test_audio_websocket_rejects_frame_above_configured_limit(
         with pytest.raises(WebSocketDisconnect) as exc_info:
             websocket.receive_json()
         assert exc_info.value.code == 1009
+
+
+def test_audio_websocket_rejects_frames_after_session_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unexpected_feed(_: bytes) -> None:
+        raise AssertionError("stale audio frame reached replacement session")
+
+    monkeypatch.setattr(
+        main_module.runtime,
+        "audio_info",
+        lambda: AudioStreamInfo(engine="test", required=True, sample_rate=16000),
+    )
+    monkeypatch.setattr(main_module.runtime, "feed_audio", unexpected_feed)
+    monkeypatch.setattr(main_module.runtime.state, "running", True)
+    monkeypatch.setattr(main_module.runtime.state, "session_id", "original-session")
+
+    with _local_client().websocket_connect(
+        "/ws/audio", headers={"origin": "http://localhost:5173"},
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "audio_config"
+        main_module.runtime.state.session_id = "replacement-session"
+        websocket.send_bytes(bytes(4))
+        with pytest.raises(WebSocketDisconnect) as exc_info:
+            websocket.receive_json()
+        assert exc_info.value.code == 4409
 
 
 def test_operator_rest_rejects_lan_origin_even_from_loopback_before_body_parse() -> None:
