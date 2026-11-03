@@ -96,6 +96,14 @@ try {
     summaryResult.exceptionDetails.exception?.description || summaryResult.exceptionDetails.text,
   );
   console.log(`summary transmission policy smoke passed: ${summaryResult.result.value}`);
+  const glossaryResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/glossaryProjectHarness.tsx').then((test) => test.runGlossaryProjectChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (glossaryResult.exceptionDetails) throw new Error(
+    glossaryResult.exceptionDetails.exception?.description || glossaryResult.exceptionDetails.text,
+  );
+  console.log(`project glossary scope smoke passed: ${glossaryResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;
