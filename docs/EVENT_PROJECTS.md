@@ -36,6 +36,58 @@ No project CRUD/assignment endpoint is available to LAN audience clients; all AP
 | GET/PUT/DELETE | `/api/v1/projects/{project_id}` | Read / edit / delete project only |
 | PUT | `/api/v1/history/{session_id}/project` | Assign/move/detach a session |
 
+### Operator-authored project materials
+
+History → select a project → **Project materials** stores an event brief,
+handout text, agenda, speaker information, an explicitly user-authored decision,
+or a user-authored TODO. Only TODOs have a completion checkbox. These are
+operator-authored originals, not model findings or evidence that anyone spoke
+or agreed to the text. The editor renders plain text, never executes Markdown
+or HTML, and does not automatically call an external service.
+
+Handouts support **UTF-8 TXT/Markdown text only** in this editor (64 KiB file,
+20,000 Unicode characters); review the populated text before saving. PDF/DOCX
+and original binary file storage are outside this material editor. The stored
+original is the submitted text, including whitespace; the content SHA-256 is
+over canonical UTF-8 JSON of `kind,title,text,done`, not a claim about source
+file bytes. Editing replaces the current material with a new revision. Existing
+digest snapshots retain their exact previous text and SHA until explicitly
+deleted. Project limits are 100 materials and 120,000 text characters, with
+20,000 characters per item. Exceeding limits fails without truncation.
+
+Operator-only API under `/api/v1/projects/{project_id}/knowledge`:
+`GET` lists the complete bounded scope, `POST` creates, and
+`PUT /{knowledge_id}` edits with the current `expected_revision`.
+`DELETE /{knowledge_id}?expected_revision=N` checks the same revision.
+Concurrent stale edits/deletes return **409**; copy unsaved text and reload
+before applying an intentional replacement. IDs, revision and content digest
+are preserved by the full private backup/restore.
+
+On explicit project digest generation, materials enter separate **untrusted
+operator context** under the existing provider consent policy. They never enter
+the spoken-source marker/citation pool. Their exact snapshot, revision and hash
+participate in the digest input hash; additions, edits and TODO changes mark
+old digest versions stale without changing approved text. Every model HTTP send
+rechecks current materials, including hierarchical reduction steps; mutation
+routes first cancel related jobs/prepared exports. An already transmitted HTTP
+request cannot be recalled. The version viewer displays the frozen material text
+separately from original speech.
+
+Deleting a material permanently removes all project digest versions/reviews
+whose frozen input contains it, in the same SQLite transaction. The confirmation
+states this consequence before deletion. It preserves unrelated materials and
+session transcripts, WAVs and session summaries. Project deletion cascades its
+materials; detached sessions never acquire copies of these project-only notes.
+Private backup **v3** adds the allowlisted `project_knowledge` graph table.
+The reader checks original v1/v2 graph bytes/hash before explicitly supplying
+an empty materials table; existing immutable digest snapshot JSON is untouched.
+Old package formats cannot smuggle the new table. A digest snapshot may retain
+an older revision only when its stable material ID still belongs to that package.
+
+This completes the typed text-material slice of #86. It does not establish a
+retention/legal policy, field approval, theological correctness, or audience
+permission to read these private operator sources.
+
 New session requests accept an optional `project_id`; old clients without the property remain compatible. Project association responses appear as nullable `project_id` on the historical SessionRecord.
 
 ## Deferred project knowledge layer
@@ -213,8 +265,8 @@ past endpoint's location from current configuration. No cloud upload is implicit
 | `GET /digests/{digest_id}/export` | JSON of one version, its frozen evidence and review history |
 
 Markdown export uses the saved review when present. This version export is
-separate from the full private package below. Project handout/agenda/decision
-artifacts and knowledge/retention acceptance remain open under #86. Citation identity
+separate from the full private package below. Typed operator materials above are
+implemented; retention/legal and field/semantic acceptance remain open under #86. Citation identity
 and automated three-language/three-session tests do not certify model meaning,
 human review quality, actual multilingual speech or field/device acceptance.
 
@@ -245,7 +297,7 @@ that arbitrary source text contains no confidential strings. Store the downloade
 file securely and restore only material you are authorized to use. A download
 already delivered to the browser cannot be recalled by later deletion.
 
-Version 2 is a ZIP_STORED archive with exactly `manifest.json`, `graph.json` and
+Version 3 is a ZIP_STORED archive with exactly `manifest.json`, `graph.json` and
 the declared `media/<recording_id>.wav` entries. The graph has a fixed table and
 column allowlist; no SQL or executable instructions are read from the package,
 and package-supplied paths never determine a destination. A single SQLite read transaction collects the whole selected
@@ -256,10 +308,11 @@ projects must be reduced in scope. Missing/changed WAVs, ongoing work or a
 historical digest referring to a source moved outside the project fail the entire
 backup. Restore the source's original linkage before backing up that closed graph.
 
-Version 2 preserves nullable recording `start_offset_ms`. The reader still accepts
-original version 1 packages: it verifies the original graph bytes/hash first, then
-performs the one known migration by adding a null (unknown) offset to each
-recording. Raw immutable digest snapshot JSON and its input hashes are unchanged;
+Version 3 includes operator materials and preserves nullable recording
+`start_offset_ms` introduced in version 2. The reader still accepts original
+version 1/2 packages: it verifies the original graph bytes/hash first, supplies
+an empty materials table for both, and adds a null (unknown) recording offset
+only for version 1. Raw immutable digest snapshot JSON and its input hashes are unchanged;
 legacy audio is never assigned an invented zero offset.
 
 Restore preserves stable project/session/recording/version/review IDs, the raw

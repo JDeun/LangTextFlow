@@ -733,6 +733,45 @@ await setLocale("ko");
 await waitFor(() => evaluate(`Array.from(document.querySelectorAll('.event-project-options button')).some(button => button.textContent.includes('Browser E2E conference'))`), "project workspace grouping");
 await evaluate(`Array.from(document.querySelectorAll('.event-project-options button')).find(button => button.textContent.includes('Browser E2E conference')).click()`);
 const projectPanel = `[data-testid="project-digest"]`;
+const knowledgePanel = '[data-testid="project-knowledge"]';
+const knowledgeRoot = `http://127.0.0.1:8000/api/v1/projects/${eventProject.project_id}/knowledge`;
+await evaluate("document.querySelector('.preflight-close')?.click()");
+await waitFor(() => evaluate("document.querySelector('.preflight-panel') === null"), "dismissed preflight overlay before material editing");
+const materialButton = label => evaluate(`Array.from(document.querySelectorAll('${knowledgePanel} button')).find(button => button.textContent === ${JSON.stringify(label)})?.click()`);
+async function materialInput(selector, value) {
+  await evaluate(`(() => { const el = document.querySelector('${knowledgePanel} ${selector}');
+    const proto = el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, ${JSON.stringify(value)});
+    el.dispatchEvent(new Event(el instanceof HTMLSelectElement ? 'change' : 'input', {bubbles:true})); })()`);
+}
+await waitFor(() => evaluate(`Array.from(document.querySelectorAll('${knowledgePanel} button')).some(button => button.textContent === '자료 추가' && !button.disabled)`), "project materials loaded");
+await materialButton("자료 추가");
+await waitFor(() => evaluate(`document.querySelector('${knowledgePanel} select') !== null`), "material editor");
+await materialInput("select", "handout");
+await materialInput('input:not([type="file"]):not([type="checkbox"])', "Owned UTF-8 handout");
+const handoutText = "Owned synthetic handout: 성령 / 原文 🙏\nOperator context, never spoken evidence.\n";
+const handoutDirectory = await mkdtemp(join(tmpdir(), "ltf-project-handout-"));
+try {
+  const handoutPath = join(handoutDirectory, "owned.md");
+  await writeFile(handoutPath, handoutText, "utf8");
+  const dom = await cdp("DOM.getDocument");
+  const input = await cdp("DOM.querySelector", { nodeId: dom.root.nodeId, selector: `${knowledgePanel} input[type="file"]` });
+  await cdp("DOM.setFileInputFiles", { nodeId: input.nodeId, files: [handoutPath] });
+  await waitFor(() => evaluate(`document.querySelector('${knowledgePanel} textarea')?.value === ${JSON.stringify(handoutText)}`), "review original UTF-8 text before persistence");
+  await materialButton("자료 저장");
+} finally { await rm(handoutDirectory, { recursive:true, force:true }); }
+let handout;
+await waitFor(async () => {
+  handout = (await (await fetch(knowledgeRoot)).json())[0];
+  return handout?.text === handoutText && handout.revision === 1;
+}, "actual authored material SQLite write");
+// Each material type has its own explicit author label; a TODO never comes from AI.
+for (const kind of ["brief", "agenda", "speaker", "decision", "todo"]) {
+  const response = await fetch(knowledgeRoot, { method:"POST", headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({kind,title:`Owned ${kind}`,text:`Operator-authored synthetic ${kind}`,done:kind === "todo"}) });
+  if (!response.ok) throw new Error(`material type rejected: ${kind}`);
+}
+await materialButton("자료 다시 불러오기");
 await waitFor(() => evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).some(button => button.textContent === '프로젝트 요약 생성 / 다시 시도' && !button.disabled)`), "project evidence dependencies and transmission policy");
 await evaluate(`(() => {
   const input = document.querySelector('${projectPanel} input:not([type="checkbox"])');
@@ -756,12 +795,22 @@ await waitFor(async () => (await (await fetch(projectVersionRoot)).json()).revie
 await waitFor(() => evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).some(button => button.textContent === '요약 승인 및 잠금' && !button.disabled)`), "project review save completed");
 await evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).find(button => button.textContent === '요약 승인 및 잠금').click()`);
 await waitFor(() => evaluate(`document.querySelector('${projectPanel} textarea')?.readOnly === true`), "project approval lock");
-const projectExport = await (await fetch(`${projectVersionRoot}/export`)).json();
+let projectExport = await (await fetch(`${projectVersionRoot}/export`)).json();
 if (projectExport.version.snapshot.sessions.length !== 3 || projectExport.reviews.length !== 2
   || !projectExport.reviews[1].approved || !projectExport.version.content.startsWith("Synthetic project chronology")
   || projectExport.version.snapshot.sessions[0].transcript_id !== offlineTranscriptId) {
   throw new Error("project version/evidence/review export lost provenance");
 }
+if (projectExport.version.snapshot.knowledge.length !== 6 || projectExport.version.snapshot.source.includes(handoutText)) throw new Error("authored materials became spoken evidence");
+// Edit through the real form after approval: frozen original stays unchanged,
+// new input becomes stale, and explicit provider consent resets with the panel.
+await evaluate(`Array.from(document.querySelectorAll('${knowledgePanel} li')).find(li => li.querySelector('h4')?.textContent === 'Owned UTF-8 handout').querySelector('button').click()`);
+await waitFor(() => evaluate(`document.querySelector('${knowledgePanel} textarea') !== null`), "edit material");
+const revisedHandout = handoutText + "Operator revision 2.\n";
+await materialInput("textarea", revisedHandout); await materialButton("자료 저장");
+await waitFor(async () => (await (await fetch(projectVersionRoot)).json()).stale, "material revision invalidates approved project digest");
+if ((await (await fetch(projectVersionRoot)).json()).snapshot.knowledge[0].text !== handoutText) throw new Error("material edit rewrote historical digest input");
+projectExport = await (await fetch(`${projectVersionRoot}/export`)).json();
 const projectProviderCalls = await (await fetch(`${process.env.LTF_E2E_OLLAMA_URL}/fixture/calls`)).json();
 if (!(projectProviderCalls["synthetic-project-e2e"] >= 3)) throw new Error("project synthesis bypassed hierarchical HTTP provider");
 if (!await evaluate(`document.querySelectorAll('${projectPanel} ul button').length >= 3`)) throw new Error("project source citations missing");
@@ -770,9 +819,20 @@ await waitFor(() => evaluate(`document.querySelector('.history-detail') !== null
 await cdp("Runtime.evaluate", { expression: await readFile("apps/web/node_modules/axe-core/axe.min.js", "utf8") });
 const projectViolations = await evaluate(`axe.run(document.querySelector('${projectPanel}'), { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } }).then(result => result.violations.map(item => item.id))`);
 if (projectViolations.length) throw new Error("project digest accessibility: " + JSON.stringify(projectViolations));
+const knowledgeViolations = await evaluate(`axe.run(document.querySelector('${knowledgePanel}'), { runOnly: {type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa']} }).then(result=>result.violations.map(item=>item.id))`);
+if (knowledgeViolations.length) throw new Error("project materials accessibility: " + JSON.stringify(knowledgeViolations));
+async function materialScreenshot(name) {
+  await evaluate(`document.querySelector('${knowledgePanel}').scrollIntoView({block:'start'}); true`);
+  await sleep(100);
+  const clip = await evaluate(`(() => { const r=document.querySelector('${knowledgePanel}').getBoundingClientRect(); return {x:Math.max(0,r.x+scrollX),y:Math.max(0,r.y+scrollY),width:Math.min(r.width,innerWidth),height:Math.min(r.height,innerHeight-100),scale:1}; })()`);
+  const result=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false,clip});
+  await writeFile(`artifacts/${name}.png`,Buffer.from(result.data,'base64'));
+}
+await materialScreenshot("project-materials-desktop-ko");
 await setViewport(390, 844, true);
 if (!await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`)) throw new Error("project digest mobile overflow");
 await screenshot("project-digest-mobile-ko");
+await materialScreenshot("project-materials-mobile-ko");
 await setViewport(1440, 1000, false);
 
 // Full private package: native attachment download, rejected duplicate restore,
@@ -803,7 +863,9 @@ print(json.dumps(graph))
 `, packagePath], { encoding: "utf8" }));
   if (graphFromPackage.tables.sessions.length !== 3 || graphFromPackage.tables.session_recordings.length !== 2
     || graphFromPackage.tables.project_digest_reviews.length !== 2
-    || graphFromPackage.tables.approved_transcripts.length !== 1) throw new Error("whole package silently omitted evidence");
+    || graphFromPackage.tables.approved_transcripts.length !== 1
+    || graphFromPackage.tables.project_knowledge.length !== 6
+    || graphFromPackage.tables.project_knowledge[0].text !== revisedHandout) throw new Error("whole package silently omitted evidence");
   const document = await cdp("DOM.getDocument");
   const input = await cdp("DOM.querySelector", { nodeId: document.root.nodeId, selector: `${packagePanel} input[type="file"]` });
   await cdp("DOM.setFileInputFiles", { nodeId: input.nodeId, files: [packagePath] });
@@ -831,6 +893,9 @@ print(json.dumps(graph))
   await waitFor(() => evaluate(`document.querySelector('${packagePanel}')?.textContent.includes('프로젝트 복원이 완료되었습니다.')`), "UI restore success");
   const recovered = await (await fetch(`${projectVersionRoot}/export`)).json();
   if (JSON.stringify(recovered) !== JSON.stringify(projectExport)) throw new Error("project snapshot bytes/hash/reviews/provenance changed during restore");
+  const restoredMaterials = await (await fetch(knowledgeRoot)).json();
+  if (restoredMaterials.length !== 6 || restoredMaterials[0].knowledge_id !== handout.knowledge_id
+    || restoredMaterials[0].text !== revisedHandout || restoredMaterials[0].revision !== 2) throw new Error("material original/identity/revision lost during restore");
   for (const rec of graphFromPackage.tables.session_recordings) {
     const response = await fetch(`http://127.0.0.1:8000/api/v1/history/${rec.session_id}/recordings/${rec.recording_id}/audio`);
     if (!response.ok || createHash("sha256").update(Buffer.from(await response.arrayBuffer())).digest("hex") !== rec.sha256) throw new Error("restored WAV bytes or recording identity changed");
@@ -856,6 +921,19 @@ if (!movedSource.ok) throw new Error("project move invalidation fixture failed")
 const movedDigest = await (await fetch(projectVersionRoot)).json();
 if (!movedDigest.stale || movedDigest.evidence_available || movedDigest.content !== ""
   || (await fetch(`${projectVersionRoot}/export`)).status !== 409) throw new Error("old project leaked moved-source evidence");
+await waitFor(() => evaluate(`Array.from(document.querySelectorAll('${knowledgePanel} li h4')).some(el=>el.textContent==='Owned UTF-8 handout')`), "restored original material visible");
+const confirmedDeletion = new Promise(resolve => socket.addEventListener("message", async function onDialog(event) {
+  const message=JSON.parse(event.data);
+  if (message.method !== 'Page.javascriptDialogOpening') return;
+  socket.removeEventListener('message',onDialog);
+  if (!message.params.message.includes('프로젝트 요약 버전과 승인')) throw new Error('material deletion impact not shown');
+  await cdp('Page.handleJavaScriptDialog',{accept:true}); resolve();
+}));
+const deletingMaterial = evaluate(`Array.from(document.querySelectorAll('${knowledgePanel} li')).find(li=>li.querySelector('h4')?.textContent==='Owned UTF-8 handout').querySelectorAll('button')[1].click()`);
+await confirmedDeletion; await deletingMaterial;
+await waitFor(async () => (await fetch(projectVersionRoot)).status === 404, "explicit material deletion removes frozen source copies");
+if ((await (await fetch(knowledgeRoot)).json()).length !== 5) throw new Error("material deletion removed unrelated originals");
+console.log("project materials E2E: UTF-8 File→reviewed original→revision/SHA, six explicit types, stale locked digest, 3-language package restore, deletion of derived copies, mobile/axe");
 
 // #131: actual browser/HTTP/WS flow with a declared EN source and requested KO
 // captions but no translation provider. Mock words exercise the UI routing,

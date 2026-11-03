@@ -29,6 +29,9 @@ class PostEventArchive:
         from .project_digests import ProjectDigests
 
         self.project_digests = ProjectDigests(self)
+        from .project_knowledge import ProjectKnowledge
+
+        self.knowledge = ProjectKnowledge(self)
         from .project_package import ProjectPackageStore
 
         self.packages = ProjectPackageStore(self)
@@ -133,6 +136,7 @@ class PostEventArchive:
                     conn.execute(f"ALTER TABLE session_summaries ADD COLUMN {column} TEXT")
         self.transcripts.initialize()
         self.project_digests.initialize()
+        self.knowledge.initialize()
         self.packages.initialize()
         self.cleanup_stale_partials()
 
