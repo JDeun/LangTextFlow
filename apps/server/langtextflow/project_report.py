@@ -124,7 +124,7 @@ def build_project_report(
                 lines.append(
                     f"- `{_plain(segment.segment_id, limit=128)}` "
                     f"at {_timestamp(segment.start_ms)}: "
-                    f"{_plain(segment.text, limit=380)}"
+                    f"{_plain(segment.source_text, limit=380)}"
                 )
             if len(committed) > 3:
                 lines.append(

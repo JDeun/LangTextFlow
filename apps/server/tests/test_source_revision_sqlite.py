@@ -42,6 +42,7 @@ def test_revision_replaces_corrected_snapshot_and_survives_restart(tmp_path) -> 
         "session-1", event(5, 2, CaptionStage.COMMITTED, "완료", {"en": "new"})
     )
     assert restored.segments("session-1")[0].translations == {"en": "new"}
+    assert restored.segments("session-1")[0].original_text == "수정"
 
 
 def test_legacy_schema_migrates_source_revision_without_data_loss(tmp_path) -> None:
@@ -61,3 +62,4 @@ def test_legacy_schema_migrates_source_revision_without_data_loss(tmp_path) -> N
         connection.execute("DROP TABLE transcript_old")
     repository.initialize()
     assert repository.segments("session-1")[0].source_revision == 1
+    assert repository.segments("session-1")[0].original_text is None

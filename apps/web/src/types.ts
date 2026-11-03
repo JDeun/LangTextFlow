@@ -92,6 +92,7 @@ export interface TranscriptEvent {
   stage: CaptionStage;
   source_language: string;
   text: string;
+  original_text?: string | null;
   translations: Record<string, string>;
   // Optional for old sessions and unchanged ASR adapters.
   translation_states?: Record<string, TranslationTargetState>;

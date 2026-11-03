@@ -113,6 +113,7 @@ class SessionRepository:
                     stage TEXT NOT NULL,
                     source_language TEXT NOT NULL,
                     text TEXT NOT NULL,
+                    original_text TEXT,
                     translations_json TEXT NOT NULL,
                     translation_states_json TEXT NOT NULL DEFAULT '{}',
                     start_ms INTEGER NOT NULL,
@@ -138,6 +139,9 @@ class SessionRepository:
                     "ALTER TABLE transcript_segments ADD COLUMN "
                     "source_revision INTEGER NOT NULL DEFAULT 1"
                 )
+            if "original_text" not in segment_columns:
+                # Historical corrected text cannot reconstruct the original ASR output.
+                connection.execute("ALTER TABLE transcript_segments ADD COLUMN original_text TEXT")
             if "correction_json" not in segment_columns:
                 connection.execute(
                     "ALTER TABLE transcript_segments ADD COLUMN correction_json TEXT"
@@ -258,16 +262,21 @@ class SessionRepository:
                 """
                 INSERT INTO transcript_segments (
                     session_id, segment_id, version, source_revision, stage, source_language,
-                    text, translations_json, translation_states_json,
+                    text, original_text, translations_json, translation_states_json,
                     start_ms, end_ms, speaker, confidence, correction_json,
                     committed, emitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, segment_id) DO UPDATE SET
                     version = excluded.version,
                     source_revision = excluded.source_revision,
                     stage = excluded.stage,
                     source_language = excluded.source_language,
                     text = excluded.text,
+                    original_text = CASE
+                        WHEN excluded.source_revision > transcript_segments.source_revision
+                        THEN excluded.original_text
+                        ELSE COALESCE(transcript_segments.original_text, excluded.original_text)
+                    END,
                     translations_json = excluded.translations_json,
                     translation_states_json = excluded.translation_states_json,
                     start_ms = excluded.start_ms,
@@ -315,6 +324,9 @@ class SessionRepository:
                     event.stage.value,
                     event.source_language,
                     event.text,
+                    event.original_text if event.original_text is not None else (
+                        event.text if event.stage.value == "stable" else None
+                    ),
                     json.dumps(event.translations, ensure_ascii=False),
                     json.dumps(event.translation_states, ensure_ascii=False),
                     event.start_ms,
@@ -468,6 +480,7 @@ class SessionRepository:
             stage=str(row["stage"]),
             source_language=str(row["source_language"]),
             text=str(row["text"]),
+            original_text=row["original_text"],
             translations=json.loads(str(row["translations_json"])),
             translation_states=json.loads(str(row["translation_states_json"])),
             start_ms=int(row["start_ms"]),

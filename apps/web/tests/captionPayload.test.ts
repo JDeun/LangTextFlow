@@ -26,6 +26,13 @@ test("accepts a valid transcript event", () => {
   if (parsed.type === "transcript") assert.equal(parsed.segment_id, "seg-1");
 });
 
+test("retains optional original ASR text and rejects malformed evidence", () => {
+  const parsed = parseCaptionPayload(JSON.stringify({ ...transcript, original_text: "raw ASR" }));
+  if (parsed.type === "transcript") assert.equal(parsed.original_text, "raw ASR");
+  assert.doesNotThrow(() => parseCaptionPayload(JSON.stringify({ ...transcript, original_text: null })));
+  assert.throws(() => parseCaptionPayload(JSON.stringify({ ...transcript, original_text: 123 })));
+});
+
 test("accepts a valid snapshot", () => {
   const parsed = parseCaptionPayload(
     JSON.stringify({ type: "snapshot", segments: [transcript] }),

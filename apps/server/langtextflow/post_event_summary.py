@@ -36,12 +36,12 @@ class SummaryReviewRequest(BaseModel):
 def transcript_source(segments: list[TranscriptEvent]) -> tuple[str, str]:
     """Only committed source-language text can be a summary evidence source."""
     eligible = sorted(
-        (segment for segment in segments if segment.committed and segment.text.strip()),
+        (segment for segment in segments if segment.committed and segment.source_text.strip()),
         key=lambda segment: (segment.start_ms, segment.segment_id),
     )
     lines = [
         f"[{segment.segment_id} at {segment.start_ms // 1000}s] "
-        f'{" ".join(segment.text.split())}'
+        f'{" ".join(segment.source_text.split())}'
         for segment in eligible
     ]
     result = "\n".join(lines)

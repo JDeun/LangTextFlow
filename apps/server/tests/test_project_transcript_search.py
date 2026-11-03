@@ -62,6 +62,23 @@ def _commit(history, session_id: str, *, text: str, translation: str = "") -> No
     )
 
 
+def test_project_search_can_find_original_asr_after_display_correction(tmp_path):
+    history, projects = _history(tmp_path)
+    project = projects.create(ProjectInput(title="Raw evidence"))
+    _session(history, "raw-session", project.project_id)
+    history.upsert_segment("raw-session", TranscriptEvent(
+        segment_id="original", version=3, stage=CaptionStage.COMMITTED,
+        source_language="ko", text="요한복음", original_text="요한 보금",
+        start_ms=0, committed=True,
+    ))
+    raw = projects.search_transcripts(project.project_id, "보금")
+    assert raw[0].matched_text == "요한 보금"
+    assert raw[0].original_text == "요한 보금"
+    corrected = projects.search_transcripts(project.project_id, "복음")
+    assert corrected[0].matched_text == "요한복음"
+    assert corrected[0].original_text == "요한 보금"
+
+
 def test_project_transcript_search_scopes_text_and_translations(tmp_path) -> None:
     history, repo = _history(tmp_path)
     first = repo.create(ProjectInput(title="AI Conference"))

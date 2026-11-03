@@ -805,6 +805,9 @@ class CaptionPipeline:
             stage=stage,
             source_language=previous.source_language,
             text=text,
+            original_text=(
+                previous.original_text if previous.original_text is not None else previous.text
+            ),
             translations=dict(translations or {}),
             translation_states=dict(translation_states or {}),
             start_ms=previous.start_ms,
