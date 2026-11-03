@@ -235,8 +235,10 @@ jobs:
             port=$(docker port "$OLLAMA_CONTAINER" 11434/tcp | awk -F: '{print $NF}')
             [[ "$port" =~ ^[0-9]+$ ]]
             export OLLAMA_URL="http://127.0.0.1:$port"
-            docker inspect --format '{{json .Image}} {{json .Config.Image}} {{json .HostConfig.CpuQuota}}' \
-              "$OLLAMA_CONTAINER" > "$artifact/ollama-container-image.txt"
+            docker inspect --format \
+              '{"image_id":{{json .Image}},"image_reference":{{json .Config.Image}},"nano_cpus":{{json .HostConfig.NanoCpus}},"cpu_quota":{{json .HostConfig.CpuQuota}},"cpu_period":{{json .HostConfig.CpuPeriod}}}' \
+              "$OLLAMA_CONTAINER" > "$artifact/ollama-container.json"
+            docker port "$OLLAMA_CONTAINER" 11434/tcp > "$artifact/ollama-loopback-binding.txt"
             docker image inspect --format '{{json .RepoDigests}}' ollama/ollama:0.34.0 \
               > "$artifact/ollama-image-digests.json"
             for _ in $(seq 1 60); do
