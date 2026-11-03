@@ -149,6 +149,18 @@ workers, with actual descriptor-clone, framing, RPC and EOF regressions. It does
 not add the separate experimental Rust protocol. A fresh actual frozen run is
 required for the resulting complete prepare → translate → repair path.
 
+That complete Windows frozen path **passed** in
+[41677258156](https://github.com/JDeun/LangTextFlow/actions/runs/41677258156), source
+`fe01e0edff8b5ff51c41623e3c77ac581ff63a11`: initial preparation, actual native
+translation of synthetic Korean input, and repair after deliberately damaging
+the configuration all completed. Artifact `13250947434` records matching
+spawned/reported PID 5212, successful cancel/reap, and all seven exact manifest
+hashes. The independently checked extracted JSON SHA-256 is
+`2d4c3082c7f48f9a08459f36b6d2e5668d918c8d60a97322d993f50907127fec`
+(this is not the enclosing ZIP hash). Its `quality_benchmark` and
+`field_qualified` are both false. The later full unsigned desktop bundle step is
+separate from this successfully completed frozen-worker/API smoke.
+
 ## Manual official-source conversion
 
 On a network-connected
