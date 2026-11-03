@@ -1,8 +1,33 @@
 # Cuckoo public feature parity / REA evidence plan (2026-10-13)
 
-Status: **public-source research only**. This document records advertised capabilities,
-NOT independently measured Cuckoo performance, internals, or an authorization to
-reverse engineer a third-party service.
+Status: **historical public-source comparison plus first-party UI observation**.
+The 2026-11-03 checkpoint below observes LangTextFlow only; Cuckoo performance
+and internals are not independently measured.
+
+## Owned-app REA observation (2026-11-03)
+
+REA `rea-agents@6.4.0`, supported Node `24.18.0` and an isolated headless Chrome
+profile observed the real local LangTextFlow UI/API at source
+`0aba3942788706b064f2c7a97d5fb5b4afbe306b`. A disposable SQLite database
+contained synthetic terms only. The 20-second capture and real UI/API assertions
+passed for Operator → Glossary → Operator navigation, three EN/JA/KO term
+creations, an explicit alias edit, JSON export and explicit deletion of one
+synthetic record. Two expected records remained in the actual API afterward.
+
+The [sanitized evidence](research/evidence/rea-owned-ui-2026-11.json) records
+three POST/201, one PUT/200, one export GET/200 and one DELETE/204, with record IDs
+redacted. REA observed 33 requests during attachment with no dropped events or
+truncated sections. Only the exact owned loopback web/API origins were allowed;
+raw headers, cookies, body values, storage values, script sources and WebSocket
+payloads are excluded. The original local capture's SHA-256 and byte size remain
+in the sanitized receipt. The dedicated servers/browser were stopped and their
+temporary database/profile removed afterward.
+
+This satisfies the bounded first-party REA execution portion of #137. It is not
+a current-main model comparison, a projected-audience audit, native capture,
+human accessibility acceptance or evidence of Cuckoo parity. The source predates
+the later prestart glossary snapshot work. Glossary efficacy, six-direction
+meaning, long-session timing and physical-device requirements remain open.
 
 ## Public-source baseline
 

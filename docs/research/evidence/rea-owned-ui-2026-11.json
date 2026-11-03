@@ -1,0 +1,162 @@
+{
+  "evidence_type": "local_observation",
+  "status": "passed",
+  "source_sha": "0aba3942788706b064f2c7a97d5fb5b4afbe306b",
+  "tool": {
+    "package": "rea-agents",
+    "version": "6.4.0",
+    "node": "24.18.0",
+    "browser": "isolated local headless Chrome",
+    "mode": "inspect-web-page"
+  },
+  "capture_window": {
+    "started_at": "2026-11-03T11:01:08.362Z",
+    "ended_at": "2026-11-03T11:01:28.580Z",
+    "observation_ms": 20000
+  },
+  "origin_scope": [
+    "owned loopback web app",
+    "owned loopback API"
+  ],
+  "raw_sha256": "89cc3dfab5ec2981953b1a264daee8b364a3277dc916c9f3004c86957a58efe2",
+  "raw_bytes": 323889,
+  "scenarios": [
+    "operator to glossary",
+    "EN/JA/KO source-specific UI writes",
+    "explicit alias edit",
+    "JSON export",
+    "explicit dummy delete",
+    "return to operator"
+  ],
+  "requests": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/glossary/{id}",
+      "status": 204,
+      "count": 1
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/glossary",
+      "status": 200,
+      "count": 7
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/glossary/export",
+      "status": 200,
+      "count": 1
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/glossary/recommendations",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/history",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/metrics",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/metrics/audience-render",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/preflight",
+      "status": 200,
+      "count": 1
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/setup/cache",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/setup/runtime-jobs",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/setup/runtimes",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/state",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/v1/glossary",
+      "status": 200,
+      "count": 1
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/v1/glossary/{id}",
+      "status": 200,
+      "count": 2
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/glossary",
+      "status": 201,
+      "count": 3
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/glossary/{id}",
+      "status": 200,
+      "count": 1
+    }
+  ],
+  "json_response_shape_paths": [
+    "/api/v1/glossary",
+    "/api/v1/glossary/recommendations",
+    "/api/v1/glossary/{id}",
+    "/api/v1/history",
+    "/api/v1/metrics",
+    "/api/v1/metrics/audience-render",
+    "/api/v1/preflight",
+    "/api/v1/setup/cache",
+    "/api/v1/setup/runtime-jobs",
+    "/api/v1/setup/runtimes",
+    "/api/v1/state"
+  ],
+  "capture_completeness": {
+    "status": "policy_filtered",
+    "prior_activity_available": false,
+    "dropped_events_total": 0,
+    "truncated_sections": []
+  },
+  "privacy": {
+    "synthetic_data_only": true,
+    "private_audio_or_transcripts": false,
+    "model_inference": false,
+    "competitor_access": false,
+    "published_headers_cookies_bodies_storage_values": false,
+    "record_ids_redacted": true
+  },
+  "limitations": [
+    "Only activity after REA attached is observed.",
+    "Raw response values, scripts, console text, storage values and WebSocket payloads were excluded.",
+    "RSS, translation quality, audio timing, native capture and competitor parity were not measured.",
+    "Automated UI observations do not replace human accessibility or field acceptance."
+  ]
+}
