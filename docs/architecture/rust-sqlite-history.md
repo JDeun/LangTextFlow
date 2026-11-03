@@ -61,10 +61,12 @@ errors, paths, SQL text and credentials are not serialized into diagnostics.
 `flush()` is a control-plane barrier with a three-second wait bound. `stop()` first
 closes admission and captures the observed UTC end time, then drains and joins the
 owned writer within a three-second wait budget. SQLite lock waits are bounded to
-100 ms per operation. A stop timeout requests SQLite interruption and leaves the
-owner/permit retained; the caller can await `stop()` again. Cancellation of a
+100 ms per operation. A stop timeout leaves the owner/permit retained; the caller
+can await `stop()` again. Cancellation of a
 borrowed stop future does not cancel the thread. Dropping the owner closes the
-queue and requests interruption, marking the report incomplete. A kernel-level
+queue, marking the report incomplete while its bounded accepted work drains.
+The control path never invokes SQLite: the driver's interrupt operation can wait
+on a connection-close mutex. A kernel-level
 filesystem stall cannot be forcibly killed as an OS thread; capacity stays held
 until that thread actually exits.
 

@@ -111,7 +111,6 @@ pub struct HistoryWriter {
     shared: Arc<Mutex<Shared>>,
     done: watch::Receiver<bool>,
     thread: Option<JoinHandle<()>>,
-    interrupt: Arc<Mutex<Option<rusqlite::InterruptHandle>>>,
 }
 
 impl HistoryWriter {
@@ -143,8 +142,6 @@ impl HistoryWriter {
             },
         }));
         let thread_shared = shared.clone();
-        let interrupt = Arc::new(Mutex::new(None));
-        let thread_interrupt = interrupt.clone();
         let (ready_tx, ready_rx) = oneshot::channel();
         let (done_tx, done) = watch::channel(false);
         let thread = std::thread::Builder::new()
@@ -153,7 +150,6 @@ impl HistoryWriter {
                 let _permit = permit; // Keep admission through connection close and thread teardown.
                 match open_existing(&path, &sid) {
                     Ok((connection, started, source, targets)) => {
-                        *thread_interrupt.lock().unwrap() = Some(connection.get_interrupt_handle());
                         let scope = HistorySink {
                             shared: thread_shared.clone(),
                             session_id: sid,
@@ -180,7 +176,6 @@ impl HistoryWriter {
             shared,
             done,
             thread: Some(thread),
-            interrupt,
         };
         owner.sink = Some(
             tokio::time::timeout(WAIT, ready_rx)
@@ -229,9 +224,6 @@ impl HistoryWriter {
         .await
         .is_err()
         {
-            if let Some(interrupt) = self.interrupt.lock().unwrap().as_ref() {
-                interrupt.interrupt();
-            }
             return Err("history_stop_timeout");
         }
         if let Some(thread) = self.thread.take() {
@@ -249,9 +241,6 @@ impl Drop for HistoryWriter {
         if self.thread.is_some() && !*self.done.borrow() {
             state.metrics.complete = false;
             state.metrics.error = Some("history_owner_dropped");
-            if let Some(interrupt) = self.interrupt.lock().unwrap().as_ref() {
-                interrupt.interrupt();
-            }
         }
     }
 }

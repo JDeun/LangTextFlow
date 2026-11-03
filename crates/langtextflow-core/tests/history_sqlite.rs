@@ -148,6 +148,12 @@ fn canonical_target_states_provenance_timestamps_reach_python_history_export_and
 
 #[test]
 fn locked_disk_and_overflow_never_block_real_source_mt_or_fast_observer() {
+    for write_failure in [false, true] {
+        exercise_history_failure(write_failure);
+    }
+}
+
+fn exercise_history_failure(write_failure: bool) {
     let f = Fixture::new("setup");
     runtime().block_on(async {
         let session = AsrSession::default();
@@ -160,7 +166,16 @@ fn locked_disk_and_overflow_never_block_real_source_mt_or_fast_observer() {
                 .unwrap();
         session.attach_history(writer.sink()).unwrap();
         let connection = Connection::open(f.db()).unwrap();
-        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        if write_failure {
+            connection
+                .execute_batch(
+                    "CREATE TRIGGER fail_history BEFORE INSERT ON transcript_segments
+                BEGIN SELECT RAISE(FAIL,'private-path-and-credential'); END",
+                )
+                .unwrap();
+        } else {
+            connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        }
         let dispatcher = MtDispatcher::start(
             python(),
             vec!["-u".into(), "-c".into(), MT.into()],
@@ -251,12 +266,18 @@ fn locked_disk_and_overflow_never_block_real_source_mt_or_fast_observer() {
         assert!(started.elapsed() < Duration::from_secs(10));
         let report = writer.sink().metrics();
         assert!(!report.complete && (report.dropped > 0 || report.write_errors > 0));
-        connection.execute_batch("ROLLBACK").unwrap();
+        if !write_failure {
+            connection.execute_batch("ROLLBACK").unwrap();
+        }
         dispatcher.stop().await.unwrap();
         worker.unwrap().stop().await.unwrap();
         session.stop();
         let ended = Instant::now();
-        assert!(!writer.stop().await.unwrap().complete);
+        let stopped = writer.stop().await.unwrap();
+        assert!(!stopped.complete);
+        if write_failure {
+            assert_eq!(stopped.error, Some("history_write_failed"));
+        }
         assert!(ended.elapsed() < Duration::from_secs(4));
         server.stop().await.unwrap();
     });
