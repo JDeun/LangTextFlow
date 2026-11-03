@@ -40,7 +40,7 @@ authoritative snapshot to current observers; unrelated committed sources remain.
 This also removes obsolete segments when a revision shrinks or becomes empty.
 Replacement source publication uses higher versions with the new revision.
 Per-ID version history survives display eviction/invalidation, with a bounded
-32,768-ID session limit matching 128 admitted chunks × 256 inferred segments.
+32,768-ID session limit independent of the bounded source-chunk quota.
 Once any segment is COMMITTED, replacement of that chunk is rejected.
 Session restart invalidates old generation jobs and credentials. Late source or
 target results cannot populate the replacement session.
@@ -111,7 +111,8 @@ membership and monotonic versions. These synthetic tests establish ownership and
 quality or native word alignment. Cached native receipts are separate from these
 synthetic regressions and preserve unknown checkpoint provenance.
 
-Remaining acceptance includes continuous audio/VAD, correction scheduling,
+The [continuous PCM slice](rust-continuous-pcm-ingress.md) adds opt-in input ownership.
+Remaining acceptance includes production audio/VAD parity, correction scheduling,
 durable persistence/history, production operator/audience/desktop routing,
 rollback parity, and model/device/field validation. No production cutover or
 completion of the full approved architecture is claimed.
