@@ -355,6 +355,29 @@ async def test_worker_parent_pipe_closure_stops_orphaned_native_work(monkeypatch
             await process.wait()
 
 
+async def test_worker_normal_completion_exits_cleanly_with_parent_pipe_still_open(monkeypatch):
+    from langtextflow import post_event_transcript_worker
+
+    monkeypatch.setenv("PYTHONPATH", str(Path(post_event_transcript_worker.__file__).parents[1]))
+    code = (
+        "from langtextflow import post_event_transcript_worker as w; "
+        f"messages=[{{'segment':{SEGMENTS[0]!r}}},"
+        "{'progress':1},{'complete':{'test':True}}]; "
+        "w.decode=lambda *args: [w._emit(item) for item in messages]; "
+        "w.main(['unused.wav','tiny','ko','sha','cache'])"
+    )
+    progress = []
+
+    async def report(value):
+        progress.append(value)
+
+    segments, provenance = await asyncio.wait_for(
+        run_decoder([sys.executable, "-c", code], 1, report), 10,
+    )
+    assert segments == SEGMENTS and provenance == {"test": True}
+    assert progress == [1]
+
+
 def test_frozen_worker_dispatch_does_not_start_web_server(monkeypatch):
     from langtextflow import desktop_server, post_event_transcript_worker
 
