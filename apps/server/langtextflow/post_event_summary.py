@@ -221,7 +221,7 @@ async def generate_summary(
         if provider == "openai-compatible" and settings.openai_compatible_api_key
         else {}
     )
-    async with httpx.AsyncClient(timeout=httpx.Timeout(90.0)) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(90.0), trust_env=False) as client:
         async def ask(text: str, *, final: bool, source_evidence: bool = False) -> str:
             body = json.dumps(
                 {"task": "final_event_summary" if final else "evidence_notes",

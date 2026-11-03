@@ -1,6 +1,8 @@
 //! LangTextFlow's transport-neutral worker protocol and stale-result fence.
 //! Inference remains owned by Python; this crate never loads ASR/MT models.
 
+pub mod asr_slice;
+pub mod supervision;
 pub mod transport;
 
 use serde::{Deserialize, Serialize};
