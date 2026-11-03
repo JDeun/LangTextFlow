@@ -1,9 +1,11 @@
 import type {
-  CaptionDisplaySettings, ProductPreset, ReferenceDocument, SessionContext, SystemPreflight,
+  CaptionDisplaySettings, GlossaryEntry, ProductPreset, ReferenceDocument, SessionContext, SystemPreflight,
 } from "./types";
 
 /** Pure operator->backend session request contract, independent from React state. */
 export interface SessionStartInputs {
+  glossarySnapshotSha256?: string | null;
+  glossaryOverrides?: GlossaryEntry[];
   selectedProjectId: string;
   recordAudio: boolean;
   collectAudienceMetrics?: boolean;
@@ -45,7 +47,7 @@ export function buildSessionStartPayload(input: SessionStartInputs) {
     hotwords: input.hotwords.split(/[,\n]/).map((word) => word.trim()).filter(Boolean),
     // Source-scoped glossary selection and project overrides are resolved by
     // the server; never copy UI global glossary across a foreign-language session.
-    glossary: [],
+    glossary: input.glossaryOverrides ?? [],
     reference_documents: input.referenceDocuments,
     reference_text: "",
     output_modes: ["audience", "projector", "obs"],
@@ -53,6 +55,7 @@ export function buildSessionStartPayload(input: SessionStartInputs) {
     display_settings: input.displaySettings,
   };
   return {
+    ...(input.glossarySnapshotSha256 ? { glossary_snapshot_sha256: input.glossarySnapshotSha256 } : {}),
     project_id: input.selectedProjectId !== "all"
       && input.selectedProjectId !== "unassigned"
       ? input.selectedProjectId

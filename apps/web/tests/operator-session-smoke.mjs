@@ -104,6 +104,14 @@ try {
     audioResult.exceptionDetails.exception?.description || audioResult.exceptionDetails.text,
   );
   console.log(`audio capture ownership smoke passed: ${audioResult.result.value}`);
+  const snapshotResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/glossarySnapshotHarness.tsx').then((test) => test.runGlossarySnapshotChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (snapshotResult.exceptionDetails) throw new Error(
+    snapshotResult.exceptionDetails.exception?.description || snapshotResult.exceptionDetails.text,
+  );
+  console.log(`glossary pre-start snapshot smoke passed: ${snapshotResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;

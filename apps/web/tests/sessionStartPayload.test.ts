@@ -38,6 +38,16 @@ test("mock/source-only request never records audio or attaches unused provider m
   assert.deepEqual(payload.context.hotwords, ["성령", "은혜", "요한복음"]);
   assert.deepEqual(payload.context.glossary, []);
   assert.equal(payload.context.presenter, null);
+  assert.equal("glossary_snapshot_sha256" in payload, false);
+});
+
+test("review evidence is an optional precondition, separate from explicit overrides", () => {
+  const overrides = [{ term: "Grace", source_language: "en", aliases: [], translations: { ko: "은혜" },
+    category: "general", presets: [], boost: 1, enabled: true }];
+  const payload = buildSessionStartPayload({ ...base, glossarySnapshotSha256: "a".repeat(64),
+    glossaryOverrides: overrides });
+  assert.equal(payload.glossary_snapshot_sha256, "a".repeat(64));
+  assert.deepEqual(payload.context.glossary, overrides);
 });
 
 test("explicit opted-in live sermon retains project, recording and models", () => {
