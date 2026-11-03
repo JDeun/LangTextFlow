@@ -79,3 +79,14 @@ Versioned worker IPC request fields: `protocol_version`, `request_id`, `session_
 ## Decision
 
 **Proceed with a clean LangTextFlow Rust orchestration core and existing Python model workers.** Hex is a reference implementation for scheduler/admission/test patterns, **not** a direct whole-crate dependency. Native compatibility, performance and license audits remain explicit release gates.
+
+## Subsequent source refresh (2026-11-03)
+
+The [pinned optional-ASR triage](optional-asr-upstream-triage-2026-11.md) inspects
+complete Hex commit `f501c731b60bc21a488b2fdd1628a0bc8046d536`. At that revision,
+app `/streams` is documented on macOS/Linux/Windows, superseding this earlier
+snapshot's macOS-only availability statement. Embedded SDK transcription remains
+final-only; partials depend on the selected model/GPU. The current inventory also
+declares KO/JA for a streaming Nemotron variant. These are source findings, not
+new runtime measurements, copied code, or an accepted architecture/default change.
+See the linked notice inventory and unresolved adoption gates.

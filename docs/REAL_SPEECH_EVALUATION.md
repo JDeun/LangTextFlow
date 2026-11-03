@@ -237,8 +237,91 @@ load and long-event quality gates remain open.
 - Full manual workflows and implementation-change PR pilots are bounded (sample count, audio length, model options and timeouts) to prevent unintentional heavy GPU/CPU costs.
 - The FLEURS dataset download and first model bootstrap may take time. If the pinned revision is withdrawn, report failure rather than silently switching to a mutable dataset release.
 
+## Actual CaptionRuntime ASR-to-MT smoke (#100)
+
+The existing `scripts/evaluate_live_fleurs_translation.py` now supports real
+`ollama` and `m2m100-ct2` providers through `CaptionRuntime`, its actual ASR audio
+queue, per-target pipeline, persistence, and serialized hub fan-out. The separate
+`compare_multilingual_m2m100_cpu.py` experiment calls ASR/MT helpers directly and
+must not be presented as evidence of the queued runtime path.
+
+Run the existing **Church live interpretation** workflow explicitly with a frozen
+`source_sha`, `translation_provider=m2m100-ct2`, and `source_languages=both` for one
+independent Korean clip and one independent English clip. Ordinary CI runs the
+mock-wiring tests; it does not download these model weights. The workflow pins
+FLEURS, faster-whisper-base, and M2M100 revisions, verifies model-card licenses,
+and records PCM/model/tokenizer SHA-256 values. It uploads JSON/text/CSV evidence,
+never temporary WAV/PCM, model weights, or the benchmark SQLite database.
+
+Reports preserve source language, original ASR text/source revision, selected target
+text/state, session scope, timestamp violations, first-caption/translation/commit
+latency, queue/drain diagnostics, and Python RSS. The observer measures actual
+`WebSocketHub.send_json` payload delivery **in process**; ASGI authorization,
+network delay, browser paint, and a real microphone remain separate checks. The
+Ollama variant also retains external-container resource samples.
+
+Source CER/WER use each source clip's independent human transcription and the
+server store's committed original ASR text; audience delivery loss is not graded
+as recognition error. An ASR startup/inference failure leaves quality unavailable.
+Different
+FLEURS language IDs are not assumed to form aligned translation references:
+`translation_quality.chrf` is `null` with status `unavailable`. No translations or
+translation gold are fabricated. Native-model experiments are labeled
+`real-inference`; unit tests that replace native weights are labeled `mock-wiring`.
+A successful small smoke does not approve translation accuracy, 4GB/8GB hardware,
+or 30/60/90-minute service operation. Runtime/serialization failures leave bounded
+machine-readable diagnostics, and the sampler/runtime cleanup runs in `finally`.
+
+### Controlled queued-runtime smoke (2026-11-03)
+
+[Run 41596721553](https://github.com/JDeun/LangTextFlow/actions/runs/41596721553)
+measured source `e59d2d9bbeb84a8b07b7e632e05c69fd8309bc1e` on hosted Linux CPU,
+using an eight-second faster-whisper-base window and the real local M2M100 INT8
+provider. ASR revision was `ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66`; MT revision
+was `55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636`. Both model cards declared MIT.
+FLEURS stayed at the pinned revision above. Each direction used one independent
+clip and produced two committed target captions with full draining and zero
+published timestamp violations, queue drops, persistence failures, or hub failures.
+
+| Source → target / FLEURS ID | Source CER | Source WER | First caption ms | Target p95 lag ms | Python peak RSS MiB |
+|---|---:|---:|---:|---:|---:|
+| EN → KO / 1904 | 0.0476 | 0.1579 | 8456.2 | 1243.3 | 3732.54 |
+| KO → EN / 1883 | 0.1429 | 0.5000 | 8518.1 | 2887.6 | 3154.32 |
+
+The Korean run recovered once after native ASR reported `0–10s` for its final
+`4.48s` input chunk. That original error remains in the bounded diagnostics; the
+invalid result was withheld. The published recovery timestamps were in range.
+Lag uses the provider's source boundaries, including coarse recovery boundaries;
+it is an adapter estimate without independently aligned word timing or browser
+paint. Two segments per direction do not establish a population tail-latency SLO.
+
+PCM16 SHA-256 values were
+`fb4989f016644d6b06da77874632bb689c6ca2337698b84583ba5a6625a0de83` (EN, 10.56s)
+and `6aaa41029964099abe32008ef17ec538aa71aa480cc01568f6d64a65b25b30ab` (KO, 12.48s).
+[Artifact 13213000349](https://github.com/JDeun/LangTextFlow/actions/runs/41596721553/artifacts/13213000349)
+contains original source/revision records, target state, model/tokenizer file hashes,
+licenses, dependencies, and hardware. Its ZIP SHA-256 is
+`b95fe1c667eb8e56811beb7a44caeb1696d09426cf8d076b450d367911b2c1e2`; it contains no
+WAV/PCM, model weights, or SQLite files.
+
+The later report-only correction separates server-original recognition scores from
+audience delivery failures. The original records were re-evaluated under those
+rules: ASR scores, requested-target coverage, and p95 values were unchanged. The
+inference/backend tree, workflow, observer, and actual runtime execution body were
+identical apart from completion bookkeeping. Both original fields were complete,
+all queues drained, and no hub delivery was lost. Startup/disconnect/failure
+boundaries are separately covered by the explicitly mocked regression tests.
+
+Target coverage was 2/2 in each direction; translation accuracy remains unscored
+with `chrF: unavailable`. The RSS values cover the Python process, including its
+native model allocations, and do not qualify a complete 4GB device. Microphones,
+noise, semantic review, 4GB/8GB machines, and long-event gates remain open.
+
 ## Next phases
 
-Issue #77 also tracks a **real translation** benchmark. It needs independently aligned bilingual references and a running target translation model. A fake translator or copying original text into the target language cannot be scored as a real translation result.
+Independent translation-quality acceptance (#77/#108) still needs reviewed,
+aligned bilingual references. Running the native runtime smoke supplies coverage
+and timing evidence, not translation gold. A fake translator or copying source
+text into a target track cannot be scored as a real translation result.
 
 GPU tests with VibeVoice 7B and local translation/correction should run separately on self-hosted or paid GPU runners with logged VRAM, RTF, P95 lag and failover behavior.
