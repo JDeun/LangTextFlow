@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from contextlib import suppress
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
-from langtextflow.models import StartSessionRequest, TranscriptEvent
+from langtextflow.models import AsrProvenance, StartSessionRequest, TranscriptEvent
 
 ProviderFactory = Callable[[PublishEvent], AsrEngine]
 ProviderChange = Callable[[str], Awaitable[None]]
@@ -166,6 +166,8 @@ class ReplayFallbackAsrEngine(AsrEngine):
         # after the new session has reused generation zero.
         self._session_epoch = 0
         self._provider_origin_ms = 0.0
+        self._provider_origin_samples = 0
+        self._replay_prefix_samples = 0
         self._pending_generation: int | None = None
         self._candidate_serial = 0
         self._pending_candidate_serial: int | None = None
@@ -236,6 +238,8 @@ class ReplayFallbackAsrEngine(AsrEngine):
         self._ended = False
         self._generation = 0
         self._provider_origin_ms = 0.0
+        self._provider_origin_samples = 0
+        self._replay_prefix_samples = 0
         self._pending_generation = None
         self._pending_candidate_serial = None
         self._active_candidate_serial = None
@@ -398,12 +402,16 @@ class ReplayFallbackAsrEngine(AsrEngine):
         *,
         generation: int,
         origin_ms: float,
+        origin_samples: int = 0,
+        replay_samples: int = 0,
     ) -> None:
         self._active_index = index
         self._active_name = self.candidates[index][0]
         self._active = engine
         self._generation = generation
         self._provider_origin_ms = origin_ms
+        self._provider_origin_samples = origin_samples
+        self._replay_prefix_samples = replay_samples
         self._active_candidate_serial = self._pending_candidate_serial
         self._pending_candidate_serial = None
         self._pending_overflowed = False
@@ -471,6 +479,8 @@ class ReplayFallbackAsrEngine(AsrEngine):
                 engine,
                 generation=generation,
                 origin_ms=origin_ms,
+                origin_samples=origin_samples,
+                replay_samples=replay_samples,
             )
             self._failover_count += 1
             self._last_failover_reason = f"{old_name}: {reason}"
@@ -535,6 +545,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
             else None
         )
         text = event.text.strip()
+        overlap_trimmed = False
 
         if self._generation > 0 and mapped_end is not None:
             if mapped_end <= self._last_published_end_ms:
@@ -544,11 +555,22 @@ class ReplayFallbackAsrEngine(AsrEngine):
                 if not text:
                     return
                 mapped_start = self._last_published_end_ms
+                overlap_trimmed = True
 
+        provenance = event.asr_provenance or AsrProvenance(
+            provider=self._active_name or "unknown", sample_rate=self._sample_rate,
+        )
+        provenance = provenance.model_copy(update={
+            "auto_generation": self._generation,
+            "timeline_offset_samples": self._provider_origin_samples,
+            "replay_prefix_samples": self._replay_prefix_samples,
+            "overlap_trimmed": overlap_trimmed or provenance.overlap_trimmed,
+        })
         rebased = event.model_copy(
             update={
                 "segment_id": f"auto-{self._generation:02d}-{event.segment_id}",
                 "text": text,
+                "asr_provenance": provenance,
                 "start_ms": mapped_start,
                 "end_ms": mapped_end,
             }

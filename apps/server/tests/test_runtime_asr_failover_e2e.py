@@ -132,3 +132,10 @@ async def test_runtime_asr_failover_preserves_translation_and_durable_history(tm
     assert len(stored) == 1
     assert stored[0].stage is CaptionStage.COMMITTED
     assert stored[0].translations["en"]
+
+    assert stored[0].asr_provenance.provider == "fallback"
+    assert stored[0].asr_provenance.timestamp_basis == "unknown"
+    assert stored[0].asr_provenance.auto_generation == 1
+    assert stored[0].asr_provenance.replay_prefix_samples == 10
+    assert stored[0].translation_provenance["en"].provider == "demo"
+    assert stored[0].translation_provenance["en"].configured_model == "deterministic-demo"

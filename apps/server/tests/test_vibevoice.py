@@ -156,6 +156,11 @@ async def test_vibevoice_streaming_contract(monkeypatch: pytest.MonkeyPatch) -> 
     assert published[0].stage is CaptionStage.STABLE
     assert published[0].text == "오늘 말씀을 시작하겠습니다"
     assert published[0].source_language == "ko"
+    assert published[0].asr_provenance.provider == "vibevoice"
+    assert published[0].asr_provenance.timestamp_basis == "sequence_estimated"
+    assert published[0].asr_provenance.audio_chunk_start_sample is None
+    assert published[0].asr_provenance.audio_chunk_end_sample == 400
+    assert published[0].asr_provenance.configured_model is None
 
     await engine.stop()
     assert fake_ws.closed is True

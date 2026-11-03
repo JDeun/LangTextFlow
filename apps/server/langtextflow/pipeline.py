@@ -20,6 +20,7 @@ from .models import (
     CorrectionStatus,
     StartSessionRequest,
     TranscriptEvent,
+    TranslationProvenance,
     TranslationStatus,
 )
 from .translation import (
@@ -208,6 +209,15 @@ class CaptionPipeline:
         # A changed STABLE may supersede either queued or running work.
         # Serialize revisions per segment so concurrent ASR callbacks cannot
         # race on version allocation or publish the same epoch twice.
+        if event.stage is CaptionStage.STABLE and self.request is not None:
+            translator = self.translator
+            event = event.model_copy(update={"translation_provenance": {
+                target: TranslationProvenance(
+                    provider=getattr(translator, "provider", "unknown"),
+                    requested_model=self.request.translation_model,
+                    configured_model=getattr(translator, "model", None),
+                ) for target in self.request.target_languages
+            } if translator is not None else {}})
         previous_revision = self._source_revisions.get(event.segment_id)
         if (
             event.stage is CaptionStage.STABLE
@@ -629,7 +639,7 @@ class CaptionPipeline:
                 model=model,
                 deterministic_changed=deterministic_changed,
                 changed=deterministic_changed,
-                fallback_reason=self.correction_status.error or "correction provider unavailable",
+                fallback_reason="correction provider unavailable",
             )
 
         try:
@@ -674,7 +684,11 @@ class CaptionPipeline:
             llm_attempted=True,
             llm_applied=False,
             changed=deterministic_changed,
-            fallback_reason=reason,
+            fallback_reason=(
+                "correction timed out; using deterministic result"
+                if reason.startswith("correction timed out") else
+                "correction provider failed; using deterministic result"
+            ),
         )
 
     async def _process_stable(self, event: TranscriptEvent) -> None:
@@ -818,6 +832,8 @@ class CaptionPipeline:
             ),
             translations=dict(translations or {}),
             translation_states=dict(translation_states or {}),
+            asr_provenance=previous.asr_provenance,
+            translation_provenance=previous.translation_provenance,
             start_ms=previous.start_ms,
             end_ms=previous.end_ms,
             speaker=previous.speaker,

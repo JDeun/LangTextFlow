@@ -4,7 +4,7 @@ import asyncio
 from contextlib import suppress
 
 from langtextflow.asr.base import AsrEngine, PublishEvent
-from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+from langtextflow.models import AsrProvenance, CaptionStage, StartSessionRequest, TranscriptEvent
 
 SAMPLES = [
     "오늘 우리가 볼 말씀은 요한 보금 삼장입니다",
@@ -67,6 +67,7 @@ class MockStreamingAsrEngine(AsrEngine):
                         stage=CaptionStage.PARTIAL,
                         source_language=self._request.source_language,
                         text=raw[:-3],
+                        asr_provenance=AsrProvenance(provider="mock", timestamp_basis="synthetic"),
                         start_ms=start_ms,
                         confidence=0.72,
                     )
@@ -79,6 +80,7 @@ class MockStreamingAsrEngine(AsrEngine):
                         stage=CaptionStage.STABLE,
                         source_language=self._request.source_language,
                         text=raw,
+                        asr_provenance=AsrProvenance(provider="mock", timestamp_basis="synthetic"),
                         start_ms=start_ms,
                         end_ms=start_ms + 5000,
                         confidence=0.93,
