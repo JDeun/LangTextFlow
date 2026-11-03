@@ -1,0 +1,80 @@
+"""Experimental stdio JSONL echo fixture, not a production ASR/MT backend.
+
+The parent owns cancellation, deadlines and worker restart. Oversized control
+frames terminate the fixture; speech/audio must never be sent on this channel.
+"""
+from __future__ import annotations
+
+import json
+import sys
+
+PROTOCOL_VERSION = 1
+MAX_FRAME_BYTES = 128 * 1024  # Includes the newline; matches the Rust transport.
+TASK_KINDS = {"asr", "translation", "correction"}
+
+
+def error_reply(error: str) -> dict:
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "request_id": "",
+        "session_id": "",
+        "session_generation": 0,
+        "segment_id": "",
+        "source_revision": 0,
+        "status": "error",
+        "result": None,
+        "error": error,
+    }
+
+
+def handle_request(request: dict) -> dict:
+    identity = {
+        "protocol_version": PROTOCOL_VERSION,
+        "request_id": request.get("request_id", ""),
+        "session_id": request.get("session_id", ""),
+        "session_generation": request.get("session_generation", 0),
+        "segment_id": request.get("segment_id", ""),
+        "source_revision": request.get("source_revision", 0),
+    }
+    if request.get("protocol_version") != PROTOCOL_VERSION:
+        return {
+            **identity, "status": "error", "result": None,
+            "error": "unsupported_protocol_version",
+        }
+    if request.get("task_kind") not in TASK_KINDS:
+        return {**identity, "status": "error", "result": None, "error": "unsupported_task_kind"}
+    if not isinstance(request.get("payload"), str):
+        return {**identity, "status": "error", "result": None, "error": "invalid_payload"}
+    # Echo only; payloads are never evaluated, executed, or passed to a model.
+    return {**identity, "status": "ok", "result": request["payload"], "error": None}
+
+
+def main() -> None:
+    while line := sys.stdin.buffer.readline(MAX_FRAME_BYTES + 1):
+        if len(line) > MAX_FRAME_BYTES or not line.endswith(b"\n"):
+            reply = error_reply("frame_too_large_or_unterminated")
+            terminal = True
+        else:
+            terminal = False
+            try:
+                request = json.loads(line)
+                if not isinstance(request, dict):
+                    raise ValueError("request must be a JSON object")
+                reply = handle_request(request)
+            except (ValueError, TypeError, RecursionError) as exc:
+                reply = error_reply(str(exc))
+        try:
+            frame = (json.dumps(reply, ensure_ascii=False, separators=(",", ":")) + "\n").encode()
+        except UnicodeError:
+            frame = (json.dumps(error_reply("invalid_utf8")) + "\n").encode()
+        if len(frame) > MAX_FRAME_BYTES:
+            frame = (json.dumps(error_reply("reply_frame_too_large")) + "\n").encode()
+            terminal = True
+        sys.stdout.buffer.write(frame)
+        sys.stdout.buffer.flush()
+        if terminal:
+            return
+
+
+if __name__ == "__main__":
+    main()
