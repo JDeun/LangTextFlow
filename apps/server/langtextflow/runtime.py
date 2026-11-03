@@ -34,6 +34,10 @@ _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _PERSISTENCE_FAILURE = "Local session storage unavailable; check disk and database health."
 
 
+class SessionChangedError(RuntimeError):
+    """A stop request belongs to a session that is no longer current."""
+
+
 class CaptionRuntime:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -411,11 +415,18 @@ class CaptionRuntime:
         self.engine = engine
         self.state = SessionState(
             session_id=str(uuid4()),
+            project_id=request.project_id,
             join_code=self._join_code(),
             running=False,
             source_language=request.source_language,
             target_languages=request.target_languages,
             engine=request.engine,
+            resource_profile=(
+                "low" if (
+                    self.settings.resource_profile == "low" or request.resource_profile == "low"
+                )
+                else "standard"
+            ),
             context=request.context,
             audio_required=engine.accepts_audio,
             audio_sample_rate=engine.sample_rate,
@@ -482,8 +493,10 @@ class CaptionRuntime:
             raise
         return self.state
 
-    async def stop(self) -> SessionState:
+    async def stop(self, expected_session_id: str | None = None) -> SessionState:
         async with self._lifecycle_lock:
+            if expected_session_id is not None and self.state.session_id != expected_session_id:
+                raise SessionChangedError("session changed; refresh before stopping")
             return await self._stop_unlocked()
 
     async def _stop_unlocked(self) -> SessionState:
