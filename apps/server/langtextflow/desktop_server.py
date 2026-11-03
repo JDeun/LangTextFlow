@@ -154,6 +154,11 @@ async def _serve_desktop(app: Any, *, host: str, port: int) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1 and sys.argv[1] == "--post-event-transcript-worker":
+        from langtextflow.post_event_transcript_worker import main as transcript_worker
+
+        transcript_worker(sys.argv[2:])
+        return
     web_root = _prepare_desktop_environment()
 
     from langtextflow.config import get_settings

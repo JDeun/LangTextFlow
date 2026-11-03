@@ -4,12 +4,14 @@ set -euo pipefail
 test_root="$(mktemp -d /tmp/ltf-e2e-data-XXXXXX)"
 export LANGTEXTFLOW_DATABASE_PATH="${LANGTEXTFLOW_DATABASE_PATH:-$test_root/events.db}"
 export LANGTEXTFLOW_MODEL_CACHE_DIR="${LANGTEXTFLOW_MODEL_CACHE_DIR:-$test_root/models}"
+log_dir="${LTF_E2E_LOG_DIR:-$test_root}"
+mkdir -p "$log_dir"
 
-uv run python -m uvicorn langtextflow.main:app --app-dir apps/server --host 127.0.0.1 --port 8000 >/tmp/ltf-e2e-api.log 2>&1 &
+uv run python -m uvicorn langtextflow.main:app --app-dir apps/server --host 127.0.0.1 --port 8000 >"$log_dir/api.log" 2>&1 &
 api_pid=$!
 (
   cd apps/web
-  npx vite preview --host 127.0.0.1 --port 5173 >/tmp/ltf-e2e-web.log 2>&1
+  exec node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 5173 --strictPort >"$log_dir/web.log" 2>&1
 ) &
 web_pid=$!
 chrome_bin="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
@@ -37,7 +39,7 @@ start_chrome() {
   "$chrome_bin" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \
     --no-first-run --no-default-browser-check --disable-extensions \
     --remote-debugging-port=9222 --user-data-dir="$chrome_profile" about:blank \
-    >/tmp/ltf-e2e-chrome.log 2>&1 &
+    >"$log_dir/chrome.log" 2>&1 &
   chrome_pid=$!
 }
 
@@ -61,7 +63,7 @@ for attempt in 1 2; do
   start_chrome
   if ready_chrome; then break; fi
   echo "Chromium DevTools unavailable (attempt $attempt)" >&2
-  tail -n 35 /tmp/ltf-e2e-chrome.log >&2 || true
+  tail -n 35 "$log_dir/chrome.log" >&2 || true
   kill "$chrome_pid" 2>/dev/null || true
   wait "$chrome_pid" 2>/dev/null || true
   chrome_pid=""
@@ -71,7 +73,8 @@ for attempt in 1 2; do
 done
 
 for _ in $(seq 1 80); do
-  if curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null \
+  if [[ $(<"$log_dir/web.log") == *"Local:"* ]] \
+    && curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null \
     && curl --fail --silent --max-time 2 http://127.0.0.1:5173/ >/dev/null; then
     break
   fi
@@ -80,11 +83,12 @@ done
 if ! curl --fail --silent --max-time 2 http://127.0.0.1:8000/health >/dev/null \
    || ! curl --fail --silent --max-time 2 http://127.0.0.1:5173/ >/dev/null; then
   echo "E2E API/web services failed readiness checks" >&2
-  tail -n 30 /tmp/ltf-e2e-api.log /tmp/ltf-e2e-web.log >&2 || true
+  tail -n 30 "$log_dir/api.log" "$log_dir/web.log" >&2 || true
   exit 1
 fi
 
 node apps/web/tests/e2e-smoke.mjs
+node apps/web/tests/operator-session-smoke.mjs
 node apps/web/tests/focus-smoke.mjs
 node apps/web/tests/localization-layout-smoke.mjs
 node apps/web/tests/a11y-smoke.mjs

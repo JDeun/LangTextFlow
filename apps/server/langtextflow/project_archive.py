@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from .post_event_archive import PostEventArchive
-from .post_event_summary import transcript_source
 from .project_repository import ProjectRepository
 from .session_repository import SessionRepository
 
@@ -42,8 +41,7 @@ def build_project_archive_manifest(
         stale = False
         if summary is not None:
             try:
-                _, current = transcript_source(sessions.segments(session_id))
-                stale = current != summary["transcript_sha256"]
+                stale = archive.transcripts.summary_stale(summary, sessions.segments(session_id))
             except ValueError:
                 stale = True
         items.append(
@@ -77,6 +75,8 @@ def build_project_archive_manifest(
                         "model": summary["model"],
                         "provider": summary["provider"],
                         "transcript_sha256": summary["transcript_sha256"],
+                        "transcript_id": summary.get("transcript_id"),
+                        "approved_transcript_id": summary.get("approved_transcript_id"),
                         "prompt_version": summary["prompt_version"],
                         "stale": stale,
                         "excerpt": (review["content"] if review else summary["content"])[:400],

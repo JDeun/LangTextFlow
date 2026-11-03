@@ -1,15 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { API_URL } from "./api";
 import { installCaptionRenderCollector } from "./captionRenderMetrics";
-import {
-  AudioCaptureController,
-  requestAudioInputs,
-  type AudioInputDevice,
-} from "./audioCapture";
+import { AudienceApp } from "./AudienceApp";
+import { useOperatorSession } from "./useOperatorSession";
 import { AudienceAccess } from "./AudienceAccess";
-import { rollbackFailedSessionStart } from "./sessionStartRollback";
 import { AsrProviderSelect } from "./AsrProviderSelect";
-import { asrBlockReason } from "./asrCapabilities";
 import { useAsrCapabilities } from "./useAsrCapabilities";
 import { ContextDocumentManager } from "./ContextDocumentManager";
 import { captionTextForLanguage as displayCaption } from "./captionLanguage";
@@ -19,36 +14,28 @@ import { GlossaryManager } from "./GlossaryManager";
 import { GLOSSARY_COPY } from "./glossaryCopy";
 import { GlossaryRecommendations } from "./GlossaryRecommendations";
 import { LanguageSwitcher, useI18n, type TranslationKey } from "./i18n";
-import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
+import { captionLanguages, LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { LiveCaption } from "./LiveCaption";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { OPERATOR_COPY } from "./operatorCopy";
 import { RECORDING_COPY } from "./recordingCopy";
 import { AUDIENCE_METRICS_COPY } from "./audienceMetricsCopy";
-import { useAudienceLatencyReporting } from "./useAudienceLatencyReporting";
 import { PreflightPanel } from "./PreflightPanel";
 import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
 import { SessionHistory } from "./SessionHistory";
 import { DEFAULT_KOREAN_HOTWORDS } from "./sessionDefaults";
-import {
-  buildSessionStartPayload, translationProviderUsesModel,
-} from "./sessionStartPayload";
+import { translationProviderUsesModel } from "./sessionStartPayload";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import { TranslationProviderSelect } from "./TranslationProviderSelect";
-import { providerBlockReason } from "./translationCapabilities";
 import { useTranslationCapabilities } from "./useTranslationCapabilities";
 import { TelemetryPanel } from "./TelemetryPanel";
 import { useCaptionSocket } from "./useCaptionSocket";
 import type {
-  AudienceSessionView,
   CaptionDisplaySettings,
   EventProject,
   ProductPreset,
   RecommendedConfiguration,
   ReferenceDocument,
-  SessionState,
-  SystemPreflight,
-  TranscriptEvent,
 } from "./types";
 
 const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lecture"];
@@ -79,125 +66,17 @@ function reconcileTargets(sourceLanguage: string, targets: string[]) {
   return filtered.length > 0 ? filtered : [defaultTargetForSource(sourceLanguage)];
 }
 
-function captionLanguages(sourceLanguage: string, targetLanguages: string[]) {
-  return [sourceLanguage, ...targetLanguages.filter((code) => code !== sourceLanguage)];
-}
-
-function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode: boolean }) {
-  const { t, locale } = useI18n();
-  const { connected, segments, terminalError } = useCaptionSocket(
-    `/ws/audience/${encodeURIComponent(joinCode)}`,
-  );
-  const [session, setSession] = useState<AudienceSessionView | null>(null);
-  const [metricsConsent, setMetricsConsent] = useState(false);
-  useAudienceLatencyReporting(API_URL, joinCode,
-    metricsConsent && Boolean(session?.collect_audience_metrics) && connected && !displayMode);
-  const [error, setError] = useState("");
-  const queryLanguage = new URLSearchParams(window.location.search).get("lang") ?? "";
-  const [language, setLanguage] = useState(queryLanguage);
-  const latest = segments.at(-1);
-
-  useEffect(() => {
-    fetch(`${API_URL}/api/v1/audience/${encodeURIComponent(joinCode)}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(t("audience.invalidSession"));
-        return (await response.json()) as AudienceSessionView;
-      })
-      .then((data) => {
-        setSession(data);
-        const available = captionLanguages(data.source_language, data.target_languages);
-        setLanguage((current) => {
-          if (current && available.includes(current)) return current;
-          return data.target_languages[0] || data.source_language;
-        });
-      })
-      .catch((reason: Error) => setError(reason.message));
-  }, [joinCode]);
-
-  if (error || terminalError) {
-    return <main className="audience-error">{error || terminalError}</main>;
-  }
-  if (!session || !language) {
-    return <main className="audience-error">{t("audience.loading")}</main>;
-  }
-
-  const availableLanguages = captionLanguages(session.source_language, session.target_languages);
-  const displaySettings = session.display_settings;
-
-  if (displayMode) {
-    const mode = new URLSearchParams(window.location.search).get("mode") ?? "projector";
-    return (
-      <main className={`display-shell ${mode}`}>
-        <LiveCaption
-          segment={latest}
-          language={language}
-          settings={displaySettings}
-          surface="display"
-          primaryClassName="display-caption"
-          sourceClassName="display-source"
-        />
-      </main>
-    );
-  }
-
-  return (
-    <main className="audience-shell">
-      <header className="audience-header">
-        <div>
-          <div className="brand">{session.title}</div>
-          <div className="subtitle">{session.presenter || "LangTextFlow Live"}</div>
-        </div>
-        <div className={`connection ${connected ? "online" : "offline"}`}>
-          <span className="dot" /> {connected ? "LIVE" : t("audience.connecting")}
-        </div>
-      </header>
-      <label className="audience-language">
-        {t("audience.captionLanguage")}
-        <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-          {availableLanguages.map((code) => (
-            <option key={code} value={code}>
-              {languageLabel(code)}{code === session.source_language ? ` · ${t("audience.source")}` : ""}
-            </option>
-          ))}
-        </select>
-      </label>
-      {session.collect_audience_metrics && (
-        <label>
-          <input type="checkbox" checked={metricsConsent}
-            data-testid="audience-metrics-consent"
-            onChange={(event) => setMetricsConsent(event.target.checked)} />
-          {AUDIENCE_METRICS_COPY[locale].audienceConsent}
-        </label>
-      )}
-      <section className="audience-caption-card">
-        <LiveCaption
-          segment={latest}
-          language={language}
-          settings={displaySettings}
-          surface="audience"
-          primaryClassName="audience-caption"
-          sourceClassName="audience-source"
-        />
-      </section>
-      <section className="audience-transcript">
-        {segments.slice(-8).reverse().map((segment) => (
-          <article key={segment.segment_id}>
-            <span>{displayCaption(segment, language, t("live.emptyCaption"))}</span>
-            {segment.stage === "partial" && <small>draft</small>}
-          </article>
-        ))}
-      </section>
-    </main>
-  );
-}
-
 function OperatorApp() {
   const { locale, t } = useI18n();
   const operatorCopy = OPERATOR_COPY[locale];
   const glossaryCopy = GLOSSARY_COPY[locale];
   const recordingCopy = RECORDING_COPY[locale];
   const { connected, segments, terminalError } = useCaptionSocket();
-  const captureRef = useRef<AudioCaptureController | null>(null);
+  const {
+    session, running, busy, error, devices, deviceId, setDeviceId,
+    recordAudio, setRecordAudio, collectAudienceMetrics, setCollectAudienceMetrics,
+    refreshDevices, start: startSession, stop,
+  } = useOperatorSession();
   const [sourceLanguage, setSourceLanguage] = useState("ko");
   const [targetLanguages, setTargetLanguages] = useState<string[]>(["en"]);
   const [previewLanguage, setPreviewLanguage] = useState("en");
@@ -244,23 +123,13 @@ function OperatorApp() {
   const [translationProvider, setTranslationProvider] = useState("ollama");
   const translationRegistry = useTranslationCapabilities();
   const [translationModel, setTranslationModel] = useState("translategemma:4b");
-  const [devices, setDevices] = useState<AudioInputDevice[]>([]);
-  const [deviceId, setDeviceId] = useState("");
-  // Recording consent is always an explicit per-session choice (never persisted).
-  const [recordAudio, setRecordAudio] = useState(false);
-  const [collectAudienceMetrics, setCollectAudienceMetrics] = useState(false);
-  const [session, setSession] = useState<SessionState | null>(null);
   const [projects, setProjects] = useState<EventProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("all");
   const [projectLoadError, setProjectLoadError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "complete",
   );
 
-  const running = session?.running ?? false;
-  useEffect(() => { if (!running) setCollectAudienceMetrics(false); }, [running]);
   const latest = segments.at(-1);
   const recent = useMemo(() => segments.slice(-6).reverse(), [segments]);
   const availablePreviewLanguages = useMemo(
@@ -268,30 +137,6 @@ function OperatorApp() {
     [sourceLanguage, targetLanguages],
   );
   const historyRefreshToken = `${session?.session_id ?? "none"}:${running}`;
-  // The recorder may fail while ASR continues; surface its health promptly.
-  // Poll only the local operator state and only for opted-in live sessions.
-  useEffect(() => {
-    const sessionId = session?.session_id;
-    if (!running || !session?.recording_enabled || !sessionId) return;
-    let closed = false;
-    const refreshRecordingHealth = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/v1/state`);
-        if (!response.ok) return;
-        const next = (await response.json()) as SessionState;
-        if (closed || next.session_id !== sessionId) return;
-        setSession((current) => {
-          if (!current?.running || current.session_id !== sessionId) return current;
-          if (current.recording_error === next.recording_error) return current;
-          return { ...current, recording_error: next.recording_error };
-        });
-      } catch {
-        // A transient status poll failure must not affect live audio processing.
-      }
-    };
-    const timer = window.setInterval(() => void refreshRecordingHealth(), 2500);
-    return () => { closed = true; window.clearInterval(timer); };
-  }, [running, session?.recording_enabled, session?.session_id]);
 
   const needsAudio = engine !== "mock";
   const glossaryTargetLanguage = targetLanguages.includes(previewLanguage)
@@ -369,154 +214,14 @@ function OperatorApp() {
     setOnboardingOpen(false);
   }
 
-  async function refreshDevices() {
-    setError("");
-    try {
-      const result = await requestAudioInputs();
-      setDevices(result);
-      setDeviceId((current) => current || result[0]?.deviceId || "");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("audio.deviceError"));
-    }
-  }
-
-  async function assertPreflightReady() {
-    const asrReason = asrBlockReason(asrRegistry, engine, sourceLanguage);
-    if (asrReason !== null) {
-      throw new Error(`ASR provider unavailable or unsupported (${asrReason})`);
-    }
-    const reason = providerBlockReason(
-      translationRegistry, translationProvider, sourceLanguage, targetLanguages, engine,
-    );
-    if (reason !== null) {
-      throw new Error(`Translation provider unavailable or unsupported (${reason}); check provider configuration and languages`);
-    }
-    const query = new URLSearchParams({
-      engine,
-      translation_provider: translationProvider,
-      resource_profile: resourceProfile,
-    });
-    if (translationProviderUsesModel(translationProvider) && translationModel.trim()) {
-      query.set("translation_model", translationModel.trim());
-    }
-    const response = await fetch(`${API_URL}/api/v1/preflight?${query}`);
-    if (!response.ok) {
-      const detail = await response.text();
-      throw new Error(detail || `${t("preflight.requestFailed")} (${response.status})`);
-    }
-    const report = (await response.json()) as SystemPreflight;
-    if (!report.ready) {
-      const labels = report.blocking_checks
-        .map((checkId) => report.checks.find((check) => check.id === checkId)?.label || checkId)
-        .join(", ");
-      throw new Error(`${t("preflight.needsSetup")}: ${labels || t("preflight.checkSystem")}`);
-    }
-  }
-
   async function start() {
-    setBusy(true);
-    setError("");
-    let startConfirmed = false;
-    try {
-      await assertPreflightReady();
-
-      let selectedDevice = deviceId;
-      if (needsAudio && !selectedDevice) {
-        const result = await requestAudioInputs();
-        setDevices(result);
-        selectedDevice = result[0]?.deviceId || "";
-        setDeviceId(selectedDevice);
-        if (!selectedDevice) throw new Error(t("audio.noDevice"));
-      }
-
-      // An HTTP validation error is not evidence this tab owns the current
-      // server session. Roll back only after an acknowledged successful start.
-      const response = await fetch(`${API_URL}/api/v1/session/start`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildSessionStartPayload({
-          selectedProjectId,
-          recordAudio,
-          collectAudienceMetrics,
-          needsAudio,
-          sourceLanguage,
-          targetLanguages,
-          engine,
-          resourceProfile,
-          correctionProvider,
-          correctionModel,
-          translationProvider,
-          translationModel,
-          title,
-          presenter,
-          preset,
-          hotwords,
-          referenceDocuments,
-          displaySettings,
-        })),
-      });
-      if (!response.ok) throw new Error(await response.text());
-      startConfirmed = true;
-      const nextSession = (await response.json()) as SessionState;
-      setSession(nextSession);
-      if (nextSession.context?.reference_documents) {
-        setReferenceDocuments(nextSession.context.reference_documents);
-      }
-
-      if (nextSession.audio_required) {
-        const capture = new AudioCaptureController((message) => {
-          setError(message);
-          void (async () => {
-            await capture.stop().catch(() => undefined);
-            if (captureRef.current === capture) captureRef.current = null;
-            const stopResponse = await fetch(`${API_URL}/api/v1/session/stop`, {
-              method: "POST",
-            }).catch(() => null);
-            if (stopResponse?.ok) {
-              setSession((await stopResponse.json()) as SessionState);
-              setRecordAudio(false);
-            }
-          })();
-        });
-        captureRef.current = capture;
-        await capture.start(selectedDevice);
-      }
-    } catch (reason) {
-      await rollbackFailedSessionStart(startConfirmed, {
-        stopCapture: async () => {
-          const capture = captureRef.current;
-          captureRef.current = null;
-          await capture?.stop();
-        },
-        stopRemote: async () => {
-          await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
-        },
-      });
-      if (startConfirmed) {
-        setSession(null);
-        setRecordAudio(false);
-      }
-      setError(reason instanceof Error ? reason.message : t("error.startFailed"));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function stop() {
-    setBusy(true);
-    setError("");
-    try {
-      await captureRef.current?.stop();
-      captureRef.current = null;
-      const response = await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
-      if (!response.ok) throw new Error(await response.text());
-      setSession((await response.json()) as SessionState);
-      // Explicit consent is scoped to one session; never carry it to the next event.
-      setRecordAudio(false);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t("error.stopFailed"));
-    } finally {
-      setBusy(false);
+    const nextSession = await startSession({
+      selectedProjectId, sourceLanguage, targetLanguages, engine, resourceProfile,
+      correctionProvider, correctionModel, translationProvider, translationModel,
+      title, presenter, preset, hotwords, referenceDocuments, displaySettings,
+    }, { asr: asrRegistry, translation: translationRegistry });
+    if (nextSession?.context?.reference_documents) {
+      setReferenceDocuments(nextSession.context.reference_documents);
     }
   }
 
