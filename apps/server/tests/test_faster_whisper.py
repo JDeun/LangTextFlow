@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from array import array
+from types import SimpleNamespace
 
 import pytest
 
@@ -181,3 +183,89 @@ async def test_faster_whisper_uses_integer_pcm_clock_across_many_chunks() -> Non
         for earlier, later in zip(published, published[1:], strict=False)
     )
     await engine.stop()
+
+
+def native_timestamp_engine(monkeypatch, publish, *, start=0.85, end=4.85, info=None):
+    # Keep the base test suite independent of the optional numpy/Whisper install.
+    monkeypatch.setitem(sys.modules, "numpy", SimpleNamespace(
+        float32=float,
+        frombuffer=lambda audio, **_: SimpleNamespace(astype=lambda *_, **__: audio),
+    ))
+
+    def transcribe(audio, **options):
+        assert audio == pcm(4)
+        assert options["vad_filter"] is True
+        return iter([SimpleNamespace(start=start, end=end, text=" source speech ")]), info
+
+    engine = FasterWhisperStreamingAsrEngine(publish)
+    engine._model = SimpleNamespace(transcribe=transcribe)
+    engine._request = StartSessionRequest(engine="faster-whisper")
+    return engine
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_bounds_vad_restored_tail_using_transcribe_metadata(
+    monkeypatch, caplog,
+) -> None:
+    published = []
+
+    async def publish(event):
+        published.append(event)
+
+    engine = native_timestamp_engine(
+        monkeypatch, publish,
+        info=SimpleNamespace(duration=4.0, duration_after_vad=3.15),
+    )
+    await engine._process_chunk(pcm(4))
+    await engine._process_chunk(pcm(4))
+
+    assert [(event.start_ms, event.end_ms) for event in published] == [
+        (850, 4000), (4850, 8000),
+    ]
+    assert published[0].text == "source speech"
+    assert "VAD removed 0.850s" in caplog.text
+    assert "segment timestamps remain estimates" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("start", "end"), [
+    (-0.5, 4.85), (float("nan"), 4.85), (0.85, float("nan")),
+    (0.85, float("inf")), (0.85, 24.85), (5.0, 5.85), (1.0, 0.5),
+    (0.85, 5.11),
+])
+async def test_faster_whisper_native_invalid_timestamps_still_rejected(
+    monkeypatch, start, end,
+) -> None:
+    published = []
+
+    async def publish(event):
+        published.append(event)
+
+    engine = native_timestamp_engine(
+        monkeypatch, publish, start=start, end=end,
+        info=SimpleNamespace(duration=4.0, duration_after_vad=3.15),
+    )
+    with pytest.raises(AsrEngineError, match="out-of-bounds"):
+        await engine._process_chunk(pcm(4))
+    assert not published
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("info", [
+    None,
+    SimpleNamespace(duration=5.0, duration_after_vad=3.15),
+    SimpleNamespace(duration=4.0, duration_after_vad=4.0),
+    SimpleNamespace(duration=4.0, duration_after_vad=0.0),
+    SimpleNamespace(duration=4.0, duration_after_vad=float("nan")),
+    SimpleNamespace(duration=4.0, duration_after_vad=5.0),
+])
+async def test_faster_whisper_requires_valid_vad_metadata_to_bound_tail(monkeypatch, info):
+    published = []
+
+    async def publish(event):
+        published.append(event)
+
+    engine = native_timestamp_engine(monkeypatch, publish, info=info)
+    with pytest.raises(AsrEngineError, match="out-of-bounds"):
+        await engine._process_chunk(pcm(4))
+    assert not published

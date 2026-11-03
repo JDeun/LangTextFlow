@@ -26,6 +26,7 @@ Foreign keys cascade with session deletion. WAV bytes live in `<database-directo
 4. Choose **Generate / retry with local Ollama** to create a post-event summary. It defaults to the configured local `ollama_correction_model` (currently `qwen3.5:4b`); that model must be installed and reachable. No external provider is silently selected.
 5. The summary runs in an async job. The panel polls status; failure never changes or removes the original transcript. Generation is idempotent when the same transcript hash/provider/model/language/prompt version already has a completed result.
 6. Compare the summary against the transcript, retain exact source citations, save a review draft, then explicitly approve and lock it. Concurrent edits are rejected with HTTP 409. A changed source hash blocks approval; generate a new summary from the new evidence. Text export uses the saved review when present; the original AI draft remains available in the panel. Project manifests/reports retain approval and stale status.
+7. Use the source citation buttons to clear transcript filtering, select the original language and focus the referenced committed segment. Only exact IDs/timecodes in the loaded session can be linked. These controls navigate the transcript; they do not claim sample-accurate audio alignment.
 
 ## Automatic recording (stacked implementation)
 
