@@ -6,6 +6,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
+from scripts import diagnose_frozen_prepare_exit as diagnostic
 from scripts.diagnose_frozen_prepare_exit import ROOT, sanitize
 
 
@@ -28,3 +31,31 @@ def test_test_hook_records_source_invalid_exit_without_stdout(tmp_path: Path) ->
     assert {"runtime_hook_entered", "m2m100_prepare_worker.py:<module>:entered",
             "m2m100_prepare_worker.py:main:entered", "invalid_args_check_before",
             "m2m100_prepare_worker.py:SystemExit:2", "python_atexit"} <= markers
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable fixture; Windows real binary CI")
+def test_successful_case_defers_descendant_cleanup(tmp_path, monkeypatch) -> None:
+    fixture = tmp_path / "fixture"
+    fixture.write_text(
+        f"#!{sys.executable}\n"
+        "import subprocess,sys,time\n"
+        "subprocess.Popen([sys.executable, '-c', 'import time;time.sleep(30)'], "
+        "stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
+        "time.sleep(.5)\nraise SystemExit(2)\n"
+    )
+    fixture.chmod(0o700)
+    output = tmp_path / "out"
+    output.mkdir()
+    monkeypatch.setattr(diagnostic, "OUTPUT", output)
+    owned = {}
+    try:
+        result = diagnostic.case(fixture, tmp_path / "app", 0, False, False, True,
+                                 arguments=[], expected_code=2, managed_pipe=True,
+                                 sequence_owned=owned)
+        assert result["returncode"] == 2 and result["cleanup_deferred_to_sequence_end"]
+        assert result["survivors_after_case"], "success must not erase original descendant state"
+        assert "failure_cleanup" not in result
+        cleanup = diagnostic.reap_owned(owned)
+        assert cleanup["forced_kills"] and cleanup["owned_tree_reaped"]
+    finally:
+        diagnostic.reap_owned(owned)

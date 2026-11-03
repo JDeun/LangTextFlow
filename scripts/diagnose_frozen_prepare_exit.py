@@ -67,9 +67,46 @@ def alive(pid: int, created: float) -> bool:
         return False
 
 
+def survivors(owned: dict[int, float]) -> list[dict]:
+    return [{"pid": pid, "created": created} for pid, created in owned.copy().items()
+            if alive(pid, created)]
+
+
+def reap_owned(owned: dict[int, float]) -> dict:
+    """Final owner cleanup, with forced actions distinguished from natural exit."""
+    deadline = time.monotonic() + 10
+    result = {"forced_kills": [], "errors": []}
+    for item in survivors(owned):
+        observe(item["pid"], owned)
+    for pid, created in reversed(list(owned.copy().items())):
+        try:
+            child = psutil.Process(pid)
+            if child.create_time() != created or not child.is_running():
+                continue
+            result["forced_kills"].append({"pid": pid, "created": created})
+            if os.name == "nt":
+                try:
+                    killed = subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                                            capture_output=True,
+                                            timeout=max(.001, min(5, deadline - time.monotonic())))
+                    result["forced_kills"][-1]["taskkill_returncode"] = killed.returncode
+                except subprocess.TimeoutExpired:
+                    result["errors"].append("taskkill_timeout")
+            if alive(pid, created):
+                child.kill()
+            child.wait(timeout=max(.001, deadline - time.monotonic()))
+        except psutil.NoSuchProcess:
+            pass
+        except psutil.Error as exc:
+            result["errors"].append(type(exc).__name__)
+    result["remaining"] = survivors(owned)
+    result["owned_tree_reaped"] = not result["remaining"]
+    return result
+
+
 def case(binary: Path, root: Path, index: int, stdin_open: bool,
          torch_zero: bool, piped: bool, *, arguments: list[str], expected_code: int,
-         managed_pipe: bool = False) -> dict:
+         sequence_owned: dict[int, float], managed_pipe: bool = False) -> dict:
     root.mkdir(parents=True, exist_ok=True)
     raw_log = root / f"case-{index}.raw"
     environment = {**os.environ, "LTF_TEST_FROZEN_DIAGNOSTIC_LOG": str(raw_log),
@@ -131,34 +168,22 @@ def case(binary: Path, root: Path, index: int, stdin_open: bool,
         result["process_returncode_before_cleanup"] = process.poll()
     finally:
         result["observed_tree"] = initial
-        cleanup_deadline = time.monotonic() + 10
-        if process.poll() is None:
-            try:
-                killed = subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)],
-                                        capture_output=True, timeout=5)
-                result["taskkill_returncode"] = killed.returncode
-            except subprocess.TimeoutExpired:
-                result.setdefault("cleanup_errors", []).append("taskkill_timeout")
-        # Only identities descended from our child are eligible for cleanup.
-        for pid, created in reversed(list(owned.copy().items())):
-            try:
-                child = psutil.Process(pid)
-                if child.create_time() == created and child.is_running():
-                    child.kill()
-                    child.wait(timeout=max(.001, cleanup_deadline - time.monotonic()))
-            except psutil.NoSuchProcess:
-                pass
-            except psutil.Error as exc:
-                result.setdefault("cleanup_errors", []).append(type(exc).__name__)
-        if process.poll() is None:
-            process.kill()
+        sequence_owned.update(owned.copy())
+        result["survivors_before_cleanup"] = survivors(owned)
+        success = (not result["timed_out"]
+                   and result.get("process_returncode_before_cleanup") == expected_code
+                   and not result.get("stdout_bytes", 0) and not result.get("stderr_bytes", 0))
+        result["cleanup_deferred_to_sequence_end"] = success
+        if not success:
+            result["failure_cleanup"] = reap_owned(owned)
+            if process.poll() is None:
+                process.kill()
         process.wait(timeout=5)
         if write_fd is not None:
             os.close(write_fd)
         result["returncode"] = process.returncode
         result["duration_seconds"] = round(time.monotonic() - started, 3)
-        result["owned_tree_reaped"] = result["observer_finished"] and not any(
-            alive(pid, created) for pid, created in owned.copy().items())
+        result["survivors_after_case"] = survivors(owned)
         if raw_log.exists():
             with raw_log.open("rb") as stream:
                 data = stream.read(65537)
@@ -192,7 +217,7 @@ def main() -> int:
                                                    cwd=ROOT, text=True).strip(),
               "binary_sha256": hashes, "expected_cases": 8,
               "build_environment": "original dev/whisper/local-mt, observer installed afterward",
-              "model_downloads": False, "cases": []}
+              "model_downloads": False, "cases": [], "sequence_cleanup": {}}
     with tempfile.TemporaryDirectory(prefix="ltf-frozen-exit-diagnostic-") as directory:
         controls = [(["-B", "-S", "-I", "-c",
                       "from multiprocessing.resource_tracker import main;main(0)"], 0, False),
@@ -200,16 +225,23 @@ def main() -> int:
                     (["--m2m100-prepare-worker", "--check-runtime"], 0, True),
                     (["--m2m100-prepare-worker"], 2, False)]
         for label, binary in binaries.items():
-            for arguments, expected, torch in controls:
-                index = len(report["cases"])
-                result = case(binary, Path(directory) / label, index, False, torch, True,
-                              arguments=arguments, expected_code=expected, managed_pipe=True)
-                result["binary"] = label
-                report["cases"].append(result)
+            sequence_owned = {}
+            try:
+                for arguments, expected, torch in controls:
+                    index = len(report["cases"])
+                    result = case(binary, Path(directory) / label, index, False, torch, True,
+                                  arguments=arguments, expected_code=expected,
+                                  sequence_owned=sequence_owned, managed_pipe=True)
+                    result["binary"] = label
+                    report["cases"].append(result)
+                    (OUTPUT / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+            finally:
+                report["sequence_cleanup"][label] = reap_owned(sequence_owned)
                 (OUTPUT / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     return 1 if any(item["timed_out"] or item["returncode"] != item["expected_code"]
                     or item.get("stdout_bytes", 0) or item.get("stderr_bytes", 0)
-                    or not item["owned_tree_reaped"] for item in report["cases"]) else 0
+                    or not item["observer_finished"] for item in report["cases"]) or any(
+        not cleanup["owned_tree_reaped"] for cleanup in report["sequence_cleanup"].values()) else 0
 
 
 if __name__ == "__main__":
