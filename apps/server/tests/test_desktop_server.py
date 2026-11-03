@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from langtextflow import desktop_server
@@ -10,6 +12,30 @@ from langtextflow.desktop_shutdown import (
     desktop_shutdown_requested,
     reset_desktop_shutdown,
 )
+
+
+@pytest.mark.parametrize("argv", [
+    ["backend"],
+    ["backend", "--post-event-transcript-worker", "audio.wav"],
+    ["backend", "-B", "-S", "-I", "-c",
+     "from multiprocessing.resource_tracker import main;main(0)"],
+])
+def test_freeze_support_diverts_before_worker_or_web_setup(monkeypatch, argv):
+    from langtextflow import post_event_transcript_worker
+
+    def diverted():
+        raise SystemExit(0)
+
+    def unexpected(*args):
+        pytest.fail("application setup ran before multiprocessing diversion")
+
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", diverted)
+    monkeypatch.setattr(desktop_server, "_prepare_desktop_environment", unexpected)
+    monkeypatch.setattr(post_event_transcript_worker, "main", unexpected)
+    with pytest.raises(SystemExit) as stopped:
+        desktop_server.main()
+    assert stopped.value.code == 0
 
 
 def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -> None:

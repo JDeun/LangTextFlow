@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import multiprocessing
 import os
 import sys
 from collections.abc import Awaitable, Callable
@@ -154,6 +155,7 @@ async def _serve_desktop(app: Any, *, host: str, port: int) -> None:
 
 
 def main() -> None:
+    multiprocessing.freeze_support()
     if len(sys.argv) > 1 and sys.argv[1] == "--post-event-transcript-worker":
         from langtextflow.post_event_transcript_worker import main as transcript_worker
 
