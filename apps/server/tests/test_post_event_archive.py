@@ -1,7 +1,10 @@
 """Post-event archive persistence, input boundaries, and summary policy regressions."""
 from __future__ import annotations
 
+import hashlib
 import io
+import json
+import re
 import sqlite3
 import wave
 from datetime import UTC, datetime
@@ -23,9 +26,11 @@ from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.post_event_summary import (
     chunks,
     generate_summary,
+    source_chunks,
     transcript_source,
 )
 from langtextflow.session_repository import SessionRepository
+from langtextflow.summary_evidence import allowed_source_citations, validate_summary_citations
 
 
 def _seed(tmp_path):
@@ -119,6 +124,150 @@ def test_chunks_are_bounded() -> None:
         chunks("source", limit=32)
 
 
+def test_source_fragments_keep_original_markers_and_bounded_overlap() -> None:
+    segment = _segment().model_copy(update={"text": "ABCDE" * 3500, "speaker": "ASR A"})
+    source, _ = transcript_source([segment])
+    parts = source_chunks(source)
+    texts = []
+    for part in parts:
+        assert 0 < len(part) <= 6000
+        assert allowed_source_citations(part) == {"[caption-1 at 1s]"}
+        body = part.partition("] ")[2]
+        metadata, end = json.JSONDecoder().raw_decode(body)
+        assert metadata == {"speaker": "ASR A"}
+        texts.append(body[end + 1:])
+    assert len(parts) > 2
+    assert all(a[-400:] == b[:400] for a, b in zip(texts, texts[1:], strict=False))
+    assert texts[0] + "".join(text[400:] for text in texts[1:]) == segment.text
+
+
+def test_source_chunk_limits_and_empty_evidence_remain_bounded(monkeypatch) -> None:
+    from langtextflow import post_event_summary
+
+    source = "[source at 1s] {} " + "A" * 239_970
+    assert len(source_chunks(source)) <= 48
+    with pytest.raises(ValueError, match="oversized"):
+        source_chunks(source + "A" * 100)
+    with pytest.raises(ValueError, match="no spoken text"):
+        source_chunks("[source at 1s] {} ")
+    monkeypatch.setattr(post_event_summary, "MAX_CHUNKS", 2)
+    with pytest.raises(ValueError, match="maximum.*chunk"):
+        source_chunks(source)
+
+
+def test_source_format_upgrade_marks_old_summary_stale_without_rewriting_approval(tmp_path):
+    _, archive = _seed(tmp_path)
+    segment = _segment()
+    legacy = f"[caption-1 at 1s] {segment.source_text}"
+    record = archive.begin_summary(
+        "s-1", language="ko", provider="ollama", model="test",
+        transcript_sha256=hashlib.sha256(legacy.encode()).hexdigest(),
+        prompt_version="post-event-v2-cited",
+    )
+    original = "Original model draft [caption-1 at 1s]"
+    reviewed = "Approved operator text [caption-1 at 1s]"
+    archive.finish_summary(record["summary_id"], content=original)
+    archive.review_summary(
+        "s-1", record["summary_id"], content=reviewed, approved=True, expected_review_id=None,
+    )
+    assert archive.transcripts.summary_stale(archive.latest_summary("s-1"), [segment])
+    assert archive.summary_by_id(record["summary_id"])["content"] == original
+    assert archive.latest_review(record["summary_id"])["content"] == reviewed
+    assert archive.latest_review(record["summary_id"])["approved"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["ollama", "openai-compatible"])
+async def test_long_summary_uses_real_http_path_with_source_overlap_and_cited_reduction(
+    monkeypatch, provider,
+):
+    from langtextflow import post_event_summary
+
+    source, _ = transcript_source([
+        _segment().model_copy(update={
+            "segment_id": f"segment-{index}", "start_ms": index * 1000,
+            "text": f"Original source {index}. " * 850, "speaker": f"ASR {index}",
+        }) for index in range(4)
+    ])
+    mapped = source_chunks(source)
+    seen = []
+    reductions = []
+    original_chunks = post_event_summary.chunks
+
+    def note_chunks(text):
+        parts = original_chunks(text)
+        assert "\n".join(parts) == text  # Notes do not gain source-context overlap.
+        reductions.append(parts)
+        return parts
+
+    def respond(request):
+        payload = json.loads(request.content)
+        task = json.loads(payload["messages"][1]["content"])
+        evidence = task["transcript_evidence"]
+        assert len(evidence) <= 6000
+        seen.append(task)
+        markers = list(dict.fromkeys(re.findall(r"\[segment-\d+ at \d+s\]", evidence)))
+        assert markers
+        if task["task"] == "final_event_summary":
+            assert set(markers) == allowed_source_citations(source)
+            content = "Cited draft: " + " ".join(markers)
+        else:
+            content = " ".join(markers) + " evidence notes" * 140
+        response = (
+            {"message": {"content": content}} if provider == "ollama"
+            else {"choices": [{"message": {"content": content}}]}
+        )
+        return httpx.Response(200, json=response)
+
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(post_event_summary.httpx, "AsyncClient", lambda **options: client_class(
+        transport=httpx.MockTransport(respond), **options,
+    ))
+    monkeypatch.setattr(post_event_summary, "chunks", note_chunks)
+    result = await generate_summary(
+        source, language="ko", provider=provider, model="mock-http",
+        settings=Settings(), allow_external_provider=True,
+    )
+    assert [item["transcript_evidence"] for item in seen[:len(mapped)]] == mapped
+    assert all(item["evidence_kind"] == "source_transcript" for item in seen[:len(mapped)])
+    assert all(item["evidence_kind"] == "intermediate_notes" for item in seen[len(mapped):])
+    assert all(
+        allowed_source_citations(part) <= allowed_source_citations(source) for part in mapped
+    )
+    assert len(reductions) >= 2
+    assert len(validate_summary_citations(source, result)) == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["ollama", "openai-compatible"])
+@pytest.mark.parametrize("failure", ["timeout", "empty"])
+async def test_long_summary_http_failure_never_produces_partial_final(
+    monkeypatch, provider, failure,
+):
+    from langtextflow import post_event_summary
+
+    source, _ = transcript_source([_segment().model_copy(update={"text": "A" * 14_000})])
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        if failure == "timeout":
+            raise httpx.ReadTimeout("private provider detail", request=request)
+        return httpx.Response(200, json={})
+
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(post_event_summary.httpx, "AsyncClient", lambda **options: client_class(
+        transport=httpx.MockTransport(respond), **options,
+    ))
+    expected = httpx.ReadTimeout if failure == "timeout" else ValueError
+    with pytest.raises(expected):
+        await generate_summary(
+            source, language="ko", provider=provider, model="mock-http",
+            settings=Settings(), allow_external_provider=True,
+        )
+    assert len(calls) == 1
+
+
 @pytest.mark.asyncio
 async def test_ollama_summary_is_real_provider_call_and_untrusted_guard(monkeypatch) -> None:
     from langtextflow import post_event_summary
@@ -145,7 +294,7 @@ async def test_ollama_summary_is_real_provider_call_and_untrusted_guard(monkeypa
 
     monkeypatch.setattr(post_event_summary.httpx, "AsyncClient", FakeClient)
     result = await generate_summary(
-        "[caption-1 at 0s] 안전한 원문",
+        "[caption-1 at 0s] {} 안전한 원문",
         language="ko", provider="ollama", model="test",
         settings=Settings(), allow_external_provider=False,
     )

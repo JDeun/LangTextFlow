@@ -133,7 +133,7 @@ def test_explicit_approved_summary_source_and_new_approval_staleness(monkeypatch
                 break
             time.sleep(0.01)
         assert summary["status"] == "completed"
-        assert seen == ["[offline-1 at 0s] 운영자가 검토한 원문입니다."]
+        assert seen == ["[offline-1 at 0s] {} 운영자가 검토한 원문입니다."]
         source, digest = archive.transcripts.source("source-1", history.segments("source-1"))
         assert "caption-1" in source and digest != summary["transcript_sha256"]
         approve = client.post(
