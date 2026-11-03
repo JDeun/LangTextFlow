@@ -27,6 +27,7 @@ def smoke_native_m2m100(request, root: Path) -> None:
         "status": "failed", "field_qualified": False, "quality_benchmark": False,
         "model_revision": MODEL_REVISION, "frozen_prepare_and_repair": False,
         "synthetic_source_actual_native_translation": False,
+        "initial_preparation_completed": False,
         "cancelled_worker_reaped": False, "worker_pid_matches_spawn": False,
         "source_sha": subprocess.run(["git", "rev-parse", "HEAD"],
                                      check=True, capture_output=True, text=True).stdout.strip(),
@@ -116,6 +117,7 @@ def smoke_native_m2m100(request, root: Path) -> None:
         report["ownership"]["reaped"] = True
         assert report["worker_pid_matches_spawn"], "native worker has an unowned onefile inner PID"
         first = prepared()
+        report["initial_preparation_completed"] = True
         providers = json.loads(request("/api/v1/translation/providers"))
         assert next(item for item in providers if item["provider"] == "m2m100-ct2")["configured"]
         state = json.loads(request("/api/v1/session/start", {

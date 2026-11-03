@@ -135,6 +135,20 @@ Import-only diagnostics skip desktop bundling and cannot establish packaging or
 actual model preparation success. Windows setup remains gated until a new
 actual frozen prepare/translation/repair run passes with this change.
 
+Run [41676133982](https://github.com/JDeun/LangTextFlow/actions/runs/41676133982),
+source `0c087195ec83a577cf8dc3c09a586439d79dd6e0`, passed initial Windows
+preparation: native load/unload returned, all seven resulting hashes matched,
+and the earlier cancelled worker's spawned/reported PID 7728 was reaped. The
+aggregate run still **failed** when its subsequent session-start HTTP request
+timed out; native target translation and damaged-config repair were not observed.
+Artifact `13249519838` preserves that partial result (upload-reported ZIP SHA-256
+`9f7eea5d09d9799b929b35f054b4092c9956b8af8c11d31dfcf7144c9ebe2844`).
+Its legacy translation worker still used a blocking stdin reader. The follow-up
+applies the same shared pipe fix to legacy translation, ASR and post-event native
+workers, with actual descriptor-clone, framing, RPC and EOF regressions. It does
+not add the separate experimental Rust protocol. A fresh actual frozen run is
+required for the resulting complete prepare → translate → repair path.
+
 ## Manual official-source conversion
 
 On a network-connected
