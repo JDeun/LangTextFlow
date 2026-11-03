@@ -511,7 +511,7 @@ async def cancel_model_setup_job(request: Request, job_id: str) -> ModelSetupJob
 async def prepare_m2m100_model(request: Request) -> ModelSetupJob:
     _require_operator(request)
     async with _audio_transition_lock:
-        if runtime.state.running:
+        if runtime.model_work_active:
             raise HTTPException(409, "stop the caption session before preparing M2M100")
         try:
             return await model_setup_manager.start_m2m100_prepare()
@@ -570,7 +570,7 @@ async def model_cache_inventory(request: Request) -> CacheInventory:
 async def clear_model_cache(request: Request, area: str) -> CacheInventory:
     _require_operator(request)
     async with _audio_transition_lock:
-        if runtime.state.running or (area == "m2m100-native"
+        if runtime.model_work_active or (area == "m2m100-native"
                                      and model_setup_manager.m2m100_preparing):
             raise HTTPException(
                 status_code=409, detail="stop caption/model preparation before clearing cache"

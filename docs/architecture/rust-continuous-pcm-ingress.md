@@ -5,6 +5,10 @@ not a production HTTP/microphone/desktop cutover. This extends the existing
 [ASR worker](rust-asr-worker-vertical-slice.md), [canonical WebSocket](rust-caption-websocket-prototype.md)
 and [independent-target MT](rust-mt-scheduling-prototype.md) slices.
 
+Later [application routing](rust-production-routing.md) connects this producer to
+the existing authenticated source-mode API behind an explicit rollout setting.
+The default cutover and full context/correction/recording/desktop parity remain required.
+
 ## Input, VAD and source time
 
 `PcmIngress` binds a fresh existing `AsrSession` generation; its `PcmInput` accepts

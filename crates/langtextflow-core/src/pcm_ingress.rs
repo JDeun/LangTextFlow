@@ -202,6 +202,10 @@ impl PcmIngress {
         self.input.clone()
     }
 
+    pub(crate) fn cleanup_path(&self) -> &Path {
+        &self.root
+    }
+
     pub async fn finish(mut self) -> Result<IngressMetrics, &'static str> {
         self.input.state.lock().unwrap().closing = true;
         let drain = async {
