@@ -82,11 +82,25 @@ The **Windows first preparation hit its deadline**; original failure artifact
 `13238558967` has ZIP SHA-256
 `f60c6f4411af7f0d00a30d078c31156c6728894eb394295e3fbb5e23c740951e`.
 That run did not identify whether download or native validation stalled, and does
-not qualify Windows setup. Subsequent diagnostic jobs expose only fixed phase,
-allowlisted file keys, bounded byte counts and fixed failure categories. The
-Windows-only manual gate also cancels a real frozen preparation and checks the
-actual spawned/reported worker PID and reap before reusing admission. No field
-quality or physical-memory qualification follows from either packaging result.
+not qualify Windows setup. Diagnostic run
+[41656707082](https://github.com/JDeun/LangTextFlow/actions/runs/41656707082), source
+`d1740b70dedfb52908dabdd8ef5d918dc4ef2da1`, completed verified downloads in about
+22 seconds, then stalled in native validation until its deadline. Original
+failure receipt `13241287370` has ZIP SHA-256
+`fb696d4b85a5efe85e8350474eff9b2d9aeb3268667999cf0e0e06cdb63ecf94`.
+It independently observed spawned PID = reported PID = 1344 and successful
+cancel/reap before admission reuse; this proves direct process ownership for that
+frozen worker, not which termination mechanism won. The corrected server cleanup
+left no orphan entry in that job's final Actions cleanup.
+
+Diagnostic jobs expose only fixed phases, allowlisted file keys, bounded byte
+counts and fixed failure categories. The next probe separates native load return
+from native destruction and cancels/reaps a still-running validation at a
+60-second diagnostic bound; this does not change the product download deadline
+or establish a performance qualification. A separate buffered-stdin/finalization
+error-path regression was corrected with a raw FD watchdog and quiet process exit;
+it is not asserted to explain the original native stall. No field quality or
+physical-memory qualification follows from these packaging results.
 
 ## Manual official-source conversion
 

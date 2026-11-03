@@ -49,7 +49,8 @@ def smoke_native_m2m100(request, root: Path) -> None:
                 print(json.dumps({"native_setup_progress": progress}), flush=True)
                 last_logged = time.monotonic()
             report["last_progress"] = progress
-            if progress.get("phase") == "native_validation":
+            if (str(progress.get("phase", "")).startswith("native_")
+                    and job["state"] not in {"completed", "cancelled", "error"}):
                 native_since = native_since or time.monotonic()
                 if time.monotonic() - native_since > 60:
                     # A diagnostic bound, not a model-performance or product-deadline claim.
@@ -68,7 +69,7 @@ def smoke_native_m2m100(request, root: Path) -> None:
                     report["native_timeout_worker_reaped"] = not any(
                         process_alive(pid) for pid in identities
                     )
-                    assert report["native_timeout_worker_reaped"], "native validation worker orphaned"
+                    assert report["native_timeout_worker_reaped"], "native worker orphaned"
                     raise RuntimeError("native validation exceeded diagnostic deadline")
             if job["state"] in {"completed", "cancelled", "error"}:
                 if job["state"] != "completed":

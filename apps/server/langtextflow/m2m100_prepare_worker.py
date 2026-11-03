@@ -69,7 +69,11 @@ def preparation_progress(directory: Path) -> dict:
             return {}
         value = json.loads(path.read_bytes())
         if (not isinstance(value, dict) or not isinstance(value.get("phase"), str)
-                or value["phase"] not in {"checking_cache", "downloading", "native_validation"}):
+                or value["phase"] not in {
+                    "checking_cache", "downloading", "native_validation",
+                    "native_load_started", "native_load_returned",
+                    "native_unload_started", "native_unload_returned",
+                }):
             return {}
         result = {"phase": value["phase"]}
         item = next((item for item in FILES if item.relative == value.get("file")), None)
@@ -160,9 +164,14 @@ def prepare(directory: Path, reserve: int, existing: tuple[Path, Path]) -> None:
     # Native/tokenizer initialization is offline, inside this killable child only.
     from .translation.m2m100_ct2 import M2M100CT2Translator
 
-    _phase(directory, "native_validation")
-    M2M100CT2Translator(model_dir=str(directory / "model"),
-                        tokenizer_dir=str(directory / "tokenizer"), cpu_threads=2)._prepare_sync()
+    _phase(directory, "native_load_started")
+    validated = M2M100CT2Translator(model_dir=str(directory / "model"),
+                                    tokenizer_dir=str(directory / "tokenizer"),
+                                    cpu_threads=2)._prepare_sync()
+    _phase(directory, "native_load_returned")
+    _phase(directory, "native_unload_started")
+    del validated
+    _phase(directory, "native_unload_returned")
 
 
 def main(args: list[str] | None = None) -> None:
