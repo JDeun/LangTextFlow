@@ -70,8 +70,9 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
 |---|---|
 | `GET /api/v1/history/{id}/archive` | List recording metadata and latest summary state |
 | `POST /api/v1/history/{id}/recordings` | Stream raw `audio/wav` bytes of an authorized PCM16 recording, size-limited |
-| `GET /api/v1/history/{id}/recordings/{recording_id}/audio` | Local playback / download |
+| `GET /api/v1/history/{id}/recordings/{recording_id}/audio` | Local playback; `?download=true` returns an attachment through the same operator boundary |
 | `POST /api/v1/history/{id}/summary` | Start nonblocking post-session summary generation |
+| `POST /api/v1/history/{id}/summaries/{summary_id}/cancel` | Cancel this instance's running summary job; completed drafts and approvals stay intact. Retry explicitly to create a new attempt. |
 | `POST /api/v1/history/{id}/summaries/{summary_id}/reviews` | Save a cited review or approve and lock a completed summary; requires `content`, optional `approved`, and the latest `expected_review_id` (null for the first edit) |
 
 Request body for summary (optional keys):

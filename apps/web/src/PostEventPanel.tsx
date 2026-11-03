@@ -146,19 +146,31 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
     }
   }
 
-  function exportSummaryText() {
+  function exportSummaryText(format: "txt" | "md") {
     if (archive.summary?.status !== "completed") return;
     const blob = new Blob([archive.summary.review?.content ?? archive.summary.content], {
-      type: "text/plain;charset=utf-8",
+      type: format === "md" ? "text/markdown;charset=utf-8" : "text/plain;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `langtextflow-${session.session_id}-summary-${archive.summary.language}.txt`;
+    anchor.download = `langtextflow-${session.session_id}-summary-${archive.summary.language}.${format}`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+
+  async function cancelSummary() {
+    if (busy || archive.summary?.status !== "running") return;
+    setBusy("cancel-summary"); setError("");
+    try {
+      const response = await fetch(`${root}/summaries/${encodeURIComponent(archive.summary.summary_id)}/cancel`, { method: "POST" });
+      if (!response.ok) throw new Error(await response.text());
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : copy.failure);
+    } finally { setBusy(""); }
   }
 
   async function saveReview(approved: boolean) {
@@ -222,6 +234,10 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
             src={`${root}/recordings/${encodeURIComponent(recording.recording_id)}/audio`}
             aria-label={copy.recording}
           />
+          <a className="secondary-button" download
+            href={`${root}/recordings/${encodeURIComponent(recording.recording_id)}/audio?download=true`}>
+            {copy.downloadRecording}
+          </a>
         </div>
       ))}
       <PostEventTranscripts root={root} locale={locale} sourceLanguage={session.source_language} recordings={archive.recordings}
@@ -300,7 +316,11 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
       >
         {copy.generate}
       </button>
-      {archive.summary?.status === "running" && <p role="status">{copy.generating}</p>}
+      {archive.summary?.status === "running" && <>
+        <p role="status">{copy.generating}</p>
+        <button type="button" className="secondary-button" disabled={Boolean(busy)}
+          onClick={() => void cancelSummary()}>{copy.cancelSummary}</button>
+      </>}
       {archive.summary?.status === "error" && <p role="alert">{archive.summary.error || copy.failure}</p>}
       {archive.summary?.status === "completed" && (
         <div className="history-post-summary">
@@ -345,8 +365,11 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
             <summary>{copy.originalDraft}</summary>
             <pre>{archive.summary.content}</pre>
           </details>
-          <button type="button" className="secondary-button" onClick={exportSummaryText}>
+          <button type="button" className="secondary-button" onClick={() => exportSummaryText("txt")}>
             {copy.exportSummary}
+          </button>
+          <button type="button" className="secondary-button" onClick={() => exportSummaryText("md")}>
+            {copy.exportMarkdown}
           </button>
         </div>
       )}

@@ -204,6 +204,48 @@ def test_total_summary_deadline_records_failure(monkeypatch, tmp_path):
         assert _settle(client, archive)["status"] == "error"
 
 
+def test_operator_cancels_running_summary_and_can_retry_without_rewriting_drafts(
+    monkeypatch, tmp_path,
+):
+    app, archive, _ = _app(tmp_path)
+    cancelled = []
+
+    async def stalled(*args, **kwargs):
+        try:
+            await asyncio.sleep(60)
+        finally:
+            cancelled.append(True)
+
+    monkeypatch.setattr(post_event_api, "generate_summary", stalled)
+    with TestClient(app) as client:
+        root = "/api/v1/history/source-1"
+        record = client.post(root + "/summary", json={}).json()
+        sid = record["summary_id"]
+        assert client.post(root + "/summaries/missing/cancel").status_code == 404
+        response = client.post(root + f"/summaries/{sid}/cancel")
+        assert response.status_code == 200
+        assert response.json()["status"] == "error"
+        assert "operator" in response.json()["error"]
+        assert cancelled == [True]
+        assert client.post(root + f"/summaries/{sid}/cancel").json() == response.json()
+
+        async def cited(*args, **kwargs):
+            return "A cited replacement [caption-1 at 1s]"
+
+        monkeypatch.setattr(post_event_api, "generate_summary", cited)
+        replacement = client.post(root + "/summary", json={})
+        assert replacement.status_code == 202
+        summary = _settle(client, archive)
+        assert summary["summary_id"] != sid and summary["status"] == "completed"
+        reviewed = client.post(root + f"/summaries/{summary['summary_id']}/reviews", json={
+            "content": summary["content"], "approved": True,
+        })
+        assert reviewed.status_code == 201
+        before = archive.summary_by_id(summary["summary_id"])
+        assert client.post(root + f"/summaries/{summary['summary_id']}/cancel").json() == before
+        assert archive.summary_by_id(sid)["status"] == "error"
+
+
 def test_summary_admission_is_bounded_and_shutdown_marks_jobs_interrupted(monkeypatch, tmp_path):
     app, archive, history = _app(tmp_path)
     for sid in ("source-2", "source-3"):
