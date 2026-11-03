@@ -51,6 +51,7 @@ body {
 }
 
 .topbar {
+  flex-wrap: wrap;
   position: sticky;
   top: 0;
   z-index: 30;
@@ -61,6 +62,8 @@ body {
   background: rgba(245, 246, 244, .92);
   backdrop-filter: blur(18px) saturate(135%);
 }
+
+.topbar > div:first-child { flex-basis: 18rem; min-width: min(100%, 18rem); }
 
 .brand {
   color: var(--ltf-ink);

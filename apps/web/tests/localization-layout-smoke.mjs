@@ -160,18 +160,21 @@ for (const [width, textScale] of [[320, 100], [390, 100], [720, 100], [1440, 200
   const geometry = await evaluate(`(() => {
     const preview = document.querySelector('.preview').getBoundingClientRect();
     const stage = document.querySelector('.stage-screen').getBoundingClientRect();
+    const brand = document.querySelector('.brand');
     const inputs = [...document.querySelectorAll('input[type="checkbox"]')]
       .filter(input => input.getClientRects().length);
     return {
       fits: document.documentElement.scrollWidth <= innerWidth + 1
         && stage.left >= preview.left && stage.right <= preview.right + 1,
+      brandFits: brand.getBoundingClientRect().height
+        <= parseFloat(getComputedStyle(brand).lineHeight) + 1,
       squareInputs: inputs.length > 0 && inputs.every(input => {
         const { width, height } = input.getBoundingClientRect();
         return width >= 16 && Math.abs(width - height) <= 1;
       }),
     };
   })()`);
-  if (!geometry.fits || !geometry.squareInputs) {
+  if (!geometry.fits || !geometry.squareInputs || !geometry.brandFits) {
     throw new Error(`Caption/consent layout failed at ${width}px / ${textScale}% text: ${JSON.stringify(geometry)}`);
   }
 }
