@@ -16,6 +16,7 @@ from langtextflow.desktop_shutdown import (
 
 @pytest.mark.parametrize("argv", [
     ["backend"],
+    ["backend", "--m2m100-worker"],
     ["backend", "--post-event-transcript-worker", "audio.wav"],
     ["backend", "--faster-whisper-prefetch-worker", "small", "cache"],
     ["backend", "-B", "-S", "-I", "-c",
@@ -83,3 +84,13 @@ def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -
     assert shutdown.json() == {"status": "shutting-down"}
     assert desktop_shutdown_requested() is True
     reset_desktop_shutdown()
+
+
+def test_m2m100_worker_dispatch_never_initializes_web(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["backend", "--m2m100-worker"])
+    monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", lambda: None)
+    monkeypatch.setattr(desktop_server, "_prepare_desktop_environment",
+                        lambda: pytest.fail("worker entered web initialization"))
+    with pytest.raises(SystemExit) as stopped:
+        desktop_server.main()
+    assert stopped.value.code == 2

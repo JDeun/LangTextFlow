@@ -85,6 +85,7 @@ def main() -> None:
             "-B", "-S", "-I", "-c", "from multiprocessing.resource_tracker import main;main(0)",
         ], 0)
         # Invalid setup arguments must exit quietly without starting a server or downloading.
+        smoke_auxiliary_command(binary, root, environment, ["--m2m100-worker"], 2)
         smoke_auxiliary_command(binary, root, environment, [
             "--faster-whisper-prefetch-worker", "invalid-model", str(root / "invalid-cache"),
         ], 1)
