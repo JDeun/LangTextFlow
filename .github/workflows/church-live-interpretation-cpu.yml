@@ -3,15 +3,23 @@ name: Church live interpretation - real speech Linux CPU
 run-name: ltf-stage-church_live source=${{ inputs.source_sha || github.sha }}
 
 on:
-  pull_request:
-    paths:
-      - "scripts/evaluate_live_fleurs_translation.py"
+  # Real model downloads are explicit experiments; ordinary CI runs mock-wiring tests.
   workflow_dispatch:
     inputs:
       source_sha:
         description: Frozen model and benchmark implementation revision
         type: string
         required: false
+      translation_provider:
+        description: Actual translation runtime to measure
+        type: choice
+        options: [m2m100-ct2, ollama]
+        default: m2m100-ct2
+      source_languages:
+        description: Independent source clips (no aligned translation gold)
+        type: choice
+        options: [both, ko, en]
+        default: both
   workflow_call:
     inputs:
       source_sha:
@@ -27,9 +35,17 @@ concurrency:
 
 jobs:
   live-cpu:
-    name: Real FLEURS audio -> ASR -> translated captions (CPU)
+    name: Real FLEURS audio -> CaptionRuntime -> translated audience JSON (CPU)
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 40
+    env:
+      TRANSLATION_PROVIDER: ${{ inputs.translation_provider || 'ollama' }}
+      SOURCE_LANGUAGES: ${{ inputs.source_languages || 'ko' }}
+      SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+      HF_HOME: /tmp/ltf-live-hf
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -42,118 +58,172 @@ jobs:
           set -euo pipefail
           mkdir -p artifacts/church-live
           {
-            echo "HEAD=$GITHUB_SHA"
+            git rev-parse HEAD
             nproc
             lscpu | grep -E 'Model name:|CPU\(s\):|Architecture:' || true
             free -h
             df -h .
-          } | tee artifacts/church-live/runner-hardware.txt
+          } > artifacts/church-live/runner-hardware.txt
       - name: Install locked backend and CPU ASR dependencies
         run: |
           python -m pip install "uv==0.12.13"
           uv sync --locked --extra dev --extra whisper --extra benchmark
           uv pip install "datasets==5.1.0" "fsspec==2026.7.0" "soundfile==0.13.1"
-      - name: Audit installed research dependencies and check data API
+      - name: Install optional CPU M2M100 conversion runtime
+        if: ${{ (inputs.translation_provider || 'ollama') == 'm2m100-ct2' }}
+        run: |
+          uv pip install --python .venv/bin/python "torch==2.15.0" \
+            --index-url https://download.pytorch.org/whl/cpu
+          uv pip install "setuptools==84.2.1" "transformers==5.22.1" \
+            "tokenizers==0.23.3" "huggingface-hub==2.4.0" "sentencepiece==0.2.1"
+      - name: Audit actual installed dependencies and check data API
         run: |
           uv pip check --python .venv/bin/python
           uv run --no-sync pip-audit
           uv run --no-sync python scripts/smoke_research_data.py
-      - name: Start pinned Ollama with no GPU
+          uv pip freeze --python .venv/bin/python > artifacts/church-live/runtime-dependencies.txt
+      - name: Provision immutable ASR and optional M2M100 checkpoints with verified licenses
         run: |
-          set -euo pipefail
-          docker run -d --name ltf-live-ollama \
-            -p 127.0.0.1:11434:11434 \
-            -e OLLAMA_NUM_PARALLEL=1 \
-            -e OLLAMA_MAX_LOADED_MODELS=1 \
-            ollama/ollama:0.34.0
+          timeout --kill-after=10s 900 uv run --no-sync python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from huggingface_hub import HfApi, snapshot_download
+          root = Path("/tmp/ltf-live-models")
+          root.mkdir(exist_ok=True)
+          manifest = {"source_sha": os.environ["SOURCE_SHA"]}
+          api = HfApi()
+          asr_id = "Systran/faster-whisper-base"
+          asr_revision = "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66"
+          asr = api.model_info(asr_id, revision=asr_revision)
+          license_id = (asr.cardData or {}).get("license")
+          assert str(license_id).lower() == "mit", "ASR model license changed/unverified"
+          snapshot_download(repo_id=asr_id, revision=asr_revision, local_dir=root / "asr",
+                            allow_patterns=["*.json", "model.bin", "vocabulary.*"])
+          manifest["asr"] = {"id": asr_id, "revision": asr_revision, "license": license_id}
+          if os.environ["TRANSLATION_PROVIDER"] == "m2m100-ct2":
+              from scripts.provision_m2m100_ct2 import MODEL_ID, provision
+              revision = "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636"
+              mt = api.model_info(MODEL_ID, revision=revision)
+              license_id = (mt.cardData or {}).get("license")
+              assert str(license_id).lower() == "mit", "MT model license changed/unverified"
+              provision(model_dir=root / "mt", tokenizer_dir=root / "tokenizer", revision=revision)
+              manifest["translation"] = {"provider": "m2m100-ct2", "id": MODEL_ID,
+                                         "revision": revision, "license": license_id}
+          Path("artifacts/church-live/models.json").write_text(json.dumps(manifest, indent=2)+"\n")
+          PY
+      - name: Start pinned Ollama without GPU
+        if: ${{ (inputs.translation_provider || 'ollama') == 'ollama' }}
+        run: |
+          docker run -d --name ltf-live-ollama -p 127.0.0.1:11434:11434 \
+            -e OLLAMA_NUM_PARALLEL=1 -e OLLAMA_MAX_LOADED_MODELS=1 ollama/ollama:0.34.0
           for i in $(seq 1 90); do
-            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
-              exit 0
-            fi
+            if curl --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then exit 0; fi
             sleep 2
           done
           docker logs ltf-live-ollama
           exit 1
-      - name: Pull real translation model and record version/digest
+      - name: Pull translation model and record digest and license hash
+        if: ${{ (inputs.translation_provider || 'ollama') == 'ollama' }}
+        run: |
+          timeout --kill-after=10s 600 docker exec ltf-live-ollama ollama pull translategemma:4b
+          docker exec ltf-live-ollama ollama --version > artifacts/church-live/ollama-runtime-version.txt
+          docker inspect --format '{{.Image}}' ltf-live-ollama > artifacts/church-live/container-image-id.txt
+          uv run --no-sync python - <<'PY'
+          import hashlib, json, urllib.request
+          from pathlib import Path
+          path = Path("artifacts/church-live/models.json")
+          manifest = json.loads(path.read_text())
+          with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=30) as response:
+              models = json.load(response)["models"]
+          model = next(row for row in models if row["name"] == "translategemma:4b")
+          request = urllib.request.Request("http://127.0.0.1:11434/api/show",
+                                           data=json.dumps({"model": model["name"]}).encode(),
+                                           headers={"Content-Type": "application/json"})
+          with urllib.request.urlopen(request, timeout=30) as response:
+              license_text = json.load(response).get("license", "")
+          assert license_text.strip(), "translation model license unavailable"
+          manifest["translation"] = {"provider": "ollama", "id": model["name"],
+                                     "digest": model["digest"],
+                                     "license_sha256": hashlib.sha256(license_text.encode()).hexdigest()}
+          path.write_text(json.dumps(manifest, indent=2)+"\n")
+          PY
+      - name: Pace one independent clip per direction through actual CaptionRuntime
+        env:
+          LANGTEXTFLOW_OLLAMA_URL: http://127.0.0.1:11434
         run: |
           set -euo pipefail
-          docker exec ltf-live-ollama ollama pull translategemma:4b
-          curl --fail --silent http://127.0.0.1:11434/api/tags \
-            > artifacts/church-live/translation-model-manifest.json
-          docker exec ltf-live-ollama ollama --version \
-            > artifacts/church-live/ollama-runtime-version.txt
-          docker stats --no-stream ltf-live-ollama \
-            > artifacts/church-live/memory-before.txt
-      - name: Pace pinned Korean recorded speech through actual caption pipeline
-        env:
-          HF_HOME: /tmp/ltf-live-hf
-          HF_HUB_DISABLE_TELEMETRY: "1"
-          LANGTEXTFLOW_OLLAMA_URL: http://127.0.0.1:11434
-          LANGTEXTFLOW_OLLAMA_TRANSLATION_TIMEOUT_SECONDS: "180"
-        run: |
-          echo "timestamp,cpu_percent,container_memory" > artifacts/church-live/ollama-resource-samples.csv
-          (
-            while :; do
-              printf "%s," "$(date -u +%FT%TZ)" >> artifacts/church-live/ollama-resource-samples.csv
-              docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}}' ltf-live-ollama \
-                >> artifacts/church-live/ollama-resource-samples.csv || true
-              sleep 5
-            done
-          ) &
-          monitor_pid=$!
-          trap 'kill "$monitor_pid" 2>/dev/null || true' EXIT
-          uv run --no-sync python -m scripts.evaluate_live_fleurs_translation \
-            --samples 3 --model base --chunk-seconds 8 \
-            --max-drain-seconds 240 --output artifacts/church-live
-      - name: Report translation coverage and actual p95 lag, not unverified quality
+          languages="$SOURCE_LANGUAGES"
+          if [[ "$languages" == "both" ]]; then languages="ko en"; fi
+          monitor_pid=""
+          stop_monitor() {
+            if [[ -n "$monitor_pid" ]]; then
+              kill "$monitor_pid" 2>/dev/null || true
+              wait "$monitor_pid" 2>/dev/null || true
+            fi
+          }
+          trap stop_monitor EXIT
+          if [[ "$TRANSLATION_PROVIDER" == "ollama" ]]; then
+            echo "timestamp,cpu_percent,container_memory" > artifacts/church-live/ollama-resource-samples.csv
+            (
+              while :; do
+                printf "%s," "$(date -u +%FT%TZ)" >> artifacts/church-live/ollama-resource-samples.csv
+                docker stats --no-stream --format '{{.CPUPerc}},{{.MemUsage}}' ltf-live-ollama \
+                  >> artifacts/church-live/ollama-resource-samples.csv || true
+                sleep 5
+              done
+            ) &
+            monitor_pid=$!
+          fi
+          failed=0
+          for language in $languages; do
+            output="artifacts/church-live/$language"
+            mkdir -p "$output"
+            if ! timeout --kill-after=10s 600 uv run --no-sync python -m scripts.evaluate_live_fleurs_translation \
+              --samples 1 --model base --chunk-seconds 8 --max-drain-seconds 240 \
+              --source-language "$language" --translation-provider "$TRANSLATION_PROVIDER" \
+              --asr-model-dir /tmp/ltf-live-models/asr --ct2-dir /tmp/ltf-live-models/mt \
+              --tokenizer-dir /tmp/ltf-live-models/tokenizer \
+              --model-manifest artifacts/church-live/models.json --output "$output"; then
+              printf '{"status":"process-failed","field_ready":false}\n' > "$output/process-failure.json"
+              failed=1
+            fi
+          done
+          exit "$failed"
+      - name: Report measured source quality and lag without fabricated translation references
         if: always()
         run: |
-          docker stats --no-stream ltf-live-ollama \
-            > artifacts/church-live/memory-after.txt || true
           python - <<'PY'
           import json, os
           from pathlib import Path
-          path = Path("artifacts/church-live/live-interpretation-report.json")
-          lines = [
-              "## Real speech -> ASR -> CPU translation -> committed captions",
-              "- Public Ubuntu runner: nominal 4 vCPU / 16 GB, no GPU",
-              "- FLEURS CC-BY-4.0 Korean speech replayed at real-time pace",
-              "- Model: CPU INT8 faster-whisper base + CPU TranslateGemma 4B",
-              "- No independent human-reviewed English speech translation available",
-          ]
-          if path.is_file():
-              report = json.loads(path.read_text(encoding="utf-8"))
-              m = report["metrics"]
-              lines.extend([
-                  f"- Status: {report['status']}",
-                  f"- ASR CER/WER: {report['asr_quality']['cer']} / {report['asr_quality']['wer']}",
-                  f"- Translated committed captions: {m['translated_committed_count']}/{m['committed_count']}",
-                  f"- Translation coverage: {m['translation_coverage']}",
-                  f"- ASR p95 lag: {m['p95_lag_ms']['stable']} ms",
-                  f"- Translation p95 lag: {m['p95_lag_ms']['translated']} ms",
-                  f"- Whole pipeline processing RTF: {m['processing_rtf']}",
-                  f"- Impossible source timestamps: {m['invalid_timestamp_count']}",
-                  "- **Field ready: no (requires live church audio, semantic review and soak)**",
-              ])
-          else:
-              lines.append("- No report generated; review failure diagnostics")
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
-              stream.write("\n".join(lines) + "\n")
+          lines = ["## Actual CaptionRuntime ASR -> MT CPU smoke"]
+          for path in Path("artifacts/church-live").rglob("live-interpretation-report.json"):
+              r = json.loads(path.read_text())
+              lines.append(f"- {path.parent.name}: {r['status']}")
+              if "metrics" in r:
+                  lines.append(f"  ASR CER/WER {r['asr_quality']}; target coverage {r['metrics']['translation_coverage']}; p95 lag {r['metrics']['p95_lag_ms']}; drained {r['queues_drained']}")
+          lines += ["- chrF unavailable: there are no independently aligned human target references.",
+                    "- Hub JSON delivery is measured in process, not network/browser paint.",
+                    "- Field ready: no; microphone/quality/4GB-8GB/long-event gates remain separate."]
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
+              stream.write("\n".join(lines)+"\n")
           PY
-      - name: Upload model, real speech and timing results without raw audio
+      - name: Preserve machine-readable evidence without raw audio or model weights
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: church-live-cpu-e2e
           path: |
+            artifacts/church-live/**/*.json
             artifacts/church-live/*.json
             artifacts/church-live/*.txt
             artifacts/church-live/*.csv
           if-no-files-found: warn
           retention-days: 14
-      - name: Failure diagnostics
-        if: failure()
-        run: docker logs --tail 120 ltf-live-ollama || true
+      - name: Stop optional experimental Ollama container
+        if: ${{ always() && (inputs.translation_provider || 'ollama') == 'ollama' }}
+        run: |
+          docker logs --tail 120 ltf-live-ollama || true
+          docker rm -f ltf-live-ollama || true
 
   notify-conveyor:
     needs: [live-cpu]
