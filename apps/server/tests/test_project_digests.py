@@ -378,6 +378,7 @@ async def test_consent_admission_cancel_deadline_failure_and_shutdown(tmp_path, 
         assert (await client.get(f"{root}/{record['digest_id']}")).json()[
             "status"
         ] == "error" and not jobs
+        assert (await client.post(root, json={"allow_external_provider": True})).status_code == 503
     app, jobs, close = setup_api(archive, timeout=0.01)
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
@@ -386,6 +387,52 @@ async def test_consent_admission_cancel_deadline_failure_and_shutdown(tmp_path, 
         failed = await settled(client, root, record["digest_id"])
         assert failed["status"] == "error" and "secret" not in json.dumps(failed)
     await close()
+
+
+def test_combined_evidence_cap_rejects_whole_project_without_partial_version(tmp_path):
+    history, _, archive, pid = seed(tmp_path, count=2)
+    for sid in ["session-0", "session-1"]:
+        for number in range(7):
+            history.upsert_segment(
+                sid,
+                TranscriptEvent(
+                    segment_id=f"long-{number}",
+                    version=1,
+                    stage=CaptionStage.COMMITTED,
+                    committed=True,
+                    source_language="ko",
+                    text="A" * 20000,
+                    start_ms=10000 + number * 1000,
+                ),
+            )
+        summarize(history, archive, sid)
+    with pytest.raises(ValueError, match="240000"):
+        archive.project_digests.begin(pid, SummaryRequest(), "fixture")
+    state = archive.project_digests.listing(pid)
+    assert state["input"] is None and state["versions"] == []
+    assert len(history.segments("session-0")) == 8
+
+
+def test_chronology_orders_timezone_instants_rather_than_iso_text(tmp_path):
+    _, _, archive, pid = seed(tmp_path)
+    with archive._connect() as conn:
+        conn.execute(
+            "UPDATE sessions SET started_at=? WHERE session_id='session-0'",
+            ("2026-11-03T11:00:00+09:00",),
+        )
+        conn.execute(
+            "UPDATE sessions SET started_at=? WHERE session_id='session-1'",
+            ("2026-11-03T03:00:00+00:00",),
+        )
+        conn.execute(
+            "UPDATE sessions SET started_at=? WHERE session_id='session-2'",
+            ("2026-11-03T04:00:00+00:00",),
+        )
+    assert [row["session_id"] for row in archive.project_digests.snapshot(pid)["sessions"]] == [
+        "session-0",
+        "session-1",
+        "session-2",
+    ]
 
 
 @pytest.mark.asyncio
