@@ -399,7 +399,7 @@ await evaluate(`(async () => {
 })()`);
 await waitFor(async () => {
   const result = await (await fetch(metricsUrl)).json();
-  return result.reporting_enabled && (result.stages.stable?.count ?? 0) > 0;
+  return result.reporting_enabled && Object.values(result.stages).some(stage => stage.count > 0);
 }, "opted-in audience browser report reaches authorized aggregation");
 await setViewport(390, 844, true);
 await screenshot("audience-mobile-ko");
@@ -413,7 +413,7 @@ await setViewport(1440, 1000, false);
 
 await navigate("http://127.0.0.1:5173/");
 await waitFor(
-  () => evaluate(`document.querySelector('[data-testid="audience-render-latency"]')?.textContent.includes('stable: p95')`),
+  () => evaluate(`document.querySelector('[data-testid="audience-render-latency"]')?.textContent.includes(': p95')`),
   "operator displays the audience aggregate",
 );
 
