@@ -9,6 +9,10 @@ The [architecture audit](../research/hex-rust-streaming-architecture-audit.md)
 remains the target ownership reference. Existing production Python caption,
 WebSocket, persistence and desktop behavior is preserved during parity work.
 
+The next [canonical caption/WebSocket slice](rust-caption-websocket-prototype.md)
+adds an explicit source-only observer mode. Full correction/MT, persistence and
+production integration remain separate acceptance work.
+
 ## Implemented boundary
 
 `langtextflow-core::asr_slice::AsrSession` owns prototype admission, session

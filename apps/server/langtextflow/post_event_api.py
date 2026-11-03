@@ -85,6 +85,11 @@ def install_post_event_routes(
         app, runtime, archive, settings, require_operator, summary_jobs, summary_start_lock,
         maximum_jobs=MAX_SUMMARY_JOBS, timeout_seconds=SUMMARY_JOB_TIMEOUT_SECONDS,
     )
+    from .project_package_api import install_project_package_routes
+
+    shutdown_packages = install_project_package_routes(
+        app, runtime, archive, settings, require_operator, summary_start_lock,
+    )
 
     @app.get("/api/v1/history/{session_id}/archive")
     async def event_archive_detail(request: Request, session_id: str) -> dict:
@@ -344,6 +349,7 @@ def install_post_event_routes(
         return record
 
     async def shutdown_summary_jobs() -> None:
+        await shutdown_packages()
         await shutdown_project_digests()
         await shutdown_transcripts()
         jobs = list(summary_jobs.items())

@@ -1,5 +1,8 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -664,7 +667,7 @@ await evaluate(`(async () => {
     return originalFetch(...args);
   };
   try {
-    const refresh = document.querySelector('.history-post-event > .history-post-actions button');
+    const refresh = document.querySelector('.history-detail .history-post-event > .history-post-actions button');
     refresh.click(); refresh.click();
     await new Promise(resolve => setTimeout(resolve, 700));
     if (calls !== 2) throw new Error('archive race did not exercise both refresh requests');
@@ -771,6 +774,81 @@ await setViewport(390, 844, true);
 if (!await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`)) throw new Error("project digest mobile overflow");
 await screenshot("project-digest-mobile-ko");
 await setViewport(1440, 1000, false);
+
+// Full private package: native attachment download, rejected duplicate restore,
+// then restore the same three-language graph after removing only our fixtures.
+// No DB seeding or model output invention is used for the backup/restore path.
+const packageDirectory = await mkdtemp(join(tmpdir(), "ltf-private-package-e2e-"));
+try {
+  const packagePanel = '[data-testid="project-package"]';
+  const secondRecording = await fetch(`http://127.0.0.1:8000/api/v1/history/${extraProjectSessions[0]}/recordings`, {
+    method: "POST", headers: { "Content-Type": "audio/wav" }, body: wav,
+  });
+  if (!secondRecording.ok) throw new Error("second package recording fixture failed");
+  const packageButton = label => evaluate(`Array.from(document.querySelectorAll('${packagePanel} button')).find(button => button.textContent === ${JSON.stringify(label)})?.click()`);
+  await packageButton("전체 백업 준비");
+  await waitFor(() => evaluate(`document.querySelector('${packagePanel} a[download]') !== null`), "private package prepared");
+  const prepared = (await (await fetch("http://127.0.0.1:8000/api/v1/project-packages")).json()).prepared;
+  await cdp("Browser.setDownloadBehavior", { behavior: "allow", downloadPath: packageDirectory });
+  await evaluate(`document.querySelector('${packagePanel} a[download]').click()`);
+  const packagePath = join(packageDirectory, "langtextflow-private-project.zip");
+  await waitFor(async () => (await stat(packagePath)).size === prepared.size_bytes, "native private ZIP download");
+  const packageBytes = await readFile(packagePath);
+  if (createHash("sha256").update(packageBytes).digest("hex") !== prepared.sha256) throw new Error("native package download checksum changed");
+  const graphFromPackage = JSON.parse(execFileSync("uv", ["run", "python", "-c", `
+import json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as package:
+    graph = json.loads(package.read('graph.json'))
+print(json.dumps(graph))
+`, packagePath], { encoding: "utf8" }));
+  if (graphFromPackage.tables.sessions.length !== 3 || graphFromPackage.tables.session_recordings.length !== 2
+    || graphFromPackage.tables.project_digest_reviews.length !== 2
+    || graphFromPackage.tables.approved_transcripts.length !== 1) throw new Error("whole package silently omitted evidence");
+  const document = await cdp("DOM.getDocument");
+  const input = await cdp("DOM.querySelector", { nodeId: document.root.nodeId, selector: `${packagePanel} input[type="file"]` });
+  await cdp("DOM.setFileInputFiles", { nodeId: input.nodeId, files: [packagePath] });
+  await waitFor(() => evaluate(`!Array.from(document.querySelectorAll('${packagePanel} button')).find(button => button.textContent === '선택한 백업 복원')?.disabled`), "chosen authorized backup file");
+  await packageButton("선택한 백업 복원");
+  await waitFor(() => evaluate(`document.querySelector('${packagePanel} [role="alert"]')?.textContent.includes('already exists')`), "existing ID restore rejected");
+  const preserved = await (await fetch(`${projectVersionRoot}/export`)).json();
+  if (JSON.stringify(preserved) !== JSON.stringify(projectExport)) throw new Error("collision modified existing project");
+  for (const sid of [state.session_id, ...extraProjectSessions]) {
+    if (!(await fetch(`http://127.0.0.1:8000/api/v1/history/${sid}`, { method: "DELETE" })).ok) throw new Error("owned source deletion failed");
+  }
+  if (!(await fetch(`http://127.0.0.1:8000/api/v1/projects/${eventProject.project_id}`, { method: "DELETE" })).ok) throw new Error("owned project deletion failed");
+  // A deleted recording's durable tombstone can briefly remain until its bounded
+  // recovery worker finishes. UI retries remain explicit and cannot overwrite it.
+  let restored = false;
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await fetch("http://127.0.0.1:8000/api/v1/project-packages");
+    await packageButton("선택한 백업 복원");
+    await waitFor(() => evaluate(`!Array.from(document.querySelectorAll('${packagePanel} button')).find(button => button.textContent === '선택한 백업 복원')?.disabled || document.querySelector('${packagePanel} [role="status"]')?.textContent.includes('복원이 완료')`), "restore request finished");
+    const check = await fetch(`http://127.0.0.1:8000/api/v1/projects/${eventProject.project_id}`);
+    if (check.ok) { restored = true; break; }
+    await sleep(200);
+  }
+  if (!restored) throw new Error("private package UI restore failed");
+  await waitFor(() => evaluate(`document.querySelector('${packagePanel}')?.textContent.includes('프로젝트 복원이 완료되었습니다.')`), "UI restore success");
+  const recovered = await (await fetch(`${projectVersionRoot}/export`)).json();
+  if (JSON.stringify(recovered) !== JSON.stringify(projectExport)) throw new Error("project snapshot bytes/hash/reviews/provenance changed during restore");
+  for (const rec of graphFromPackage.tables.session_recordings) {
+    const response = await fetch(`http://127.0.0.1:8000/api/v1/history/${rec.session_id}/recordings/${rec.recording_id}/audio`);
+    if (!response.ok || createHash("sha256").update(Buffer.from(await response.arrayBuffer())).digest("hex") !== rec.sha256) throw new Error("restored WAV bytes or recording identity changed");
+  }
+  const restoredState = await (await fetch("http://127.0.0.1:8000/api/v1/state")).json();
+  if (restoredState.running) throw new Error("restore activated a historical session");
+  await cdp("Runtime.evaluate", { expression: await readFile("apps/web/node_modules/axe-core/axe.min.js", "utf8") });
+  const violations = await evaluate(`axe.run(document.querySelector('${packagePanel}'), { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } }).then(result => result.violations.map(item => item.id))`);
+  if (violations.length) throw new Error("private package accessibility: " + JSON.stringify(violations));
+  await setViewport(390, 844, true);
+  if (!await evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")) throw new Error("private package mobile overflow");
+  await screenshot("project-package-restored-mobile-ko");
+  await setViewport(1440, 1000, false);
+  console.log("private project package E2E: native ZIP download/SHA, duplicate409, empty-project UI restore, 3 language sessions/2 WAVs/stable IDs/frozen digest/reviews, inactive session, mobile/axe");
+} finally {
+  await cdp("Browser.setDownloadBehavior", { behavior: "default" });
+  await rm(packageDirectory, { recursive: true, force: true });
+}
 const movedSource = await fetch(`http://127.0.0.1:8000/api/v1/history/${extraProjectSessions[0]}/project`, {
   method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: null }),
 });

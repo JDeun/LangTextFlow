@@ -144,6 +144,14 @@ try {
     projectDigestResult.exceptionDetails.exception?.description || projectDigestResult.exceptionDetails.text,
   );
   console.log(`project digest smoke passed: ${projectDigestResult.result.value}`);
+  const packageResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/projectPackageHarness.tsx').then((test) => test.runProjectPackageChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (packageResult.exceptionDetails) throw new Error(
+    packageResult.exceptionDetails.exception?.description || packageResult.exceptionDetails.text,
+  );
+  console.log(`private project package smoke passed: ${packageResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;
