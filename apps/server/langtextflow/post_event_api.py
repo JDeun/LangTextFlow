@@ -207,13 +207,15 @@ def install_post_event_routes(
         request: Request, session_id: str, recording_id: str, download: bool = False,
     ):
         require_operator(request)
-        await finished_session(session_id)
+        # Registered assets are immutable while later captions/recordings continue.
+        if await asyncio.to_thread(runtime.history.get_session, session_id) is None:
+            raise HTTPException(404, "session not found")
         path = await asyncio.to_thread(archive.recording_path, session_id, recording_id)
         if path is None:
             raise HTTPException(404, "recording not found")
         return FileResponse(
             path, media_type="audio/wav",
-            filename=f"langtextflow-{session_id}.wav",
+            filename=f"langtextflow-{session_id}-{recording_id}.wav",
             content_disposition_type="attachment" if download else "inline",
         )
 

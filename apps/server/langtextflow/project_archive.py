@@ -64,6 +64,7 @@ def build_project_archive_manifest(
                         "sha256": item["sha256"],
                         "duration_seconds": item["duration_seconds"],
                         "size_bytes": item["size_bytes"],
+                        "start_offset_ms": item.get("start_offset_ms"),
                     }
                     for item in recordings
                 ],

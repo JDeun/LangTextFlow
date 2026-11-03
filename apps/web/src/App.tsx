@@ -22,6 +22,7 @@ import { OnboardingWizard } from "./OnboardingWizard";
 import { OPERATOR_COPY } from "./operatorCopy";
 import { observeOperatorHeader } from "./operatorHeaderLayout";
 import { RECORDING_COPY } from "./recordingCopy";
+import { LiveRecordingControls } from "./LiveRecordingControls";
 import { AUDIENCE_METRICS_COPY } from "./audienceMetricsCopy";
 import { PreflightPanel } from "./PreflightPanel";
 import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
@@ -638,13 +639,14 @@ function OperatorApp() {
               {operatorCopy.recoveredAudio}
             </div>
           )}
-          {session?.recording_enabled && (
+          {running && session?.audio_required && session.session_id && (
+            <LiveRecordingControls apiUrl={API_URL} sessionId={session.session_id} locale={locale} />
+          )}
+          {!running && session?.recording_enabled && (
             <div className="warning-box" role="status">
               {session.recording_error
                 ? `${recordingCopy.failed}: ${session.recording_error}`
-                : running
-                  ? recordingCopy.active
-                  : recordingCopy.ended}
+                : recordingCopy.ended}
             </div>
           )}
           <button

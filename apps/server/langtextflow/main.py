@@ -69,6 +69,7 @@ from .project_repository import (
     ProjectRepository,
     ProjectTranscriptMatch,
 )
+from .recording_api import install_recording_routes
 from .runtime import CaptionRuntime, SessionChangedError
 from .runtime_install import (
     RuntimeKind,
@@ -1368,3 +1369,5 @@ async def audio_socket(websocket: WebSocket) -> None:
 shutdown_post_event_jobs = install_post_event_routes(
     app, runtime, post_event_archive, settings, _require_operator,
 )
+
+install_recording_routes(app, runtime, _require_operator)
