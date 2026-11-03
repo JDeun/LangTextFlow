@@ -15,3 +15,7 @@ test("local summary does not silently send external consent", () => {
     allow_external_provider: false,
   });
 });
+test("only an explicitly selected approved transcript is sent as the summary source", () => {
+  assert.equal(buildSummaryRequest("ko", "ollama", "", false, "approved-version").transcript_id, "approved-version");
+  assert.equal("transcript_id" in buildSummaryRequest("ko", "ollama", "", false), false);
+});

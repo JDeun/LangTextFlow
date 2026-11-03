@@ -6,6 +6,7 @@ export function buildSummaryRequest(
   provider: SummaryProvider,
   model: string,
   allowExternal: boolean,
+  transcriptId: string | null = null,
 ) {
   if (provider === "openai-compatible" && !allowExternal) {
     throw new Error("External summarization requires explicit approval");
@@ -15,5 +16,6 @@ export function buildSummaryRequest(
     provider,
     model: model.trim() || null,
     allow_external_provider: provider === "openai-compatible" && allowExternal,
+    ...(transcriptId ? { transcript_id: transcriptId } : {}),
   };
 }

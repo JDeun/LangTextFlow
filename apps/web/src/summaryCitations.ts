@@ -1,7 +1,7 @@
 import type { TranscriptEvent } from "./types";
 
 /** Link only exact, committed source markers from this session's loaded evidence. */
-export function summaryCitations(text: string, segments: readonly TranscriptEvent[]) {
+export function summaryCitations(text: string, segments: readonly Pick<TranscriptEvent, "segment_id" | "start_ms" | "committed">[]) {
   const source = new Map(segments.filter(segment => segment.committed)
     .map(segment => [segment.segment_id, segment]));
   const references = new Map<string, { segmentId: string; seconds: number }>();
