@@ -20,7 +20,7 @@ def main(args: list[str] | None = None) -> None:
     with open(os.devnull, "w") as silent:
         os.dup2(silent.fileno(), sys.stdout.fileno())
         os.dup2(silent.fileno(), sys.stderr.fileno())
-    requests: queue.Queue[dict] = queue.Queue(maxsize=4)
+    incoming: queue.Queue[dict] = queue.Queue(maxsize=4)
 
     def read_requests() -> None:
         try:
@@ -38,7 +38,7 @@ def main(args: list[str] | None = None) -> None:
                         or request["target"] not in SUPPORTED_LANGUAGES
                         or request["source"] == request["target"]):
                     os._exit(1)
-                requests.put_nowait(request)
+                incoming.put_nowait(request)
         except Exception:
             os._exit(1)
 
@@ -51,7 +51,7 @@ def main(args: list[str] | None = None) -> None:
         tokenizer, engine = provider._prepare_sync()
         print(json.dumps({"ready": True}), file=output, flush=True)
         while True:
-            request = requests.get()
+            request = incoming.get()
             candidate = provider._translate_sync(
                 request["text"], request["source"], request["target"], tokenizer, engine,
             )
