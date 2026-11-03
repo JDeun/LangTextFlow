@@ -11,6 +11,7 @@ from langtextflow.config import Settings
 from langtextflow.local_mt_preflight import local_m2m100_check
 from langtextflow.models import SessionContext, StartSessionRequest
 from langtextflow.pipeline import CaptionPipeline
+from langtextflow.runtime import CaptionRuntime
 from langtextflow.translation import M2M100CT2Translator, TranslationError
 from langtextflow.translation.capabilities import translation_capabilities
 
@@ -193,6 +194,87 @@ def test_local_m2m100_preflight_blocks_missing_artifacts(tmp_path) -> None:
     assert result.id == "m2m100-local"
     assert result.status == "missing"
     assert "model.bin" in result.summary
+
+
+@pytest.fixture
+def local_model_files(tmp_path):
+    model = tmp_path / "ct2"
+    tokenizer = tmp_path / "tokenizer"
+    model.mkdir()
+    tokenizer.mkdir()
+    for name in ("model.bin", "config.json"):
+        (model / name).write_text("fixture")
+    for name in ("tokenizer_config.json", "sentencepiece.bpe.model", "vocab.json"):
+        (tokenizer / name).write_text("fixture")
+    return model, tokenizer
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [
+    "model.bin", "config.json", "tokenizer_config.json", "sentencepiece.bpe.model", "vocab.json",
+])
+async def test_preflight_and_prepare_reject_each_missing_file(
+    local_model_files, monkeypatch, missing,
+) -> None:
+    model, tokenizer = local_model_files
+    directory = model if missing in {"model.bin", "config.json"} else tokenizer
+    (directory / missing).unlink()
+    monkeypatch.setattr(
+        "langtextflow.local_mt_preflight.importlib.util.find_spec", lambda _: object(),
+    )
+    check = local_m2m100_check(Settings(
+        local_m2m100_ct2_dir=str(model), local_m2m100_tokenizer_dir=str(tokenizer),
+    ))
+    assert check.status == "missing" and missing in check.summary
+    provider = M2M100CT2Translator(model_dir=str(model), tokenizer_dir=str(tokenizer))
+    monkeypatch.setattr(
+        provider, "_prepare_sync", lambda: pytest.fail("incomplete cache reached native loader"),
+    )
+    with pytest.raises(TranslationError, match="cache is missing"):
+        await provider.prepare()
+
+
+def test_complete_local_cache_remains_ready(local_model_files, monkeypatch) -> None:
+    model, tokenizer = local_model_files
+    monkeypatch.setattr(
+        "langtextflow.local_mt_preflight.importlib.util.find_spec", lambda _: object(),
+    )
+    assert local_m2m100_check(Settings(
+        local_m2m100_ct2_dir=str(model), local_m2m100_tokenizer_dir=str(tokenizer),
+    )).status == "ready"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [TypeError, KeyError])
+async def test_malformed_tokenizer_initialization_preserves_live_source(
+    local_model_files, monkeypatch, tmp_path, failure,
+) -> None:
+    model, tokenizer = local_model_files
+
+    def broken_tokenizer(self):
+        raise failure("malformed tokenizer fixture")
+
+    monkeypatch.setattr(M2M100CT2Translator, "_prepare_sync", broken_tokenizer)
+    runtime = CaptionRuntime(Settings(
+        database_path=str(tmp_path / "history.db"),
+        local_m2m100_ct2_dir=str(model), local_m2m100_tokenizer_dir=str(tokenizer),
+    ))
+    try:
+        state = await runtime.start(StartSessionRequest(
+            engine="mock", correction_provider="none", translation_provider="m2m100-ct2",
+            source_language="en", target_languages=["ko"],
+        ))
+        assert state.running and not state.translation_status.available
+        assert "could not initialize" in state.translation_status.error
+        for _ in range(40):
+            if any(event.committed for event in runtime.store.snapshot()):
+                break
+            await asyncio.sleep(0.05)
+        sources = [event for event in runtime.store.snapshot() if event.committed]
+        assert sources and all(event.source_language == "en" for event in sources)
+        assert all(not event.translations for event in sources)
+    finally:
+        await runtime.shutdown()
 
 
 @pytest.mark.parametrize("threads", [0, 17])
