@@ -260,7 +260,10 @@ latency, queue/drain diagnostics, and Python RSS. The observer measures actual
 network delay, browser paint, and a real microphone remain separate checks. The
 Ollama variant also retains external-container resource samples.
 
-Source CER/WER use each source clip's independent human transcription. Different
+Source CER/WER use each source clip's independent human transcription and the
+server store's committed original ASR text; audience delivery loss is not graded
+as recognition error. An ASR startup/inference failure leaves quality unavailable.
+Different
 FLEURS language IDs are not assumed to form aligned translation references:
 `translation_quality.chrf` is `null` with status `unavailable`. No translations or
 translation gold are fabricated. Native-model experiments are labeled

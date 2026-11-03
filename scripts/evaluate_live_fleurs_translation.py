@@ -339,6 +339,7 @@ async def run_live(
     asr_diagnostics: dict[str, Any] = {}
     shutdown_telemetry: dict[str, Any] = {}
     drained = False
+    asr_completed = False
     drain_started_at: float | None = None
     drain_seconds: float | None = None
     startup = time.perf_counter()
@@ -411,6 +412,7 @@ async def run_live(
             await asyncio.shield(worker)
             if engine.failure:
                 raise RuntimeError(f"ASR inference failed: {engine.failure}")
+            asr_completed = True
             await runtime.pipeline._queue.join()
             await runtime._persistence_queue.join()
             delivery = runtime.hub._clients.get(collector)
@@ -477,6 +479,11 @@ async def run_live(
                 failure = failure or "no actual ASR -> translated committed captions"
             if collector and collector.overflow:
                 failure = failure or "audience observation budget exceeded"
+            server_committed = sorted(
+                (event for event in runtime.store.snapshot() if event.committed),
+                key=lambda event: (event.start_ms, event.segment_id),
+            )
+            asr_hypothesis = " ".join(event.source_text for event in server_committed)
             report = {
                 "schema_version": 2,
                 "status": "runtime-error" if failure else "measured",
@@ -500,7 +507,17 @@ async def run_live(
                 "model_provenance": provenance,
                 "startup_seconds": cold_start_seconds,
                 "reference_transcript": reference,
-                "asr_quality": quality_metrics(reference, metrics["asr_hypothesis"]),
+                "asr_hypothesis": asr_hypothesis,
+                "asr_quality_surface": "runtime_store_committed_original",
+                "asr_completed": asr_completed,
+                "asr_quality": quality_metrics(reference, asr_hypothesis)
+                if asr_completed
+                else {
+                    "cer": None,
+                    "wer": None,
+                    "status": "unavailable",
+                    "reason": "ASR did not complete; no recognition-quality claim",
+                },
                 "translation_quality": {
                     "status": "unavailable",
                     "chrf": None,
@@ -542,6 +559,8 @@ async def run_live(
                     "source_language": source_language,
                     "target_languages": [target_language],
                     "snapshots": collector.snapshots if collector else 0,
+                    "server_committed_count": len(server_committed),
+                    "observed_committed_count": metrics["committed_count"],
                     "closed_on_cleanup": collector.closed if collector else None,
                     "event_limit": MAX_EVENTS,
                     "events_dropped": collector.overflow if collector else 0,

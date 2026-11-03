@@ -198,6 +198,8 @@ async def test_failed_start_writes_bounded_report_and_cleans_sampler(tmp_path, m
     assert report["status"] == "runtime-error"
     assert len(report["error"]) < 1100
     assert report["startup_seconds"] is None
+    assert report["asr_quality"]["cer"] is None
+    assert report["asr_completed"] is False
     assert not any(t.get_name() == "live-benchmark-resources" for t in asyncio.all_tasks())
 
 
@@ -222,7 +224,7 @@ async def test_observer_disconnect_is_failed_measurement_not_fake_success(
     with pytest.raises(RuntimeError, match="observer disconnected"):
         await run_live(
             b"\1\0" * 1600,
-            "source",
+            "원문 증거",
             [],
             tmp_path,
             model="tiny",
@@ -234,6 +236,10 @@ async def test_observer_disconnect_is_failed_measurement_not_fake_success(
     report = json.loads((tmp_path / "live-interpretation-report.json").read_text())
     assert report["telemetry"]["websocket_send_failures"] == 1
     assert report["metrics"]["translation_coverage"] == 0
+    assert report["asr_quality"]["cer"] == 0
+    assert report["asr_quality_surface"] == "runtime_store_committed_original"
+    assert report["audience_observation"]["server_committed_count"] == 1
+    assert report["audience_observation"]["observed_committed_count"] == 0
 
 
 def test_report_serialization_failure_leaves_small_failure_json(tmp_path) -> None:
