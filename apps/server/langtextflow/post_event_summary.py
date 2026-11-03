@@ -119,6 +119,9 @@ def source_chunks(source: str) -> list[str]:
             ))
         ):
             raise ValueError("invalid source speaker metadata")
+        if "speaker" in metadata:
+            speaker = " ".join(metadata["speaker"].split())
+            metadata = {"speaker": speaker} if speaker else {}
         prefix = f"{marker} {json.dumps(metadata, ensure_ascii=False)} "
         remaining = body[end:].lstrip(" ")
         if not remaining.strip():

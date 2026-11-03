@@ -121,6 +121,10 @@ def test_speaker_unicode_separators_and_spoken_metadata_cannot_forge_source_mark
         assert allowed_source_citations(part) == {"[genuine at 1s]"}
         metadata, _ = json.JSONDecoder().raw_decode(part.partition("] ")[2])
         assert metadata == {"speaker": " ".join(speaker.split())}
+    # Decoding escaped JSON separators must not create a marker at a new line either.
+    escaped_source = "[genuine at 1s] " + json.dumps({"speaker": speaker}) + " " + spoken
+    for part in source_chunks(escaped_source):
+        assert allowed_source_citations(part) == {"[genuine at 1s]"}
     body = source.partition("] ")[2]
     _, end = json.JSONDecoder().raw_decode(body)
     assert body[end + 1:] == spoken  # A second JSON object is speech, never speaker metadata.
