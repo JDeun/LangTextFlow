@@ -64,22 +64,40 @@ def _probe_runtime(order: str, watch: str) -> None:
         os.dup2(silent.fileno(), 2)
     if watch != "none":
         descriptor = os.dup(0) if watch == "duplicate" else 0
-        if watch == "winapi":
+        if watch in {"winapi", "peek"}:
             import ctypes
             import msvcrt
             from ctypes import wintypes
 
             handle = wintypes.HANDLE(msvcrt.get_osfhandle(0))
-            read_file = ctypes.WinDLL("kernel32", use_last_error=True).ReadFile
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            read_file = kernel.ReadFile
             read_file.argtypes = (wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
                                   ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID)
             read_file.restype = wintypes.BOOL
             data = ctypes.create_string_buffer(1)
             count = wintypes.DWORD()
+            peek_file = kernel.PeekNamedPipe
+            peek_file.argtypes = (wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                                  ctypes.POINTER(wintypes.DWORD),
+                                  ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD))
+            peek_file.restype = wintypes.BOOL
         entered = threading.Event()
 
         def closed() -> None:
             entered.set()
+            if watch == "idle":
+                threading.Event().wait()
+            if watch == "peek":
+                import time
+
+                while True:
+                    success = peek_file(handle, None, 0, None, ctypes.byref(count), None)
+                    if not success:
+                        os._exit(0 if ctypes.get_last_error() == 109 else 1)
+                    if count.value:
+                        os._exit(0)
+                    time.sleep(.01)
             if watch == "winapi":
                 success = read_file(handle, data, 1, ctypes.byref(count), None)
                 os._exit(0 if success or ctypes.get_last_error() == 109 else 1)
@@ -127,7 +145,7 @@ async def _probe_runtime_matrix(output: Path) -> None:
     controls = [(order, watch) for order in ("direct", "preload-spm")
                 for watch in ("none", "shared", "duplicate")]
     if os.name == "nt":
-        controls.append(("direct", "winapi"))
+        controls.extend(("direct", watch) for watch in ("winapi", "idle", "peek"))
     for order, watch in controls:
         result = {"order": order, "watch": watch, "ready": False, "timed_out": False}
         worker = _M2M100Worker([*prefix, "--probe-runtime", order, watch])
@@ -298,7 +316,7 @@ def main(args: list[str] | None = None) -> None:
     if (len(args) == 3 and args[0] == "--probe-runtime"
             and args[1] in {"direct", "preload-spm"}
             and (args[2] in {"none", "shared", "duplicate"}
-                 or args[2] == "winapi" and os.name == "nt")):
+                 or args[2] in {"winapi", "idle", "peek"} and os.name == "nt")):
         _probe_runtime(args[1], args[2])
         return
     if args == ["--check-runtime"]:

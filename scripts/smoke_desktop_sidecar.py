@@ -232,7 +232,7 @@ def main() -> None:
             probe_path = root / "import-probe.json"
             smoke_auxiliary_command(binary, root, {**environment, "USE_TORCH": "0"}, [
                 "--m2m100-prepare-worker", "--probe-matrix", str(probe_path),
-            ], 0, timeout_seconds=150)
+            ], 0, timeout_seconds=210)
             probe = json.loads(probe_path.read_text())
             probe["source_sha"] = subprocess.run(["git", "rev-parse", "HEAD"], check=True,
                                                   capture_output=True, text=True).stdout.strip()
@@ -243,7 +243,7 @@ def main() -> None:
             report.parent.mkdir(parents=True, exist_ok=True)
             report.write_text(json.dumps(probe, indent=2) + "\n", encoding="utf-8")
             assert probe["weights_downloaded"] is False
-            assert len(probe["cases"]) == (7 if os.name == "nt" else 6)
+            assert len(probe["cases"]) == (9 if os.name == "nt" else 6)
             assert all(case["reaped"] for case in probe["cases"]), "import probe orphaned"
             assert next(case for case in probe["cases"]
                         if case["order"] == "preload-spm" and case["watch"] == "none")["ready"]
