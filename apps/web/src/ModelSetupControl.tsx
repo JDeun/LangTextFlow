@@ -124,7 +124,8 @@ export function ModelSetupControl({
   if (!enabled && !job) return null;
 
   return (
-    <div className="model-setup-control">
+    <div className={provider === "m2m100-ct2"
+      ? "model-setup-control native-model-setup" : "model-setup-control"}>
       {!job && (
         <button onClick={start} disabled={busy || !enabled || !model.trim()}>
           {busy ? copy.preparing : actionLabel}

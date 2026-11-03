@@ -1,4 +1,5 @@
 import { useState } from "react";
+import axe from "axe-core";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { LocaleProvider } from "../../src/i18n";
@@ -74,6 +75,12 @@ export async function runM2M100SetupChecks() {
     assert(!requests.some(path => path.includes("/prepare")), "render must not download");
     (card().querySelector("button") as HTMLButtonElement).click();
     await until(() => !!card().querySelector(".model-setup-job.running"), "job progress rendered");
+    const contrast = await axe.run(card(), {
+      runOnly: { type: "rule", values: ["color-contrast"] },
+    });
+    assert(contrast.violations.length === 0, `native setup contrast: ${JSON.stringify(
+      contrast.violations.flatMap(violation => violation.nodes.map(node => node.failureSummary)),
+    )}`);
     (card().querySelector("button") as HTMLButtonElement).click();
     await until(() => !!card().querySelector(".model-setup-job.cancelled"), "cancel request rendered");
     (card().querySelector("button") as HTMLButtonElement).click();
