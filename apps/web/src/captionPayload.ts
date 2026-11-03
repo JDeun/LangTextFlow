@@ -28,7 +28,7 @@ function isTranslations(value: unknown): value is Record<string, string> {
 }
 
 function isPublicModel(value: unknown): boolean {
-  return value === null || (typeof value === "string" && value.length <= 200 &&
+  return value === null || (typeof value === "string" && value.length <= 200 && value.trim() === value &&
     /^[A-Za-z0-9][A-Za-z0-9_.:-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.:-]*)?$/.test(value) &&
     !value.includes("..") && !value.includes(":/") && !/^[A-Za-z]:/.test(value) &&
     !/^(sk-|hf_|ghp_|github_pat_|xoxb-|xoxp-)/.test(value));
@@ -36,6 +36,7 @@ function isPublicModel(value: unknown): boolean {
 
 function isModelProvenance(value: unknown): value is Record<string, unknown> {
   return isRecord(value) && typeof value.provider === "string" &&
+    value.provider.trim() === value.provider &&
     /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(value.provider) &&
     ["configured_model", "verified_model", "model_revision"].every(
       (key) => isPublicModel(value[key]),

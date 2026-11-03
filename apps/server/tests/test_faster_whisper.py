@@ -31,6 +31,46 @@ async def wait_for_failure(
     raise AssertionError("faster-whisper worker failure was not observed before timeout")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local_directory", [True, False])
+async def test_effective_model_identity_does_not_publish_relative_local_directory(
+    monkeypatch, tmp_path, local_directory,
+):
+    from langtextflow.asr import faster_whisper
+
+    monkeypatch.chdir(tmp_path)
+    local = tmp_path / "private" / "checkpoint"
+    local.mkdir(parents=True)
+    for filename in ("model.bin", "config.json", "tokenizer.json"):
+        (local / filename).write_text("fixture")
+    loaded = []
+
+    def load(path, **kwargs):
+        loaded.append(path)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=load))
+    if not local_directory:
+        monkeypatch.setattr(faster_whisper, "resolve_whisper_model", lambda *_: local)
+    name = "private/checkpoint" if local_directory else "Systran/faster-whisper-small"
+    published = []
+
+    async def publish(event):
+        published.append(event)
+
+    engine = FasterWhisperStreamingAsrEngine(publish, model=name)
+    engine._model = engine._load_model_sync()
+    engine._request = StartSessionRequest(engine="faster-whisper")
+    monkeypatch.setattr(engine, "_transcribe_chunk_sync", lambda *_: [
+        DecodedSegment(0, 1, "source"),
+    ])
+    await engine._process_chunk(pcm(1))
+    assert loaded == [str(local)]
+    provenance = published[0].asr_provenance
+    assert provenance.configured_model == (None if local_directory else name)
+    assert provenance.verified_model is None and provenance.model_revision is None
+
+
 class FakeFasterWhisperEngine(FasterWhisperStreamingAsrEngine):
     def __init__(self, publish, **kwargs) -> None:
         super().__init__(publish, **kwargs)

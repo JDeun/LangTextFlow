@@ -6,6 +6,7 @@ import math
 import threading
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
@@ -61,6 +62,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         if chunk_seconds <= 0:
             raise ValueError("faster-whisper chunk_seconds must be greater than zero")
         self.model_name = model
+        self._public_model_name: str | None = None
         self.cache_dir = cache_dir
         self.allow_download = allow_download
         self.device = device
@@ -192,8 +194,11 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             options["cpu_threads"] = self.cpu_threads
             options["num_workers"] = 1
         resolve = prepare_whisper_model if self.allow_download else resolve_whisper_model
+        local_model = Path(self.model_name).expanduser().is_dir()
         model_path = resolve(self.model_name, self.cache_dir)
-        return WhisperModel(str(model_path), **options)
+        model = WhisperModel(str(model_path), **options)
+        self._public_model_name = None if local_model else self.model_name
+        return model
 
     def _transcribe_chunk_sync(
         self,
@@ -373,7 +378,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                     source_language=self._request.source_language,
                     text=segment.text,
                     asr_provenance=AsrProvenance(
-                        provider="faster-whisper", configured_model=self.model_name,
+                        provider="faster-whisper", configured_model=self._public_model_name,
                         timestamp_basis=("sample_clock_estimated" if segment.estimated_timestamps
                                          else "sample_clock_native_hint"),
                         sample_rate=self.sample_rate,

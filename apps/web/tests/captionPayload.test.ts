@@ -129,7 +129,8 @@ test("rejects malformed, unbounded, private-location and fabricated alignment pr
   for (const update of [
     { requested_model: "https://host/model?token=secret" }, { provider: "user@host" },
     { configured_model: "C:secret" }, { model_revision: 123 },
-    { requested_model: "sk-private-api-key" },
+    { requested_model: "sk-private-api-key" }, { configured_model: "small\n" },
+    { provider: "ollama\n" },
   ]) {
     assert.throws(() => parseCaptionPayload(JSON.stringify({
       ...transcript, translation_provenance: { en: { ...mtProvenance, ...update } },

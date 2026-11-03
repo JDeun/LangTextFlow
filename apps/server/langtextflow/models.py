@@ -301,7 +301,9 @@ class CorrectionProvenance(BaseModel):
     @classmethod
     def public_reason(cls, value: str | None) -> str | None:
         # Provider exception bodies can contain private paths, URLs and credentials.
-        if value is None or value in {
+        if value is None:
+            return None
+        if isinstance(value, str) and value in {
             "correction provider unavailable", "correction timed out; using deterministic result",
             "correction provider failed; using deterministic result",
         }:

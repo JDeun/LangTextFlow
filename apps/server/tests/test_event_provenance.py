@@ -229,6 +229,20 @@ def test_existing_database_migrates_without_inventing_provenance(tmp_path):
     restored = repository.segments("session-1")[0]
     assert restored == original.model_copy(update={"original_text": original.text})
     assert restored.asr_provenance is None and restored.translation_provenance == {}
+    legacy_correction = {
+        "method": "fallback", "provider": "ollama", "model": "/home/private/model",
+        "fallback_reason": "http://user:secret@host/chat?token=secret",
+    }
+    with sqlite3.connect(path) as connection:
+        connection.execute("UPDATE transcript_segments SET correction_json = ?",
+                           (json.dumps(legacy_correction),))
+    redacted = repository.segments("session-1")[0].correction
+    assert redacted.model is None
+    assert redacted.fallback_reason == "correction provider failed; using deterministic result"
+    with sqlite3.connect(path) as connection:
+        assert json.loads(connection.execute(
+            "SELECT correction_json FROM transcript_segments",
+        ).fetchone()[0]) == legacy_correction
     repository.upsert_segment("session-1", source(2))
     assert repository.segments("session-1")[0].asr_provenance == source(2).asr_provenance
     # Old asynchronous revisions cannot rewrite the newer source's metadata.

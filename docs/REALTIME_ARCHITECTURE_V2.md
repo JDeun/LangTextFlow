@@ -70,7 +70,8 @@ columns without reconstructing historical model identities or timing evidence.
   later output from that provider is not automatically labelled replayed. A provider without
   timing metadata remains `unknown` even when AUTO knows its offset. Stale callbacks stay fenced.
 - Public model identifiers are bounded; absolute paths, endpoint URLs, queries and credential
-  forms become `null`. Free-form correction exception text is withheld from public events;
+  forms become `null`. Whisper also suppresses configured directories resolved locally, including
+  relative paths that resemble a public repository ID. Free-form correction exception text is withheld from public events;
   operator correction status retains the diagnostic detail. Legacy correction reasons receive
   the same safe public fallback label on read, without rewriting the database.
 
