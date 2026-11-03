@@ -7,6 +7,8 @@
 Existing `sessions` and `transcript_segments` are unchanged. New tables:
 
 - `session_recordings(recording_id, session_id, filename, media_type, size_bytes, sha256, duration_seconds, sample_rate, channels, created_at)`
+- `recording_journal` retains verified file ownership before promotion and after registration;
+  it preserves the original owner ID, filename, size, SHA-256 and WAV metadata.
 - `session_summaries(summary_id, session_id, language, provider, model, transcript_sha256, prompt_version, status, content, error, created_at, updated_at)`
 - `summary_reviews(review_id, summary_id, content, approved, created_at)` — append-only operator edits and approvals; cascades with the summary/session.
 - `transcript_versions` retains each local retranscription attempt, immutable decoder segments,
@@ -16,7 +18,12 @@ Existing `sessions` and `transcript_segments` are unchanged. New tables:
 - Summary rows additionally retain `transcript_id` (null for live source) and the current
   `approved_transcript_id` at generation admission, so approval changes invalidate old summaries.
 
-Foreign keys cascade with session deletion. WAV bytes live in `<database-directory>/recordings/` and **never** as a SQLite BLOB. Managed storage uses server-generated filenames; original user filenames are not trusted. A deleted session removes its recording metadata and attempts managed file cleanup. Old orphan files following abrupt process termination may require a maintenance job (tracked in #79).
+Archive foreign keys cascade with session deletion. The ownership journal instead sets
+its session foreign key to null, retaining a deletion tombstone until its verified files
+are removed. WAV bytes live in `<database-directory>/recordings/` and **never** as a
+SQLite BLOB. Managed storage uses server-generated filenames; original user filenames
+are not trusted. Legacy registered files retain best-effort deletion; old unindexed WAVs
+without a journal are never assigned to a session or deleted by guessing ownership.
 
 ## User path
 
@@ -38,7 +45,7 @@ automatically aligned to imported WAVs; this control does not claim word alignme
 
 Live audio recording is available as an explicit **per-session opt-in** before starting a real ASR engine. The existing streaming `/ws/audio` float32 PCM is mirrored to a **bounded, asynchronous PCM16 WAV writer**; filesystem backpressure does not block live ASR. A complete recording is linked to `session_id` after stop and appears in the same Event archive panel. Recording defaults to off, and a demo/mock session cannot enable it.
 
-Failure behavior: if the recording queue overflows, storage is exhausted, or WAV finalization fails, the recorder discards incomplete audio and sets `SessionState.recording_error`, while the caption pipeline continues. The operator must check the recording status before publishing. Interrupted `.partial` recordings are not automatically represented as complete assets; safe startup recovery/retention policies remain #79.
+Failure behavior: if the recording queue overflows, storage is exhausted, or WAV finalization fails, the recorder discards incomplete audio and sets `SessionState.recording_error`, while the caption pipeline continues. The operator must check the recording status before publishing. Interrupted `.partial` recordings are not represented as complete assets unless their committed ownership journal, full hash and WAV metadata verify successfully.
 
 Recordings are local plaintext files with `0600` creation permissions (subject to platform filesystem semantics); **participant notice/consent is the operator's responsibility**. Browser controls do not persist recording opt-in across sessions. Imported WAV files remain supported.
 
@@ -56,15 +63,15 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
   overflow invalidate the recording and prevent incomplete files being
   presented as successful.
 - The recording is written first as a private `*.wav.partial` and only
-  promoted to `*.wav` after finalization and disk flush. Its SHA-256,
-  duration, codec and size are then registered in SQLite.
+  promoted to `*.wav` after finalization, disk flush and a committed ownership
+  journal. Its SHA-256, duration, codec and size are then registered in SQLite.
+  Imports use the same preparation, ownership and promotion sequence.
 - Recording failures that occur mid-session are surfaced through a scoped
   operator-state poll; no new audience API or permission is introduced.
-- A power loss may leave an **unregistered partial file**. On subsequent
-  startup, only server-generated UUID-named partials older than 24 hours are
-  reclaimed. Completed WAVs and newer/unknown files are preserved. Partial
-  files are never advertised as complete; finalized-but-unindexed WAV recovery
-  and broader retention governance remain tracked in #79.
+- An interruption may leave an **unregistered partial file**. Startup inspects
+  at most 256 directory entries for server-generated UUID-named partials older
+  than 24 hours, excluding journal-owned files. Completed WAVs, recent partials
+  and unknown names are preserved; unvisited entries wait for later maintenance.
 - [PCM sample clock regressions](../apps/server/tests/test_recording_pcm_clock.py) connect
   the real runtime, SQLite and generated WAV to a synthetic ASR sample counter.
   Variable frame lengths, PCM silence and sender pauses preserve sample order;
@@ -76,6 +83,32 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
   tail in a valid WAV. Transcript and recording coverage need not end together.
   These fake-ASR regressions do **not** qualify native word timestamps, exact-word
   seeking or real-microphone/field alignment; those remain separate acceptance.
+
+### Verified ownership recovery
+
+For new live recordings and imports, the journal is committed only after a complete
+private partial has been flushed/fsynced and its size, SHA-256 and PCM WAV metadata
+are known. Promotion renames the file and registers its stable recording ID in one
+short SQLite write transaction. Expensive format/hash verification happens before
+that transaction. A process interruption after reservation or rename can therefore
+be retried without inventing ownership or creating duplicate recording IDs.
+
+Startup and archive-detail refresh schedule one background worker, at most 32 journal
+candidates per pass in batches of eight. Recovery only registers recordings whose
+original session has ended. Each candidate is bounded by the existing 512 MiB/four-hour
+limits, checked as a regular nonsymlink managed file, and hashed in at most 1 MiB chunks.
+Shutdown fences those chunks and waits for the current worker; a cancelled pass cannot
+overlap a replacement worker. Startup does not wait for these hashes or scan all WAVs.
+Additional candidates advance on a later archive refresh.
+
+Session deletion removes archive rows immediately and leaves journal tombstones for
+verified file cleanup, including a file renamed concurrently with deletion. Temporary
+I/O failures retain ownership and retry on a later pass. Hash, format, path or type
+mismatches preserve both the file and journal with `integrity_check_failed` for explicit
+repair; they are neither advertised nor silently erased. The journal can therefore
+retain the original session ID after deletion until cleanup succeeds. These controls
+do not provide secure erasure or universal recovery from filesystem/power-loss damage;
+broader retention governance and real microphone acceptance remain separate gates.
 
 ## Operator-only API
 

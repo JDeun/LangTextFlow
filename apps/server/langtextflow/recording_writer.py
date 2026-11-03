@@ -10,16 +10,17 @@ import asyncio
 import hashlib
 import math
 import os
+import stat
 import sys
+import threading
 import wave
 from array import array
+from contextlib import suppress
 from uuid import uuid4
 
 from .post_event_archive import PostEventArchive
+from .recording_journal import MAX_DURATION_SECONDS, MAX_MEDIA_BYTES
 from .storage_guard import ensure_storage_capacity
-
-MAX_DURATION_SECONDS = 4 * 60 * 60
-MAX_MEDIA_BYTES = 512 * 1024 * 1024
 
 
 def pcm_float32_to_pcm16(data: bytes) -> bytes:
@@ -68,6 +69,10 @@ class SessionRecordingWriter:
         self._frames = 0
         self._failure: str | None = None
         self._closing = False
+        self._open_cancelled = threading.Event()
+        self._open_lock = threading.Lock()
+        self._owns_partial = False
+        self._partial_identity: tuple[int, int] | None = None
 
     @property
     def error(self) -> str | None:
@@ -78,34 +83,84 @@ class SessionRecordingWriter:
         return self._frames
 
     async def start(self) -> None:
-        await asyncio.to_thread(self._open)
+        try:
+            await asyncio.to_thread(self._open)
+        except asyncio.CancelledError:
+            self._closing = True
+            self._open_cancelled.set()
+            await asyncio.to_thread(self._discard_open)
+            raise
         self._task = asyncio.create_task(
             self._consume(), name=f"event-audio-recording-{self.session_id}",
         )
 
     def _open(self) -> None:
+        if self._open_cancelled.is_set():
+            return
         self.archive.audio_root.mkdir(parents=True, exist_ok=True)
+        if self.archive.audio_root.is_symlink():
+            raise OSError("recording root must not be a symlink")
         ensure_storage_capacity(
             self.archive.audio_root, required_bytes=16 * 1024 * 1024,
             reserve_bytes=self.reserve_bytes, operation="start session recording",
         )
         fd = os.open(
             self._partial,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            os.O_RDWR | os.O_CREAT | os.O_EXCL,
             0o600,
         )
-        stream = os.fdopen(fd, "wb")
+        info = os.fstat(fd)
+        identity = info.st_dev, info.st_ino
+        try:
+            stream = os.fdopen(fd, "w+b")
+        except Exception:
+            os.close(fd)
+            self._remove_owned_partial(identity)
+            raise
         try:
             writer = wave.open(stream, "wb")  # noqa: SIM115 - closed on stop()
             writer.setnchannels(1)
             writer.setsampwidth(2)
             writer.setframerate(self.sample_rate)
-            self._wave = writer
-            self._stream = stream
+            with self._open_lock:
+                cancelled = self._open_cancelled.is_set()
+                if not cancelled:
+                    self._wave = writer
+                    self._stream = stream
+                    self._owns_partial = True
+                    self._partial_identity = identity
+            if cancelled:
+                with suppress(OSError, ValueError, wave.Error):
+                    writer.close()
+                stream.close()
+                self._remove_owned_partial(identity)
         except Exception:
             stream.close()
-            self._partial.unlink(missing_ok=True)
+            self._remove_owned_partial(identity)
             raise
+
+    def _discard_open(self) -> None:
+        with self._open_lock:
+            writer, stream = self._wave, self._stream
+            owned = self._owns_partial
+            identity = self._partial_identity
+            self._wave = self._stream = None
+            self._owns_partial = False
+            self._partial_identity = None
+        if writer is not None:
+            with suppress(OSError, ValueError, wave.Error):
+                writer.close()
+        if stream is not None:
+            with suppress(OSError):
+                stream.close()
+        if owned:
+            self._remove_owned_partial(identity)
+
+    def _remove_owned_partial(self, identity) -> None:
+        with suppress(OSError):
+            info = self._partial.stat(follow_symlinks=False)
+            if stat.S_ISREG(info.st_mode) and (info.st_dev, info.st_ino) == identity:
+                self._partial.unlink()
 
     def offer(self, pcm: bytes) -> None:
         """Never await filesystem writes or a full recorder queue in the ASR path."""
@@ -145,6 +200,7 @@ class SessionRecordingWriter:
                 self._queue.task_done()
 
     def _close_file(self) -> tuple[int, str]:
+        size, digest = 0, hashlib.sha256()
         try:
             if self._wave is not None:
                 self._wave.close()
@@ -157,6 +213,19 @@ class SessionRecordingWriter:
                     # Complete WAV header and bytes before exposing metadata.
                     self._stream.flush()
                     os.fsync(self._stream.fileno())
+                    size = os.fstat(self._stream.fileno()).st_size
+                    if size > MAX_MEDIA_BYTES or size != self._frames * 2 + 44:
+                        raise OSError("recording size changed")
+                    # Hash the descriptor we created, not a possibly replaced
+                    # pathname, and never read beyond the known PCM size.
+                    self._stream.seek(0)
+                    remaining = size
+                    while remaining:
+                        block = self._stream.read(min(1024 * 1024, remaining))
+                        if not block:
+                            raise OSError("recording was truncated")
+                        digest.update(block)
+                        remaining -= len(block)
                 except OSError:
                     self._failure = "recording storage flush failed"
                 finally:
@@ -168,14 +237,9 @@ class SessionRecordingWriter:
         if self._frames == 0 and self._failure is None:
             self._failure = "recording contains no audio frames"
         if self._failure is not None:
-            self._partial.unlink(missing_ok=True)
+            self._remove_owned_partial(self._partial_identity)
             return 0, ""
-        self._partial.replace(self._completed)
-        digest = hashlib.sha256()
-        with self._completed.open("rb") as reader:
-            for block in iter(lambda: reader.read(1024 * 1024), b""):
-                digest.update(block)
-        return self._completed.stat().st_size, digest.hexdigest()
+        return size, digest.hexdigest()
 
     async def stop(self) -> dict | None:
         """Finalize only complete audio; incomplete recording is never advertised."""
@@ -190,8 +254,8 @@ class SessionRecordingWriter:
         if self._failure is not None or size == 0:
             return None
         try:
-            return await asyncio.to_thread(
-                self.archive.insert_recording,
+            reservation = await asyncio.to_thread(
+                self.archive.recording_journal.reserve,
                 self.session_id,
                 filename=self._filename,
                 size_bytes=size,
@@ -201,6 +265,7 @@ class SessionRecordingWriter:
                 channels=1,
             )
         except Exception:
-            # Metadata failed: do not leave untracked audio on disk.
-            await asyncio.to_thread(self._completed.unlink, missing_ok=True)
+            await asyncio.to_thread(self._remove_owned_partial, self._partial_identity)
             raise
+        # After reservation, preserve a failed promotion for verified recovery.
+        return await asyncio.to_thread(self.archive.recording_journal.promote, reservation)
