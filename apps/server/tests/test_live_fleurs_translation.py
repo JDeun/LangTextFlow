@@ -91,11 +91,14 @@ def test_unavailable_target_does_not_hide_other_target_or_count_source() -> None
     row.update(
         translations={"ja": "日本語訳"}, translation_states={"en": "failed", "ja": "available"}
     )
-    english = summarize_events([row], 2, 2.5)
-    japanese = summarize_events([row], 2, 2.5, target_language="ja")
+    failed_target_event = {**row, "stage": "translated"}
+    english = summarize_events([failed_target_event, row], 2, 2.5)
+    japanese = summarize_events([failed_target_event, row], 2, 2.5, target_language="ja")
     assert english["translation_coverage"] == 0
     assert english["target_states"] == {"failed": 1}
     assert english["first_translation_ms"] is None
+    assert english["p95_lag_ms"]["translated"] is None
+    assert japanese["p95_lag_ms"]["translated"] == 500
     assert japanese["translation_coverage"] == 1
 
 
