@@ -1,0 +1,121 @@
+{
+  "date": "2026-11-04",
+  "inspected_base": "a291891591af14d2b8246a169d59b9e5970b79d4",
+  "classification": "registry package metadata and locally reproduced native compilation; no model or release approval",
+  "sources": [
+    "https://github.com/rusqlite/rusqlite/tree/18ee76dbb976d5ef7e37ad5a8fffae678ca21a78",
+    "https://github.com/rusqlite/rusqlite/tree/fb7c711f4e988db149f43cac68f7865b25d0b10e/libsqlite3-sys",
+    "https://sqlite.org/copyright.html"
+  ],
+  "feature_selection": {
+    "rusqlite": "=0.41.1",
+    "default_features": false,
+    "features": [
+      "bundled"
+    ],
+    "custom_ffi": false,
+    "sqlcipher": false,
+    "extension_loading": false
+  },
+  "sqlite": {
+    "version": "3.54.1",
+    "rights": "Public domain per SQLite authors",
+    "amalgamation_sha256": "0c657666d819f261cc4007526ad57e1669de9949df7a8ea847aa284a2bf0ee52"
+  },
+  "packages": [
+    {
+      "name": "bitflags",
+      "version": "2.13.2",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": "1.56.0",
+      "crate_sha256": "3ded4057c258ba199e2d26386d3af3780957ecaee6c4ef4041c6b4b8b97c0b06",
+      "repository": "https://github.com/bitflags/bitflags"
+    },
+    {
+      "name": "cc",
+      "version": "1.11.0",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": "1.65.0",
+      "crate_sha256": "375989decec1a0fa424442bed520fa12ede43a48475ce8c7417d2c69b32b5f6b",
+      "repository": "https://github.com/rust-lang/cc-rs"
+    },
+    {
+      "name": "fallible-iterator",
+      "version": "0.3.0",
+      "license": "MIT/Apache-2.0",
+      "rust_version": null,
+      "crate_sha256": "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649",
+      "repository": "https://github.com/sfackler/rust-fallible-iterator"
+    },
+    {
+      "name": "fallible-streaming-iterator",
+      "version": "0.1.9",
+      "license": "MIT/Apache-2.0",
+      "rust_version": null,
+      "crate_sha256": "7360491ce676a36bf9bb3c56c1aa791658183a54d2744120f27285738d90465a",
+      "repository": "https://github.com/sfackler/fallible-streaming-iterator"
+    },
+    {
+      "name": "find-msvc-tools",
+      "version": "0.1.15",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": "1.65.0",
+      "crate_sha256": "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48",
+      "repository": "https://github.com/rust-lang/cc-rs"
+    },
+    {
+      "name": "libsqlite3-sys",
+      "version": "0.39.1",
+      "license": "MIT",
+      "rust_version": "1.88.0",
+      "crate_sha256": "14a5f01b87b92705d07b433c06f96cbc764637d81a0bffb5734ce17cf0f9a2b3",
+      "repository": "https://github.com/rusqlite/rusqlite"
+    },
+    {
+      "name": "pkg-config",
+      "version": "0.3.34",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": "1.63",
+      "crate_sha256": "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548",
+      "repository": "https://github.com/rust-lang/pkg-config-rs"
+    },
+    {
+      "name": "rusqlite",
+      "version": "0.41.1",
+      "license": "MIT",
+      "rust_version": "1.89.0",
+      "crate_sha256": "da9bba6f3506135e120a6586df05be18b48d18896600646a4bec8f993d91a594",
+      "repository": "https://github.com/rusqlite/rusqlite"
+    },
+    {
+      "name": "shlex",
+      "version": "2.0.1",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": "1.46.0",
+      "crate_sha256": "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba",
+      "repository": "https://github.com/comex/rust-shlex"
+    },
+    {
+      "name": "smallvec",
+      "version": "1.16.4",
+      "license": "MIT OR Apache-2.0",
+      "rust_version": null,
+      "crate_sha256": "d0d5d4b1981b8bbbb7aed204cae5726d683d5d6ac7e74ec54122ea28f315e7c8",
+      "repository": "https://github.com/servo/rust-smallvec"
+    },
+    {
+      "name": "vcpkg",
+      "version": "0.2.15",
+      "license": "MIT/Apache-2.0",
+      "rust_version": null,
+      "crate_sha256": "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426",
+      "repository": "https://github.com/mcgoo/vcpkg-rs"
+    }
+  ],
+  "validation": {
+    "rust_toolchain": "1.90.0",
+    "native_mac_compilation": "passed",
+    "archive_checksums": "all added registry archives independently match Cargo.lock",
+    "initial_cargo_audit": "no vulnerabilities; existing tokio 1.53.1 RUSTSEC-2026-0386 unsound warning retained for separate security fix"
+  }
+}

@@ -3,6 +3,7 @@
 
 pub mod asr_slice;
 pub mod caption_events;
+pub mod history;
 pub mod mt_slice;
 pub mod observer_ws;
 pub mod pcm_ingress;

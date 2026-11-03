@@ -4,6 +4,7 @@ import { PROJECT_ARCHIVE_COPY } from "./projectArchiveCopy";
 import { POST_EVENT_COPY } from "./postEventCopy";
 import { ProjectDigestPanel } from "./ProjectDigestPanel";
 import { ProjectKnowledgePanel } from "./ProjectKnowledgePanel";
+import { ProjectRetentionPanel } from "./ProjectRetentionPanel";
 
 interface RecordingRef {
   recording_id: string;
@@ -56,12 +57,13 @@ interface Props {
   projectId: string;
   locale: Locale;
   onOpenSession: (sessionId: string) => void;
+  onArchivesDeleted?: (sessionIds: string[]) => void;
 }
 
 
 const PAGE_SIZE = 25;
 
-export function ProjectArchiveIndex({ apiUrl, projectId, locale, onOpenSession }: Props) {
+export function ProjectArchiveIndex({ apiUrl, projectId, locale, onOpenSession, onArchivesDeleted }: Props) {
   const t = PROJECT_ARCHIVE_COPY[locale];
   const [page, setPage] = useState(0);
   const [snapshot, setSnapshot] = useState<Manifest | null>(null);
@@ -173,6 +175,9 @@ export function ProjectArchiveIndex({ apiUrl, projectId, locale, onOpenSession }
       )}
       <ProjectKnowledgePanel apiUrl={apiUrl} projectId={projectId} locale={locale} onChanged={() => setKnowledgeRevision(v => v + 1)} />
       <ProjectDigestPanel refreshRevision={knowledgeRevision} apiUrl={apiUrl} projectId={projectId} locale={locale} onOpenSession={onOpenSession} />
+      <ProjectRetentionPanel apiUrl={apiUrl} projectId={projectId} locale={locale} onApplied={ids=>{
+        setPage(0);setRefresh(v=>v+1);setKnowledgeRevision(v=>v+1);onArchivesDeleted?.(ids);
+      }} />
     </section>
   );
 }
