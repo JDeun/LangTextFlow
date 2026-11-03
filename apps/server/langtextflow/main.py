@@ -1224,6 +1224,12 @@ async def audio_socket(websocket: WebSocket) -> None:
             reason="operator audio socket is local-only or origin is not allowed",
         )
         return
+    expected_session_id = websocket.query_params.get("expected_session_id")
+    if expected_session_id is not None and (
+        not expected_session_id or expected_session_id != runtime.state.session_id
+    ):
+        await websocket.close(code=4409, reason="audio session changed")
+        return
     try:
         info = runtime.audio_info()
     except RuntimeError:

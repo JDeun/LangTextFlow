@@ -228,6 +228,7 @@ export function useOperatorSession(
       setRecoveredAudio(false);
       if (nextSession.audio_required) {
         const expectedSessionId = nextSession.session_id;
+        if (!expectedSessionId) throw new Error("Invalid operator session state");
         const capture = new AudioCaptureController((message) => {
           const ownsCapture = () => current() && expectedSessionId !== null
             && ownedSessionRef.current === expectedSessionId
@@ -261,7 +262,7 @@ export function useOperatorSession(
           })().catch(() => undefined);
         });
         captureRef.current = capture;
-        await capture.start(selectedDevice);
+        await capture.start(selectedDevice, expectedSessionId);
         if (!current()) {
           await capture.stop().catch(() => undefined);
           return null;

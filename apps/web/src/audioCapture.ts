@@ -2,6 +2,7 @@ import { getWebSocketUrl } from "./api";
 import {
   AUDIO_BACKPRESSURE_CLOSE_CODE,
   AUDIO_PROTOCOL_ERROR_CODE,
+  audioSocketPath,
   canQueueAudioFrame,
   chooseRecoveryDevice,
   microphoneErrorMessage,
@@ -204,8 +205,9 @@ export class AudioCaptureController {
     }
   }
 
-  async start(deviceId?: string): Promise<number> {
+  async start(deviceId?: string, expectedSessionId?: string): Promise<number> {
     if (this.context) return this.context.sampleRate;
+    const socketPath = audioSocketPath(expectedSessionId);
     this.failed = false;
     this.stopping = false;
     this.recovering = false;
@@ -214,7 +216,7 @@ export class AudioCaptureController {
     this.stream = await this.openAudioStream(deviceId);
 
     try {
-      this.socket = new WebSocket(getWebSocketUrl("/ws/audio"));
+      this.socket = new WebSocket(getWebSocketUrl(socketPath));
       this.socket.binaryType = "arraybuffer";
       const config = await waitForAudioConfig(this.socket);
 
