@@ -26,6 +26,9 @@ class PostEventArchive:
         from .recording_journal import RecordingJournal
 
         self.recording_journal = RecordingJournal(self)
+        from .project_digests import ProjectDigests
+
+        self.project_digests = ProjectDigests(self)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database_path, timeout=5)
@@ -122,6 +125,7 @@ class PostEventArchive:
                 if column not in columns:
                     conn.execute(f"ALTER TABLE session_summaries ADD COLUMN {column} TEXT")
         self.transcripts.initialize()
+        self.project_digests.initialize()
         self.cleanup_stale_partials()
 
     def cleanup_stale_partials(

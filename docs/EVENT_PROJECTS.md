@@ -136,3 +136,91 @@ and transcript/title text are escaped before Markdown inclusion. The report
 does not include binary recordings, translated captions, API credentials or
 local recording filesystem paths. Treat even a hash-matching summary as
 **unreviewed until a human checks its factual accuracy**.
+
+## Project digest and chronology (#86, first synthesis slice)
+
+The separate **Project digest · chronology** panel under the Event Archive Index
+generates a versioned AI draft from the **whole project's completed sessions**,
+not just the visible manifest page. Each finished session must first have a
+completed, current, source-cited summary. Running sessions are explicitly excluded;
+the panel shows their count and warns when interrupted/recovered sessions are included.
+Missing/stale session summaries block generation with a preparation message.
+
+One SQLite transaction freezes project/session metadata, the selected session
+summaries and saved reviews, and their exact committed original or explicitly
+approved offline transcript evidence. Sessions are ordered by their actual start
+instant, then ID. A canonical SHA-256 records the complete input set, including
+membership, summary/review identity and approved-source selection. Identical
+inputs/provider/model/language/prompt return the existing completed version;
+failure/retry retains separate attempts. There is no implicit regeneration.
+
+The existing hierarchical summary provider, bounded HTTP reader, request deadlines
+and endpoint transmission policy are reused. Session summaries remain untrusted
+notes, never new spoken evidence. Only original source segments can be cited.
+Project aliases such as `[p0001.s000001 at 12s]` prevent equal segment IDs in
+different sessions from colliding; the frozen citation map retains the exact
+session, original segment, source transcript version and time. Every included
+session must have an original citation in the final draft and saved review.
+The UI offers the frozen original evidence and links to its source sessions;
+these links do not claim word-accurate playback alignment.
+
+Generate explicitly, inspect the draft/provenance and original source, save review
+drafts, then approve and lock a version. Original model content and append-only
+reviews remain preserved. Project/source/summary-review changes, new sessions,
+completion of a formerly running session and transcript approvals make old input
+sets stale. Stale versions cannot be reviewed or approved; generate a new version.
+A moved/detached source hides its old project version's text/evidence and blocks
+export there. Deleting a source session deletes dependent project digests and
+reviews too, so its frozen source is not retained as a hidden duplicate. Deleting
+a project cascades digests/reviews while preserving the original sessions.
+
+At most **25 project sessions**, **6,000 original segments** and **240,000 combined
+original/note characters** are admitted. Exceeding a bound rejects the entire
+operation; reduce the project scope rather than assuming a partial digest.
+Each project retains at most 50 attempts and each version at most 100 reviews.
+The global **two-summary-job** and **ten-minute generation** limits are shared
+with per-session summaries. Generation is asynchronous; cancellation/shutdown
+terminates the job, restart marks unfinished attempts failed for explicit retry.
+An HTTP request cancelled during SQLite admission cannot leave an unmanaged
+running row: an independent admission owner retains the shared slot and a native
+thread cancellation fence until handoff or cleanup. Shutdown drains pending
+admissions too, including repeated HTTP/shutdown cancellation. Inference happens
+outside the snapshot transaction. Deleting a source session/project or moving or
+detaching a source cancels and waits for related jobs before the API mutation.
+Every provider request, including intermediate/reduction/final stages, rechecks
+source existence and project membership; direct database changes also prevent
+further sends. An already transmitted request cannot be recalled from a provider.
+A source change
+during inference preserves a stale draft; it cannot silently approve new evidence.
+
+All endpoints below are local-operator/origin protected; audience codes grant no
+access. The panel fails closed until `summary_external_providers` metadata is
+verified. OpenAI-compatible endpoints and non-loopback Ollama require explicit
+per-request transmission consent. Provider or project/endpoint changes, refresh
+and generation clear consent. Historical provider/model labels do not infer the
+past endpoint's location from current configuration. No cloud upload is implicit.
+
+| Endpoint under `/api/v1/projects/{project_id}` | Meaning |
+|---|---|
+| `GET /digests` | Bounded version metadata, current input readiness/hash and transmission policy |
+| `POST /digests` | Explicit async generation with the existing summary language/provider/model/consent keys |
+| `GET /digests/{digest_id}` | Exact draft, saved review, frozen evidence/provenance and current stale state |
+| `POST /digests/{digest_id}/cancel` | Cancel an owned running attempt; explicit retry creates another attempt |
+| `POST /digests/{digest_id}/reviews` | Append cited text/approval using `expected_review_id` concurrency |
+| `GET /digests/{digest_id}/export` | JSON of one version, its frozen evidence and review history |
+
+Markdown export uses the saved review when present. This **is not the full project
+media package/import/restore**: binary recordings, project handout/agenda/decision
+artifacts and complete restorable linkage remain open under #86. Citation identity
+and automated three-language/three-session tests do not certify model meaning,
+human review quality, actual multilingual speech or field/device acceptance.
+
+`test_project_digests.py` exercises actual SQLite, HTTP jobs, source identities,
+staleness, cancellation/admission, privacy, deletion and hierarchical provider
+requests. The browser runner creates two additional synthetic mock-ASR sessions,
+generates all three per-session summaries through the real loopback-only fake
+provider, then clicks the real project Generate/save/approve controls and checks
+version export, provenance, source navigation, move redaction, mobile and axe.
+The actual React harness separately covers delayed JSON/project/endpoint responses,
+unknown metadata recovery, provider approval resets, same-ID completion and cancel.
+No model weights or private speech are used by these regressions.

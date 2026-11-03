@@ -697,6 +697,88 @@ for (const format of ["srt", "vtt", "txt", "json"]) {
   await exportResponse.arrayBuffer();
 }
 
+// #86: completed three-session project, real HTTP summary jobs and owned fake
+// provider; no project model draft or per-session summary is inserted in SQLite.
+const extraProjectSessions = [];
+for (let index = 0; index < 2; index++) {
+  const started = await fetch("http://127.0.0.1:8000/api/v1/session/start", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ engine: "mock", project_id: eventProject.project_id,
+      source_language: index ? "ja" : "en", target_languages: ["ko"],
+      correction_provider: "none", translation_provider: "none",
+      context: { title: `Synthetic project source ${index + 2}` } }),
+  });
+  if (!started.ok) throw new Error("project source session failed to start");
+  const session = await started.json();
+  extraProjectSessions.push(session.session_id);
+  const sessionRoot = `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(session.session_id)}`;
+  await waitFor(async () => (await (await fetch(`${sessionRoot}/captions`)).json()).some(segment => segment.committed), "synthetic project committed source");
+  const stopped = await fetch("http://127.0.0.1:8000/api/v1/session/stop", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expected_session_id: session.session_id }),
+  });
+  if (!stopped.ok) throw new Error("project source session failed to stop");
+  const generated = await fetch(`${sessionRoot}/summary`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: "ollama", model: "synthetic-e2e", language: "en" }),
+  });
+  if (!generated.ok) throw new Error("project source summary failed admission");
+  await waitFor(async () => (await (await fetch(`${sessionRoot}/archive`)).json()).summary?.status === "completed", "actual per-session summary dependency");
+}
+await navigate("http://127.0.0.1:5173/");
+await setLocale("ko");
+await waitFor(() => evaluate(`Array.from(document.querySelectorAll('.event-project-options button')).some(button => button.textContent.includes('Browser E2E conference'))`), "project workspace grouping");
+await evaluate(`Array.from(document.querySelectorAll('.event-project-options button')).find(button => button.textContent.includes('Browser E2E conference')).click()`);
+const projectPanel = `[data-testid="project-digest"]`;
+await waitFor(() => evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).some(button => button.textContent === '프로젝트 요약 생성 / 다시 시도' && !button.disabled)`), "project evidence dependencies and transmission policy");
+await evaluate(`(() => {
+  const input = document.querySelector('${projectPanel} input:not([type="checkbox"])');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'synthetic-project-e2e');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await waitFor(() => evaluate(`document.querySelector('${projectPanel} input:not([type="checkbox"])').value === 'synthetic-project-e2e'`), "project model selection");
+await evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).find(button => button.textContent === '프로젝트 요약 생성 / 다시 시도').click()`);
+const projectRoot = `http://127.0.0.1:8000/api/v1/projects/${eventProject.project_id}/digests`;
+let projectVersion;
+await waitFor(async () => {
+  const data = await (await fetch(projectRoot)).json();
+  projectVersion = data.versions[0];
+  if (projectVersion?.status === "error") throw new Error(projectVersion.error);
+  return projectVersion?.status === "completed";
+}, "actual project model job completion");
+await waitFor(() => evaluate(`document.querySelector('${projectPanel} textarea')?.value.startsWith('Synthetic project chronology')`), "project review editor");
+await evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).find(button => button.textContent === '검수 초안 저장').click()`);
+const projectVersionRoot = `${projectRoot}/${projectVersion.digest_id}`;
+await waitFor(async () => (await (await fetch(projectVersionRoot)).json()).review?.review_id, "saved project review");
+await waitFor(() => evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).some(button => button.textContent === '요약 승인 및 잠금' && !button.disabled)`), "project review save completed");
+await evaluate(`Array.from(document.querySelectorAll('${projectPanel} button')).find(button => button.textContent === '요약 승인 및 잠금').click()`);
+await waitFor(() => evaluate(`document.querySelector('${projectPanel} textarea')?.readOnly === true`), "project approval lock");
+const projectExport = await (await fetch(`${projectVersionRoot}/export`)).json();
+if (projectExport.version.snapshot.sessions.length !== 3 || projectExport.reviews.length !== 2
+  || !projectExport.reviews[1].approved || !projectExport.version.content.startsWith("Synthetic project chronology")
+  || projectExport.version.snapshot.sessions[0].transcript_id !== offlineTranscriptId) {
+  throw new Error("project version/evidence/review export lost provenance");
+}
+const projectProviderCalls = await (await fetch(`${process.env.LTF_E2E_OLLAMA_URL}/fixture/calls`)).json();
+if (!(projectProviderCalls["synthetic-project-e2e"] >= 3)) throw new Error("project synthesis bypassed hierarchical HTTP provider");
+if (!await evaluate(`document.querySelectorAll('${projectPanel} ul button').length >= 3`)) throw new Error("project source citations missing");
+await evaluate(`document.querySelector('${projectPanel} ul button').click()`);
+await waitFor(() => evaluate(`document.querySelector('.history-detail') !== null`), "project source-session navigation");
+await cdp("Runtime.evaluate", { expression: await readFile("apps/web/node_modules/axe-core/axe.min.js", "utf8") });
+const projectViolations = await evaluate(`axe.run(document.querySelector('${projectPanel}'), { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } }).then(result => result.violations.map(item => item.id))`);
+if (projectViolations.length) throw new Error("project digest accessibility: " + JSON.stringify(projectViolations));
+await setViewport(390, 844, true);
+if (!await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`)) throw new Error("project digest mobile overflow");
+await screenshot("project-digest-mobile-ko");
+await setViewport(1440, 1000, false);
+const movedSource = await fetch(`http://127.0.0.1:8000/api/v1/history/${extraProjectSessions[0]}/project`, {
+  method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project_id: null }),
+});
+if (!movedSource.ok) throw new Error("project move invalidation fixture failed");
+const movedDigest = await (await fetch(projectVersionRoot)).json();
+if (!movedDigest.stale || movedDigest.evidence_available || movedDigest.content !== ""
+  || (await fetch(`${projectVersionRoot}/export`)).status !== 409) throw new Error("old project leaked moved-source evidence");
+
 // #131: actual browser/HTTP/WS flow with a declared EN source and requested KO
 // captions but no translation provider. Mock words exercise the UI routing,
 // NOT English ASR accuracy.

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { Locale } from "./locales";
 import { PROJECT_ARCHIVE_COPY } from "./projectArchiveCopy";
 import { POST_EVENT_COPY } from "./postEventCopy";
+import { ProjectDigestPanel } from "./ProjectDigestPanel";
 
 interface RecordingRef {
   recording_id: string;
@@ -168,6 +169,7 @@ export function ProjectArchiveIndex({ apiUrl, projectId, locale, onOpenSession }
           </div>
         </>
       )}
+      <ProjectDigestPanel apiUrl={apiUrl} projectId={projectId} locale={locale} onOpenSession={onOpenSession} />
     </section>
   );
 }
