@@ -9,6 +9,12 @@ Existing `sessions` and `transcript_segments` are unchanged. New tables:
 - `session_recordings(recording_id, session_id, filename, media_type, size_bytes, sha256, duration_seconds, sample_rate, channels, created_at)`
 - `session_summaries(summary_id, session_id, language, provider, model, transcript_sha256, prompt_version, status, content, error, created_at, updated_at)`
 - `summary_reviews(review_id, summary_id, content, approved, created_at)` — append-only operator edits and approvals; cascades with the summary/session.
+- `transcript_versions` retains each local retranscription attempt, immutable decoder segments,
+  recording/audio SHA-256, model, language, decode parameters, status/progress and provenance.
+  `transcript_reviews` retains append-only operator edits and approval snapshots;
+  `approved_transcripts` selects the current approved version. All cascade with the session.
+- Summary rows additionally retain `transcript_id` (null for live source) and the current
+  `approved_transcript_id` at generation admission, so approval changes invalidate old summaries.
 
 Foreign keys cascade with session deletion. WAV bytes live in `<database-directory>/recordings/` and **never** as a SQLite BLOB. Managed storage uses server-generated filenames; original user filenames are not trusted. A deleted session removes its recording metadata and attempts managed file cleanup. Old orphan files following abrupt process termination may require a maintenance job (tracked in #79).
 
@@ -76,6 +82,87 @@ Request body for summary (optional keys):
 Explicitly selecting the OpenAI-compatible provider requires `allow_external_provider:true` and a configured model. An OpenAI-compatible endpoint may be local or remote; the user must verify data handling terms before choosing an external endpoint.
 
 **All routes** are protected by the existing loopback-only Operator API and browser Origin restrictions. Audience join codes do not grant access.
+
+## Optional local second ASR pass (#104)
+
+This pass requires a finished session and an already managed, consented WAV recording. It
+never replaces live captions, edits the WAV, uploads speech, or automatically starts after
+recording. Prepare the optional faster-whisper runtime and desired tiny/base/small model
+through the existing model setup first. Jobs only use cached weights from the same
+`model_cache_dir/huggingface` cache; they never download a model during transcription.
+
+| Endpoint (under `/api/v1/history/{id}`) | Purpose |
+|---|---|
+| `GET /transcripts` | Up to 100 version metadata records, newest first, and current approved ID |
+| `POST /transcripts` | Explicit local CPU job: `recording_id`, `model` (tiny/base/small), `language` (ko/en/ja) |
+| `GET /transcripts/{transcript_id}` | Original decoder segments/provenance and latest operator review |
+| `POST /transcripts/{transcript_id}/cancel` | Kill and reap decoder process before releasing its CPU slot |
+| `POST /transcripts/{transcript_id}/reviews` | Append review: `segments`, `approved`, `expected_review_id` |
+| `GET /transcripts/{transcript_id}/export` | JSON download of original draft, provenance and every saved review |
+
+Example job request:
+
+```json
+{"recording_id":"managed-recording-id","model":"small","language":"ko"}
+```
+
+Example first operator review; later saves must send the last returned `review_id` as
+`expected_review_id`:
+
+```json
+{"segments":[{"segment_id":"offline-000001","start_ms":0,"end_ms":1000,"text":"검토한 원문"}],"approved":true,"expected_review_id":null}
+```
+
+Segment IDs must be unique and segments ordered by time/ID, with integer timestamps inside
+the recording. Limits are 20,000 segments, 6,000 characters per segment and 240,000 evidence
+characters including marker allowance. Each session admits at most 100 transcript attempts;
+each version retains up to 100 reviews. Approval locks that version. Approving a *new*
+version explicitly changes the session's selected approved version while preserving all
+earlier versions and reviews. A retry always creates a new version; it never overwrites a
+failed attempt or reuses an old approval. Session JSON/live subtitle exports retain their
+existing live-source meaning; use the dedicated transcript-version JSON export for drafts,
+operator text and model provenance.
+
+Exactly one local offline decoder process is admitted per application. It uses CPU INT8,
+two inference threads, one worker, beam size five, independent 30-second PCM windows,
+no VAD and no previous-window text conditioning. PCM is streamed window by window rather
+than loading four hours into RAM. The model allowlist bounds model size; generated evidence
+and persisted versions are capped. A storage reserve check precedes admission. This is
+bounded application work, not an OS-enforced RSS guarantee or a distributed worker queue.
+The overall deadline is two hours. Progress persists after every decoded window, capped
+below 100% until a valid complete result is saved. Cancellation/deadline/shutdown kills and
+waits for the process; a parent-pipe watchdog also stops orphan inference after a crash.
+Startup marks interrupted jobs failed; the operator can explicitly retry from the unchanged
+WAV. Interrupted partial decoder output is not advertised as a complete transcript.
+
+Provenance includes audio SHA-256, weight-file SHA-256, faster-whisper/CTranslate2 versions,
+decode parameters, language, run timestamps, processing duration, real-time factor and
+empty-window/low-confidence counters. These counters are diagnostics, **not CER/WER**.
+Audio hashes are checked before and after decoding. Only server-managed recording IDs are
+accepted, and symlinks or recording hash mismatches fail closed.
+Nonfinite, negative, inverted or distant decoder timestamps fail the attempt instead of
+silently retiming evidence. An end timestamp up to 0.5 seconds beyond its own PCM window
+may be clipped as decoder padding; `quality_counters.clipped_segments` records each case.
+
+Summary generation retains the live original source when `transcript_id` is null/omitted.
+To use a reviewed offline version, explicitly send its current approved ID:
+
+```json
+{"language":"ko","provider":"ollama","transcript_id":"approved-transcript-id"}
+```
+
+Its evidence digest includes transcript/review identity as well as cited text. A changed
+approved selection makes previous summaries stale in session archives and project reports,
+including summaries with coincidentally identical text. Regeneration remains explicit;
+no previous AI draft or approved summary is silently rewritten. Citation clicks must use
+the selected summary's version and review segments, rather than same-named live segments.
+
+Deterministic tests cover lifecycle, actual process reaping, orphan shutdown, restart/retry,
+review locking, stale summaries, LAN/origin rejection, managed paths and 30/60/90-minute
+synthetic PCM window bounds. They use a fake decoder and do not establish native-model
+memory, field accuracy or device performance. Same-audio FLEURS 4s/30s and tiny/base/small
+comparison, independent CER/WER, actual native/model long-event soak and microphone quality
+remain acceptance gates under #103/#104; no model/default is promoted by these tests.
 
 ## Grounding and limitations
 
