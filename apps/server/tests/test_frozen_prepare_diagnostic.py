@@ -20,7 +20,8 @@ def test_diagnostic_stack_publishes_only_module_basenames() -> None:
 def test_test_hook_records_source_invalid_exit_without_stdout(tmp_path: Path) -> None:
     log = tmp_path / "trace.log"
     hook = ROOT / "scripts/frozen_prepare_diagnostic_hook.py"
-    command = ("import runpy; runpy.run_path(" + repr(str(hook)) + "); "
+    command = ("import runpy,sys; runpy.run_path(" + repr(str(hook)) + "); "
+               "sys.audit('ctypes.dlopen', '/owned/private/fixture.dll'); "
                "runpy.run_module('langtextflow.m2m100_prepare_worker', run_name='__main__')")
     child = subprocess.run([sys.executable, "-c", command],
                            env={**os.environ, "PYTHONPATH": str(ROOT / "apps/server"),
@@ -30,7 +31,9 @@ def test_test_hook_records_source_invalid_exit_without_stdout(tmp_path: Path) ->
     markers = {json.loads(line)["marker"] for line in log.read_text().splitlines()}
     assert {"runtime_hook_entered", "m2m100_prepare_worker.py:<module>:entered",
             "m2m100_prepare_worker.py:main:entered", "invalid_args_check_before",
-            "m2m100_prepare_worker.py:SystemExit:2", "python_atexit"} <= markers
+            "m2m100_prepare_worker.py:SystemExit:2", "python_atexit",
+            "dll_load_before:fixture.dll"} <= markers
+    assert "/owned/private/" not in log.read_text()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX executable fixture; Windows real binary CI")
@@ -59,3 +62,15 @@ def test_successful_case_defers_descendant_cleanup(tmp_path, monkeypatch) -> Non
         assert cleanup["forced_kills"] and cleanup["owned_tree_reaped"]
     finally:
         diagnostic.reap_owned(owned)
+
+
+def test_observer_rejects_reused_parent_identity(monkeypatch) -> None:
+    class ReusedProcess:
+        def create_time(self):
+            return 2.0
+
+        def children(self, **kwargs):
+            raise AssertionError("must not adopt descendants of a reused PID")
+
+    monkeypatch.setattr(diagnostic.psutil, "Process", lambda pid: ReusedProcess())
+    assert diagnostic.observe(123, {123: 1.0}) == []

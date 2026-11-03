@@ -23,9 +23,23 @@ if _path:
     faulthandler.enable(file=_log)
     faulthandler.dump_traceback_later(10, file=_log)
 
+    def _dll_name(value):
+        return os.path.basename(os.fsdecode(value))[:128]
+
+    def _audit(event, args):
+        if event == "ctypes.dlopen" and args and isinstance(args[0], (str, bytes)):
+            _mark("dll_load_before:" + _dll_name(args[0]))
+
+    sys.addaudithook(_audit)
+
     def _trace(frame, event, arg):
         filename = os.path.basename(frame.f_code.co_filename)
         function = frame.f_code.co_name
+        if frame.f_globals.get("__name__") == "ctypes" and function == "__init__":
+            name = frame.f_locals.get("name")
+            if event == "return" and isinstance(name, (str, bytes)):
+                _mark("dll_load_returned:" + _dll_name(name))
+            return _trace
         if filename not in {"desktop_server.py", "m2m100_prepare_worker.py"}:
             return None
         if event == "call" and function in {"<module>", "main"}:

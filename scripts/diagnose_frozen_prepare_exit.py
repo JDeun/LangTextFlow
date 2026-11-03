@@ -40,7 +40,10 @@ def build() -> Path:
 def observe(pid: int, owned: dict[int, float]) -> list[dict]:
     results = []
     try:
-        processes = [psutil.Process(pid), *psutil.Process(pid).children(recursive=True)]
+        parent = psutil.Process(pid)
+        if pid in owned and parent.create_time() != owned[pid]:
+            return []
+        processes = [parent, *parent.children(recursive=True)]
     except psutil.Error:
         processes = []
     for process in processes[:64]:
@@ -146,7 +149,7 @@ def case(binary: Path, root: Path, index: int, stdin_open: bool,
         def watch() -> None:
             nonlocal initial
             while not stop_observer.is_set():
-                current = observe(process.pid, owned)
+                current = observe(process.pid, owned) if process.poll() is None else []
                 if len(current) > len(initial):
                     initial = current
                 stop_observer.wait(.1)
@@ -158,9 +161,12 @@ def case(binary: Path, root: Path, index: int, stdin_open: bool,
             stdout, stderr = process.communicate(b"" if managed_pipe else None, timeout=30)
             result["stdout_bytes"] = len(stdout or b"")
             result["stderr_bytes"] = len(stderr or b"")
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
             result["timed_out"] = True
-            result["timeout_tree"] = observe(process.pid, owned)
+            result["stdout_bytes"] = len(exc.output or b"")
+            result["stderr_bytes"] = len(exc.stderr or b"")
+            result["timeout_tree"] = (observe(process.pid, owned)
+                                      if process.poll() is None else [])
         finally:
             stop_observer.set()
             observer.join(timeout=1)

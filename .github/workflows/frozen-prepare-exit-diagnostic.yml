@@ -8,7 +8,7 @@ permissions:
 jobs:
   diagnostic:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
@@ -40,11 +40,42 @@ jobs:
         run: uv sync --locked --extra dev --extra whisper --extra local-mt --extra benchmark
       - name: Compare exact original auxiliary sequence with bounded owned observers
         run: uv run python -m scripts.diagnose_frozen_prepare_exit
+      - name: Observe unchanged full smoke using the plain original binary
+        id: plain_smoke
+        if: always()
+        env:
+          LTF_M2M100_PREPARE_SMOKE: "0"
+          LTF_M2M100_IMPORT_PROBE: "0"
+        run: uv run python -m scripts.observe_frozen_sidecar_smoke
+      - name: Generate matching platform icons for independent Rust compilation
+        if: always()
+        working-directory: apps/desktop
+        run: npx --yes @tauri-apps/cli@2.11.4 icon src-tauri/icons/logo.svg
+      - name: Verify the actual Windows desktop Rust dependency API
+        id: native_check
+        if: always()
+        working-directory: apps/desktop/src-tauri
+        run: cargo check --locked
+      - name: Build unsigned bundle after unchanged full smoke and native check succeed
+        id: unsigned_bundle
+        if: always() && steps.plain_smoke.outcome == 'success' && steps.native_check.outcome == 'success'
+        working-directory: apps/desktop
+        run: npx --yes @tauri-apps/cli@2.11.4 build
+      - name: Upload diagnostic unsigned Windows bundle
+        if: always() && steps.unsigned_bundle.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: diagnostic-windows-unsigned
+          path: apps/desktop/src-tauri/target/release/bundle/**
+          if-no-files-found: error
+          retention-days: 7
       - name: Upload bounded diagnostics even on negative results
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: frozen-prepare-exit-diagnostic
-          path: artifacts/frozen-prepare-exit/
+          path: |
+            artifacts/frozen-prepare-exit/
+            artifacts/frozen-full-smoke/
           if-no-files-found: error
           retention-days: 7
