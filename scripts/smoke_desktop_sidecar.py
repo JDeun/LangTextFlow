@@ -3,16 +3,50 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import socket
 import subprocess
 import sys
 import tempfile
 import time
+from contextlib import suppress
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from build_desktop_sidecar import BIN_DIR, _target_triple
+
+
+def smoke_multiprocessing_helper(binary: Path, root: Path, environment: dict[str, str]) -> None:
+    # Match the frozen interpreter flags required by PyInstaller's diversion hook.
+    helper = subprocess.Popen(
+        [str(binary), "-B", "-S", "-I", "-c",
+         "from multiprocessing.resource_tracker import main;main(0)"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        cwd=root, env=environment, start_new_session=os.name == "posix",
+    )
+    try:
+        stdout, stderr = helper.communicate(b"", timeout=30)
+    except subprocess.TimeoutExpired as exc:
+        # A regression must not orphan a bootloader's accidentally started server.
+        if os.name == "posix":
+            with suppress(ProcessLookupError):
+                os.killpg(helper.pid, signal.SIGKILL)
+        else:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(helper.pid)],
+                capture_output=True, check=False,
+            )
+        helper.kill()
+        stdout, stderr = helper.communicate(timeout=5)
+        raise RuntimeError(
+            f"frozen multiprocessing helper did not exit at EOF: {stderr[-2000:]!r}"
+        ) from exc
+    if helper.returncode != 0 or stdout or stderr:
+        raise RuntimeError(
+            f"frozen multiprocessing helper failed ({helper.returncode}): "
+            f"stdout={stdout[-2000:]!r}, stderr={stderr[-2000:]!r}"
+        )
 
 
 def main() -> None:
@@ -35,19 +69,21 @@ def main() -> None:
 
     with tempfile.TemporaryDirectory(prefix="ltf-sidecar-smoke-") as directory:
         root = Path(directory)
+        environment = {
+            **os.environ,
+            "LANGTEXTFLOW_APP_DATA": str(root),
+            "LANGTEXTFLOW_DATABASE_PATH": str(root / "data" / "smoke.db"),
+            "LANGTEXTFLOW_MODEL_CACHE_DIR": str(root / "models"),
+            "LANGTEXTFLOW_MANAGED_RUNTIME_DIR": str(root / "runtime"),
+            "LANGTEXTFLOW_BACKEND_PORT": str(port),
+            "LANGTEXTFLOW_MDNS_ENABLED": "false",
+            "HF_HOME": str(root / "models" / "huggingface"),
+        }
+        smoke_multiprocessing_helper(binary, root, environment)
         with (root / "sidecar.log").open("wb") as log:
             process = subprocess.Popen(
                 [str(binary)], cwd=root, stdout=log, stderr=subprocess.STDOUT,
-                env={
-                    **os.environ,
-                    "LANGTEXTFLOW_APP_DATA": str(root),
-                    "LANGTEXTFLOW_DATABASE_PATH": str(root / "data" / "smoke.db"),
-                    "LANGTEXTFLOW_MODEL_CACHE_DIR": str(root / "models"),
-                    "LANGTEXTFLOW_MANAGED_RUNTIME_DIR": str(root / "runtime"),
-                    "LANGTEXTFLOW_BACKEND_PORT": str(port),
-                    "LANGTEXTFLOW_MDNS_ENABLED": "false",
-                    "HF_HOME": str(root / "models" / "huggingface"),
-                },
+                env=environment,
             )
             try:
                 deadline = time.monotonic() + 60
@@ -98,7 +134,9 @@ def main() -> None:
                     except subprocess.TimeoutExpired:
                         process.kill()
                         process.wait()
-    print("Frozen backend smoke passed: startup, UI, synthetic captions, archive and shutdown")
+    print(
+        "Frozen backend smoke passed: multiprocessing EOF, startup, UI, captions, archive, shutdown"
+    )
 
 
 if __name__ == "__main__":
