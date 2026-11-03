@@ -306,6 +306,7 @@ async def run_runtime_benchmark(options: RuntimeBenchmarkOptions) -> dict[str, A
 
         finished_at = time.perf_counter()
         events = list(runtime.observed_events)
+        translation_status = runtime.pipeline.status.model_dump(mode="json")
 
     stable = [event for event in events if event.stage is CaptionStage.STABLE]
     committed = [event for event in events if event.stage is CaptionStage.COMMITTED]
@@ -320,7 +321,15 @@ async def run_runtime_benchmark(options: RuntimeBenchmarkOptions) -> dict[str, A
     total_audio_phase_seconds = finished_at - audio_started
     memory_report = memory.report()
 
-    status = "failed" if final_metrics.asr_failure else "ok"
+    failed_targets = sum(
+        event.translation_states.get(language) != "available"
+        for event in committed
+        for language in options.target_languages
+    ) if options.translation_provider != "none" else 0
+    translation_failed = options.translation_provider != "none" and (
+        not translation_status["available"] or failed_targets > 0
+    )
+    status = "failed" if final_metrics.asr_failure or translation_failed else "ok"
     if not drained and status == "ok":
         status = "drain-timeout"
 
@@ -393,6 +402,7 @@ async def run_runtime_benchmark(options: RuntimeBenchmarkOptions) -> dict[str, A
             "reference_characters": len(reference) if reference is not None else None,
         },
         "persistence_error": persistence_error,
+        "translation": {**translation_status, "failed_target_count": failed_targets},
         "transcript": hypothesis,
     }
 
@@ -419,7 +429,7 @@ def parse_args(argv: list[str] | None = None) -> RuntimeBenchmarkOptions:
     parser.add_argument("--target-language", action="append", default=[])
     parser.add_argument(
         "--translation-provider",
-        choices=["none", "demo", "ollama"],
+        choices=["none", "demo", "ollama", "m2m100-ct2"],
         default="none",
     )
     parser.add_argument("--translation-model")
@@ -488,7 +498,7 @@ def main(argv: list[str] | None = None) -> int:
         print(options.output_path)
     else:
         print(rendered)
-    return 0
+    return 0 if report["status"] == "ok" else 1
 
 
 if __name__ == "__main__":
