@@ -4,7 +4,6 @@ from __future__ import annotations
 import html
 
 from .post_event_archive import PostEventArchive
-from .post_event_summary import transcript_source
 from .project_archive import build_project_archive_manifest
 from .project_repository import ProjectRepository
 from .session_repository import SessionRepository
@@ -87,8 +86,7 @@ def build_project_report(
             lines.append("- Summary: not generated")
         else:
             try:
-                _, current_hash = transcript_source(sessions.segments(sid))
-                stale = current_hash != summary["transcript_sha256"]
+                stale = archive.transcripts.summary_stale(summary, sessions.segments(sid))
             except ValueError:
                 stale = True
             lines += [

@@ -19,6 +19,9 @@ class PostEventArchive:
     def __init__(self, database_path: str) -> None:
         self.database_path = Path(database_path)
         self.audio_root = self.database_path.parent / "recordings"
+        from .post_event_transcripts import TranscriptVersions
+
+        self.transcripts = TranscriptVersions(self)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database_path, timeout=5)
@@ -100,6 +103,11 @@ class PostEventArchive:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_summary_reviews ON summary_reviews(summary_id)"
             )
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(session_summaries)")}
+            for column in ("transcript_id", "approved_transcript_id"):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE session_summaries ADD COLUMN {column} TEXT")
+        self.transcripts.initialize()
         self.cleanup_stale_partials()
 
     def cleanup_stale_partials(self, *, older_than_seconds: int = 24 * 3600) -> int:
@@ -216,6 +224,7 @@ class PostEventArchive:
     def begin_summary(
         self, session_id: str, *, language: str, provider: str,
         model: str, transcript_sha256: str, prompt_version: str,
+        transcript_id: str | None = None, approved_transcript_id: str | None = None,
     ) -> dict:
         summary_id = str(uuid4())
         stamp = _now()
@@ -224,12 +233,14 @@ class PostEventArchive:
                 """
                 INSERT INTO session_summaries
                   (summary_id, session_id, language, provider, model, transcript_sha256,
-                   prompt_version, status, content, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'running', '', ?, ?)
+                   prompt_version, status, content, created_at, updated_at,
+                   transcript_id, approved_transcript_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'running', '', ?, ?, ?, ?)
                 """,
                 (
                     summary_id, session_id, language, provider, model,
                     transcript_sha256, prompt_version, stamp, stamp,
+                    transcript_id, approved_transcript_id,
                 ),
             )
         return self.summary_by_id(summary_id)

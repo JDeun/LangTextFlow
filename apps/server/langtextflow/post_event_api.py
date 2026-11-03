@@ -20,8 +20,8 @@ from .post_event_summary import (
     SummaryRequest,
     SummaryReviewRequest,
     generate_summary,
-    transcript_source,
 )
+from .post_event_transcript_api import install_transcript_routes
 from .runtime import CaptionRuntime
 from .storage_guard import StorageCapacityError, ensure_storage_capacity
 from .summary_evidence import validate_summary_citations
@@ -75,6 +75,10 @@ def install_post_event_routes(
             raise HTTPException(409, "stop the session before archiving")
         return session
 
+    shutdown_transcripts = install_transcript_routes(
+        app, runtime, archive, settings, require_operator, finished_session,
+    )
+
     @app.get("/api/v1/history/{session_id}/archive")
     async def event_archive_detail(request: Request, session_id: str) -> dict:
         require_operator(request)
@@ -87,8 +91,9 @@ def install_post_event_routes(
         if summary is not None:
             try:
                 segments = await asyncio.to_thread(runtime.history.segments, session_id)
-                _, current_revision = transcript_source(segments)
-                summary_stale = current_revision != summary["transcript_sha256"]
+                summary_stale = await asyncio.to_thread(
+                    archive.transcripts.summary_stale, summary, segments,
+                )
             except ValueError:
                 # A summary is stale if its original-language evidence is missing.
                 summary_stale = True
@@ -96,6 +101,9 @@ def install_post_event_routes(
             "recordings": recordings,
             "summary": summary,
             "summary_stale": summary_stale,
+            "approved_transcript_id": await asyncio.to_thread(
+                archive.transcripts.approved_id, session_id,
+            ),
         }
 
     @app.post("/api/v1/history/{session_id}/summaries/{summary_id}/reviews", status_code=201)
@@ -109,11 +117,15 @@ def install_post_event_routes(
             raise HTTPException(404, "summary not found")
         segments = await asyncio.to_thread(runtime.history.segments, session_id)
         try:
-            source, revision = transcript_source(segments)
+            source, revision = await asyncio.to_thread(
+                archive.transcripts.source, session_id, segments, summary.get("transcript_id"),
+            )
             validate_summary_citations(source, payload.content)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
-        if revision != summary["transcript_sha256"]:
+        if revision != summary["transcript_sha256"] or await asyncio.to_thread(
+            archive.transcripts.summary_stale, summary, segments,
+        ):
             raise HTTPException(409, "source transcript changed; generate a new summary")
         try:
             return await asyncio.to_thread(
@@ -228,7 +240,9 @@ def install_post_event_routes(
             raise HTTPException(400, "configure a summarization model first")
         segments = await asyncio.to_thread(runtime.history.segments, session_id)
         try:
-            source, revision = transcript_source(segments)
+            source, revision = await asyncio.to_thread(
+                archive.transcripts.source, session_id, segments, payload.transcript_id,
+            )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
         previous = await asyncio.to_thread(archive.latest_summary, session_id)
@@ -241,6 +255,10 @@ def install_post_event_routes(
             and previous["provider"] == payload.provider
             and previous["model"] == model
             and previous["prompt_version"] == PROMPT_VERSION
+            and previous.get("transcript_id") == payload.transcript_id
+            and previous.get("approved_transcript_id") == await asyncio.to_thread(
+                archive.transcripts.approved_id, session_id,
+            )
         ):
             return previous
         if len(summary_jobs) >= MAX_SUMMARY_JOBS:
@@ -254,6 +272,10 @@ def install_post_event_routes(
                 model=model,
                 transcript_sha256=revision,
                 prompt_version=PROMPT_VERSION,
+                transcript_id=payload.transcript_id,
+                approved_transcript_id=await asyncio.to_thread(
+                    archive.transcripts.approved_id, session_id,
+                ),
             )
         except sqlite3.IntegrityError as exc:
             # The SQLite partial unique index closes the race between the
@@ -300,6 +322,7 @@ def install_post_event_routes(
         return record
 
     async def shutdown_summary_jobs() -> None:
+        await shutdown_transcripts()
         jobs = list(summary_jobs.items())
         tasks = [task for task, _ in jobs]
         for task in tasks:
