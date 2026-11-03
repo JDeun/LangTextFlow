@@ -88,6 +88,11 @@ JSON retains `timestamp_recovery_count` (attempts) and `timestamp_recovery_error
 original time errors and PCM bounds), copied before engine stop. Diagnostics reset on start
 and stop to separate sessions. Unexpected future nonfinite, inverted or out-of-range decoder
 output still fails closed rather than being arbitrarily clamped.
+The retry captures its model and session generation before native inference. Start/stop
+advance that generation and reset diagnostics under a short lock; a late first pass from
+an ended session cannot retry against the new model or write recovery records into it.
+This fences the new retry behavior, not a claim that Python task cancellation stops all
+already-running native inference.
 
 The installed faster-whisper 1.2.1 implementation pads encoder features to 3,000 frames
 even for a four-second input; timestamp-token segment ends are not bounded by the actual
@@ -174,6 +179,55 @@ Local review artifacts are `comparison.json`, `sources.json` and the six individ
 benchmark reports in `/private/tmp/langtextflow-small-live-comparison/`; the harness is
 `/private/tmp/langtextflow-compare-small-live.py`. They were deliberately kept outside
 Git with the licensed temporary WAV fixtures. No new model weights were downloaded.
+
+### Recovery-only reruns and preserved small output
+
+Final implementation source `3c92b861177322c5f7c47434decfca3c6b84bbc6` was rerun on
+the same three Korean clips, pinned dataset revision and all three PCM16 hashes above:
+
+| Model | Mean CER | Mean WER | Mean throughput RTF | Recovery attempts | Run / artifact |
+|---|---:|---:|---:|---:|---|
+| tiny | 0.40347 | 0.83923 | 0.66740 | 4 | [41588873660](https://github.com/JDeun/LangTextFlow/actions/runs/41588873660) / [13208579302](https://github.com/JDeun/LangTextFlow/actions/runs/41588873660/artifacts/13208579302) |
+| base | 0.31023 | 0.61517 | 0.57380 | 0 | [41588902864](https://github.com/JDeun/LangTextFlow/actions/runs/41588902864) / [13208763801](https://github.com/JDeun/LangTextFlow/actions/runs/41588902864/artifacts/13208763801) |
+
+Per-sample CER/WER/RTF and actual recovery attempt counts:
+
+| Model | ID | CER | WER | Throughput RTF | Retries |
+|---|---:|---:|---:|---:|---:|
+| tiny | 1883 | 0.3393 | 0.8571 | 0.7951 | 2 |
+| tiny | 1929 | 0.5476 | 0.9333 | 1.0528 | 1 |
+| tiny | 1701 | 0.3235 | 0.7273 | 0.1543 | 1 |
+| base | 1883 | 0.1786 | 0.5000 | 0.1859 | 0 |
+| base | 1929 | 0.4286 | 0.8000 | 1.3530 | 0 |
+| base | 1701 | 0.3235 | 0.5455 | 0.1825 | 0 |
+
+All six reports completed with successful draining, no fatal provider error or failover,
+and eight segments per model inside source duration. Every duplicate/overlap counter was
+zero. Tiny's artifact preserves the four original errors before recovery: `0–5s` and
+`0–4.6s` on item 1883, `1.01–8.01s` on 1929, and `0–7s` on 1701, each for a four-second
+PCM chunk, with input duration, start sample and rate. Base's original 22.28-second error
+did not recur on this run: zero attempts are **not** evidence that that specific base
+failure exercised recovery. Earlier failed artifacts above remain the failure evidence.
+Automatic temperature fallback, CPU numerical variation and mutable model aliases prevent
+treating independently hosted runs as a deterministic quality or speed comparison.
+
+The final fenced implementation was also checked locally against the cached-small baseline
+at `e75a8db2f16fce1cefd5e2390bb284dae8603981`, with the same controlled settings and weight
+SHA above. Every one of the eight segment IDs, texts, start and end times was exactly
+identical; all three recovery counts were zero. Per-item CER/WER remained
+0.1607/0.5714, 0.9524/0.8667 and 0.1765/0.4545 (mean 0.42987/0.63087).
+Recovery-only RTF values were 0.6681/0.7623/0.6116; the earlier baseline arm measured
+0.8480/0.7571/0.6185. These one-pass local timings do not establish a speed improvement.
+Raw local JSON reports are in `/private/tmp/langtextflow-small-fenced-recovery-comparison/`
+and `/private/tmp/langtextflow-small-recovery-comparison/`; the final harness is
+`/private/tmp/langtextflow-compare-small-fenced-recovery.py`.
+
+The evidence supports bounded recovery of the observed tiny timestamp failures while
+preserving these valid small-model outputs. It does not qualify recognition accuracy or
+low-resource latency: tiny and base each exceeded RTF 1 on item 1929, and source-text errors
+remain substantial. Thirty-second research results are separate measurements, not a changed
+live default. Real microphone/noise, independent broader references, sustained real-time
+load and long-event quality gates remain open.
 
 ## Data handling
 
