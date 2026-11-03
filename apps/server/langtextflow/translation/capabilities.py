@@ -55,7 +55,7 @@ def translation_capabilities(settings: Settings) -> list[TranslationCapability]:
             model_id="facebook/m2m100_418M",
             warnings=[
                 "Experimental routing only; not qualified for sermon interpretation.",
-                "No automatic download; native CPU inference is non-preemptible.",
+                "No automatic download; native CPU work runs in a killable child process.",
                 "Process-wide execution budget: one CPU worker, at most four admitted jobs.",
             ],
         ),

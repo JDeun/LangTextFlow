@@ -6,13 +6,15 @@ real-audio quality gate separate from syntactic adapter unit tests.
 from __future__ import annotations
 
 import asyncio
-from concurrent.futures import Future, ThreadPoolExecutor
+import json
+import os
+import sys
+from contextlib import suppress
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
 from typing import Any
 
-from ..models import SessionContext
-from ..native_work import run_native_work
+from ..models import MAX_TRANSCRIPT_TEXT_CHARS, MAX_TRANSLATION_TEXT_CHARS, SessionContext
 from .base import TranslationError, Translator
 from .glossary_selection import _mentioned, relevant_glossary
 
@@ -35,24 +37,137 @@ def missing_m2m100_cache_files(model_dir: str | Path, tokenizer_dir: str | Path)
     return missing
 
 
-# Process-wide bound: timed-out asyncio callers cannot cancel a running native
-# inference. Limit the model to one CPU worker and three queued requests even
-# if multiple sessions are stopped and restarted while inference is in flight.
-_MAX_NATIVE_JOBS = 4
-_NATIVE_JOB_SLOTS = BoundedSemaphore(_MAX_NATIVE_JOBS)
-_NATIVE_EXECUTOR = ThreadPoolExecutor(
-    max_workers=1, thread_name_prefix="langtextflow-m2m100-cpu",
-)
+# One process/model and at most four admitted inference requests across sessions.
+_NATIVE_JOB_SLOTS = BoundedSemaphore(4)
+_CHILD_SLOT = BoundedSemaphore(1)
+IPC_LIMIT = 128 * 1024
+LOAD_TIMEOUT_SECONDS = 30.0
+INFERENCE_TIMEOUT_SECONDS = 30.0
+TERMINATE_GRACE_SECONDS = 1.0
+REAP_TIMEOUT_SECONDS = 3.0
 
 
-def _release_native_job_slot(job: Future[str]) -> None:
-    # Consume failures from orphaned/cancelled asyncio waiters; the worker
-    # itself always finishes or fails before its capacity slot is reclaimed.
-    try:
-        if not job.cancelled():
-            job.exception()
-    finally:
-        _NATIVE_JOB_SLOTS.release()
+def worker_command(model_dir: Path, tokenizer_dir: Path, cpu_threads: int) -> list[str]:
+    prefix = ([sys.executable, "--m2m100-worker"] if getattr(sys, "frozen", False)
+              else [sys.executable, "-m", "langtextflow.translation.m2m100_worker"])
+    return [*prefix, str(model_dir), str(tokenizer_dir), str(cpu_threads)]
+
+
+class _M2M100Worker:
+    """Own one killable native model, including cancellation during process launch."""
+
+    def __init__(self, command: list[str]) -> None:
+        if not _CHILD_SLOT.acquire(blocking=False):
+            raise TranslationError("Local M2M100 CPU worker at capacity; retry after stop")
+        self.process = None
+        self.ready = False
+        self._released = False
+        self._closing: asyncio.Task | None = None
+        self._late_cleanup: asyncio.Task | None = None
+        self._lock = asyncio.Lock()
+        self._request_id = 0
+        # No model downloads, tokenizer fallback, inherited speech logs or native stdout.
+        self._launch = asyncio.create_task(asyncio.create_subprocess_exec(
+            *command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL, limit=IPC_LIMIT,
+            env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"},
+        ))
+        self._launch.add_done_callback(self._launched)
+
+    def _launched(self, launch: asyncio.Task) -> None:
+        # A slow OS spawn can finish after bounded cancellation cleanup returned.
+        if self._closing is not None and self._closing.done() and not self._released:
+            self._late_cleanup = asyncio.create_task(self.close())
+            self._late_cleanup.add_done_callback(
+                lambda done: None if done.cancelled() else done.exception()
+            )
+
+    async def start(self) -> None:
+        async with asyncio.timeout(LOAD_TIMEOUT_SECONDS):
+            self.process = await asyncio.shield(self._launch)
+            if await self._read() != {"ready": True}:
+                raise TranslationError("Local M2M100 CPU worker could not initialize")
+            self.ready = True
+
+    async def _read(self) -> dict:
+        line = await self.process.stdout.readline()
+        if not line or len(line) >= IPC_LIMIT:
+            raise TranslationError("Local M2M100 CPU worker failed")
+        item = json.loads(line)
+        if not isinstance(item, dict):
+            raise TranslationError("Invalid local M2M100 worker response")
+        return item
+
+    async def translate(self, text: str, source: str, target: str) -> str:
+        # Cancellation while waiting for this lock owns no active worker request.
+        async with self._lock:
+            if not self.ready:
+                raise TranslationError("Local M2M100 provider is not prepared")
+            try:
+                async with asyncio.timeout(INFERENCE_TIMEOUT_SECONDS):
+                    self._request_id += 1
+                    request_id = self._request_id
+                    message = json.dumps({"id": request_id, "text": text,
+                                          "source": source, "target": target},
+                                         ensure_ascii=False) + "\n"
+                    self.process.stdin.write(message.encode("utf-8"))
+                    await self.process.stdin.drain()
+                    result = await self._read()
+                    candidate = result.get("text")
+                    if (type(result.get("id")) is not int or result.get("id") != request_id
+                            or not isinstance(candidate, str)
+                            or not candidate.strip()
+                            or len(candidate) > MAX_TRANSLATION_TEXT_CHARS):
+                        raise TranslationError("Invalid local M2M100 translation response")
+                    return candidate
+            except BaseException:
+                await self.close()
+                raise
+
+    async def close(self) -> None:
+        self.ready = False
+        if self._closing is None or self._closing.done() and self._closing.exception():
+            self._closing = asyncio.create_task(self._terminate())
+        # Repeated cancellation cannot release admission before the OS child is reaped.
+        cancelled = False
+        while not self._closing.done():
+            try:
+                await asyncio.shield(self._closing)
+            except asyncio.CancelledError:
+                cancelled = True
+        self._closing.result()
+        if cancelled:
+            raise asyncio.CancelledError
+
+    async def _terminate(self) -> None:
+        try:
+            process = await asyncio.wait_for(asyncio.shield(self._launch), REAP_TIMEOUT_SECONDS)
+        except TimeoutError:
+            # Retain admission until the late-spawn callback kills and reaps this owner.
+            raise TranslationError("Local M2M100 process launch cleanup timed out") from None
+        except Exception:
+            self._release()
+            return
+        self.process = process
+        if process.stdin:
+            process.stdin.close()
+        if process.returncode is None:
+            with suppress(ProcessLookupError):
+                process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), TERMINATE_GRACE_SECONDS)
+            except TimeoutError:
+                with suppress(ProcessLookupError):
+                    process.kill()
+        # Keep the single-child lease on an OS reap failure; never spawn another model.
+        reap = asyncio.create_task(process.wait())
+        reap.add_done_callback(lambda done: self._release() if not done.cancelled() else None)
+        await asyncio.wait_for(asyncio.shield(reap), REAP_TIMEOUT_SECONDS)
+
+    def _release(self) -> None:
+        if not self._released:
+            self._released = True
+            _CHILD_SLOT.release()
 
 
 class M2M100CT2Translator(Translator):
@@ -67,8 +182,7 @@ class M2M100CT2Translator(Translator):
         self.model_dir = Path(model_dir)
         self.tokenizer_dir = Path(tokenizer_dir)
         self.cpu_threads = cpu_threads
-        self._tokenizer: Any = None
-        self._engine: Any = None
+        self._worker: _M2M100Worker | None = None
         # The tokenizer's src_lang is mutable and must never be shared between
         # simultaneous EN/JA/KO calls without serialization.
         self._inference_lock = Lock()
@@ -79,10 +193,20 @@ class M2M100CT2Translator(Translator):
                 "Local M2M100 model/tokenizer cache is missing. "
                 "Use the pinned CPU model provisioning process; no cloud fallback."
             )
+        if self._worker is not None:
+            await self.close()
+        worker = _M2M100Worker(worker_command(self.model_dir, self.tokenizer_dir, self.cpu_threads))
+        self._worker = worker
         try:
-            self._tokenizer, self._engine = await run_native_work("m2m100-load", self._prepare_sync)
-        except Exception as exc:
-            # Tokenizer/native initialization failures must not disable source captions.
+            await worker.start()
+            if self._worker is not worker or not worker.ready:
+                raise TranslationError("Local M2M100 initialization was stopped")
+        except BaseException as exc:
+            if self._worker is worker:
+                self._worker = None
+            await worker.close()
+            if isinstance(exc, asyncio.CancelledError):
+                raise
             raise TranslationError(
                 "Local M2M100 CPU provider could not initialize; "
                 "check CT2 weights, tokenizer and optional dependencies."
@@ -112,34 +236,16 @@ class M2M100CT2Translator(Translator):
                 or target_language not in SUPPORTED_LANGUAGES
                 or source_language == target_language):
             raise TranslationError("M2M100 supports only distinct ko/en/ja language pairs")
-        if self._engine is None or self._tokenizer is None:
-            raise TranslationError("Local M2M100 provider is not prepared")
         if not text.strip():
             raise TranslationError("Cannot translate an empty source caption")
-        # Capture strong references *before* scheduling native CPU inference.
-        # Closing a session may clear instance fields while an asyncio-cancelled
-        # worker thread still runs. Captured resources stay valid until it exits.
-        tokenizer = self._tokenizer
-        engine = self._engine
+        if len(text) > MAX_TRANSCRIPT_TEXT_CHARS:
+            raise TranslationError("Local M2M100 source caption is too long")
         if not _NATIVE_JOB_SLOTS.acquire(blocking=False):
             raise TranslationError(
                 "Local M2M100 CPU inference at capacity; source caption preserved"
             )
         try:
-            job = _NATIVE_EXECUTOR.submit(
-                self._translate_sync, text, source_language, target_language,
-                tokenizer, engine,
-            )
-        except Exception as exc:
-            _NATIVE_JOB_SLOTS.release()
-            raise TranslationError("Local M2M100 inference scheduling failed") from exc
-
-        job.add_done_callback(_release_native_job_slot)
-        try:
-            # Shield the native future from asyncio cancellation. A timed-out
-            # session stops awaiting but cannot silently release its slot until
-            # the underlying native operation actually terminates.
-            candidate = await asyncio.shield(asyncio.wrap_future(job))
+            candidate = await self._translate_rpc(text, source_language, target_language)
             # Do not silently publish a mistranslated operator-defined term.
             # This is validation, not unsupported forced decoding: fail the
             # target explicitly while retaining the original source caption.
@@ -155,6 +261,18 @@ class M2M100CT2Translator(Translator):
             raise
         except Exception as exc:
             raise TranslationError("Local M2M100 inference failed") from exc
+
+        finally:
+            _NATIVE_JOB_SLOTS.release()
+
+    async def _translate_rpc(self, text: str, source: str, target: str) -> str:
+        worker = self._worker
+        if worker is None or not worker.ready:
+            raise TranslationError("Local M2M100 provider is not prepared")
+        result = await worker.translate(text, source, target)
+        if self._worker is not worker or not worker.ready:
+            raise TranslationError("Local M2M100 translation was stopped")
+        return result
 
     def _translate_sync(
         self, text: str, source: str, target: str, tokenizer: Any, engine: Any,
@@ -180,8 +298,7 @@ class M2M100CT2Translator(Translator):
             return candidate
 
     async def close(self) -> None:
-        # Native CPU inference cannot be preempted: bounded process-wide jobs
-        # retain strong engine/tokenizer references until the thread exits.
-        # Closing only prevents new submissions through this instance.
-        self._engine = None
-        self._tokenizer = None
+        worker = self._worker
+        self._worker = None
+        if worker is not None:
+            await worker.close()

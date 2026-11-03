@@ -37,21 +37,20 @@ async def test_local_mt_six_directions_reach_committed_tracks(
             committed.set()
 
     async def prepare(self: M2M100CT2Translator) -> None:
-        self._engine = object()
-        self._tokenizer = object()
+        pass
 
-    def infer(
+    async def infer(
         self: M2M100CT2Translator,
-        text: str, src: str, target: str, tokenizer: object, engine: object,
+        text: str, src: str, target: str,
     ) -> str:
-        del self, text, tokenizer, engine
+        del self, text
         translated_calls.append((src, target))
         return f"translation-{src}-{target}"
 
     pipeline = CaptionPipeline(publish, Settings())
     with (
         patch.object(M2M100CT2Translator, "prepare", prepare),
-        patch.object(M2M100CT2Translator, "_translate_sync", infer),
+        patch.object(M2M100CT2Translator, "_translate_rpc", infer),
     ):
         await pipeline.start(StartSessionRequest(
             source_language=source,

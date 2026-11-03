@@ -24,14 +24,13 @@ async def test_one_failed_local_mt_target_does_not_erase_successful_caption() ->
             finished.set()
 
     async def prepare(self: M2M100CT2Translator) -> None:
-        self._engine = object()
-        self._tokenizer = object()
+        pass
 
-    def infer(
+    async def infer(
         self: M2M100CT2Translator,
-        text: str, source: str, target: str, tokenizer: object, engine: object,
+        text: str, source: str, target: str,
     ) -> str:
-        del self, text, source, tokenizer, engine
+        del self, text, source
         if target == "ja":
             raise TranslationError("model output rejected")
         return "A valid English translation"
@@ -39,7 +38,7 @@ async def test_one_failed_local_mt_target_does_not_erase_successful_caption() ->
     pipeline = CaptionPipeline(publish, Settings())
     with (
         patch.object(M2M100CT2Translator, "prepare", prepare),
-        patch.object(M2M100CT2Translator, "_translate_sync", infer),
+        patch.object(M2M100CT2Translator, "_translate_rpc", infer),
     ):
         await pipeline.start(StartSessionRequest(
             source_language="ko",

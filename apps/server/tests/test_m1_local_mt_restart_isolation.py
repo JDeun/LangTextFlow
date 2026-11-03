@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from unittest.mock import patch
 
 import pytest
@@ -25,20 +24,18 @@ async def test_restart_cancels_old_mt_waiter_and_new_session_commits() -> None:
             new_committed.set()
 
     async def prepare(self: M2M100CT2Translator) -> None:
-        self._engine = object()
-        self._tokenizer = object()
+        pass
 
-    def infer(
+    async def infer(
         self: M2M100CT2Translator,
-        text: str, source: str, target: str, tokenizer: object, engine: object,
+        text: str, source: str, target: str,
     ) -> str:
-        del self, source, target, tokenizer, engine
+        del self, source, target
         if text == "old caption":
-            loop.call_soon_threadsafe(native_started.set)
-            time.sleep(0.2)
+            native_started.set()
+            await asyncio.sleep(0.2)
         return f"translated {text}"
 
-    loop = asyncio.get_running_loop()
     pipeline = CaptionPipeline(
         publish,
         Settings(postprocess_drain_timeout_seconds=0.01),
@@ -50,7 +47,7 @@ async def test_restart_cancels_old_mt_waiter_and_new_session_commits() -> None:
     )
     with (
         patch.object(M2M100CT2Translator, "prepare", prepare),
-        patch.object(M2M100CT2Translator, "_translate_sync", infer),
+        patch.object(M2M100CT2Translator, "_translate_rpc", infer),
     ):
         await pipeline.start(request)
         try:
