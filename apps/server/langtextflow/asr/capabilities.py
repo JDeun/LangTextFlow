@@ -44,6 +44,7 @@ def asr_capabilities() -> list[AsrCapability]:
             warnings=[
                 "Chunked inference (not token-by-token streaming).",
                 "Segment timestamps are estimates; VAD-restored tails are bounded to received PCM.",
+                "Invalid native timing triggers one text-only retry with PCM/VAD chunk spans.",
                 "Model availability and language-specific WER must be verified.",
                 "Hotwords are hints, not guaranteed recognition.",
             ],
