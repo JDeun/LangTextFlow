@@ -69,7 +69,10 @@ function ScopedRetention({ apiUrl, projectId, locale, onApplied }: Props) {
         const data=await read(`${root}/preview`,{method:"POST"}) as Preview;
         if(current()) {
           if(data?.policy?.project_id!==projectId || data.policy.revision!==status.policy.revision || !/^[a-f0-9]{64}$/.test(data.targets_sha256)
-            || !Array.isArray(data.candidates) || data.candidates.length>100 || data.candidates.some(r=>!r||typeof r.session_id!=="string"||typeof r.title!=="string"||typeof r.ended_at!=="string"))throw new Error(t.failure);
+            || data.policy.days!==status.policy.days
+            || ![data.excluded_running_count,data.excluded_unverifiable_count].every(n=>Number.isInteger(n)&&n>=0&&n<=1000)
+            || !Array.isArray(data.candidates) || data.candidates.length>100 || data.candidates.some(r=>!r||typeof r.session_id!=="string"||typeof r.title!=="string"||typeof r.ended_at!=="string"||!Number.isFinite(Date.parse(r.ended_at))||!Number.isInteger(r.recording_count)||r.recording_count<0||r.recording_count>64)
+            || new Set(data.candidates.map(r=>r.session_id)).size!==data.candidates.length)throw new Error(t.failure);
           setPreview(data);
         }
       } else if(preview) {

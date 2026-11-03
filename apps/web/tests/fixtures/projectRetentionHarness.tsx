@@ -32,7 +32,10 @@ export async function runProjectRetentionChecks() {
   try {
     render();await until(()=>!!host.querySelector("select:not(:disabled)"),"retention settings unavailable");
     if(calls.some(c=>c.method!=="GET")||!button(t.preview).disabled||host.querySelectorAll("li").length)throw new Error("default retention started a mutation or preview");
-    change(host.querySelector("select")!,"days");await tick();button(t.save).click();
+    change(host.querySelector("select")!,"days");await tick();
+    change(host.querySelector('input[type="number"]')!,"");await tick();
+    if(!host.querySelector('input[type="number"]')||!button(t.save).disabled)throw new Error("clearing the day input changed mode or allowed invalid policy");
+    change(host.querySelector('input[type="number"]')!,"30");await tick();button(t.save).click();
     await until(()=>!button(t.preview).disabled,"rule did not save");
     const saved=calls.find(c=>c.method==="PUT")!;
     if(saved.body.expected_revision!==0||saved.body.days!==30)throw new Error("retention save omitted revision/explicit days");
