@@ -49,6 +49,7 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - name: Install pinned Rust toolchain
+        if: ${{ !inputs.native_m2m100_import_probe || inputs.native_m2m100_prepare }}
         shell: bash
         run: |
           rustup toolchain install 1.90.0 --profile minimal

@@ -109,8 +109,31 @@ cancel reaped the native worker; initial cancellation also verified matching
 spawned/reported PID 7428. Failure receipt `13244425774` has ZIP SHA-256
 `23eb2d2f3682bec6379663acb411333e08c5f84b512975170f16f1b4b1b3c4c1`.
 Thus an immediate post-return tuple destructor alone does not explain this run.
-The next fixed-phase probe distinguishes CT2 import, tokenizer import/load and
-engine initialization inside the same production loader; Windows remains gated.
+Run [41664836442](https://github.com/JDeun/LangTextFlow/actions/runs/41664836442),
+source `a57fde78f101d6aa2c128562a558edfd359ddaef`, narrowed the stall to the
+tokenizer class import, before tokenizer data loading or engine construction.
+Its failure receipt is artifact `13246581237` (upload-reported ZIP SHA-256
+`710941125f78cbb3841d9f0162bc81a33618c4e348480128c5cf78d183f38617`).
+
+The subsequent controls use the same frozen binary per run, keep the parent pipe
+open during imports, and download **no model weights**:
+
+| Run/source | Frozen control result |
+| --- | --- |
+| [41669062381](https://github.com/JDeun/LangTextFlow/actions/runs/41669062381), `e84dad1738e45820d1e6372b07b5143d1cb18e2e` | No reader succeeds; blocking shared/duplicated FD readers stall, with either direct or sentencepiece-first imports. |
+| [41671645044](https://github.com/JDeun/LangTextFlow/actions/runs/41671645044), `f3cb6e297fd3de13f2d06158976a4d431d93831b` | Direct blocking Windows ReadFile also stalls; it is not a successful workaround. |
+| [41674053943](https://github.com/JDeun/LangTextFlow/actions/runs/41674053943), `bd52461677fa02be885c951ad06403e8184e584c` | An idle thread and PeekNamedPipe polling both import successfully; the polling reader also exits 0 on parent EOF. All nine owned children are reaped. |
+
+The last receipt is artifact `13250527049`; its binary SHA-256 is
+`01a4fbe81ae903b4a0d03d8c19c05b8c913d516c84a86d07e736f24ee3054cb4`.
+These controls isolate blocking pipe reads from thread existence/import order.
+The production parent-pipe helper therefore waits with PeekNamedPipe on Windows
+and reads only bytes already available; POSIX keeps its raw read. Empty-but-open
+pipes keep waiting, and failed handle queries stop the worker. Source regressions
+also exercise native imports duplicating stdin while the watchdog is active.
+Import-only diagnostics skip desktop bundling and cannot establish packaging or
+actual model preparation success. Windows setup remains gated until a new
+actual frozen prepare/translation/repair run passes with this change.
 
 ## Manual official-source conversion
 

@@ -13,6 +13,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
+from .parent_pipe import read_parent_pipe
 from .storage_guard import ensure_storage_capacity
 
 MODEL_REVISION = "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636"
@@ -342,7 +343,7 @@ def main(args: list[str] | None = None) -> None:
         os.dup2(silent.fileno(), sys.stderr.fileno())
 
     def parent_closed() -> None:
-        os.read(0, 1)
+        read_parent_pipe(1)
         os._exit(0)  # EOF stops downloads/native validation even if the parent crashes.
 
     threading.Thread(target=parent_closed, daemon=True).start()
