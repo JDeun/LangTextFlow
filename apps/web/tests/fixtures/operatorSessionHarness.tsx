@@ -80,7 +80,8 @@ export async function runOperatorSessionChecks() {
     }
     throw new Error(`Unexpected regression-test HTTP request: ${path}`);
   };
-  AudioCaptureController.prototype.start = async function () {
+  AudioCaptureController.prototype.start = async function (_deviceId, expectedSessionId) {
+    assert(expectedSessionId === "owned-session", "microphone handshake lost acknowledged session ID");
     lastCapture = this;
     captures.push("start");
     if (mode === "audio-failed") throw new Error("Microphone unavailable");

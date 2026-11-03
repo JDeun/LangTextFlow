@@ -44,7 +44,7 @@ faster-whisper 자체를 토큰 단위 streaming server로 취급하지 않습�
 
 ```text
 Browser PCM
-  → /ws/audio
+  → /ws/audio?expected_session_id=<acknowledged-session-id>
   → bounded queue
   → 4 s micro-batch
   → asyncio.to_thread(CTranslate2 inference)
@@ -55,6 +55,8 @@ Browser PCM
 ```
 
 세션 종료 시 4초보다 짧게 남은 residual PCM도 마지막 chunk로 flush합니다.
+
+운영 UI는 시작 응답의 세션 ID를 오디오 연결에도 전달합니다. 마이크 권한을 기다리는 동안 세션이 교체되면 서버는 연결을 `4409`로 거절하며 새 세션에 입력하지 않습니다. 기존 query 없는 오디오 클라이언트는 계속 지원합니다.
 
 ## Context / terminology
 

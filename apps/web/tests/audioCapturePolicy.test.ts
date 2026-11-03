@@ -5,11 +5,21 @@ import {
   AUDIO_BACKPRESSURE_CLOSE_CODE,
   AUDIO_PROTOCOL_ERROR_CODE,
   MAX_AUDIO_SOCKET_BUFFERED_BYTES,
+  audioSocketPath,
   canQueueAudioFrame,
   chooseRecoveryDevice,
   microphoneErrorMessage,
   parseAudioSocketConfig,
 } from "../src/audioCapturePolicy.ts";
+
+test("audio handshake binds the acknowledged session without query injection", () => {
+  assert.equal(audioSocketPath(), "/ws/audio");
+  const url = new URL(audioSocketPath("session&expected_session_id=other"), "http://localhost");
+  assert.deepEqual([...url.searchParams], [["expected_session_id", "session&expected_session_id=other"]]);
+  for (const invalid of ["", "  ", "a".repeat(65)]) {
+    assert.throws(() => audioSocketPath(invalid));
+  }
+});
 
 test("audio buffering stays within the configured browser-side ceiling", () => {
   assert.equal(canQueueAudioFrame(0, 4096), true);
