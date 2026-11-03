@@ -81,7 +81,12 @@ def summarize_events(
         stage: [
             max(0.0, row["received_ms"] - row["end_ms"])
             for row in rows
-            if isinstance(row.get("end_ms"), (int, float)) and str(row["segment_id"]) not in invalid
+            if isinstance(row.get("end_ms"), (int, float))
+            and str(row["segment_id"]) not in invalid
+            and (
+                stage != "translated"
+                or row.get("translations", {}).get(target_language, "").strip()
+            )
         ]
         for stage, rows in by_stage.items()
     }
