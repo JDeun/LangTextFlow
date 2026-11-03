@@ -1,4 +1,4 @@
-"""Fixed private-project package v1 graph; no SQL supplied by an archive."""
+"""Fixed private-project package v2 graph; transport explicitly migrates v1."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .session_repository import SessionRepository
 from .summary_evidence import allowed_source_citations
 
 FORMAT = "langtextflow-private-project"
-VERSION = 1
+VERSION = 2
 MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
 MAX_GRAPH_BYTES = 32 * 1024 * 1024
 MAX_MANIFEST_BYTES = 64 * 1024
@@ -99,6 +99,7 @@ COLUMNS = {
         "created_at",
         "status",
         "finalized_at",
+        "start_offset_ms",
     ],
     "transcript_versions": [
         "transcript_id",
@@ -207,7 +208,8 @@ EXPORT_SQL = {
     ),
     "session_recordings": (
         "SELECT r.recording_id,r.session_id,r.filename,r.media_type,r.size_bytes,r.sha256,"
-        "r.duration_seconds,r.sample_rate,r.channels,r.created_at,r.status,r.finalized_at"
+        "r.duration_seconds,r.sample_rate,r.channels,r.created_at,r.status,r.finalized_at,"
+        "r.start_offset_ms"
         " FROM session_recordings r JOIN project_sessions p ON p.session_id=r.session_id WHERE "
         "p.project_id=? ORDER BY r.rowid LIMIT ?"
     ),
@@ -286,8 +288,8 @@ INSERT_SQL = {
     "session_recordings": (
         "INSERT INTO session_recordings (recording_id,session_id,filename,media_type,"
         "size_bytes,sha256,duration_seconds,sample_rate,channels,created_at,status,"
-        "finalized_at)"
-        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+        "finalized_at,start_offset_ms)"
+        " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
     ),
     "transcript_versions": (
         "INSERT INTO transcript_versions (transcript_id,session_id,recording_id,audio_sha256,"
