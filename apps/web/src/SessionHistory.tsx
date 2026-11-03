@@ -89,6 +89,18 @@ export function SessionHistory({
   const sourceElements = useRef(new Map<string, HTMLElement>());
   const refreshRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
+  const currentView = useRef({ apiUrl, projectId: selectedProjectId, sessionId: selected?.session_id });
+  currentView.current = { apiUrl, projectId: selectedProjectId, sessionId: selected?.session_id };
+
+  function sameScope(view: typeof currentView.current) {
+    return currentView.current.apiUrl === view.apiUrl
+      && currentView.current.projectId === view.projectId;
+  }
+
+  function sameDetail(view: typeof currentView.current, requestId: number, sessionId: string) {
+    return sameScope(view) && detailRequestRef.current === requestId
+      && currentView.current.sessionId === sessionId;
+  }
 
   useEffect(() => {
     if (!focusedSource) return;
@@ -124,7 +136,8 @@ export function SessionHistory({
     setSelected(null);
     setSegments([]);
     setTranscriptQuery("");
-  }, [selectedProjectId]);
+    return () => { detailRequestRef.current += 1; };
+  }, [apiUrl, selectedProjectId]);
 
   const filteredSessions = useMemo(() => {
     const query = sessionQuery.trim().toLocaleLowerCase();
@@ -211,6 +224,9 @@ export function SessionHistory({
 
   async function saveMetadata() {
     if (!selected) return;
+    const view = currentView.current;
+    const requestId = detailRequestRef.current;
+    const sessionId = selected.session_id;
     const title = editTitle.trim();
     if (!title) {
       setError(copy.titleRequired);
@@ -229,6 +245,7 @@ export function SessionHistory({
       );
       if (!response.ok) throw new Error(await response.text());
       const updated = (await response.json()) as SessionDetail;
+      if (!sameDetail(view, requestId, sessionId)) return;
       setSelected(updated);
       setEditTitle(updated.title);
       setEditNotes(updated.notes || "");
@@ -238,13 +255,17 @@ export function SessionHistory({
           : session
       )));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : copy.saveFailed);
+      if (sameDetail(view, requestId, sessionId)) {
+        setError(reason instanceof Error ? reason.message : copy.saveFailed);
+      }
     } finally {
       setSaveBusy(false);
     }
   }
 
   async function assignProject(session: SessionRecord, projectId: string) {
+    const view = currentView.current;
+    const requestId = detailRequestRef.current;
     setBusyId(session.session_id);
     setError("");
     try {
@@ -258,19 +279,25 @@ export function SessionHistory({
       );
       if (!response.ok) throw new Error(await response.text());
       const updated = (await response.json()) as SessionDetail;
-      setSessions((current) => current.map((item) => (
-        item.session_id === session.session_id ? { ...item, project_id: updated.project_id } : item
-      )));
-      if (selected?.session_id === session.session_id) setSelected(updated);
+      if (sameScope(view)) {
+        setSessions((current) => current.map((item) => (
+          item.session_id === session.session_id ? { ...item, project_id: updated.project_id } : item
+        )));
+      }
+      if (sameDetail(view, requestId, session.session_id)) setSelected(updated);
       await onProjectsChanged();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : copy.saveFailed);
+      if (sameScope(view) && detailRequestRef.current === requestId) {
+        setError(reason instanceof Error ? reason.message : copy.saveFailed);
+      }
     } finally {
-      setBusyId("");
+      setBusyId(current => current === session.session_id ? "" : current);
     }
   }
 
   async function remove(session: SessionRecord) {
+    const view = currentView.current;
+    const requestId = detailRequestRef.current;
     setBusyId(session.session_id);
     setError("");
     try {
@@ -279,12 +306,14 @@ export function SessionHistory({
         { method: "DELETE" },
       );
       if (!response.ok) throw new Error(await response.text());
-      if (selected?.session_id === session.session_id) closeDetail();
-      await refresh();
+      if (sameDetail(view, requestId, session.session_id)) closeDetail();
+      if (sameScope(view)) await refresh();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : copy.deleteFailed);
+      if (sameScope(view) && detailRequestRef.current === requestId) {
+        setError(reason instanceof Error ? reason.message : copy.deleteFailed);
+      }
     } finally {
-      setBusyId("");
+      setBusyId(current => current === session.session_id ? "" : current);
     }
   }
 
