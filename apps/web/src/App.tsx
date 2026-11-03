@@ -119,10 +119,14 @@ function OperatorApp() {
   const asrRegistry = useAsrCapabilities();
   const [resourceProfile, setResourceProfile] = useState<"standard" | "low">("standard");
   const [correctionProvider, setCorrectionProvider] = useState("none");
-  const [correctionModel, setCorrectionModel] = useState("qwen3.5:4b");
+  const [correctionModel, setCorrectionModel] = useState("");
   const [translationProvider, setTranslationProvider] = useState("ollama");
   const translationRegistry = useTranslationCapabilities();
-  const [translationModel, setTranslationModel] = useState("translategemma:4b");
+  const [translationModels, setTranslationModels] = useState<Record<string, string>>({});
+  const translationModel = translationModels[translationProvider] ?? "";
+  function setTranslationModel(value: string) {
+    setTranslationModels(current => ({ ...current, [translationProvider]: value }));
+  }
   const [projects, setProjects] = useState<EventProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("all");
   const [projectLoadError, setProjectLoadError] = useState("");
@@ -204,9 +208,9 @@ function OperatorApp() {
   function applyRecommendation(configuration: RecommendedConfiguration) {
     if (configuration.engine) setEngine(configuration.engine);
     setTranslationProvider(configuration.translation_provider);
-    if (configuration.translation_model) {
-      setTranslationModel(configuration.translation_model);
-    }
+    setTranslationModels(current => ({
+      ...current, [configuration.translation_provider]: configuration.translation_model ?? "",
+    }));
   }
 
   function completeOnboarding() {
@@ -501,6 +505,7 @@ function OperatorApp() {
               {t("engines.correctionModel")}
               <input
                 value={correctionModel}
+                placeholder={operatorCopy.configuredDefaultModel}
                 onChange={(event) => setCorrectionModel(event.target.value)}
                 disabled={running}
               />
@@ -524,6 +529,10 @@ function OperatorApp() {
               {translationProvider === "ollama" ? t("engines.translationModel") : t("engines.apiModel")}
               <input
                 value={translationModel}
+                data-testid="translation-model-input"
+                placeholder={translationRegistry.status === "ready"
+                  ? translationRegistry.providers.find(provider => provider.provider === translationProvider)?.model_id || operatorCopy.configuredDefaultModel
+                  : operatorCopy.configuredDefaultModel}
                 onChange={(event) => setTranslationModel(event.target.value)}
                 disabled={running}
               />
