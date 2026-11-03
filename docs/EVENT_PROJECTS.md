@@ -94,8 +94,9 @@ New session requests accept an optional `project_id`; old clients without the pr
 
 The initial project CRUD slice was tracked in #85. Cross-session search, cited
 synthesis and full private package backup/restore are described below. #86 also
-tracks the remaining knowledge/retention acceptance; these features do not imply
-semantic or field approval. Per-session archive work is documented under #78–#81.
+includes the source-linked materials and local retention described here. Citation
+structure tests do not imply semantic or field approval. Per-session archive work
+and its explicit shipping/privacy gates are documented under #78–#81.
 
 ## Verification
 
@@ -119,7 +120,7 @@ API: `GET /api/v1/projects/{project_id}/search?q=term&limit=50&offset=0`
 - Translation JSON is searched through SQLite JSON1 **values**; language keys alone cannot trigger false positives.
 - As with every operator endpoint, browser Origins and loopback-only restrictions apply; audience join codes grant no search access.
 - Keyword matching uses SQLite LIKE semantics (ASCII case-insensitive by default); this is **not** multilingual semantic search or vector retrieval.
-- Project-wide AI synthesis and source-grounded multi-session summaries remain a separate follow-up under #86; an AI response is never treated as original transcript evidence.
+- Project-wide AI synthesis is implemented separately below; an AI response is never treated as original transcript evidence.
 
 All search results are dynamic views; session reassignment/detachment immediately changes the scope of subsequent searches without duplicating transcript content.
 
@@ -266,7 +267,7 @@ past endpoint's location from current configuration. No cloud upload is implicit
 
 Markdown export uses the saved review when present. This version export is
 separate from the full private package below. Typed operator materials above are
-implemented; retention/legal and field/semantic acceptance remain open under #86. Citation identity
+implemented. The user-selected retention implementation is described below. Citation identity
 and automated three-language/three-session tests do not certify model meaning,
 human review quality, actual multilingual speech or field/device acceptance.
 
@@ -276,6 +277,83 @@ requests. The browser runner creates two additional synthetic mock-ASR sessions,
 generates all three per-session summaries through the real loopback-only fake
 provider, then clicks the real project Generate/save/approve controls and checks
 version export, provenance, source navigation, move redaction, mobile and axe.
+
+### User-selected local archive retention
+
+The selected project's **Local archive retention** panel defaults to **No expiry
+rule**. An operator may save an integer age (1–36,500 days), explicitly preview
+expired archives, inspect their titles/end times/recording counts, then confirm
+**Permanently delete reviewed archives**. Saving a rule never schedules or runs
+deletion. There is no new unattended retention worker or automatic deletion on
+startup. Existing ownership-journal recovery runs only to finish already-owned
+media cleanup after an explicit archive deletion.
+
+Expiry uses `ended_at`, parsed only when timezone-aware and compared in UTC against
+the current time minus the chosen age. Running/source-stop sessions, unfinished
+sessions, foreign-project sessions, naive/damaged/unverifiable end times are
+excluded; an unknown time never becomes an inferred expiry date. Each preview
+reads one SQLite snapshot and captures the policy revision and canonical target
+hash, including complete project membership, source revision/child counters and
+media identities/hashes. Apply recomputes them after acquiring transition locks
+and again in the write transaction. Policy changes, membership/move/deletion,
+newly expired sessions and late archive writes reject the stale preview with
+**409**, rather than expanding the operator's reviewed set. Limits are 100 expired
+sessions, 64 recordings and 1,000 project members; exceeding them rejects the
+whole operation. Increase the retention period or reduce the project scope.
+
+Apply cancels/waits for dependent project jobs/prepared exports and the selected
+sessions' summary/local transcription jobs, including actual child-process reap,
+before mutation. A runtime lifecycle fence excludes the active source without
+interrupting its audio/caption path. Deletion of the reviewed session rows, their
+FK children and dependent project digest versions/reviews is **one SQLite
+transaction**. The project, operator materials and project glossary remain. The
+history list, selected deleted detail, search results and digest versions refresh
+after a committed receipt; an old in-flight detail cannot reopen deleted text.
+
+Registered legacy media with valid managed metadata is first transferred to the
+existing durable recording journal in that transaction; conflicting or unsafe
+ownership fails before deleting any archive. FK deletion creates tombstones.
+The existing bounded recovery worker validates filename/path/type/WAV/size/SHA
+before unlinking an owned WAV or prepared partial. Unknown disk files are never
+scanned for retention, and symlinks, replaced bytes and unverifiable files are
+preserved with integrity diagnostics. A receipt distinguishes committed archive
+deletion from pending or blocked media cleanup; it does not falsely claim that
+every file was erased. The panel's status reload advances existing bounded
+cleanup. Blocked media requires explicit integrity review, not speculative deletion.
+
+One apply owns native mutation at a time. Its deadline is 30 seconds, preview
+queries have a ten-second SQL budget, and SQLite progress callbacks check the
+cancellation/deadline fence before commit and during long statements. HTTP loss,
+explicit cancel or shutdown signals that fence. Transition/native ownership
+persists until actual commit or rollback; repeated cancellation cannot release a
+slot around a still-running write. A commit that wins cancellation is durable:
+reload status/receipts to determine the actual outcome. The last 20 committed
+receipts retain operation/policy/target hashes, counts and cleanup identities,
+not original text or session titles. A retry with the same completed operation
+identity returns its receipt; it cannot delete a newly expanded set.
+
+Operator-only endpoints under `/api/v1/projects/{project_id}/retention`:
+
+| Endpoint | Meaning |
+| --- | --- |
+| `GET` | Policy, active/last operation and bounded committed receipts/cleanup counters |
+| `PUT` | Set nullable `days` using `expected_revision` (initial revision 0) |
+| `POST /preview` | Complete bounded candidate snapshot and `targets_sha256`; no deletion |
+| `POST /apply` | Explicit `operation_id`, reviewed `expected_revision` and target hash |
+| `POST /cancel` | Request cancellation of the exact owned `operation_id` |
+
+The same loopback/operator Origin guard rejects audience/LAN access before body
+parsing. Join codes do not grant archive, policy, original material or media
+permissions. Neither retention nor backup invokes a provider or changes external
+LLM consent. Policies and receipts are **app-local operating settings**, excluded
+from the fixed private package graph. Deleting a project cascades its policy and
+receipts; restoring its stable ID from v1/v2/v3 backups starts with no expiry rule.
+This prevents an old local deletion setting from silently reappearing on restore.
+
+These controls implement user-selected retention within #86 and the archive
+implementation tracked by #78/#79. They do not certify secure filesystem erasure,
+recall of downloaded/exported copies, or shipping privacy/legal acceptance under
+the latter issues. Only owned synthetic data is used by regression/browser tests.
 
 ### Full private project package backup and restore
 

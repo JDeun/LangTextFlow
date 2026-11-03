@@ -32,6 +32,9 @@ class PostEventArchive:
         from .project_knowledge import ProjectKnowledge
 
         self.knowledge = ProjectKnowledge(self)
+        from .project_retention import ProjectRetention
+
+        self.retention = ProjectRetention(self)
         from .project_package import ProjectPackageStore
 
         self.packages = ProjectPackageStore(self)
@@ -137,6 +140,7 @@ class PostEventArchive:
         self.transcripts.initialize()
         self.project_digests.initialize()
         self.knowledge.initialize()
+        self.retention.initialize()
         self.packages.initialize()
         self.cleanup_stale_partials()
 

@@ -160,6 +160,14 @@ try {
     knowledgeResult.exceptionDetails.exception?.description || knowledgeResult.exceptionDetails.text,
   );
   console.log(`project materials smoke passed: ${knowledgeResult.result.value}`);
+  const retentionResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/projectRetentionHarness.tsx').then(test => test.runProjectRetentionChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if(retentionResult.exceptionDetails)throw new Error(
+    retentionResult.exceptionDetails.exception?.description||retentionResult.exceptionDetails.text,
+  );
+  console.log(`project retention smoke passed: ${retentionResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;

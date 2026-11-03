@@ -1019,5 +1019,83 @@ try {
   await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });
 }
 
+// Retention ages only the three previously created owned fixtures. No original
+// text, model output or review is seeded: wall-clock expiry is the sole DB edit.
+const retentionIds=[state.session_id,...extraProjectSessions];
+await fetch(`http://127.0.0.1:8000/api/v1/history/${extraProjectSessions[0]}/project`,{
+  method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({project_id:eventProject.project_id}),
+});
+if(!process.env.LANGTEXTFLOW_DATABASE_PATH)throw new Error("owned retention fixture DB was not provided");
+execFileSync(process.env.UV_PROJECT_ENVIRONMENT?`${process.env.UV_PROJECT_ENVIRONMENT}/bin/python`:"python",["-c",`
+import datetime,json,pathlib,sqlite3,sys
+db=pathlib.Path(sys.argv[1]);ids=json.loads(sys.argv[2])
+with sqlite3.connect(db) as conn:
+    for sid in ids:
+        row=conn.execute('SELECT p.title FROM projects p JOIN project_sessions x ON x.project_id=p.project_id WHERE x.session_id=?',(sid,)).fetchone()
+        assert row and row[0]=='Browser E2E conference','not an owned browser fixture'
+    now=datetime.datetime.now(datetime.timezone.utc)
+    for sid in ids:
+        conn.execute('UPDATE sessions SET started_at=?,ended_at=? WHERE session_id=?',((now-datetime.timedelta(days=91)).isoformat(),(now-datetime.timedelta(days=90)).isoformat(),sid))
+unknown=db.parent/'recordings'/'retention-unknown.wav'
+assert not unknown.exists()
+unknown.write_bytes(b'owned unknown-file negative control')
+`,process.env.LANGTEXTFLOW_DATABASE_PATH,JSON.stringify(retentionIds)]);
+const retentionLiveStart=await fetch("http://127.0.0.1:8000/api/v1/session/start",{
+  method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({engine:"mock",project_id:eventProject.project_id,source_language:"en",target_languages:["ko"],translation_provider:"none",correction_provider:"none",context:{title:"Retention protected live fixture"}}),
+});
+if(!retentionLiveStart.ok)throw new Error("retention live protection fixture failed");
+const retentionLive=await retentionLiveStart.json();
+try {
+  const root=`http://127.0.0.1:8000/api/v1/projects/${eventProject.project_id}/retention`;
+  const initial=await(await fetch(root)).json();
+  if(initial.policy.days!==null||initial.receipts.length)throw new Error("retention default was destructive");
+  const newDigest=await fetch(projectRoot,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"synthetic-project-e2e"})});
+  if(!newDigest.ok)throw new Error("retention project digest fixture failed");
+  const newVersion=await newDigest.json();
+  await waitFor(async()=>(await(await fetch(`${projectRoot}/${newVersion.digest_id}`)).json()).status==="completed","actual current digest before retention");
+  const glossaryRoot=`http://127.0.0.1:8000/api/v1/projects/${eventProject.project_id}/glossary`;
+  if(!(await fetch(glossaryRoot,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({term:"retention-owned",canonical:"retention-owned",source_language:"en"})})).ok)throw new Error("retention glossary fixture failed");
+  const materialCount=(await(await fetch(knowledgeRoot)).json()).length;
+  await navigate("http://127.0.0.1:5173/?retention=owned");await setLocale("ko");
+  await waitFor(()=>evaluate(`Array.from(document.querySelectorAll('.event-project-options button')).some(b=>b.textContent.includes('Browser E2E conference'))`),"retention project picker");
+  await evaluate(`Array.from(document.querySelectorAll('.event-project-options button')).find(b=>b.textContent.includes('Browser E2E conference')).click()`);
+  await evaluate("document.querySelector('.preflight-close')?.click()");
+  const panel='[data-testid="project-retention"]';
+  const button=label=>evaluate(`Array.from(document.querySelectorAll('${panel} button')).find(b=>b.textContent===${JSON.stringify(label)})?.click()`);
+  await waitFor(()=>evaluate(`document.querySelector('${panel} select:not(:disabled)')!==null`),"retention form loaded");
+  await evaluate(`(()=>{const el=document.querySelector('${panel} select');el.value='days';el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await button("보존 규칙 저장");
+  await waitFor(async()=>(await(await fetch(root)).json()).policy.days===30,"explicit period stored");
+  for(const sid of retentionIds)if(!(await fetch(`http://127.0.0.1:8000/api/v1/history/${sid}`)).ok)throw new Error("policy save deleted without explicit apply");
+  await waitFor(()=>evaluate(`Array.from(document.querySelectorAll('${panel} button')).some(b=>b.textContent==='만료 보관기록 미리보기'&&!b.disabled)`),"saved policy ready for review");
+  await button("만료 보관기록 미리보기");
+  await waitFor(()=>evaluate(`document.querySelectorAll('${panel} ul:first-of-type li').length===3`),"three expired archives reviewed");
+  const preview=await(await fetch(`${root}/preview`,{method:"POST"})).json();
+  if(preview.candidates.length!==3||preview.excluded_running_count!==1||preview.candidates.some(r=>!retentionIds.includes(r.session_id)))throw new Error("retention included foreign/active scope");
+  await cdp("Runtime.evaluate",{expression:await readFile("apps/web/node_modules/axe-core/axe.min.js","utf8")});
+  const violations=await evaluate(`axe.run(document.querySelector('${panel}'),{runOnly:{type:'tag',values:['wcag2a','wcag2aa','wcag21a','wcag21aa']}}).then(r=>r.violations.map(v=>v.id))`);
+  if(violations.length)throw new Error("retention accessibility: "+JSON.stringify(violations));
+  async function captureRetention(name){
+    await evaluate(`document.querySelector('${panel}').scrollIntoView({block:'start'});true`);await sleep(100);
+    const clip=await evaluate(`(()=>{const r=document.querySelector('${panel}').getBoundingClientRect();return{x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:Math.min(r.height,innerHeight-150),scale:1};})()`);
+    const result=await cdp('Page.captureScreenshot',{format:'png',captureBeyondViewport:false,clip});await writeFile(`artifacts/${name}.png`,Buffer.from(result.data,'base64'));
+  }
+  await captureRetention("project-retention-desktop-ko");await setViewport(390,844,true);
+  if(!await evaluate("document.documentElement.scrollWidth<=innerWidth+1"))throw new Error("retention mobile overflow");
+  await captureRetention("project-retention-mobile-ko");await setViewport(1440,1000,false);
+  const confirmed=new Promise(resolve=>socket.addEventListener('message',async function dialog(event){const message=JSON.parse(event.data);if(message.method!=='Page.javascriptDialogOpening')return;socket.removeEventListener('message',dialog);if(!message.params.message.includes('영구 삭제'))throw new Error('deletion consequence missing');await cdp('Page.handleJavaScriptDialog',{accept:true});resolve();}));
+  const deleting=button("검토한 보관기록 영구 삭제");await confirmed;await deleting;
+  await waitFor(async()=>(await(await fetch(root)).json()).receipts[0]?.deleted_session_count===3,"atomic archive deletion receipt");
+  await waitFor(()=>evaluate(`document.querySelectorAll('.history-list .history-item').length===1`),"history list invalidated after explicit deletion");
+  for(const sid of retentionIds)if((await fetch(`http://127.0.0.1:8000/api/v1/history/${sid}`)).status!==404)throw new Error("expired original remained available");
+  if((await fetch(`${projectRoot}/${newVersion.digest_id}`)).status!==404)throw new Error("deleted source remained in frozen project digest");
+  if((await(await fetch(knowledgeRoot)).json()).length!==materialCount||(await(await fetch(glossaryRoot)).json()).length!==1)throw new Error("retention erased unrelated project knowledge");
+  const liveState=await(await fetch("http://127.0.0.1:8000/api/v1/state")).json();
+  if(!liveState.running||liveState.session_id!==retentionLive.session_id)throw new Error("retention interrupted the live caption source");
+  await waitFor(async()=>{const data=await(await fetch(root)).json();return data.receipts[0]?.media_cleanup_pending_count===0;},"verified WAV tombstones cleaned");
+  execFileSync(process.env.UV_PROJECT_ENVIRONMENT?`${process.env.UV_PROJECT_ENVIRONMENT}/bin/python`:"python",["-c",`import pathlib,sys;p=pathlib.Path(sys.argv[1]).parent/'recordings'/'retention-unknown.wav';assert p.read_bytes()==b'owned unknown-file negative control'`,process.env.LANGTEXTFLOW_DATABASE_PATH]);
+  console.log("retention E2E: explicit rule→three-language/two-WAV reviewed deletion, active source and project knowledge preserved, owned cleanup/unknown-file negative control, mobile/axe");
+} finally {await fetch("http://127.0.0.1:8000/api/v1/session/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({expected_session_id:retentionLive.session_id})});}
+
 socket.close();
 console.log("browser E2E smoke passed: projects, onboarding, locales, keyboard, audience, history, real summary jobs with synthetic HTTP provider, review/export and language isolation");
