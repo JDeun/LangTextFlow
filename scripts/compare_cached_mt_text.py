@@ -65,7 +65,7 @@ class CachedTranslateGemma(OllamaTranslator):
 
         from langtextflow.provider_http import bounded_json_request
 
-        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self.request_timeout_seconds, trust_env=False) as client:
             return await bounded_json_request(client, method, self.base_url + route, **kwargs)
 
     async def check_identity(self):

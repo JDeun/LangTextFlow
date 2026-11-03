@@ -202,6 +202,35 @@ def test_missing_exact_ollama_cache_never_loads_or_pulls_a_family_substitute(arg
     assert requests == [("GET", "/api/tags")]
 
 
+def test_owned_loopback_http_does_not_route_through_environment_proxy(args, monkeypatch):
+    import httpx
+
+    from langtextflow import provider_http
+
+    options = []
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+    def make_client(**kwargs):
+        options.append(kwargs)
+        return Client()
+
+    async def bounded_request(client, method, url, **kwargs):
+        assert url == "http://127.0.0.1:11434/api/tags"
+        return {"models": []}
+
+    monkeypatch.setattr(httpx, "AsyncClient", make_client)
+    monkeypatch.setattr(provider_http, "bounded_json_request", bounded_request)
+    with asyncio.Runner() as runner:
+        runner.run(cli.CachedTranslateGemma(args)._request("GET", "/api/tags"))
+    assert options == [{"timeout": args.timeout, "trust_env": False}]
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX-only evaluation supervisor")
 def test_real_child_timeout_is_preserved_and_reaped(args, monkeypatch):
     processes = []
