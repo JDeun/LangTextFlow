@@ -302,3 +302,29 @@ def test_report_escapes_untrusted_ai_summary_without_link_or_heading(tmp_path) -
     assert r"\[download\]\(javascript:alert\(1\)\)" in report
     assert "[download](javascript:" not in report
     assert "summary (unreviewed)" in report
+
+
+def test_project_exports_use_reviewed_text_and_preserve_approval_and_freshness(tmp_path):
+    history, projects, archive = _seed(tmp_path)
+    project = projects.create(ProjectInput(title="Reviewed event"))
+    _session(history, project.project_id, "event-1", "Source evidence")
+    _, digest = transcript_source(history.segments("event-1"))
+    summary = archive.begin_summary(
+        "event-1", language="en", provider="ollama", model="local",
+        transcript_sha256=digest, prompt_version="test",
+    )
+    archive.finish_summary(summary["summary_id"], content="Original model draft")
+    archive.review_summary(
+        "event-1", summary["summary_id"], content="Reviewed meaning",
+        approved=True, expected_review_id=None,
+    )
+    report = build_project_report(projects, history, archive, project.project_id)
+    assert "summary (operator approved)" in report
+    assert "Reviewed meaning" in report
+    assert "Original model draft" not in report
+    manifest = build_project_archive_manifest(projects, history, archive, project.project_id)
+    item = manifest["sessions"][0]["summary"]
+    assert item["review"]["approved"] is True
+    assert "content" not in item["review"]
+    assert item["excerpt"] == "Reviewed meaning"
+    assert not item["stale"]

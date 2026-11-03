@@ -671,14 +671,18 @@ class CaptionPipeline:
 
     async def _process_stable(self, event: TranscriptEvent) -> None:
         assert self.request is not None
+        # Bind queued targets to their originating session before correction can suspend.
+        request = self.request
+        targets = list(request.target_languages)
+        translator = self.translator
+        limiter = self._translation_limiter
+        enabled = translator is not None and self.status.available
         version = event.version + 1
         corrected_text, provenance = await self._correct(event.text)
-        targets = self.request.target_languages
-        enabled = self.translator is not None and self.status.available
         states: dict[str, str] = {
             language: (
                 "pending" if enabled else
-                "unsupported" if self.translator is None else "failed"
+                "unsupported" if translator is None else "failed"
             )
             for language in targets
         }
@@ -695,8 +699,7 @@ class CaptionPipeline:
         translations: dict[str, str] = {}
         base = corrected
         if enabled:
-            assert self.translator is not None
-            limiter = self._translation_limiter
+            assert translator is not None
 
             async def translate_target(target: str) -> tuple[str, str | None, str | None]:
                 try:
@@ -707,11 +710,11 @@ class CaptionPipeline:
                         self.settings.translation_target_timeout_seconds
                     ):
                         async with limiter:
-                            translated = await self.translator.translate(
+                            translated = await translator.translate(
                                 corrected_text,
-                                source_language=self.request.source_language,
+                                source_language=request.source_language,
                                 target_language=target,
-                                context=self.request.context,
+                                context=request.context,
                             )
                             if not translated.strip():
                                 raise TranslationError(

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+test_root="$(mktemp -d /tmp/ltf-e2e-data-XXXXXX)"
+export LANGTEXTFLOW_DATABASE_PATH="${LANGTEXTFLOW_DATABASE_PATH:-$test_root/events.db}"
+export LANGTEXTFLOW_MODEL_CACHE_DIR="${LANGTEXTFLOW_MODEL_CACHE_DIR:-$test_root/models}"
+
 uv run python -m uvicorn langtextflow.main:app --app-dir apps/server --host 127.0.0.1 --port 8000 >/tmp/ltf-e2e-api.log 2>&1 &
 api_pid=$!
 (
@@ -9,9 +13,8 @@ api_pid=$!
 ) &
 web_pid=$!
 chrome_bin="$(command -v google-chrome || command -v chromium || command -v chromium-browser || true)"
-if [[ -z "$chrome_bin" ]]; then
-  echo "Chrome/Chromium not found on runner" >&2
-  exit 1
+if [[ -z "$chrome_bin" && -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]]; then
+  chrome_bin="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 fi
 
 chrome_pid=""
@@ -21,8 +24,14 @@ cleanup() {
   kill "$web_pid" "$api_pid" 2>/dev/null || true
   wait "$chrome_pid" "$web_pid" "$api_pid" 2>/dev/null || true
   rm -rf -- "$chrome_profile"
+  rm -rf -- "$test_root"
 }
 trap cleanup EXIT
+
+if [[ -z "$chrome_bin" ]]; then
+  echo "Chrome/Chromium not found on runner" >&2
+  exit 1
+fi
 
 start_chrome() {
   "$chrome_bin" --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage \

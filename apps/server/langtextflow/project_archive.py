@@ -37,6 +37,7 @@ def build_project_archive_manifest(
             # Never return an old project's session after its association moved.
             continue
         summary = archive.latest_summary(session_id)
+        review = summary.get("review") if summary else None
         recordings = archive.recordings(session_id)
         stale = False
         if summary is not None:
@@ -78,8 +79,12 @@ def build_project_archive_manifest(
                         "transcript_sha256": summary["transcript_sha256"],
                         "prompt_version": summary["prompt_version"],
                         "stale": stale,
-                        "excerpt": summary["content"][:400],
+                        "excerpt": (review["content"] if review else summary["content"])[:400],
                         "created_at": summary["created_at"],
+                        "review": (
+                            {key: review[key] for key in ("review_id", "approved", "created_at")}
+                            if review else None
+                        ),
                     }
                     if summary is not None else None
                 ),

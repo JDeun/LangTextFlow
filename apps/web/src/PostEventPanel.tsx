@@ -22,6 +22,12 @@ interface Summary {
   error: string | null;
   transcript_sha256: string;
   created_at: string;
+  review?: {
+    review_id: string;
+    content: string;
+    approved: boolean;
+    created_at: string;
+  } | null;
 }
 
 interface Archive {
@@ -50,7 +56,12 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [reviewText, setReviewText] = useState("");
   const root = `${apiUrl}/api/v1/history/${encodeURIComponent(session.session_id)}`;
+
+  useEffect(() => {
+    setReviewText(archive.summary?.review?.content ?? archive.summary?.content ?? "");
+  }, [archive.summary?.summary_id, archive.summary?.review?.review_id]);
 
   const refresh = useCallback(async () => {
     const response = await fetch(`${root}/archive`);
@@ -124,7 +135,7 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
 
   function exportSummaryText() {
     if (archive.summary?.status !== "completed") return;
-    const blob = new Blob([archive.summary.content], {
+    const blob = new Blob([archive.summary.review?.content ?? archive.summary.content], {
       type: "text/plain;charset=utf-8",
     });
     const url = URL.createObjectURL(blob);
@@ -135,6 +146,30 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+  }
+
+  async function saveReview(approved: boolean) {
+    const summary = archive.summary;
+    if (!summary || busy || summary.review?.approved || archive.summary_stale) return;
+    setBusy("review");
+    setError("");
+    setMessage("");
+    try {
+      const response = await fetch(`${root}/summaries/${encodeURIComponent(summary.summary_id)}/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: reviewText, approved, expected_review_id: summary.review?.review_id ?? null,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await refresh();
+      setMessage(approved ? copy.approved : copy.reviewSaved);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : copy.failure);
+    } finally {
+      setBusy("");
+    }
   }
 
   return (
@@ -245,7 +280,33 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
       {archive.summary?.status === "completed" && (
         <div className="history-post-summary">
           <small>{archive.summary.model} · {archive.summary.language.toUpperCase()}</small>
-          <pre>{archive.summary.content}</pre>
+          <p role="status">{archive.summary.review?.approved ? copy.approved : copy.unreviewed}</p>
+          <label>
+            {copy.reviewText}
+            <textarea
+              value={reviewText}
+              maxLength={15000}
+              rows={10}
+              readOnly={Boolean(archive.summary.review?.approved) || archive.summary_stale}
+              disabled={Boolean(busy)}
+              onChange={(event) => setReviewText(event.target.value)}
+            />
+          </label>
+          <small>{copy.reviewHint}</small>
+          {!archive.summary.review?.approved && (
+            <div className="history-post-actions">
+              <button type="button" className="secondary-button"
+                disabled={Boolean(busy) || archive.summary_stale || !reviewText.trim()}
+                onClick={() => void saveReview(false)}>{copy.saveReview}</button>
+              <button type="button" className="secondary-button"
+                disabled={Boolean(busy) || archive.summary_stale || !reviewText.trim()}
+                onClick={() => void saveReview(true)}>{copy.approveReview}</button>
+            </div>
+          )}
+          <details>
+            <summary>{copy.originalDraft}</summary>
+            <pre>{archive.summary.content}</pre>
+          </details>
           <button type="button" className="secondary-button" onClick={exportSummaryText}>
             {copy.exportSummary}
           </button>

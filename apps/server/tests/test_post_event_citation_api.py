@@ -112,3 +112,73 @@ def test_valid_cited_draft_can_be_saved_but_becomes_stale_on_source_change(
         archive_view = client.get("/api/v1/history/source-1/archive")
         assert archive_view.status_code == 200
         assert archive_view.json()["summary_stale"] is True
+
+
+def test_review_preserves_model_draft_and_locks_approved_version(monkeypatch, tmp_path):
+    app, archive, history = _app(tmp_path)
+    original = "사랑에 관해 말씀하셨습니다. [caption-1 at 1s]"
+
+    async def generated(*args, **kwargs):
+        return original
+
+    monkeypatch.setattr(post_event_api, "generate_summary", generated)
+    with TestClient(app) as client:
+        root = "/api/v1/history/source-1"
+        client.post(root + "/summary", json={"model": "mock-local"})
+        summary = _settle(client, archive)
+        path = root + f"/summaries/{summary['summary_id']}/reviews"
+        assert client.post(path, json={"content": "No citation"}).status_code == 422
+        assert client.post(path, json={"content": "Wrong [caption-1 at 2s]"}).status_code == 422
+        assert client.post(path.replace("source-1", "other"), json={
+            "content": original,
+        }).status_code == 404
+
+        revised = "하나님의 사랑을 설명했습니다. [caption-1 at 1s]"
+        draft = client.post(path, json={"content": revised})
+        assert draft.status_code == 201
+        draft_id = draft.json()["review_id"]
+        # Another tab with an old revision cannot silently overwrite an edit.
+        assert client.post(path, json={"content": original}).status_code == 409
+        approval = client.post(path, json={
+            "content": revised, "approved": True, "expected_review_id": draft_id,
+        })
+        assert approval.status_code == 201
+        approved_id = approval.json()["review_id"]
+        assert client.post(path, json={
+            "content": original, "expected_review_id": approved_id,
+        }).status_code == 409
+
+        view = client.get(root + "/archive").json()
+        assert view["summary"]["content"] == original
+        assert view["summary"]["review"]["content"] == revised
+        assert view["summary"]["review"]["approved"]
+        reopened = PostEventArchive(archive.database_path)
+        reopened.initialize()
+        assert reopened.latest_summary("source-1")["review"]["review_id"] == approved_id
+        # Idempotent generation preserves the existing approval.
+        assert client.post(root + "/summary", json={"model": "mock-local"}).json()[
+            "review"
+        ]["review_id"] == approved_id
+
+        history.upsert_segment("source-1", TranscriptEvent(
+            segment_id="caption-1", version=2, stage=CaptionStage.COMMITTED,
+            committed=True, source_language="ko", text="변경된 원문",
+            start_ms=1000, end_ms=4000,
+        ))
+        assert client.get(root + "/archive").json()["summary_stale"]
+        assert client.post(path, json={"content": original}).status_code == 409
+        assert history.delete_session("source-1")
+        assert archive.latest_review(summary["summary_id"]) is None
+
+
+def test_only_completed_summaries_can_be_reviewed(tmp_path):
+    _, archive, _ = _app(tmp_path)
+    record = archive.begin_summary(
+        "source-1", language="ko", provider="ollama", model="mock-local",
+        transcript_sha256="a" * 64, prompt_version="test",
+    )
+    with pytest.raises(ValueError, match="completed"):
+        archive.review_summary(
+            "source-1", record["summary_id"], content="test",
+            approved=True, expected_review_id=None,
+        )

@@ -105,11 +105,14 @@ def build_project_report(
                 f"- Summary status: {summary['status']}",
             ]
             if summary["status"] == "completed":
+                review = summary.get("review")
+                approved = bool(review and review["approved"])
                 lines += [
                     "",
-                    "### Existing session summary (unreviewed)",
+                    "### Existing session summary "
+                    + ("(operator approved)" if approved else "(unreviewed)"),
                     "",
-                    _plain(summary["content"], limit=5000),
+                    _plain(review["content"] if review else summary["content"], limit=5000),
                 ]
         committed = [
             segment for segment in sessions.segments(sid)

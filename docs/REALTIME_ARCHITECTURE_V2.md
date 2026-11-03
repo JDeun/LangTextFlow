@@ -35,7 +35,7 @@ flowchart TD
     hub --> ui
 ```
 
-*The diagram is the target. Existing `CaptionRuntime._publish` still awaits hub fan-out and `CaptionPipeline` still serializes segments until #155/#159 land.*
+*Implementation checkpoint (2026-11-03): `CaptionRuntime._publish` enqueues bounded per-client WebSocket and SQLite deliveries without awaiting network/disk writes. `CaptionPipeline` uses bounded segment workers and a session-wide translation semaphore, supports uncommitted source revisions, and cancels superseded work. These contracts are tested with deterministic providers; actual audio/model throughput remains a separate qualification gate.*
 
 ## Versioned event/data contract
 

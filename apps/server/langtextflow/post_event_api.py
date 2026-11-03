@@ -17,6 +17,7 @@ from .post_event_archive import PostEventArchive
 from .post_event_summary import (
     PROMPT_VERSION,
     SummaryRequest,
+    SummaryReviewRequest,
     generate_summary,
     transcript_source,
 )
@@ -92,6 +93,34 @@ def install_post_event_routes(
             "summary": summary,
             "summary_stale": summary_stale,
         }
+
+    @app.post("/api/v1/history/{session_id}/summaries/{summary_id}/reviews", status_code=201)
+    async def review_summary(
+        request: Request, session_id: str, summary_id: str, payload: SummaryReviewRequest,
+    ) -> dict:
+        require_operator(request)
+        await finished_session(session_id)
+        summary = await asyncio.to_thread(archive.summary_by_id, summary_id)
+        if summary is None or summary["session_id"] != session_id:
+            raise HTTPException(404, "summary not found")
+        segments = await asyncio.to_thread(runtime.history.segments, session_id)
+        try:
+            source, revision = transcript_source(segments)
+            validate_summary_citations(source, payload.content)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if revision != summary["transcript_sha256"]:
+            raise HTTPException(409, "source transcript changed; generate a new summary")
+        try:
+            return await asyncio.to_thread(
+                archive.review_summary, session_id, summary_id,
+                content=payload.content.strip(), approved=payload.approved,
+                expected_review_id=payload.expected_review_id,
+            )
+        except KeyError as exc:
+            raise HTTPException(404, "summary not found") from exc
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     @app.post("/api/v1/history/{session_id}/recordings", status_code=201)
     async def upload_recording(request: Request, session_id: str) -> dict:

@@ -25,6 +25,14 @@ class SummaryRequest(BaseModel):
     allow_external_provider: bool = False
 
 
+class SummaryReviewRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    content: str = Field(min_length=1, max_length=15_000)
+    approved: bool = False
+    expected_review_id: str | None = Field(default=None, max_length=36)
+
+
 def transcript_source(segments: list[TranscriptEvent]) -> tuple[str, str]:
     """Only committed source-language text can be a summary evidence source."""
     eligible = sorted(

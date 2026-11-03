@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Locale } from "./locales";
 import { PROJECT_ARCHIVE_COPY } from "./projectArchiveCopy";
+import { POST_EVENT_COPY } from "./postEventCopy";
 
 interface RecordingRef {
   recording_id: string;
@@ -20,6 +21,7 @@ interface SummaryRef {
   stale: boolean;
   excerpt: string;
   created_at: string;
+  review?: { approved: boolean } | null;
 }
 
 interface SessionArchiveIndex {
@@ -149,7 +151,9 @@ export function ProjectArchiveIndex({ apiUrl, projectId, locale, onOpenSession }
                       ? t.running
                       : session.summary.stale
                         ? t.stale
-                        : session.summary.status === "completed" ? t.current : session.summary.status
+                        : session.summary.status === "completed"
+                          ? session.summary.review?.approved ? POST_EVENT_COPY[locale].approved : t.current
+                          : session.summary.status
                     : t.absent}
                 </div>
                 <button type="button" className="secondary-button" onClick={() => onOpenSession(session.session_id)}>
