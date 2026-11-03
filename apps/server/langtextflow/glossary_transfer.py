@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
+from .glossary_scope import validate_scoped_import_entries
 from .models import GlossaryEntry, GlossaryRecord
 
 MAX_GLOSSARY_IMPORT_ENTRIES = 5000
@@ -103,7 +104,6 @@ def parse_glossary_import(payload: GlossaryImportRequest) -> list[GlossaryEntry]
         )
 
     entries: list[GlossaryEntry] = []
-    seen_terms: set[tuple[str, str]] = set()
     for index, raw in enumerate(raw_entries, start=1):
         normalized = dict(raw)
         term = str(normalized.get("term", "")).strip()
@@ -115,13 +115,8 @@ def parse_glossary_import(payload: GlossaryImportRequest) -> list[GlossaryEntry]
         except ValidationError as exc:
             raise ValueError(f"invalid glossary entry at row {index}: {exc}") from exc
 
-        key = (entry.source_language, entry.term.casefold())
-        if key in seen_terms:
-            raise ValueError(
-                f"duplicate term in import: {entry.source_language}:{entry.term}"
-            )
-        seen_terms.add(key)
         entries.append(entry)
+    validate_scoped_import_entries(entries)
     return entries
 
 

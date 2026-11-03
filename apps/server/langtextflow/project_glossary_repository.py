@@ -207,6 +207,9 @@ class ProjectGlossaryRepository:
     ) -> tuple[int, int, int]:
         if conflict_policy not in {"upsert", "skip"}:
             raise ValueError("conflict_policy must be upsert or skip")
+        keys = [(entry.source_language, entry.term.casefold()) for entry in entries]
+        if len(keys) != len(set(keys)):
+            raise ValueError("duplicate project glossary source-language term")
         created = updated = skipped = 0
         with self._connect() as connection:
             self._validate_project(connection, project_id)
