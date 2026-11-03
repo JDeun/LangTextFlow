@@ -174,8 +174,8 @@ impl PcmIngress {
         let generation = session.bind_audio_generation(source)?;
         // Acquire native ownership before creating a spool. Replacement owners
         // must share this slot and cannot accumulate files while reap is pending.
-        let worker = SupervisedWorker::spawn(program, args, slot)
-            .map_err(|_| "audio_worker_unavailable")?;
+        let worker =
+            SupervisedWorker::spawn(program, args, slot).map_err(|_| "audio_worker_unavailable")?;
         let reaped = worker.reaped_signal();
         let spool = Spool::new(temporary_parent, reaped.clone())?;
         let root = spool.root.clone();
