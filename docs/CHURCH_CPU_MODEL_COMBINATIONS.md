@@ -1,5 +1,7 @@
 # Church CPU Korean → English model-combination experiment
 
+The [2026-11-03 original-artifact coverage audit](research/model-issue-evidence-coverage-2026-11.md) records newer OPUS-small/big, TranslateGemma, M2M100 and FunASR results, preserving failed outputs and source/checkout uncertainty. Historical measurements below are not a current-main rerun or model promotion.
+
 Tracking: [#118](https://github.com/JDeun/LangTextFlow/issues/118),
 [#117](https://github.com/JDeun/LangTextFlow/issues/117),
 [#106](https://github.com/JDeun/LangTextFlow/issues/106),

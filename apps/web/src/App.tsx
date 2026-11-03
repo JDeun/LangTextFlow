@@ -299,7 +299,9 @@ function OperatorApp() {
             projectId={glossaryProjectId === "global" ? null : glossaryProjectId}
             disabled={running}
           />
-          <GlossaryRecommendations preset={preset} sourceLanguage={sourceLanguage} disabled={running} />
+          {glossaryProjectId === "global" && (
+            <GlossaryRecommendations preset={preset} sourceLanguage={sourceLanguage} disabled={running} />
+          )}
         </section>
       </main>
     );
