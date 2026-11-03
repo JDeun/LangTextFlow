@@ -769,4 +769,39 @@ mod tests {
             assert!(writer.stop().await.unwrap().complete);
         });
     }
+
+    #[test]
+    fn dropped_writer_closes_admission_without_waiting_for_busy_sqlite_or_releasing_capacity() {
+        let f = Fixture::new("setup");
+        runtime().block_on(async {
+            let slot = Arc::new(Semaphore::new(1));
+            let writer = HistoryWriter::open(f.db(), "history-session", 1, 2, slot.clone())
+                .await
+                .unwrap();
+            let sink = writer.sink();
+            let connection = Connection::open(f.db()).unwrap();
+            connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+            sink.enqueue(frame(event(1, 1, "stable", "source")));
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            let start = std::time::Instant::now();
+            drop(writer);
+            assert!(start.elapsed() < Duration::from_millis(50));
+            assert_eq!(slot.available_permits(), 0);
+            assert!(!sink.metrics().complete);
+            assert!(
+                HistoryWriter::open(f.db(), "history-session", 1, 2, slot.clone())
+                    .await
+                    .is_err()
+            );
+            connection.execute_batch("ROLLBACK").unwrap();
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while slot.available_permits() == 0 {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await
+            .unwrap();
+            assert!(sink.metrics().stopped);
+        });
+    }
 }

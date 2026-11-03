@@ -65,7 +65,7 @@ elif mode == "verify":
     from langtextflow.models import TranscriptEvent
 
     # Open a new repository/process view; never substitute a mirror persistence implementation.
-    observed = json.loads((directory / "observed.json").read_text())
+    observed = json.loads((directory / "observed.json").read_text(encoding="utf-8"))
     expected = TranscriptEvent.model_validate(observed)
     events = history.segments("history-session")
     assert len(events) == 1 and events[0] == expected
