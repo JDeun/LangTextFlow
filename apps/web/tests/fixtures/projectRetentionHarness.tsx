@@ -19,7 +19,7 @@ export async function runProjectRetentionChecks() {
     calls.push({path,method,body});const pid=path.includes("/B/")?"B":"A";
     if(method==="GET")return Response.json(malformed?{policy:{revision:"bad"}}:{policy:policy(pid),receipts,operation:null});
     if(method==="PUT"){days=body.days;revision++;return Response.json(policy(pid));}
-    if(path.endsWith("/preview"))return Response.json({policy:policy(pid),targets_sha256:"a".repeat(64),evaluated_at:"2026-11-04T00:00:00Z",cutoff:"2026-10-05T00:00:00Z",excluded_running_count:1,excluded_unverifiable_count:1,candidates:[{session_id:`old-${pid}`,title:`Owned expired ${pid}`,ended_at:"2026-08-01T00:00:00Z",recording_count:1}]});
+    if(path.endsWith("/preview"))return Response.json({policy:policy(pid),targets_sha256:"a".repeat(64),evaluated_at:"2026-11-04T00:00:00Z",cutoff:"2026-10-05T00:00:00Z",excluded_running_count:1,excluded_unverifiable_count:1,expired_session_count:2,remaining_session_count:1,remaining_recording_count:1,candidates:[{session_id:`old-${pid}`,title:`Owned expired ${pid}`,ended_at:"2026-08-01T00:00:00Z",recording_count:1}]});
     if(path.endsWith("/cancel"))return Response.json({cancel_requested:true},{status:202});
     if(held){const response=held;held=null;return response;}
     if(stale)return Response.json({detail:"Retention policy or candidates changed; preview again"},{status:409});
@@ -39,7 +39,7 @@ export async function runProjectRetentionChecks() {
     await until(()=>!button(t.preview).disabled,"rule did not save");
     const saved=calls.find(c=>c.method==="PUT")!;
     if(saved.body.expected_revision!==0||saved.body.days!==30)throw new Error("retention save omitted revision/explicit days");
-    await preview();if(!host.textContent?.includes("Owned expired A"))throw new Error("reviewed identity not shown");
+    await preview();if(!host.textContent?.includes("Owned expired A")||!host.textContent.includes(t.next))throw new Error("reviewed identity/remaining-batch guidance not shown");
     change(host.querySelector('input[type="number"]')!,"31");await tick();
     if(host.textContent?.includes("Owned expired A"))throw new Error("edited policy retained executable preview");
     button(t.refresh).click();await until(()=>!button(t.preview).disabled,"saved rule reload failed");await preview();

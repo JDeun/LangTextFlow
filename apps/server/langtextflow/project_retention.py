@@ -23,6 +23,10 @@ class RetentionStopped(Exception):
     pass
 
 
+class RetentionCapacityError(ValueError):
+    pass
+
+
 class RetentionPolicyInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     days: int | None = Field(default=None, ge=1, le=36500, strict=True)
@@ -63,6 +67,10 @@ class ProjectRetention:
     def initialize(self):
         with self.archive._connect() as conn:
             conn.executescript("""
+                CREATE TABLE IF NOT EXISTS project_retention_revisions (
+                    project_id TEXT PRIMARY KEY,
+                    revision INTEGER NOT NULL CHECK(revision > 0)
+                );
                 CREATE TABLE IF NOT EXISTS project_retention (
                     project_id TEXT PRIMARY KEY REFERENCES projects(project_id) ON DELETE CASCADE,
                     days INTEGER CHECK(days IS NULL OR days BETWEEN 1 AND 36500),
@@ -81,6 +89,17 @@ class ProjectRetention:
                 );
                 CREATE INDEX IF NOT EXISTS idx_retention_receipts
                     ON project_retention_receipts(project_id,completed_at);
+                INSERT OR IGNORE INTO project_retention_revisions
+                    SELECT project_id,revision FROM project_retention;
+                CREATE TRIGGER IF NOT EXISTS invalidate_deleted_project_retention
+                BEFORE DELETE ON projects BEGIN
+                    INSERT INTO project_retention_revisions (project_id,revision)
+                    VALUES (OLD.project_id, COALESCE(
+                        (SELECT revision FROM project_retention
+                         WHERE project_id=OLD.project_id),0)+1)
+                    ON CONFLICT(project_id) DO UPDATE SET
+                        revision=MAX(project_retention_revisions.revision,excluded.revision-1)+1;
+                END;
             """)
 
     @staticmethod
@@ -90,11 +109,18 @@ class ProjectRetention:
         row = conn.execute(
             "SELECT * FROM project_retention WHERE project_id=?", (project_id,)
         ).fetchone()
-        return (
-            dict(row)
-            if row
-            else {"project_id": project_id, "days": None, "revision": 0, "updated_at": None}
-        )
+        if row:
+            return dict(row)
+        tombstone = conn.execute(
+            "SELECT revision FROM project_retention_revisions WHERE project_id=?",
+            (project_id,),
+        ).fetchone()
+        return {
+            "project_id": project_id,
+            "days": None,
+            "revision": tombstone[0] if tombstone else 0,
+            "updated_at": None,
+        }
 
     def policy(self, project_id):
         with self.archive._connect() as conn:
@@ -112,6 +138,11 @@ class ProjectRetention:
                 "updated_at=excluded.updated_at",
                 (project_id, payload.days, current["revision"] + 1, datetime.now(UTC).isoformat()),
             )
+            conn.execute(
+                "INSERT INTO project_retention_revisions VALUES (?,?) "
+                "ON CONFLICT(project_id) DO UPDATE SET revision=excluded.revision",
+                (project_id, current["revision"] + 1),
+            )
             return self._policy(conn, project_id)
 
     def _preview(self, conn, project_id, active_session_id=None):
@@ -123,7 +154,6 @@ class ProjectRetention:
             actual, boundary = _utc(ended), _utc(threshold)
             return int(actual is not None and boundary is not None and actual <= boundary)
 
-        conn.create_function("retention_expired", 2, expired)
         scope = conn.execute(
             "SELECT s.session_id,s.title,s.started_at,s.ended_at FROM sessions s "
             "JOIN project_sessions p ON p.session_id=s.session_id WHERE p.project_id=? "
@@ -131,55 +161,65 @@ class ProjectRetention:
             (project_id, MAX_PROJECT_MEMBERS + 1),
         ).fetchall()
         if len(scope) > MAX_PROJECT_MEMBERS:
-            raise ValueError(
+            raise RetentionCapacityError(
                 "Retention scope exceeds 1000 project sessions; reduce the project scope"
             )
-        rows = conn.execute(
-            "SELECT s.session_id,s.title,s.started_at,s.ended_at FROM sessions s "
-            "JOIN project_sessions p ON p.session_id=s.session_id WHERE p.project_id=? "
-            "AND s.session_id != ? AND s.ended_at IS NOT NULL "
-            "AND retention_expired(s.ended_at,?)=1 ORDER BY s.ended_at,s.session_id LIMIT ?",
-            (project_id, active_session_id or "", cutoff, MAX_RETENTION_SESSIONS + 1),
-        ).fetchall()
-        if len(rows) > MAX_RETENTION_SESSIONS:
-            raise ValueError(
-                "Retention preview exceeds 100 sessions; increase the retention period "
-                "or reduce the project scope"
-            )
+        eligible = sorted(
+            (
+                row
+                for row in scope
+                if row["session_id"] != active_session_id and expired(row["ended_at"], cutoff)
+            ),
+            key=lambda row: (_utc(row["ended_at"]), row["session_id"]),
+        )
+        eligible_ids = _json([row["session_id"] for row in eligible])
+        counts = dict(
+            conn.execute(
+                "SELECT session_id,SUM(n) FROM ("
+                "SELECT session_id,COUNT(*) AS n FROM session_recordings "
+                "WHERE session_id IN (SELECT value FROM json_each(?)) "
+                "GROUP BY session_id UNION ALL "
+                "SELECT r.session_id,COUNT(*) AS n FROM recording_journal r "
+                "WHERE r.session_id IN (SELECT value FROM json_each(?)) "
+                "AND NOT EXISTS (SELECT 1 FROM session_recordings a "
+                "WHERE a.recording_id=r.recording_id) GROUP BY r.session_id) GROUP BY session_id",
+                (eligible_ids, eligible_ids),
+            ).fetchall()
+        )
+        rows, media_count = [], 0
+        for row in eligible:
+            count = counts.get(row["session_id"], 0)
+            if not rows and count > MAX_RETENTION_MEDIA:
+                raise RetentionCapacityError(
+                    "The oldest expired session exceeds 64 recordings; review its manual "
+                    "session deletion controls first. Retention never deletes part of a session"
+                )
+            if len(rows) >= MAX_RETENTION_SESSIONS or media_count + count > MAX_RETENTION_MEDIA:
+                break
+            rows.append(row)
+            media_count += count
+        selected_ids = _json([row["session_id"] for row in rows])
         # Include unregistered but durably owned prepared WAVs too. Their
         # session FK becomes a tombstone; unknown files are never scanned.
         media = conn.execute(
             "SELECT r.recording_id,r.session_id,r.filename,r.size_bytes,r.sha256,"
             "r.duration_seconds,"
             "r.sample_rate,r.channels,r.created_at,r.start_offset_ms FROM session_recordings r "
-            "JOIN project_sessions p ON p.session_id=r.session_id "
-            "JOIN sessions s ON s.session_id=r.session_id "
-            "WHERE p.project_id=? AND s.session_id != ? AND s.ended_at IS NOT NULL "
-            "AND retention_expired(s.ended_at,?)=1 UNION ALL "
+            "WHERE r.session_id IN (SELECT value FROM json_each(?)) UNION ALL "
             "SELECT r.recording_id,r.session_id,r.filename,r.size_bytes,r.sha256,"
             "r.duration_seconds,"
             "r.sample_rate,r.channels,r.created_at,r.start_offset_ms FROM recording_journal r "
-            "JOIN project_sessions p ON p.session_id=r.session_id "
-            "JOIN sessions s ON s.session_id=r.session_id "
-            "WHERE p.project_id=? AND s.session_id != ? AND s.ended_at IS NOT NULL "
-            "AND retention_expired(s.ended_at,?)=1 AND NOT EXISTS "
+            "WHERE r.session_id IN (SELECT value FROM json_each(?)) AND NOT EXISTS "
             "(SELECT 1 FROM session_recordings a WHERE a.recording_id=r.recording_id) "
             "ORDER BY recording_id LIMIT ?",
             (
-                project_id,
-                active_session_id or "",
-                cutoff,
-                project_id,
-                active_session_id or "",
-                cutoff,
+                selected_ids,
+                selected_ids,
                 MAX_RETENTION_MEDIA + 1,
             ),
         ).fetchall()
-        if len(media) > MAX_RETENTION_MEDIA:
-            raise ValueError(
-                "Retention preview exceeds 64 recordings; increase the retention period "
-                "or reduce the project scope"
-            )
+        if len(media) != media_count or len(media) > MAX_RETENTION_MEDIA:
+            raise RetentionConflict("Retention media scope changed; preview again")
         candidates = [
             {
                 **dict(row),
@@ -213,6 +253,9 @@ class ProjectRetention:
             "policy_revision": policy["revision"],
             "days": policy["days"],
             "scope": [dict(row) for row in scope],
+            "eligible_media_counts": [
+                [r["session_id"], counts.get(r["session_id"], 0)] for r in eligible
+            ],
             "records": records,
             "candidates": candidates,
             "media": [dict(row) for row in media],
@@ -223,6 +266,9 @@ class ProjectRetention:
             "cutoff": cutoff,
             "candidates": candidates,
             "recording_count": len(media),
+            "expired_session_count": len(eligible),
+            "remaining_session_count": len(eligible) - len(rows),
+            "remaining_recording_count": sum(counts.values()) - media_count,
             "excluded_running_count": sum(
                 r["ended_at"] is None or r["session_id"] == active_session_id for r in scope
             ),

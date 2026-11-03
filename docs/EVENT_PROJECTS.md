@@ -297,9 +297,15 @@ hash, including complete project membership, source revision/child counters and
 media identities/hashes. Apply recomputes them after acquiring transition locks
 and again in the write transaction. Policy changes, membership/move/deletion,
 newly expired sessions and late archive writes reject the stale preview with
-**409**, rather than expanding the operator's reviewed set. Limits are 100 expired
-sessions, 64 recordings and 1,000 project members; exceeding them rejects the
-whole operation. Increase the retention period or reduce the project scope.
+**409**, rather than expanding the operator's reviewed set. Within a bounded
+1,000-member project, previews choose the oldest deterministic prefix by UTC
+end time and session ID, at most **100 complete sessions / 64 recordings per
+reviewed batch**. Remaining expired-session/media counts are explicit. A larger
+backlog requires another preview and confirmation, never an automatic next
+batch or a changed retention rule. A session's recordings are never split:
+if the oldest expired session alone exceeds 64 assets, review its manual
+session deletion controls first. Projects over 1,000 members require a reduced
+project scope before retention preview.
 
 Apply cancels/waits for dependent project jobs/prepared exports and the selected
 sessions' summary/local transcription jobs, including actual child-process reap,
@@ -348,7 +354,11 @@ permissions. Neither retention nor backup invokes a provider or changes external
 LLM consent. Policies and receipts are **app-local operating settings**, excluded
 from the fixed private package graph. Deleting a project cascades its policy and
 receipts; restoring its stable ID from v1/v2/v3 backups starts with no expiry rule.
-This prevents an old local deletion setting from silently reappearing on restore.
+A local revision-only tombstone (project ID and monotonic counter, no saved rule,
+title or source) survives deletion. A delayed old policy PUT therefore receives
+409 even if the original project ID has already been restored. Fresh projects
+start at revision 0; restored IDs retain the advanced local CAS revision. This
+prevents an old deletion setting from silently reappearing on restore.
 
 These controls implement user-selected retention within #86 and the archive
 implementation tracked by #78/#79. They do not certify secure filesystem erasure,

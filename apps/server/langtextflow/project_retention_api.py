@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from .project_retention import (
     RetentionApplyInput,
+    RetentionCapacityError,
     RetentionConflict,
     RetentionPolicyInput,
     RetentionStopped,
@@ -45,6 +46,8 @@ def install_project_retention_routes(app, runtime, archive, require_operator, tr
             return HTTPException(404, "project not found")
         if isinstance(exc, RetentionConflict):
             return HTTPException(409, str(exc))
+        if isinstance(exc, RetentionCapacityError):
+            return HTTPException(422, str(exc))
         if isinstance(exc, RetentionStopped):
             return HTTPException(409, "Retention cancelled; reload preview and deletion receipts")
         if isinstance(exc, TimeoutError):

@@ -5,7 +5,7 @@ import { PROJECT_RETENTION_COPY } from "./projectRetentionCopy";
 interface Policy { project_id: string; days: number | null; revision: number }
 interface Receipt { operation_id: string; project_id: string; policy_revision: number; targets_sha256: string; recording_count: number; completed_at: string; deleted_session_count: number; media_cleanup_pending_count: number; media_cleanup_blocked_count: number }
 interface Status { policy: Policy; receipts: Receipt[]; operation: { operation_id: string; phase: string; error: string | null } | null }
-interface Preview { policy: Policy; targets_sha256: string; evaluated_at: string; cutoff: string | null; candidates: {session_id:string;title:string;ended_at:string;recording_count:number}[]; excluded_running_count: number; excluded_unverifiable_count: number }
+interface Preview { policy: Policy; targets_sha256: string; evaluated_at: string; cutoff: string | null; candidates: {session_id:string;title:string;ended_at:string;recording_count:number}[]; excluded_running_count: number; excluded_unverifiable_count: number;expired_session_count:number;remaining_session_count:number;remaining_recording_count:number }
 interface Props { apiUrl: string; projectId: string; locale: Locale; onApplied: (ids: string[]) => void }
 
 export function ProjectRetentionPanel(props: Props) {
@@ -71,8 +71,11 @@ function ScopedRetention({ apiUrl, projectId, locale, onApplied }: Props) {
           if(data?.policy?.project_id!==projectId || data.policy.revision!==status.policy.revision || !/^[a-f0-9]{64}$/.test(data.targets_sha256)
             || data.policy.days!==status.policy.days
             || ![data.excluded_running_count,data.excluded_unverifiable_count].every(n=>Number.isInteger(n)&&n>=0&&n<=1000)
+            || !Number.isInteger(data.remaining_session_count)||data.remaining_session_count<0||data.remaining_session_count>1000
+            || !Number.isSafeInteger(data.remaining_recording_count)||data.remaining_recording_count<0
             || !Array.isArray(data.candidates) || data.candidates.length>100 || data.candidates.some(r=>!r||typeof r.session_id!=="string"||typeof r.title!=="string"||typeof r.ended_at!=="string"||!Number.isFinite(Date.parse(r.ended_at))||!Number.isInteger(r.recording_count)||r.recording_count<0||r.recording_count>64)
-            || new Set(data.candidates.map(r=>r.session_id)).size!==data.candidates.length)throw new Error(t.failure);
+            || new Set(data.candidates.map(r=>r.session_id)).size!==data.candidates.length
+            || data.expired_session_count!==data.candidates.length+data.remaining_session_count)throw new Error(t.failure);
           setPreview(data);
         }
       } else if(preview) {
@@ -114,6 +117,7 @@ function ScopedRetention({ apiUrl, projectId, locale, onApplied }: Props) {
     {running&&<p role="status">{t.busy}</p>}
     {preview&&<div><h4>{t.candidates}: {preview.candidates.length}</h4>
       <p>{t.excluded}: {preview.excluded_running_count} · {t.invalid}: {preview.excluded_unverifiable_count}</p>
+      {preview.remaining_session_count>0&&<p role="status">{t.remaining}: {preview.remaining_session_count} · {t.remainingMedia}: {preview.remaining_recording_count}. {t.next}</p>}
       {!preview.candidates.length&&<p>{t.empty}</p>}
       <ul className="project-archive-list">{preview.candidates.map(item=><li key={item.session_id}><strong>{item.title}</strong><span>{t.ended}: {new Date(item.ended_at).toLocaleString(locale)} · {t.recordings}: {item.recording_count}</span></li>)}</ul>
       {!!preview.candidates.length&&<><p>{t.scope}</p><p>{t.safety}</p></>}

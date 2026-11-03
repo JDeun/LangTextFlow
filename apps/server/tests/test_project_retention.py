@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import io
 import sqlite3
 import sys
 import threading
 import time
+import wave
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -87,8 +90,54 @@ def test_default_none_explicit_complete_deletion_restart_cleanup_and_idempotent_
     projects.delete(pid)
     restore(archive, raw)
     assert archive.retention.policy(pid)["days"] is None
-    assert archive.retention.policy(pid)["revision"] == 0 and archive.retention.receipts(pid) == []
+    assert archive.retention.policy(pid)["revision"] == 2 and archive.retention.receipts(pid) == []
     assert len(projects.session_ids(pid)) == 3 and history.get_session("session-0")
+
+
+@pytest.mark.asyncio
+async def test_late_native_policy_save_cannot_resurrect_after_same_id_restore(
+    tmp_path, monkeypatch
+):
+    from langtextflow.project_glossary_repository import ProjectGlossaryRepository
+
+    history, projects, archive, pid = seed(tmp_path, count=0)
+    ProjectGlossaryRepository(str(archive.database_path)).initialize()
+    raw, _ = export(archive, pid)
+    app, _, close, close_archive = app_for(archive, history)
+    entered, release = threading.Event(), threading.Event()
+    original = archive.retention.save_policy
+
+    def delayed(*args):
+        entered.set()
+        assert release.wait(3)
+        return original(*args)
+
+    monkeypatch.setattr(archive.retention, "save_policy", delayed)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app),
+            base_url="http://localhost",
+            headers={"x-test-operator": "yes"},
+        ) as client:
+            request = asyncio.create_task(
+                client.put(
+                    f"/api/v1/projects/{pid}/retention", json={"days": 30, "expected_revision": 0}
+                )
+            )
+            for _ in range(100):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(0.005)
+            assert entered.is_set()
+            projects.delete(pid)
+            restore(archive, raw)
+            release.set()
+            assert (await request).status_code == 409
+            assert archive.retention.policy(pid)["days"] is None
+    finally:
+        release.set()
+        await close()
+        await close_archive()
 
 
 def test_utc_aware_only_active_recent_and_foreign_scope_never_candidates(tmp_path, monkeypatch):
@@ -184,22 +233,100 @@ def test_foreign_symlink_and_hash_mismatch_are_preserved_with_durable_diagnostic
     assert unknown.read_bytes() == b"unknown private file"
 
 
-@pytest.mark.parametrize(
-    "limit", ["MAX_RETENTION_SESSIONS", "MAX_RETENTION_MEDIA", "MAX_PROJECT_MEMBERS"]
-)
-def test_whole_scope_caps_reject_without_partial_deletion(tmp_path, monkeypatch, limit):
+def test_project_membership_bound_rejects_without_any_deletion(tmp_path, monkeypatch):
     from langtextflow import project_retention
 
     history, _, archive, pid = aged(tmp_path)
     enable(archive, pid)
     reviewed = payload(archive.retention.preview(pid))
-    monkeypatch.setattr(project_retention, limit, 2)
+    monkeypatch.setattr(project_retention, "MAX_PROJECT_MEMBERS", 2)
     with pytest.raises(ValueError, match="exceeds"):
         archive.retention.preview(pid)
     with pytest.raises(ValueError, match="exceeds"):
         apply(archive, pid, reviewed)
     assert all(history.get_session(f"session-{i}") for i in range(3))
     assert archive.retention.receipts(pid) == []
+
+
+def batch_fixture(tmp_path, count, media_count):
+    history, projects, archive, pid = seed(tmp_path, count=0)
+    now = datetime.now(UTC)
+    for index in range(count):
+        sid = f"old-{index:03}"
+        add_session(history, archive, pid, sid, ended=False)
+        history.mark_ended(sid, now - timedelta(days=90) + timedelta(seconds=index))
+    add_session(history, archive, pid, "active", ended=False)
+    foreign = projects.create(ProjectInput(title="Foreign retained project"))
+    add_session(history, archive, foreign.project_id, "foreign", ended=False)
+    history.mark_ended("foreign", now - timedelta(days=95))
+    stream = io.BytesIO()
+    with wave.open(stream, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8000)
+        wav.writeframes(b"\0\0" * 100)
+    raw = stream.getvalue()
+    for index in range(media_count):
+        name = uuid4().hex + ".wav"
+        (archive.audio_root / name).write_bytes(raw)
+        archive.insert_recording(
+            f"old-{index % count:03}",
+            filename=name,
+            size_bytes=len(raw),
+            sha256=hashlib.sha256(raw).hexdigest(),
+            duration_seconds=100 / 8000,
+            sample_rate=8000,
+            channels=1,
+        )
+    enable(archive, pid)
+    return history, projects, archive, pid
+
+
+@pytest.mark.parametrize("count,media_count,first_count", [(101, 0, 100), (65, 65, 64)])
+def test_actual_large_backlog_requires_two_explicit_exact_batches(
+    tmp_path, count, media_count, first_count
+):
+    history, projects, archive, pid = batch_fixture(tmp_path, count, media_count)
+    first = archive.retention.preview(pid, "active")
+    assert len(first["candidates"]) == first_count
+    assert (
+        first["expired_session_count"] == count
+        and first["remaining_session_count"] == count - first_count
+    )
+    assert first["remaining_recording_count"] == media_count - min(media_count, 64)
+    reviewed = payload(first)
+    assert (
+        archive.retention.apply(pid, reviewed, "active", threading.Event(), time.monotonic() + 10)[
+            "deleted_session_count"
+        ]
+        == first_count
+    )
+    assert projects.session_ids(pid) == ["active"] + [
+        f"old-{i:03}" for i in range(first_count, count)
+    ]
+    assert history.get_session("active") and history.get_session("foreign")
+    with pytest.raises(RetentionConflict):
+        apply(
+            archive,
+            pid,
+            RetentionApplyInput(**{**reviewed.model_dump(), "operation_id": str(uuid4())}),
+        )
+    second = archive.retention.preview(pid, "active")
+    assert (
+        len(second["candidates"]) == count - first_count and second["remaining_session_count"] == 0
+    )
+    apply(archive, pid, payload(second))
+    assert projects.session_ids(pid) == ["active"] and history.get_session("foreign")
+    for _ in range(10):
+        archive.recording_journal.recover_batch(threading.Event())
+    assert not list(archive.audio_root.glob("*.wav"))
+
+
+def test_single_session_over_media_batch_limit_requires_explicit_manual_review(tmp_path):
+    history, _, archive, pid = batch_fixture(tmp_path, 1, 65)
+    with pytest.raises(ValueError, match="manual session deletion"):
+        archive.retention.preview(pid)
+    assert history.get_session("old-000") and len(archive.recordings("old-000")) == 65
 
 
 def test_legacy_adoption_cannot_steal_another_sessions_journal_filename(tmp_path):
