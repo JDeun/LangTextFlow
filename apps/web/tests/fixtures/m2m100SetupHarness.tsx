@@ -38,8 +38,10 @@ export async function runM2M100SetupChecks() {
         glossary_mode: "unsupported", model_id: "facebook/m2m100_418M", warnings: [] },
     ]);
     if (path === "/api/v1/setup/runtimes" || path === "/api/v1/setup/runtime-jobs") return Response.json([]);
-    if (path === "/api/v1/setup/cache") return Response.json({
-      root: "managed", entries: [], total_bytes: 0, writable_bytes: 1e9, safety_reserve_bytes: 1e8,
+    if (path === "/api/v1/setup/cache/m2m100-native" && init?.method === "DELETE") configured = false;
+    if (path.startsWith("/api/v1/setup/cache")) return Response.json({
+      root: "managed", entries: [{ area: "m2m100-native", bytes: configured ? 100 : 0, files: 7 }],
+      total_bytes: 0, writable_bytes: 1e9, safety_reserve_bytes: 1e8,
     });
     if (path === "/api/v1/setup/m2m100/prepare") {
       assert(init?.method === "POST", "prepare must be explicit POST");
@@ -91,6 +93,9 @@ export async function runM2M100SetupChecks() {
     assert((host.querySelector("select") as HTMLSelectElement).value === "none", "no model promotion");
     assert(requests.filter(path => path === "POST /api/v1/setup/m2m100/prepare").length === 2,
       "only explicit prepare actions submit jobs");
+    await until(() => !!host.querySelector(".cache-row button"), "managed cache inventory");
+    (host.querySelector(".cache-row button") as HTMLButtonElement).click();
+    await until(() => option()?.disabled === true, "cache deletion refreshes provider availability");
     flushSync(() => root.render(<LocaleProvider><Harness disabled /></LocaleProvider>));
     assert((card().querySelector("button") as HTMLButtonElement).disabled,
       "active caption session disables repeat preparation");

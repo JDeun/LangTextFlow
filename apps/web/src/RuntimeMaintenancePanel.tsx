@@ -119,6 +119,7 @@ export function RuntimeMaintenancePanel({ disabled, onModelsChanged }: {
       });
       if (!response.ok) throw new Error(await response.text());
       setCache((await response.json()) as CacheInventory);
+      if (area === "m2m100-native") onModelsChanged?.();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
