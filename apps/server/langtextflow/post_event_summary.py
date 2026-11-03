@@ -21,6 +21,8 @@ SOURCE_CONTEXT_CHARS = 400
 
 
 class SummaryRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     language: Literal["ko", "en", "ja"] = "ko"
     provider: Literal["ollama", "openai-compatible"] = "ollama"
     model: str | None = Field(default=None, max_length=128)

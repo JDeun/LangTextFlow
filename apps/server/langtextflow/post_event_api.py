@@ -82,7 +82,7 @@ def install_post_event_routes(
     @app.get("/api/v1/history/{session_id}/archive")
     async def event_archive_detail(request: Request, session_id: str) -> dict:
         require_operator(request)
-        await finished_session(session_id)
+        session = await finished_session(session_id)
         recordings, summary = await asyncio.gather(
             asyncio.to_thread(archive.recordings, session_id),
             asyncio.to_thread(archive.latest_summary, session_id),
@@ -101,6 +101,7 @@ def install_post_event_routes(
             "recordings": recordings,
             "summary": summary,
             "summary_stale": summary_stale,
+            "warnings": ["interrupted_session"] if session.interrupted else [],
             "approved_transcript_id": await asyncio.to_thread(
                 archive.transcripts.approved_id, session_id,
             ),

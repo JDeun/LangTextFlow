@@ -35,6 +35,7 @@ interface Summary {
 }
 
 interface Archive {
+  warnings?: string[];
   approved_transcript_id?: string | null;
   recordings: Recording[];
   summary: Summary | null;
@@ -201,7 +202,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
     <section className="history-post-event" aria-label={copy.heading}>
       <h3>{copy.heading}</h3>
       <p>{copy.detail}</p>
-      {session.interrupted && <p role="status">{copy.warning}</p>}
+      {(session.interrupted || archive.warnings?.includes("interrupted_session")) && <p role="status">{copy.warning}</p>}
       <div className="history-post-actions">
         <button className="secondary-button" type="button" onClick={() => void refresh().catch(() => setError(copy.failure))}>
           {copy.refresh}

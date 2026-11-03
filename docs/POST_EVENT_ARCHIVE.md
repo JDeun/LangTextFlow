@@ -104,6 +104,12 @@ Request body for summary (optional keys):
 {"language":"ko","provider":"ollama"}
 ```
 
+Unknown request keys are rejected: a misspelled transcript selector cannot silently
+choose live evidence. An interrupted session may be summarized after recovery, but
+the archive's `warnings` retains `interrupted_session`; the panel keeps its incomplete
+transcript warning before and after generation. This warning is not cleared by a
+successful model response.
+
 Explicitly selecting the OpenAI-compatible provider requires `allow_external_provider:true` and a configured model. An OpenAI-compatible endpoint may be local or remote; the user must verify data handling terms before choosing an external endpoint.
 
 **All routes** are protected by the existing loopback-only Operator API and browser Origin restrictions. Audience join codes do not grant access.
