@@ -3,6 +3,7 @@
 use crate::caption_events::{
     CaptionProjection, ObservedConfig, ObserverCredential, ObserverMetrics, ObserverReceiver,
 };
+use crate::mt_slice::{MtAdmission, MtDispatcher, MtOutcome, TranslationContext};
 use crate::{validate_reply, TaskKind, WorkerReply, WorkerRequest, WorkerStatus, PROTOCOL_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -111,8 +112,89 @@ struct State {
     serial: u64,
     revisions: HashMap<String, SegmentVersion>,
     active: Option<Active>,
-    accepted: HashMap<String, Vec<SourceEvent>>,
+    accepted: HashMap<String, AcceptedChunk>,
     projection: CaptionProjection,
+    translation: Option<MtAdmission>,
+    pending_targets: HashMap<String, PendingTarget>,
+}
+
+struct AcceptedChunk {
+    events: Vec<SourceEvent>,
+    committed: bool,
+}
+
+struct PendingTarget {
+    chunk_id: String,
+    public_id: String,
+    cancelled: Arc<AtomicBool>,
+}
+
+pub(crate) struct MtJob {
+    pub request: WorkerRequest,
+    pub cancelled: Arc<AtomicBool>,
+    pub deadline: std::time::Instant,
+    pub source: String,
+    owner: Weak<Mutex<State>>,
+    armed: bool,
+}
+
+impl MtJob {
+    pub(crate) fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn finish(&mut self, outcome: MtOutcome) {
+        self.armed = false;
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        let mut state = owner.lock().unwrap();
+        let Some(pending) = state.pending_targets.remove(&self.request.request_id) else {
+            return;
+        };
+        if state.session_id != self.request.session_id
+            || state.generation != self.request.session_generation
+            || state
+                .revisions
+                .get(&pending.chunk_id)
+                .map(|value| value.revision)
+                != Some(self.request.source_revision)
+        {
+            return;
+        }
+        let outcome = if std::time::Instant::now() >= self.deadline {
+            MtOutcome::TimedOut
+        } else if self.cancelled() {
+            MtOutcome::Failed
+        } else {
+            outcome
+        };
+        let _ = state.projection.target(
+            &self.request.segment_id,
+            self.request.source_revision,
+            self.request.target_language.as_deref().unwrap(),
+            outcome,
+            self.deadline,
+            &self.cancelled,
+        );
+        if !state
+            .pending_targets
+            .values()
+            .any(|other| other.public_id == pending.public_id)
+        {
+            if let Some(accepted) = state.accepted.get_mut(&pending.chunk_id) {
+                accepted.committed = true;
+            }
+        }
+    }
+}
+
+impl Drop for MtJob {
+    fn drop(&mut self) {
+        if self.armed {
+            self.finish(MtOutcome::Failed);
+        }
+    }
 }
 
 struct SegmentVersion {
@@ -151,6 +233,8 @@ impl Default for AsrSession {
             active: None,
             accepted: HashMap::new(),
             projection: CaptionProjection::default(),
+            translation: None,
+            pending_targets: HashMap::new(),
         })))
     }
 }
@@ -189,6 +273,10 @@ impl AsrSession {
             active.cancelled.store(true, Ordering::Release);
         }
         state.generation = next_generation;
+        for pending in state.pending_targets.drain().map(|(_, value)| value) {
+            pending.cancelled.store(true, Ordering::Release);
+        }
+        state.translation = None;
         state.session_id = session_id.into();
         state.revisions.clear();
         state.accepted.clear();
@@ -205,11 +293,43 @@ impl AsrSession {
         state.session_id.clear();
         state.revisions.clear();
         state.accepted.clear();
+        for pending in state.pending_targets.drain().map(|(_, value)| value) {
+            pending.cancelled.store(true, Ordering::Release);
+        }
+        state.translation = None;
         state.projection.reset(None);
+    }
+
+    /// Explicit prototype opt-in, before source admission. The dispatcher owns
+    /// its task independently; this authority stores only its bounded sender.
+    pub fn enable_translation(
+        &self,
+        dispatcher: &MtDispatcher,
+        context: TranslationContext,
+        deadline_ms: u64,
+    ) -> Result<(), &'static str> {
+        context.validate()?;
+        if deadline_ms == 0 || deadline_ms > 120_000 || dispatcher.sender.is_closed() {
+            return Err("invalid_translation_deadline_or_owner");
+        }
+        let mut state = self.0.lock().unwrap();
+        if state.projection.config.is_none() || !state.revisions.is_empty() {
+            return Err("translation_requires_new_observed_session");
+        }
+        state.translation = Some(MtAdmission {
+            sender: dispatcher.sender.clone(),
+            context,
+            deadline_ms,
+        });
+        Ok(())
     }
 
     pub fn observer_metrics(&self) -> ObserverMetrics {
         self.0.lock().unwrap().projection.metrics.clone()
+    }
+
+    pub fn pending_translation_targets(&self) -> usize {
+        self.0.lock().unwrap().pending_targets.len()
     }
 
     pub(crate) fn authorize_observer(&self, token: &str) -> bool {
@@ -240,17 +360,40 @@ impl AsrSession {
 
     pub fn revise(&self, segment_id: &str, revision: u64) -> Result<(), &'static str> {
         let mut state = self.0.lock().unwrap();
-        if state.accepted.contains_key(segment_id) {
+        if state
+            .accepted
+            .get(segment_id)
+            .is_some_and(|chunk| chunk.committed)
+        {
             return Err("accepted_chunk");
         }
-        let old = state
-            .revisions
-            .get_mut(segment_id)
-            .ok_or("unknown_segment")?;
+        let old = state.revisions.get(segment_id).ok_or("unknown_segment")?;
         if revision <= old.revision || revision > (1_u64 << 53) - 1 {
             return Err("stale_revision");
         }
-        old.revision = revision;
+        let obsolete = state
+            .accepted
+            .get(segment_id)
+            .map(|chunk| {
+                chunk
+                    .events
+                    .iter()
+                    .map(|event| event.segment_id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let (sid, generation) = (state.session_id.clone(), state.generation);
+        state.projection.invalidate(&sid, generation, &obsolete)?;
+        state.revisions.get_mut(segment_id).unwrap().revision = revision;
+        state.accepted.remove(segment_id);
+        state.pending_targets.retain(|_, pending| {
+            if pending.chunk_id == segment_id {
+                pending.cancelled.store(true, Ordering::Release);
+                false
+            } else {
+                true
+            }
+        });
         if let Some(active) = &state.active {
             if active.segment_id == segment_id {
                 active.cancelled.store(true, Ordering::Release);
@@ -431,7 +574,43 @@ impl AsrSession {
             state.generation,
             &admitted.chunk,
             &events,
+            state.translation.is_some(),
         )?;
+        let translation = state.translation.clone();
+        let mut jobs = Vec::new();
+        if let Some(config) = &translation {
+            let targets = state.projection.config.as_ref().unwrap().targets.clone();
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_millis(config.deadline_ms);
+            for event in &events {
+                for target in &targets {
+                    state.serial = state.serial.checked_add(1).ok_or("request_id_exhausted")?;
+                    let request = WorkerRequest {
+                        protocol_version: PROTOCOL_VERSION,
+                        request_id: format!("mt{}", state.serial),
+                        session_id: state.session_id.clone(),
+                        session_generation: state.generation,
+                        segment_id: event.segment_id.clone(),
+                        source_revision: revision,
+                        task_kind: TaskKind::Translation,
+                        source_language: event.source_language.clone(),
+                        target_language: Some(target.clone()),
+                        deadline_ms: config.deadline_ms,
+                        // Serialize glossary/source only after obtaining bounded
+                        // queue capacity, rather than copying it for rejected jobs.
+                        payload: String::new(),
+                    };
+                    jobs.push(MtJob {
+                        request,
+                        cancelled: Arc::new(AtomicBool::new(false)),
+                        deadline,
+                        source: event.text.clone(),
+                        owner: Arc::downgrade(&self.0),
+                        armed: false,
+                    });
+                }
+            }
+        }
         // Parsing/projection may itself consume the remaining budget. This is
         // the linearization point; no result is stored after cancel/expiry.
         if admitted.cancelled.load(Ordering::Acquire) {
@@ -440,10 +619,40 @@ impl AsrSession {
         if std::time::Instant::now() >= admitted.deadline {
             return Err("deadline_expired");
         }
-        state
-            .accepted
-            .insert(admitted.request.segment_id.clone(), events.clone());
+        state.accepted.insert(
+            admitted.request.segment_id.clone(),
+            AcceptedChunk {
+                events: events.clone(),
+                committed: translation.is_none() || events.is_empty(),
+            },
+        );
+        for job in &jobs {
+            state.pending_targets.insert(
+                job.request.request_id.clone(),
+                PendingTarget {
+                    chunk_id: admitted.request.segment_id.clone(),
+                    public_id: job.request.segment_id.clone(),
+                    cancelled: job.cancelled.clone(),
+                },
+            );
+        }
         state.projection.apply(prepared);
+        drop(state);
+        if let Some(config) = translation {
+            for mut job in jobs {
+                job.armed = true;
+                // Queue overflow/closed owner drops the armed job, publishing a
+                // terminal failure without awaiting MT or holding source authority.
+                if let Ok(permit) = config.sender.try_reserve() {
+                    if let Ok(payload) = serde_json::to_string(&serde_json::json!({
+                        "text": job.source, "context": config.context,
+                    })) {
+                        job.request.payload = payload;
+                        permit.send(job);
+                    }
+                }
+            }
+        }
         Ok(events)
     }
 }

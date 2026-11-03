@@ -1,4 +1,4 @@
-//! Source-only canonical events. No MT, correction, persistence or UI cutover.
+//! Canonical source and independent-target events. No correction or production cutover.
 use crate::asr_slice::{AudioChunk, SourceEvent};
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -11,6 +11,7 @@ pub const MAX_OBSERVERS: usize = 16;
 pub const OBSERVER_QUEUE: usize = 8;
 pub const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
 const MAX_VISIBLE_SEGMENTS: usize = 100;
+const MAX_PUBLIC_IDS: usize = 128 * 256;
 const SNAPSHOT_OVERHEAD: usize = 2048;
 const JS_MAX: u64 = (1 << 53) - 1;
 pub type JsonFrame = Arc<RawValue>;
@@ -92,7 +93,7 @@ struct CaptionEvent {
     translations: BTreeMap<String, String>,
     translation_states: BTreeMap<String, &'static str>,
     asr_provenance: AsrProvenance,
-    translation_provenance: BTreeMap<String, String>,
+    translation_provenance: BTreeMap<String, TranslationProvenance>,
     start_ms: u64,
     end_ms: u64,
     speaker: Option<String>,
@@ -105,12 +106,22 @@ struct CaptionEvent {
     serial: u64,
 }
 
+#[derive(Clone, Serialize)]
+struct TranslationProvenance {
+    provider: &'static str,
+    requested_model: Option<String>,
+    configured_model: Option<String>,
+    verified_model: Option<String>,
+    model_revision: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct ProjectedFrame {
     pub(crate) raw: JsonFrame,
     id: String,
     serial: u64,
     start_ms: u64,
+    event: CaptionEvent,
 }
 
 pub struct ObserverReceiver {
@@ -138,6 +149,7 @@ pub(crate) struct CaptionProjection {
     pub(crate) config: Option<ObservedConfig>,
     latest: VecDeque<ProjectedFrame>,
     latest_bytes: usize,
+    versions: HashMap<String, u64>,
     serial: u64,
     next_client: u64,
     subscribers: HashMap<u64, Subscriber>,
@@ -149,6 +161,7 @@ impl CaptionProjection {
         self.close_observers();
         self.latest.clear();
         self.latest_bytes = 0;
+        self.versions.clear();
         self.serial = 0;
         self.metrics.snapshot_evictions = 0;
         self.config = config;
@@ -173,14 +186,34 @@ impl CaptionProjection {
         generation: u64,
         chunk: &AudioChunk,
         sources: &[SourceEvent],
+        translating: bool,
     ) -> Result<Vec<ProjectedFrame>, &'static str> {
         let Some(config) = &self.config else {
             return Ok(Vec::new());
         };
+        if self.versions.len()
+            + sources
+                .iter()
+                .filter(|source| !self.versions.contains_key(&source.segment_id))
+                .count()
+            > MAX_PUBLIC_IDS
+        {
+            return Err("version_capacity");
+        }
         let mut prepared = Vec::new();
         let mut serial = self.serial;
         for source in sources {
-            for (stage, version, committed) in [("stable", 1, false), ("committed", 2, true)] {
+            let previous = self.versions.get(&source.segment_id).copied().unwrap_or(0);
+            let stages: &[(&str, u64, bool)] = if translating {
+                &[("stable", 1, false)]
+            } else {
+                &[("stable", 1, false), ("committed", 2, true)]
+            };
+            for &(stage, increment, committed) in stages {
+                let version = previous
+                    .checked_add(increment)
+                    .filter(|v| *v <= JS_MAX)
+                    .ok_or("version_exhausted")?;
                 serial = serial
                     .checked_add(1)
                     .filter(|n| *n <= JS_MAX)
@@ -198,7 +231,16 @@ impl CaptionProjection {
                     translation_states: config
                         .targets
                         .iter()
-                        .map(|lang| (lang.clone(), "unsupported"))
+                        .map(|lang| {
+                            (
+                                lang.clone(),
+                                if translating {
+                                    "pending"
+                                } else {
+                                    "unsupported"
+                                },
+                            )
+                        })
                         .collect(),
                     asr_provenance: AsrProvenance {
                         provider: "faster-whisper",
@@ -228,26 +270,110 @@ impl CaptionProjection {
                     session_generation: generation,
                     serial,
                 };
-                let raw = RawValue::from_string(
-                    serde_json::to_string(&event).map_err(|_| "event_encoding")?,
-                )
-                .map_err(|_| "event_encoding")?;
-                if raw.get().len() > MAX_SNAPSHOT_BYTES - SNAPSHOT_OVERHEAD {
-                    return Err("event_limit");
-                }
-                prepared.push(ProjectedFrame {
-                    raw: Arc::from(raw),
-                    id: event.segment_id,
-                    serial,
-                    start_ms: event.start_ms,
-                });
+                prepared.push(Self::frame(event)?);
             }
         }
         Ok(prepared)
     }
 
+    fn frame(event: CaptionEvent) -> Result<ProjectedFrame, &'static str> {
+        let raw =
+            RawValue::from_string(serde_json::to_string(&event).map_err(|_| "event_encoding")?)
+                .map_err(|_| "event_encoding")?;
+        if raw.get().len() > MAX_SNAPSHOT_BYTES - SNAPSHOT_OVERHEAD {
+            return Err("event_limit");
+        }
+        Ok(ProjectedFrame {
+            raw: Arc::from(raw),
+            id: event.segment_id.clone(),
+            serial: event.serial,
+            start_ms: event.start_ms,
+            event,
+        })
+    }
+
+    pub(crate) fn target(
+        &mut self,
+        id: &str,
+        revision: u64,
+        target: &str,
+        outcome: crate::mt_slice::MtOutcome,
+        deadline: std::time::Instant,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<(), &'static str> {
+        let Some(previous) = self.latest.iter().find(|frame| frame.id == id) else {
+            return Ok(()); // Bounded live-view eviction does not recreate history.
+        };
+        if previous.event.source_revision != revision
+            || previous.event.committed
+            || previous.event.translation_states.get(target) != Some(&"pending")
+        {
+            return Err("stale_translation");
+        }
+        let mut event = previous.event.clone();
+        event.version = event
+            .version
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("version_exhausted")?;
+        event.serial = self
+            .serial
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("serial_exhausted")?;
+        let status = match outcome {
+            crate::mt_slice::MtOutcome::Available(text) => {
+                event.translations.insert(target.into(), text);
+                event.translation_provenance.insert(
+                    target.into(),
+                    TranslationProvenance {
+                        provider: "m2m100-ct2",
+                        requested_model: None,
+                        configured_model: None,
+                        verified_model: None,
+                        model_revision: None,
+                    },
+                );
+                "available"
+            }
+            crate::mt_slice::MtOutcome::Failed => "failed",
+            crate::mt_slice::MtOutcome::TimedOut => "timed_out",
+        };
+        event.translation_states.insert(target.into(), status);
+        event.committed = event
+            .translation_states
+            .values()
+            .all(|value| *value != "pending");
+        event.stage = if event.committed {
+            "committed"
+        } else {
+            "stable"
+        };
+        event.emitted_at = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .map_err(|_| "clock_format")?;
+        let mut prepared = Self::frame(event)?;
+        // Clone/serialization also consumes the target budget. This is the
+        // publication boundary; a late success becomes an explicit failure.
+        if status == "available" {
+            let expired = std::time::Instant::now() >= deadline;
+            if expired || cancelled.load(std::sync::atomic::Ordering::Acquire) {
+                let mut event = prepared.event;
+                event.translations.remove(target);
+                event.translation_provenance.remove(target);
+                event
+                    .translation_states
+                    .insert(target.into(), if expired { "timed_out" } else { "failed" });
+                prepared = Self::frame(event)?;
+            }
+        }
+        self.apply(vec![prepared]);
+        Ok(())
+    }
+
     pub(crate) fn apply(&mut self, prepared: Vec<ProjectedFrame>) {
         for frame in prepared {
+            self.versions.insert(frame.id.clone(), frame.event.version);
             if let Some(position) = self.latest.iter().position(|old| old.id == frame.id) {
                 self.latest_bytes -= self.latest.remove(position).unwrap().raw.get().len();
             }
@@ -260,17 +386,95 @@ impl CaptionProjection {
                 self.latest_bytes -= self.latest.pop_front().unwrap().raw.get().len();
                 self.metrics.snapshot_evictions += 1;
             }
-            self.subscribers.retain(|_, subscriber| {
-                if subscriber.frames.try_send(frame.raw.clone()).is_err() {
-                    let _ = subscriber.control.send(true);
-                    self.metrics.queue_evictions += 1;
-                    false
-                } else {
-                    true
-                }
-            });
-            self.metrics.connected = self.subscribers.len();
+            self.broadcast(frame.raw);
         }
+    }
+
+    fn broadcast(&mut self, raw: JsonFrame) {
+        self.subscribers.retain(|_, subscriber| {
+            if subscriber.frames.try_send(raw.clone()).is_err() {
+                let _ = subscriber.control.send(true);
+                self.metrics.queue_evictions += 1;
+                false
+            } else {
+                true
+            }
+        });
+        self.metrics.connected = self.subscribers.len();
+    }
+
+    pub(crate) fn invalidate(
+        &mut self,
+        sid: &str,
+        generation: u64,
+        ids: &[String],
+    ) -> Result<(), &'static str> {
+        if ids.is_empty() || self.config.is_none() {
+            return Ok(());
+        }
+        let retained = self
+            .latest
+            .iter()
+            .filter(|frame| !ids.contains(&frame.id))
+            .cloned()
+            .collect::<VecDeque<_>>();
+        let serial = self
+            .serial
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("serial_exhausted")?;
+        let snapshot = self.snapshot(sid, generation, &retained, serial)?;
+        self.latest_bytes = retained.iter().map(|frame| frame.raw.get().len()).sum();
+        self.latest = retained;
+        self.serial = serial;
+        // Existing snapshot schema is authoritative for removal. Keep per-ID
+        // version history even when an obsolete/evicted event is not visible.
+        self.broadcast(snapshot);
+        Ok(())
+    }
+
+    fn snapshot(
+        &self,
+        sid: &str,
+        generation: u64,
+        latest: &VecDeque<ProjectedFrame>,
+        serial: u64,
+    ) -> Result<JsonFrame, &'static str> {
+        #[derive(Serialize)]
+        struct Snapshot<'a> {
+            #[serde(rename = "type")]
+            kind: &'static str,
+            session_id: &'a str,
+            session_generation: u64,
+            serial: u64,
+            source_language: &'a str,
+            target_languages: &'a [String],
+            segments: Vec<&'a RawValue>,
+            snapshot_evictions: u64,
+        }
+        let config = self.config.as_ref().ok_or("unauthorized")?;
+        let mut visible = latest.iter().collect::<Vec<_>>();
+        visible.sort_by_key(|frame| (frame.start_ms, frame.serial));
+        let json = serde_json::to_string(&Snapshot {
+            kind: "snapshot",
+            session_id: sid,
+            session_generation: generation,
+            serial,
+            source_language: &config.source_language,
+            target_languages: &config.targets,
+            segments: visible
+                .into_iter()
+                .map(|frame| frame.raw.as_ref())
+                .collect(),
+            snapshot_evictions: self.metrics.snapshot_evictions,
+        })
+        .map_err(|_| "snapshot_encoding")?;
+        if json.len() > MAX_SNAPSHOT_BYTES {
+            return Err("snapshot_limit");
+        }
+        Ok(Arc::from(
+            RawValue::from_string(json).map_err(|_| "snapshot_encoding")?,
+        ))
     }
 
     pub(crate) fn subscribe(
@@ -286,47 +490,13 @@ impl CaptionProjection {
             self.metrics.capacity_rejections += 1;
             return Err("observer_capacity");
         }
-        #[derive(Serialize)]
-        struct Snapshot<'a> {
-            #[serde(rename = "type")]
-            kind: &'static str,
-            session_id: &'a str,
-            session_generation: u64,
-            serial: u64,
-            source_language: &'a str,
-            target_languages: &'a [String],
-            segments: Vec<&'a RawValue>,
-            snapshot_evictions: u64,
-        }
-        let config = self.config.as_ref().ok_or("unauthorized")?;
-        let mut visible = self.latest.iter().collect::<Vec<_>>();
-        visible.sort_by_key(|frame| (frame.start_ms, frame.serial));
-        let json = serde_json::to_string(&Snapshot {
-            kind: "snapshot",
-            session_id: sid,
-            session_generation: generation,
-            serial: self.serial,
-            source_language: &config.source_language,
-            target_languages: &config.targets,
-            segments: visible
-                .into_iter()
-                .map(|frame| frame.raw.as_ref())
-                .collect(),
-            snapshot_evictions: self.metrics.snapshot_evictions,
-        })
-        .map_err(|_| "snapshot_encoding")?;
-        if json.len() > MAX_SNAPSHOT_BYTES {
-            return Err("snapshot_limit");
-        }
+        let snapshot = self.snapshot(sid, generation, &self.latest, self.serial)?;
         self.next_client = self
             .next_client
             .checked_add(1)
             .ok_or("client_id_exhausted")?;
         let (tx, rx) = mpsc::channel(OBSERVER_QUEUE);
-        tx.try_send(Arc::from(
-            RawValue::from_string(json).map_err(|_| "snapshot_encoding")?,
-        ))
-        .map_err(|_| "snapshot_queue")?;
+        tx.try_send(snapshot).map_err(|_| "snapshot_queue")?;
         let (control_tx, control) = watch::channel(false);
         self.subscribers.insert(
             self.next_client,
@@ -348,6 +518,85 @@ impl CaptionProjection {
         self.metrics.connected = self.subscribers.len();
         if timeout {
             self.metrics.send_timeouts += 1;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mt_slice::MtOutcome;
+    use std::sync::atomic::AtomicBool;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn final_publication_gate_rejects_expired_or_cancelled_success_without_losing_peer() {
+        for cancelled in [false, true] {
+            let mut projection = CaptionProjection::default();
+            let (config, _) = ObservedConfig::new("ko", &["ja".into(), "en".into()]).unwrap();
+            projection.reset(Some(config));
+            let source = SourceEvent {
+                session_id: "session".into(),
+                session_generation: 1,
+                segment_id: "rs-1-0".into(),
+                source_revision: 1,
+                source_language: "ko".into(),
+                stage: "stable",
+                text: "Original".into(),
+                start_ms: 0,
+                end_ms: 1000,
+                timestamp_basis: "sample_clock_native_hint",
+            };
+            let prepared = projection
+                .prepare(
+                    "session",
+                    1,
+                    &AudioChunk {
+                        wav_path: "synthetic.wav".into(),
+                        start_sample: 0,
+                        end_sample: 16_000,
+                        sample_rate: 16_000,
+                    },
+                    &[source],
+                    true,
+                )
+                .unwrap();
+            projection.apply(prepared);
+            projection
+                .target(
+                    "rs-1-0",
+                    1,
+                    "ja",
+                    MtOutcome::Available("Japanese".into()),
+                    Instant::now() + Duration::from_secs(1),
+                    &AtomicBool::new(false),
+                )
+                .unwrap();
+            projection
+                .target(
+                    "rs-1-0",
+                    1,
+                    "en",
+                    MtOutcome::Available("Late English".into()),
+                    if cancelled {
+                        Instant::now() + Duration::from_secs(1)
+                    } else {
+                        Instant::now() - Duration::from_secs(1)
+                    },
+                    &AtomicBool::new(cancelled),
+                )
+                .unwrap();
+            let event = &projection.latest.back().unwrap().event;
+            assert_eq!(
+                event.translation_states["en"],
+                if cancelled { "failed" } else { "timed_out" }
+            );
+            assert_eq!(event.translations.len(), 1);
+            assert_eq!(event.translations["ja"], "Japanese");
+            assert_eq!(event.translation_provenance.len(), 1);
+            assert_eq!(event.original_text, "Original");
+            assert_eq!(event.version, 3);
+            assert!(event.committed);
         }
     }
 }
