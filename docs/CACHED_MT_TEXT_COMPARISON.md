@@ -78,3 +78,28 @@ service. It excludes startup and is not comparable as total deployment RAM
 without separate Ollama/process-tree measurements. This test cannot select a
 six-direction or field-optimal model, certify church semantics, or qualify
 physical 4GB/8GB devices. Known-negative OPUS-big and SenseVoice are excluded.
+
+## First common-corpus result (2026-11-03)
+
+[Run 41637393208](https://github.com/JDeun/LangTextFlow/actions/runs/41637393208)
+checked out `e60365c35adfffe7dd76009de0e89b32f21808bc`. The original ZIP,
+artifact `13230748581`, SHA256
+`0e7130598bcd0c0c0a2be80bf44f2510c8aeaeb15008825d16a2856fafddafd5`,
+was downloaded and its three reports inspected. Ordered input hashes match for
+all 16 cases. All candidates returned 16 valid outputs, recorded no execution
+failures, completed cleanup and were eligible for this comparison.
+
+| Candidate | Mean sentence chrF++ | Critical-term accuracy | Translation p50 / p95 (ms) | Startup (ms) |
+|---|---:|---:|---:|---:|
+| OPUS-small | 54.815 | 77.78% | 40.95 / 53.21 | 2103.08 |
+| M2M100 | 48.911 | 73.33% | 310.93 / 365.54 | 2388.84 |
+| TranslateGemma 4B | 57.349 | 80.00% | 7662.02 / 8678.52 | 4921.52 |
+
+These are sequential CPU measurements on one Linux host, two configured inference
+threads, glossary OFF, KO→EN text only. Filesystem cache state was uncontrolled.
+OPUS-small offers the strongest speed/quality tradeoff in this small comparison;
+TranslateGemma's modest lexical-score advantage costs much higher latency.
+This does not select an optimal deployed combination: the references are synthetic
+and unreviewed, the other five directions and co-resident live ASR were not tested,
+and `field_ready` and `quality_certified` remain false. #118 stays open for its
+remaining runtime and acceptance scope.

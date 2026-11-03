@@ -7,11 +7,15 @@
 
 ## Decision and release boundary
 
-All three are **optional research tracks**, not prerequisites for shipping the
-currently implemented provider stack. Unresolved rights block adopting/bundling
-the affected candidate, not work on existing providers. Existing installation,
-privacy, routing, recovery and field-quality acceptance remain independent gates;
-this report neither completes them nor selects a new architecture/model.
+Notesoop and LFM3 are **optional model research tracks**. Unresolved rights block
+adopting/bundling the affected candidate, not work on existing providers. Hex
+upstream code/model adoption is separate from the already recorded
+[user-approved Rust core + Python model-worker target](https://github.com/JDeun/LangTextFlow/issues/344#issuecomment-6536557339).
+This source refresh does not revoke that decision or make its implementation
+optional. The current echo scaffold does not complete the required real-worker
+vertical slice, cancellation/restart or production ownership migration. Existing
+installation, privacy, routing, recovery and field-quality acceptance remain
+independent gates; this report completes none of them and selects no model.
 
 Apply [model selection policy](../MODEL_SELECTION_POLICY.md): missing evidence is
 BLOCKED, not an invented score or definitive legal rejection. No candidate has a
@@ -21,7 +25,7 @@ new LangTextFlow measurement or qualified hardware scope here.
 | --- | --- | --- | --- |
 | Notesoop-STT-Ko-v1 | Korean-only ASR comparison | File/batch inference; default 16s windows / 1s overlap; final text + RTF | **BLOCKED** pending artifact/data-rights provenance and bounded CPU probe |
 | LFM3-Audio-2B | Multilingual batch ASR/translation; separately English LiveASR | KO/EN/JA declared; LiveASR explicitly English-only | **BLOCKED** pending custom-license scope review, code audit and CPU feasibility |
-| Hex | Optional helper/API or design reference, not a single checkpoint | Embedded SDK final-only; separate app stream API has conditional partials | Reference only; adoption **BLOCKED** pending selected dependency/model inventory and integration qualification |
+| Hex | Upstream design reference, not a single checkpoint; Rust-core target separately recorded in #344 | Embedded SDK final-only; separate app stream API has conditional partials | Upstream code/model adoption **BLOCKED** pending inventory/qualification; approved LangTextFlow Rust orchestration remains unimplemented beyond an echo scaffold |
 
 No execution-eligible JSON registry entry is added: Notesoop's rights chain is
 incomplete, LFM's custom terms do not fit the current Apache/MIT admission rule,
