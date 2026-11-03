@@ -46,6 +46,14 @@ export interface GlossaryRecord extends GlossaryEntry {
   updated_at: string;
 }
 
+export interface ResolvedGlossarySnapshot {
+  source_language: string;
+  preset: ProductPreset;
+  project_id: string | null;
+  entries: GlossaryEntry[];
+  sha256: string;
+}
+
 export interface ReferenceDocument {
   filename: string;
   media_type: string;

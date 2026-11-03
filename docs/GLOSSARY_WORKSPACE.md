@@ -29,6 +29,32 @@ During a live session the glossary can be viewed, but editing is disabled:
 the server snapshots the active preset's glossary at session start. Existing
 live sessions are not retroactively altered by a saved term change.
 
+## Review terminology before starting
+
+Under **Setup → Context & terminology**, select **Review resolved glossary**
+to inspect the effective terms, aliases, translation mappings and boosts for the
+current source language, preset and project. This read-only request starts no
+session, microphone, recording or model. It uses the same resolver as session
+start, including project and explicit session overrides. The resolved union is
+validated against the session's 500-entry limit, even when each saved scope is
+individually within its own limit.
+
+Changing source language, preset, project or explicit session overrides invalidates
+the preview. A failed refresh clears the prior review. After a preview loads,
+starting passes its canonical SHA-256 as an optional precondition. If effective
+entries or their source/preset/project scope changed in storage before start,
+the server returns HTTP 409 before changing the running session or its audio.
+Refresh the preview and review the updated terms. The UI also clears its review
+after a failed start; a pending preview cannot race a Start click. Later glossary
+edits never rewrite a session's persisted context snapshot.
+
+Operator API: `POST /api/v1/glossary/resolve` accepts the same configuration as
+session start and returns `{source_language, preset, project_id, entries, sha256}`.
+`POST /api/v1/session/start` accepts optional `glossary_snapshot_sha256` (64 lowercase
+hex characters). Clients that omit it retain their existing behavior. The digest
+binds sorted effective entries and source/preset/project scope; it is a change
+detector, not a permission token or proof of glossary/translation quality.
+
 ## Where the glossary actually applies
 
 1. At `POST /api/v1/session/start`, enabled global and matching preset

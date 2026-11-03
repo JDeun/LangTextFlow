@@ -26,3 +26,14 @@ Open the operator translation provider selector and choose
 translation quality, memory/latency under 4GB/8GB, 30–90 minute
 stability, and model license review. This provisioning path does not
 declare the model field-qualified.
+
+The live provider owns one first-party child process for native model loading
+and serial inference, with at most four admitted translation calls. Loading
+and each inference have a 30-second upper bound (the pipeline may impose a
+shorter deadline). Timeout, cancellation and session stop close its input,
+send TERM, allow one second, then KILL and reap within three seconds before
+releasing process admission. Old results cannot attach to a replacement
+provider. Parent-pipe EOF also ends the child during blocked native work.
+An OS reap failure retains admission rather than starting more model
+processes. These lifecycle guarantees do not establish model quality or
+device memory/latency qualification.
