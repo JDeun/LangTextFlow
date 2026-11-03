@@ -6,6 +6,8 @@ import { buildSummaryRequest, parseSummaryExternalProviders, type SummaryLanguag
 import { summaryCitations } from "./summaryCitations";
 import { PostEventTranscripts } from "./PostEventTranscripts";
 import { TRANSCRIPT_COPY } from "./transcriptCopy";
+import { LIVE_RECORDING_COPY } from "./liveRecordingCopy";
+import { recordingAtSessionTime } from "./recordingAlignment";
 
 interface Recording {
   recording_id: string;
@@ -13,6 +15,7 @@ interface Recording {
   duration_seconds: number;
   sha256: string;
   created_at: string;
+  start_offset_ms?: number | null;
 }
 
 interface Summary {
@@ -54,6 +57,7 @@ interface Props {
 
 export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegment }: Props) {
   const copy = POST_EVENT_COPY[locale];
+  const recordingCopy = LIVE_RECORDING_COPY[locale];
   const [archive, setArchive] = useState<Archive>({
     recordings: [], summary: null, summary_stale: false,
   });
@@ -267,8 +271,12 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
         {copy.upload}
       </button>
       {archive.recordings.map((recording) => (
-        <div className="history-post-recording" key={recording.recording_id}>
+        <div className="history-post-recording" key={recording.recording_id}
+          data-testid="recording-player" data-recording-id={recording.recording_id}>
           <small>{Math.round(recording.duration_seconds)}s · {(recording.size_bytes / (1024 * 1024)).toFixed(1)} MiB</small>
+          <small>{typeof recording.start_offset_ms === "number"
+            ? `${recordingCopy.offset}: ${(recording.start_offset_ms / 1000).toFixed(3)}s`
+            : recordingCopy.unknown}</small>
           <audio
             ref={element => {
               if (element) audioPlayers.current.set(recording.recording_id, element);
@@ -285,6 +293,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
           </a>
         </div>
       ))}
+      {archive.recordings.some(recording => typeof recording.start_offset_ms === "number") && <small>{recordingCopy.clock}</small>}
       <PostEventTranscripts root={root} locale={locale} sourceLanguage={session.source_language} recordings={archive.recordings}
         onSeekRecording={(id, startMs) => setRecordingSeek({ id, startMs })}
         onChanged={refresh} requestedVersion={requestedTranscript} summary={archive.summary} />
@@ -391,13 +400,20 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
             {TRANSCRIPT_COPY[locale].open}
           </button>}
           <div className="history-post-actions" role="group" aria-label={copy.sourceReferences}>
-            {summaryCitations(archive.summary.transcript_id ? "" : reviewText, segments).map(reference => (
-              <button key={reference.segmentId} type="button" className="secondary-button"
+            {summaryCitations(archive.summary.transcript_id ? "" : reviewText, segments).map(reference => {
+              const original = segments.find(segment => segment.segment_id === reference.segmentId);
+              const recording = original ? recordingAtSessionTime(archive.recordings, original.start_ms) : null;
+              return <span key={reference.segmentId}>
+              <button type="button" className="secondary-button"
                 data-testid="summary-source-link"
                 onClick={() => onOpenSegment(reference.segmentId)}>
                 {copy.openSource} {Math.floor(reference.seconds / 60)}:{String(reference.seconds % 60).padStart(2, "0")}
               </button>
-            ))}
+              {recording && <button type="button" className="secondary-button" data-testid="session-audio-seek"
+                data-segment-id={reference.segmentId} data-recording-id={recording.id}
+                onClick={() => setRecordingSeek(recording)}>{recordingCopy.seek} · {reference.seconds}s</button>}
+              </span>;
+            })}
           </div>
           {!archive.summary.review?.approved && (
             <div className="history-post-actions">

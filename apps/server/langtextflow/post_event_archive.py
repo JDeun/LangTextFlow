@@ -58,6 +58,7 @@ class PostEventArchive:
                     status TEXT NOT NULL DEFAULT 'unknown'
                         CHECK(status IN ('unknown','completed')),
                     finalized_at TEXT,
+                    start_offset_ms REAL CHECK(start_offset_ms IS NULL OR start_offset_ms >= 0),
                     FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
                 )
                 """
@@ -68,6 +69,9 @@ class PostEventArchive:
                              "DEFAULT 'unknown' CHECK(status IN ('unknown','completed'))")
             if "finalized_at" not in columns:
                 conn.execute("ALTER TABLE session_recordings ADD COLUMN finalized_at TEXT")
+            if "start_offset_ms" not in columns:
+                conn.execute("ALTER TABLE session_recordings ADD COLUMN start_offset_ms REAL "
+                             "CHECK(start_offset_ms IS NULL OR start_offset_ms >= 0)")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS session_summaries (
@@ -216,13 +220,15 @@ class PostEventArchive:
             "created_at": created_at,
             "status": "unknown",
             "finalized_at": None,
+            "start_offset_ms": None,
         }
 
     def recordings(self, session_id: str) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT recording_id, session_id, media_type, size_bytes, sha256, "
-                "duration_seconds, sample_rate, channels, created_at, status, finalized_at "
+                "duration_seconds, sample_rate, channels, created_at, status, finalized_at, "
+                "start_offset_ms "
                 "FROM session_recordings WHERE session_id=? ORDER BY created_at",
                 (session_id,),
             ).fetchall()

@@ -47,6 +47,10 @@ class RecordingJournal:
                 last_attempted_at TEXT NOT NULL DEFAULT ''
             )
         """)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(recording_journal)")}
+        if "start_offset_ms" not in columns:
+            conn.execute("ALTER TABLE recording_journal ADD COLUMN start_offset_ms REAL "
+                         "CHECK(start_offset_ms IS NULL OR start_offset_ms >= 0)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_recording_journal_recovery "
                      "ON recording_journal(last_attempted_at, created_at) "
                      "WHERE registered=0 OR session_id IS NULL")
@@ -55,6 +59,10 @@ class RecordingJournal:
 
     @staticmethod
     def _check_metadata(row) -> None:
+        offset = dict(row).get("start_offset_ms")
+        if offset is not None and (type(offset) not in (int, float)
+                                   or not math.isfinite(offset) or offset < 0):
+            raise ValueError("invalid received-PCM recording offset")
         if (not isinstance(row["filename"], str) or not isinstance(row["sha256"], str)
                 or not isinstance(row["size_bytes"], int)
                 or not isinstance(row["sample_rate"], int) or not isinstance(row["channels"], int)
@@ -74,12 +82,13 @@ class RecordingJournal:
             conn.execute("""
                 INSERT INTO recording_journal
                 (recording_id, session_id, owner_session_id, filename, size_bytes, sha256,
-                 duration_seconds, sample_rate, channels, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 duration_seconds, sample_rate, channels, created_at, start_offset_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (recording_id, session_id, session_id, metadata["filename"],
                   metadata["size_bytes"],
                   metadata["sha256"], metadata["duration_seconds"], metadata["sample_rate"],
-                  metadata["channels"], datetime.now(UTC).isoformat()))
+                  metadata["channels"], datetime.now(UTC).isoformat(),
+                  metadata.get("start_offset_ms")))
         return recording_id
 
     def _path(self, row, *, partial=False):
@@ -147,11 +156,12 @@ class RecordingJournal:
         conn.execute("""
             INSERT INTO session_recordings
             (recording_id, session_id, filename, media_type, size_bytes, sha256,
-             duration_seconds, sample_rate, channels, created_at, status, finalized_at)
-            VALUES (?, ?, ?, 'audio/wav', ?, ?, ?, ?, ?, ?, 'completed', ?)
+             duration_seconds, sample_rate, channels, created_at, status, finalized_at,
+             start_offset_ms)
+            VALUES (?, ?, ?, 'audio/wav', ?, ?, ?, ?, ?, ?, 'completed', ?, ?)
         """, (row["recording_id"], row["session_id"], row["filename"], row["size_bytes"],
               row["sha256"], row["duration_seconds"], row["sample_rate"], row["channels"],
-              row["created_at"], row["created_at"]))
+              row["created_at"], row["created_at"], row["start_offset_ms"]))
         conn.execute("UPDATE recording_journal SET registered=1, recovery_error=NULL "
                      "WHERE recording_id=?", (row["recording_id"],))
 
@@ -159,7 +169,8 @@ class RecordingJournal:
     def _registered(conn, recording_id):
         row = conn.execute(
             "SELECT recording_id, session_id, media_type, size_bytes, sha256, "
-            "duration_seconds, sample_rate, channels, created_at, status, finalized_at "
+            "duration_seconds, sample_rate, channels, created_at, status, finalized_at, "
+            "start_offset_ms "
             "FROM session_recordings "
             "WHERE recording_id=?", (recording_id,),
         ).fetchone()
