@@ -55,7 +55,7 @@ class OpenAICompatibleTranslator(Translator):
 
     async def prepare(self) -> None:
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            async with httpx.AsyncClient(timeout=3.0, trust_env=False) as client:
                 payload = await bounded_json_request(
                     client, "GET",
                     f"{self.base_url}/models",
@@ -95,7 +95,9 @@ class OpenAICompatibleTranslator(Translator):
             context=context,
         )
         try:
-            async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.request_timeout_seconds, trust_env=False,
+            ) as client:
                 payload = await bounded_json_request(
                     client, "POST",
                     f"{self.base_url}/chat/completions",

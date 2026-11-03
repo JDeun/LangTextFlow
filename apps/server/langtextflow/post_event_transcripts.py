@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from contextlib import nullcontext
 from typing import Literal
 from uuid import uuid4
 
@@ -110,15 +111,15 @@ class TranscriptVersions:
                  _now()),
             )
 
-    def approved_id(self, session_id: str) -> str | None:
-        with self.archive._connect() as conn:
+    def approved_id(self, session_id: str, *, connection=None) -> str | None:
+        with nullcontext(connection) if connection is not None else self.archive._connect() as conn:
             row = conn.execute(
                 "SELECT transcript_id FROM approved_transcripts WHERE session_id=?", (session_id,),
             ).fetchone()
         return row[0] if row else None
 
-    def get(self, session_id: str, transcript_id: str) -> dict | None:
-        with self.archive._connect() as conn:
+    def get(self, session_id: str, transcript_id: str, *, connection=None) -> dict | None:
+        with nullcontext(connection) if connection is not None else self.archive._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM transcript_versions WHERE session_id=? AND transcript_id=?",
                 (session_id, transcript_id),
@@ -250,12 +251,12 @@ class TranscriptVersions:
         return record
 
     def source(self, session_id: str, live_segments: list[TranscriptEvent],
-               transcript_id: str | None = None) -> tuple[str, str]:
+               transcript_id: str | None = None, *, connection=None) -> tuple[str, str]:
         if transcript_id is None:
             return transcript_source(live_segments)
-        record = self.get(session_id, transcript_id)
+        record = self.get(session_id, transcript_id, connection=connection)
         if (not record or not record["review"] or not record["review"]["approved"]
-                or self.approved_id(session_id) != transcript_id):
+                or self.approved_id(session_id, connection=connection) != transcript_id):
             raise ValueError("select the current operator-approved transcript version")
         source, _ = transcript_source([
             TranscriptEvent(**item, version=1, stage=CaptionStage.COMMITTED,

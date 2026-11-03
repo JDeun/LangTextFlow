@@ -7,7 +7,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-_MODELS = {"synthetic-e2e": 0, "synthetic-offline-e2e": 0}
+_MODELS = {"synthetic-e2e": 0, "synthetic-offline-e2e": 0, "synthetic-project-e2e": 0}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -51,6 +51,12 @@ class Handler(BaseHTTPRequestHandler):
             return
         _MODELS[model] += 1
         title = "Offline summary" if model == "synthetic-offline-e2e" else "Synthetic summary"
+        if model == "synthetic-project-e2e":
+            markers = list(dict.fromkeys(re.findall(r"\[p\d+\.s\d+ at \d+s\]", evidence)))
+            self.reply({"message": {
+                "content": "Synthetic project chronology " + " ".join(markers),
+            }})
+            return
         self.reply({"message": {"content": f"{title} {marker.group()}"}})
 
 

@@ -721,7 +721,8 @@ async def update_project(
 @app.delete("/api/v1/projects/{project_id}", status_code=204)
 async def delete_project(request: Request, project_id: str) -> Response:
     _require_operator(request)
-    deleted = await asyncio.to_thread(project_repository.delete, project_id)
+    async with _project_digest_transition(project_id=project_id):
+        deleted = await asyncio.to_thread(project_repository.delete, project_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="project not found")
     if runtime.state.project_id == project_id:
@@ -735,7 +736,8 @@ async def assign_session_project(
 ) -> SessionDetail:
     _require_operator(request)
     try:
-        await asyncio.to_thread(project_repository.assign, session_id, payload.project_id)
+        async with _project_digest_transition(session_id=session_id):
+            await asyncio.to_thread(project_repository.assign, session_id, payload.project_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
     result = await asyncio.to_thread(runtime.history.get_session, session_id)
@@ -850,7 +852,8 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
     paths = await asyncio.to_thread(
         post_event_archive.recording_paths_for_session, session_id, legacy_only=True,
     )
-    deleted = await asyncio.to_thread(runtime.history.delete_session, session_id)
+    async with _project_digest_transition(session_id=session_id):
+        deleted = await asyncio.to_thread(runtime.history.delete_session, session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="session not found")
     for path in paths:
@@ -858,6 +861,16 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
             await asyncio.to_thread(path.unlink, missing_ok=True)
     runtime.request_recording_recovery()
     return Response(status_code=204)
+
+
+@asynccontextmanager
+async def _project_digest_transition(**scope):
+    transition = getattr(runtime, "project_digest_transition", None)
+    if transition is None:
+        yield
+    else:
+        async with transition(**scope):
+            yield
 
 
 def _assert_project_glossary_access(project_id: str) -> None:

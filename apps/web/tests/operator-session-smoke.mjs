@@ -136,6 +136,14 @@ try {
     nativeSetupResult.exceptionDetails.exception?.description || nativeSetupResult.exceptionDetails.text,
   );
   console.log(`native model setup smoke passed: ${nativeSetupResult.result.value}`);
+  const projectDigestResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/projectDigestHarness.tsx').then((test) => test.runProjectDigestChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (projectDigestResult.exceptionDetails) throw new Error(
+    projectDigestResult.exceptionDetails.exception?.description || projectDigestResult.exceptionDetails.text,
+  );
+  console.log(`project digest smoke passed: ${projectDigestResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;
