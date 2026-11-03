@@ -73,7 +73,7 @@ export function PostEventTranscripts({ root, locale, recordings, onChanged, requ
     finally { setBusy(false); }
   }
 
-  return <section ref={section} tabIndex={-1} aria-label={copy.heading} className="history-post-event">
+  return <section ref={section} tabIndex={-1} aria-label={copy.heading} className="history-post-event" data-testid="offline-transcripts">
     <h4>{copy.heading}</h4><p>{copy.detail}</p>
     <div className="history-post-actions">
       <label>{copy.recording}<select value={recording || recordings[0]?.recording_id || ""}
@@ -162,9 +162,9 @@ function TranscriptReview({ root, id, locale, onChanged, summary }: {
     {version?.status === "running" && <button type="button" className="secondary-button" disabled={busy}
       onClick={() => void mutate("cancel")}>{copy.cancel}</button>}
     {version?.status === "completed" && <>
-      <div className="history-post-actions" aria-label={POST_EVENT_COPY[locale].sourceReferences}>
+      <div className="history-post-actions" role="group" aria-label={POST_EVENT_COPY[locale].sourceReferences}>
         {summaryCitations(summary?.review?.content ?? summary?.content ?? "", segments.map(segment => ({ ...segment, committed: true }))).map(reference => (
-          <button key={reference.segmentId} type="button" className="secondary-button" onClick={() => {
+          <button key={reference.segmentId} type="button" className="secondary-button" data-testid="offline-source-link" onClick={() => {
             const element = elements.current.get(reference.segmentId);
             element?.scrollIntoView({ block: "center" }); element?.focus({ preventScroll: true });
           }}>{POST_EVENT_COPY[locale].openSource} {Math.floor(reference.seconds / 60)}:{String(reference.seconds % 60).padStart(2, "0")}</button>
@@ -173,7 +173,7 @@ function TranscriptReview({ root, id, locale, onChanged, summary }: {
       <div className="history-transcript-list">
         {segments.map((segment, index) => <label key={segment.segment_id}>
           {copy.review} · {segment.segment_id} · {(segment.start_ms / 1000).toFixed(1)}–{(segment.end_ms / 1000).toFixed(1)}s
-          <textarea rows={3} value={segment.text} readOnly={locked} disabled={busy} maxLength={6000}
+          <textarea rows={3} value={segment.text} readOnly={locked} disabled={busy} maxLength={6000} data-testid="offline-transcript-text"
             ref={element => { if (element) elements.current.set(segment.segment_id, element); else elements.current.delete(segment.segment_id); }}
             onChange={event => setSegments(current => current.map((item, i) => i === index ? { ...item, text: event.target.value } : item))} />
         </label>)}
