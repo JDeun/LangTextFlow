@@ -67,7 +67,12 @@ jobs:
       - name: Locked app, CPU ASR and benchmark dependencies
         run: uv sync --locked --extra whisper --extra benchmark
       - name: Install pinned FLEURS streaming reader
-        run: uv pip install "datasets==4.4.1" "soundfile==0.13.1"
+        run: uv pip install "datasets==5.1.0" "fsspec==2026.7.0" "soundfile==0.13.1" "pip-audit==2.10.1"
+      - name: Audit installed research dependencies and check data API
+        run: |
+          uv pip check --python .venv/bin/python
+          uv run --no-sync pip-audit
+          uv run --no-sync python scripts/smoke_research_data.py
       - name: Run real recorded speech against human-written test references
         env:
           HF_HOME: ${{ runner.temp }}/hf-cache
