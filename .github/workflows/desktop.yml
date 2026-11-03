@@ -17,6 +17,10 @@ on:
         description: "Download/verify the fixed ~0.5 GB M2M100 cache and repair via frozen operator API"
         type: boolean
         default: false
+      native_m2m100_import_probe:
+        description: "Model-free frozen import-order/pipe-reader control matrix"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -64,6 +68,7 @@ jobs:
       - name: Smoke frozen backend lifecycle with disposable synthetic data
         env:
           LTF_M2M100_PREPARE_SMOKE: ${{ inputs.native_m2m100_prepare && '1' || '0' }}
+          LTF_M2M100_IMPORT_PROBE: ${{ inputs.native_m2m100_import_probe && '1' || '0' }}
         run: uv run python scripts/smoke_desktop_sidecar.py
       - name: Upload explicit native setup receipt (no models/audio)
         if: always() && inputs.native_m2m100_prepare
@@ -71,6 +76,14 @@ jobs:
         with:
           name: native-m2m100-setup-${{ matrix.os }}
           path: artifacts/native-m2m100-setup-smoke.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload model-free import controls
+        if: always() && inputs.native_m2m100_import_probe
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: native-m2m100-imports-${{ matrix.os }}
+          path: artifacts/native-m2m100-import-probe.json
           if-no-files-found: error
           retention-days: 7
       - name: Generate platform icon assets

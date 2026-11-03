@@ -156,6 +156,7 @@ def process_alive(pid: int) -> bool:
 
 def smoke_auxiliary_command(
     binary: Path, root: Path, environment: dict[str, str], arguments: list[str], expected_code: int,
+    *, timeout_seconds: int = 30,
 ) -> None:
     helper = subprocess.Popen(
         [str(binary), *arguments],
@@ -163,7 +164,7 @@ def smoke_auxiliary_command(
         cwd=root, env=environment, start_new_session=os.name == "posix",
     )
     try:
-        stdout, stderr = helper.communicate(b"", timeout=30)
+        stdout, stderr = helper.communicate(b"", timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         # A regression must not orphan a bootloader's accidentally started server.
         if os.name == "posix":
@@ -227,6 +228,24 @@ def main() -> None:
             "--m2m100-prepare-worker", "--check-runtime",
         ], 0)
         smoke_auxiliary_command(binary, root, environment, ["--m2m100-prepare-worker"], 2)
+        if os.environ.get("LTF_M2M100_IMPORT_PROBE") == "1":
+            probe_path = root / "import-probe.json"
+            smoke_auxiliary_command(binary, root, {**environment, "USE_TORCH": "0"}, [
+                "--m2m100-prepare-worker", "--probe-matrix", str(probe_path),
+            ], 0, timeout_seconds=150)
+            probe = json.loads(probe_path.read_text())
+            probe["source_sha"] = subprocess.run(["git", "rev-parse", "HEAD"], check=True,
+                                                  capture_output=True, text=True).stdout.strip()
+            with binary.open("rb") as stream:
+                probe["binary_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+            report = (Path(__file__).resolve().parents[1]
+                      / "artifacts/native-m2m100-import-probe.json")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(probe, indent=2) + "\n", encoding="utf-8")
+            assert probe["weights_downloaded"] is False and len(probe["cases"]) == 6
+            assert all(case["reaped"] for case in probe["cases"]), "import probe orphaned"
+            assert next(case for case in probe["cases"]
+                        if case["order"] == "preload-spm" and case["watch"] == "none")["ready"]
         smoke_auxiliary_command(binary, root, environment, [
             "--faster-whisper-prefetch-worker", "invalid-model", str(root / "invalid-cache"),
         ], 1)

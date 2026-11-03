@@ -1,6 +1,7 @@
 """Explicit, fixed-hash download and native validation; never publishes a cache."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -53,6 +54,99 @@ FILES = (
               "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc", 4000000),
 )
 DOWNLOAD_BYTES = sum(item.maximum_bytes for item in FILES)
+
+
+def _probe_runtime(order: str, watch: str) -> None:
+    """Private, model-free frozen import control; never changes production loading."""
+    output = os.fdopen(os.dup(1), "w", encoding="utf-8", buffering=1)
+    with open(os.devnull, "w") as silent:
+        os.dup2(silent.fileno(), 1)
+        os.dup2(silent.fileno(), 2)
+    if watch != "none":
+        descriptor = os.dup(0) if watch == "duplicate" else 0
+        entered = threading.Event()
+
+        def closed() -> None:
+            entered.set()
+            os.read(descriptor, 1)
+            os._exit(0)
+
+        threading.Thread(target=closed, daemon=True).start()
+        entered.wait()
+        # Match actual preparation, where downloading precedes the native imports.
+        import time
+
+        time.sleep(.05)
+
+    def mark(phase: str) -> None:
+        print(json.dumps({"phase": phase, "pid": os.getpid()}), file=output, flush=True)
+
+    try:
+        mark("native_import_ct2")
+        import ctranslate2
+
+        if order == "preload-spm":
+            mark("native_import_sentencepiece")
+            import sentencepiece
+
+            assert sentencepiece
+        mark("native_import_tokenizer")
+        from transformers import M2M100Tokenizer
+
+        assert ctranslate2 and M2M100Tokenizer
+        print(json.dumps({"ready": True, "pid": os.getpid()}), file=output, flush=True)
+        if watch == "none":
+            os.read(0, 1)
+            os._exit(0)
+        threading.Event().wait()
+    except Exception:
+        os._exit(1)
+
+
+async def _probe_runtime_matrix(output: Path) -> None:
+    from .translation.m2m100_ct2 import _M2M100Worker
+
+    results = []
+    prefix = ([sys.executable, "--m2m100-prepare-worker"] if getattr(sys, "frozen", False)
+              else [sys.executable, "-m", "langtextflow.m2m100_prepare_worker"])
+    for order in ("direct", "preload-spm"):
+        for watch in ("none", "shared", "duplicate"):
+            result = {"order": order, "watch": watch, "ready": False, "timed_out": False}
+            worker = _M2M100Worker([*prefix, "--probe-runtime", order, watch])
+            try:
+                async with asyncio.timeout(15):
+                    worker.process = await asyncio.shield(worker._launch)
+                    result["spawn_pid"] = worker.process.pid
+                    while True:
+                        message = await worker._read()
+                        pid = message.get("pid")
+                        if type(pid) is not int or pid <= 0:
+                            raise ValueError("invalid probe identity")
+                        result["reported_pid"] = pid
+                        if message.get("ready") is True:
+                            result["ready"] = True
+                            break
+                        phase = message.get("phase")
+                        if phase not in {"native_import_ct2", "native_import_sentencepiece",
+                                         "native_import_tokenizer"}:
+                            raise ValueError("invalid probe phase")
+                        result["last_phase"] = phase
+            except TimeoutError:
+                result["timed_out"] = True
+            except Exception:
+                result["error_category"] = "import_or_protocol_failed"
+            finally:
+                if worker.process is not None:
+                    worker.process.stdin.close()
+                    try:
+                        await asyncio.wait_for(worker.process.wait(), 3)
+                        result["eof_exit_code"] = worker.process.returncode
+                    except TimeoutError:
+                        result["eof_exit_code"] = None
+                await worker.close()
+                result["reaped"] = worker.released.is_set()
+            results.append(result)
+    output.write_text(json.dumps({"weights_downloaded": False, "cases": results}, indent=2))
 
 
 def _phase(directory: Path, stage: str, filename: str | None = None) -> None:
@@ -180,6 +274,14 @@ def prepare(directory: Path, reserve: int, existing: tuple[Path, Path]) -> None:
 
 def main(args: list[str] | None = None) -> None:
     args = sys.argv[1:] if args is None else args
+    if len(args) == 2 and args[0] == "--probe-matrix":
+        asyncio.run(_probe_runtime_matrix(Path(args[1])))
+        return
+    if (len(args) == 3 and args[0] == "--probe-runtime"
+            and args[1] in {"direct", "preload-spm"}
+            and args[2] in {"none", "shared", "duplicate"}):
+        _probe_runtime(args[1], args[2])
+        return
     if args == ["--check-runtime"]:
         # Frozen packaging smoke imports the real tokenizer/native runtime without any weights.
         with open(os.devnull, "w") as silent:
