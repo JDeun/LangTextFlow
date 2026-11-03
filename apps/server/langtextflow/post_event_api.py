@@ -5,6 +5,7 @@ import asyncio
 import sqlite3
 import wave
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -349,6 +350,26 @@ def install_post_event_routes(
         summary_jobs[task] = record["summary_id"]
         task.add_done_callback(lambda done: summary_jobs.pop(done, None))
         return record
+
+    @asynccontextmanager
+    async def session_transition(session_ids):
+        # Retention holds project_digest_transition's shared summary_start_lock
+        # first. Keep transcript admission closed through the database mutation.
+        async with runtime.transcript_session_transition(session_ids):
+            selected = []
+            for task, summary_id in list(summary_jobs.items()):
+                record = await asyncio.to_thread(archive.summary_by_id, summary_id)
+                if record and record["session_id"] in session_ids:
+                    selected.append((task, summary_id))
+            for task, _ in selected:
+                task.cancel()
+            await asyncio.gather(*(task for task, _ in selected), return_exceptions=True)
+            for _, summary_id in selected:
+                await asyncio.to_thread(archive.finish_summary, summary_id,
+                                        error="Summary cancelled before archive deletion")
+            yield
+
+    runtime.archive_session_transition = session_transition
 
     async def shutdown_summary_jobs() -> None:
         await shutdown_packages()

@@ -87,6 +87,7 @@ export function SessionHistory({
   const [detailBusy, setDetailBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
   const [focusedSource, setFocusedSource] = useState<string | null>(null);
+  const [retentionRevision, setRetentionRevision] = useState(0);
   const sourceElements = useRef(new Map<string, HTMLElement>());
   const refreshRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
@@ -356,11 +357,22 @@ export function SessionHistory({
           locale={locale}
           projectId={selectedProjectId}
           onOpenSession={(sessionId) => { void openDetail({ session_id: sessionId }); }}
+          onArchivesDeleted={(ids)=>{
+            const view={...currentView.current};
+            detailRequestRef.current++;setDetailBusy(false);
+            if (view.sessionId && ids.includes(view.sessionId)) closeDetail();
+            setRetentionRevision(v=>v+1);
+            void (async()=>{
+              await onProjectsChanged();
+              if(sameScope(view))await refresh();
+            })().catch(reason=>{if(sameScope(view))setError(reason instanceof Error?reason.message:copy.loadFailed);});
+          }}
         />
       )}
 
       {selectedProjectId !== "all" && selectedProjectId !== "unassigned" && (
         <ProjectTranscriptSearch
+          refreshRevision={retentionRevision}
           apiUrl={apiUrl}
           locale={locale}
           projectId={selectedProjectId}

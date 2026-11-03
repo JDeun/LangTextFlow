@@ -21,6 +21,7 @@ interface Props {
   projectId: string;
   locale: Locale;
   onOpenSession: (sessionId: string, matchedText: string) => void;
+  refreshRevision?: number;
 }
 
 
@@ -35,7 +36,7 @@ function timestamp(value: number) {
 }
 
 export function ProjectTranscriptSearch({
-  apiUrl, projectId, locale, onOpenSession,
+  apiUrl, projectId, locale, onOpenSession, refreshRevision=0,
 }: Props) {
   const copy = PROJECT_SEARCH_COPY[locale];
   const [query, setQuery] = useState("");
@@ -55,6 +56,9 @@ export function ProjectTranscriptSearch({
     setBusy(false);
     setError("");
   }, [projectId]);
+  useEffect(()=>{
+    requestRef.current++;setMatches([]);setSubmitted(false);setHasMore(false);setBusy(false);
+  },[apiUrl,refreshRevision]);
 
   async function find(nextOffset = 0) {
     const phrase = query.trim();

@@ -5,7 +5,7 @@ import asyncio
 import json
 import sqlite3
 import sys
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import HTTPException, Request
@@ -85,6 +85,7 @@ async def run_decoder(command: list[str], duration: float, progress) -> tuple[li
 def install_transcript_routes(app, runtime, archive, settings, require_operator, finished_session):
     versions = archive.transcripts
     jobs: dict[str, asyncio.Task] = {}
+    owners: dict[str, str] = {}
     admission = asyncio.Lock()
 
     @app.get("/api/v1/history/{session_id}/transcripts")
@@ -178,7 +179,11 @@ def install_transcript_routes(app, runtime, archive, settings, require_operator,
             tid = record["transcript_id"]
             task = asyncio.create_task(worker(), name=f"post-event-transcript-{tid}")
             jobs[tid] = task
-            task.add_done_callback(lambda _: jobs.pop(tid, None))
+            owners[tid] = session_id
+            def finished(_):
+                jobs.pop(tid, None)
+                owners.pop(tid, None)
+            task.add_done_callback(finished)
             return record
 
     @app.post("/api/v1/history/{session_id}/transcripts/{transcript_id}/cancel")
@@ -214,6 +219,22 @@ def install_transcript_routes(app, runtime, archive, settings, require_operator,
             raise HTTPException(404, "transcript not found") from exc
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from exc
+
+    @asynccontextmanager
+    async def session_transition(session_ids):
+        async with admission:
+            selected = [(tid, task) for tid, task in jobs.items() if owners[tid] in session_ids]
+            for _, task in selected:
+                task.cancel()
+            await asyncio.gather(*(task for _, task in selected), return_exceptions=True)
+            for tid, _ in selected:
+                await asyncio.to_thread(
+                    versions.finish, tid, cancelled=True,
+                    error="Local transcription cancelled before archive deletion",
+                )
+            yield
+
+    runtime.transcript_session_transition = session_transition
 
     async def shutdown():
         active = list(jobs.items())
