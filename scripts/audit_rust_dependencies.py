@@ -87,7 +87,8 @@ def audit_locks(args: argparse.Namespace, controlled: Path) -> int:
     if database.returncode:
         raise RuntimeError("advisory database commit unavailable")
     summary = {"tool": version.stdout.strip(), "database_commit": database.stdout.strip(),
-               "cross_target_graphs": list(TARGETS), "native_graph_gate": "platform-smoke",
+               "cross_target_graphs": list(TARGETS),
+               "native_graph_gates": ["platform-smoke", "desktop-intel-native-graph"],
                "controlled_yanked_check": True, "locks": {}}
     for name, manifest in MANIFESTS.items():
         manifest = str(ROOT / manifest)

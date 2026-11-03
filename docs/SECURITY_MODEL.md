@@ -139,7 +139,10 @@ and records its commit, then audits **both complete lock files** with
 `--deny warnings --json`, without advisory ignores or target filters. The
 `rust-dependency-security` artifact retains both raw reports, strict exit codes,
 three cross-target desktop graphs, and `qualification.json`. Existing Windows/macOS
-platform-smoke jobs additionally check and upload their actual native-host graph:
+platform-smoke jobs additionally check and upload their actual native-host graph;
+an Intel-only metadata job uses the officially supported
+[`macos-15-intel` runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+to check Intel macOS without repeating model/backend/UI tests:
 cross-target Cargo trees alone do not include every host-conditional build edge.
 Database/network/graph/tool failures fail the job. This fills the former Python/npm-only audit gap;
 successful unsigned packaging alone does not establish dependency security.
@@ -194,9 +197,9 @@ warnings**, so strict cargo-audit still exits 1:
 
 The Windows MSVC, macOS ARM64 and macOS Intel cross-target Cargo graphs contain neither
 package. The qualification script checks their exact package/version absence in
-all three normal/build/dev graphs, and the native Windows/macOS CI host checks must
-also pass. Only the runner's actual architecture is a native-host observation;
-the other macOS architecture's tree remains a cross-target observation.
+all three normal/build/dev graphs, and the native Windows, macOS ARM64 and Intel
+metadata checks must also pass. Only each runner's actual architecture is a
+native-host observation; the Linux job's trees remain cross-target observations.
 Any vulnerability, new warning, changed warning
 package/version, missing graph, or warning present in a supported graph fails.
 This is an evidenced platform qualification, not a clean whole-lock audit.
