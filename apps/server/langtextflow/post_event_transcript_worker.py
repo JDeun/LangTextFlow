@@ -19,7 +19,8 @@ from .whisper_cache import resolve_whisper_model
 
 
 def _emit(value: dict) -> None:
-    print(json.dumps(value, ensure_ascii=False), flush=True)
+    # Escapes preserve Unicode through Windows' locale-encoded stdout pipes.
+    print(json.dumps(value, ensure_ascii=True), flush=True)
 
 
 def _sha(stream) -> str:
