@@ -27,6 +27,7 @@ Foreign keys cascade with session deletion. WAV bytes live in `<database-directo
 5. The summary runs in an async job. The panel polls status; failure never changes or removes the original transcript. Generation is idempotent when the same transcript hash/provider/model/language/prompt version already has a completed result.
 6. Compare the summary against the transcript, retain exact source citations, save a review draft, then explicitly approve and lock it. Concurrent edits are rejected with HTTP 409. A changed source hash blocks approval; generate a new summary from the new evidence. Text export uses the saved review when present; the original AI draft remains available in the panel. Project manifests/reports retain approval and stale status.
 7. Use the source citation buttons to clear transcript filtering, select the original language and focus the referenced committed segment. Only exact IDs/timecodes in the loaded session can be linked. These controls navigate the transcript; they do not claim sample-accurate audio alignment.
+8. Under **Post-event transcript**, select a recording, cached model and speech language to create a separate local draft. Inspect the original decoder output/provenance, edit text and explicitly approve it. Approval locks that version and marks earlier summaries stale. The summary source still defaults to live ASR; select the approved post-event version explicitly to summarize it. Source-reference navigation opens that summary's exact transcript version. Each version exports its original draft and complete review history as JSON.
 
 ## Automatic recording (stacked implementation)
 
@@ -69,8 +70,9 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
 |---|---|
 | `GET /api/v1/history/{id}/archive` | List recording metadata and latest summary state |
 | `POST /api/v1/history/{id}/recordings` | Stream raw `audio/wav` bytes of an authorized PCM16 recording, size-limited |
-| `GET /api/v1/history/{id}/recordings/{recording_id}/audio` | Local playback / download |
+| `GET /api/v1/history/{id}/recordings/{recording_id}/audio` | Local playback; `?download=true` returns an attachment through the same operator boundary |
 | `POST /api/v1/history/{id}/summary` | Start nonblocking post-session summary generation |
+| `POST /api/v1/history/{id}/summaries/{summary_id}/cancel` | Cancel this instance's running summary job; completed drafts and approvals stay intact. Retry explicitly to create a new attempt. |
 | `POST /api/v1/history/{id}/summaries/{summary_id}/reviews` | Save a cited review or approve and lock a completed summary; requires `content`, optional `approved`, and the latest `expected_review_id` (null for the first edit) |
 
 Request body for summary (optional keys):

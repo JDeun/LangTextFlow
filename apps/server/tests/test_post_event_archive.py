@@ -192,6 +192,12 @@ def test_archive_http_wav_upload_and_security(tmp_path) -> None:
         )
         assert downloaded.status_code == 200
         assert downloaded.content == audio
+        assert downloaded.headers["content-disposition"].startswith("inline;")
+        attachment = client.get(
+            f"/api/v1/history/s-1/recordings/{recording_id}/audio?download=true",
+        )
+        assert attachment.content == audio
+        assert attachment.headers["content-disposition"].startswith("attachment;")
         rejected = client.post(
             "/api/v1/history/s-1/recordings",
             data=b"not a wav", headers={"content-type": "audio/wav"},

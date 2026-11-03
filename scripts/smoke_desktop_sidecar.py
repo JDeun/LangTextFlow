@@ -79,7 +79,8 @@ def main() -> None:
                     raise RuntimeError("packaged mock ASR did not commit a caption")
                 assert not json.loads(request("/api/v1/session/stop", {}))["running"]
                 archive = json.loads(request(f"/api/v1/history/{state['session_id']}/archive"))
-                assert archive == {"recordings": [], "summary": None, "summary_stale": False}
+                assert archive == {"recordings": [], "summary": None, "summary_stale": False,
+                                   "approved_transcript_id": None}
                 exported = json.loads(request(
                     f"/api/v1/history/{state['session_id']}/export?format=json",
                 ))
