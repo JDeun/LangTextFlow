@@ -135,19 +135,43 @@ def evaluate(
             "--reference", str(reference_path), "--output", str(report_path),
             "--title", "FLEURS test-set real speech evaluation",
         ]
-        completed = subprocess.run(
-            command,
-            text=True, capture_output=True,
-            check=False, timeout=240,
-            env={
-                **os.environ,
-                "LANGTEXTFLOW_FASTER_WHISPER_MODEL": model,
-                "LANGTEXTFLOW_FASTER_WHISPER_CHUNK_SECONDS": str(chunk_seconds),
-                "LANGTEXTFLOW_FASTER_WHISPER_DEVICE": "cpu",
-                "LANGTEXTFLOW_FASTER_WHISPER_COMPUTE_TYPE": "int8",
-            },
-        )
+        try:
+            completed = subprocess.run(
+                command,
+                text=True, capture_output=True,
+                check=False, timeout=240,
+                env={
+                    **os.environ,
+                    "LANGTEXTFLOW_FASTER_WHISPER_MODEL": model,
+                    "LANGTEXTFLOW_FASTER_WHISPER_CHUNK_SECONDS": str(chunk_seconds),
+                    "LANGTEXTFLOW_FASTER_WHISPER_DEVICE": "cpu",
+                    "LANGTEXTFLOW_FASTER_WHISPER_COMPUTE_TYPE": "int8",
+                },
+            )
+        except subprocess.TimeoutExpired as exc:
+            # TimeoutExpired can retain bytes even when text=True was requested.
+            stderr = exc.stderr or ""
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
+            completed = subprocess.CompletedProcess(
+                command, 124, stdout="", stderr=f"ASR benchmark timed out after 240s; {stderr}",
+            )
+        finally:
+            wav_path.unlink(missing_ok=True)
+            reference_path.unlink(missing_ok=True)
         if completed.returncode != 0:
+            failure = {
+                "status": "error", "sample_id": identifier,
+                "dataset_revision": FLEURS_REVISION, "license": FLEURS_LICENSE,
+                "language": language, "model": model, "decode_chunk_seconds": chunk_seconds,
+                "sha256_pcm16": sha, "audio_duration_seconds": duration,
+                "returncode": completed.returncode,
+                "stderr_tail": completed.stderr[-1000:],
+                "stdout_tail": completed.stdout[-1000:],
+            }
+            (output / f"failure-{len(rows):03d}.json").write_text(
+                json.dumps(failure, ensure_ascii=False, indent=2) + "\n", encoding="utf-8",
+            )
             raise RuntimeError(
                 f"ASR benchmark failed for FLEURS item {identifier}: "
                 f"{completed.stderr[-1000:]} {completed.stdout[-1000:]}"
@@ -166,8 +190,6 @@ def evaluate(
             "queue_high_watermark": report["provider"]["queue_high_watermark"],
             "report": str(report_path),
         })
-        wav_path.unlink(missing_ok=True)
-        reference_path.unlink(missing_ok=True)
 
     if len(rows) != sample_count:
         raise RuntimeError(

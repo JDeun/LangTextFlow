@@ -114,7 +114,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             raise ValueError("audio frame must contain little-endian float32 PCM")
         if len(pcm_f32le) > self.max_frame_bytes:
             raise ValueError("audio frame is larger than the configured safety limit")
-        await self._queue.put(pcm_f32le)
+        assert self._worker_task is not None
+        await self._enqueue_audio(self._queue, pcm_f32le, self._worker_task)
 
     async def end_audio(self) -> None:
         if self._queue is None or self._ended or self._failure is not None:

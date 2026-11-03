@@ -1,7 +1,11 @@
 """Fail fast before optional dataset/model downloads in manual ASR evaluation."""
 import io
+import json
+import subprocess
+import sys
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -88,3 +92,41 @@ def test_asr_chunk_window_is_reproducible_and_rejects_invalid_values(tmp_path) -
         with pytest.raises(ValueError, match="chunk_seconds"):
             evaluate("ko", 1, tmp_path / "benchmark", chunk_seconds=invalid)
     assert not (tmp_path / "benchmark").exists()
+
+
+@pytest.mark.parametrize("timed_out", [False, True])
+def test_failed_inference_retains_provenance_and_removes_raw_fixtures(
+    monkeypatch, tmp_path, timed_out,
+):
+    class Dataset(list):
+        def cast_column(self, *args):
+            return self
+
+    monkeypatch.setitem(sys.modules, "datasets", SimpleNamespace(
+        Audio=lambda **kwargs: None,
+        load_dataset=lambda *args, **kwargs: Dataset([
+            {"id": 42, "raw_transcription": "independent reference", "audio": {}},
+        ]),
+    ))
+
+    def write_wav(audio, destination):
+        destination.write_bytes(b"synthetic private fixture")
+        return 1.0, "a" * 64
+
+    def run(command, **kwargs):
+        if timed_out:
+            raise subprocess.TimeoutExpired(command, 240, stderr=b"bounded stderr")
+        return subprocess.CompletedProcess(command, 1, stdout="", stderr="invalid ASR timestamps")
+
+    monkeypatch.setattr(helper, "write_pcm_wav", write_wav)
+    monkeypatch.setattr(helper.subprocess, "run", run)
+    output = tmp_path / "evaluation"
+    with pytest.raises(RuntimeError, match="ASR benchmark failed"):
+        evaluate("ko", 1, output)
+    failure = json.loads((output / "failure-000.json").read_text())
+    assert failure["status"] == "error"
+    assert failure["dataset_revision"] == FLEURS_REVISION
+    assert failure["sha256_pcm16"] == "a" * 64
+    assert failure["sample_id"] == 42
+    assert failure["returncode"] == (124 if timed_out else 1)
+    assert list((output / "temporary-fixtures").iterdir()) == []
