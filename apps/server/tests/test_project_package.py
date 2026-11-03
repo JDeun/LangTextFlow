@@ -214,11 +214,13 @@ def test_original_v1_package_migrates_only_unknown_offset_after_original_hash_ch
     raw, original = export(source, pid)
 
     def v1_graph(graph):
+        graph["tables"].pop("project_knowledge")
         for row in graph["tables"]["session_recordings"]:
             row.pop("start_offset_ms")
 
     def version_one(entries):
         manifest = parse_json(entries["manifest.json"])
+        manifest["counts"].pop("project_knowledge", None)
         manifest["version"] = 1
         entries["manifest.json"] = canonical(manifest).encode()
 
@@ -230,17 +232,20 @@ def test_original_v1_package_migrates_only_unknown_offset_after_original_hash_ch
     # Version 1 cannot smuggle the new column, even with a valid original hash.
     _, projects, other = empty(tmp_path / "rejected")
     with pytest.raises(PackageError, match="version 1 recording columns"):
-        restore(other, rewrite(raw, entry_change=version_one))
+        restore(other, rewrite(
+            raw, graph_change=lambda g: g["tables"].pop("project_knowledge"),
+            entry_change=version_one,
+        ))
     assert projects.list() == [] and not list(other.audio_root.iterdir())
 
 
-def test_v2_package_preserves_known_recording_offsets_and_journal_provenance(tmp_path):
+def test_current_package_preserves_known_recording_offsets_and_journal_provenance(tmp_path):
     _, _, source, pid = prepared(tmp_path / "source")
     with source._connect() as conn:
         conn.execute("UPDATE session_recordings SET start_offset_ms=1250.0625")
     raw, original = export(source, pid)
     with zipfile.ZipFile(io.BytesIO(raw)) as package:
-        assert parse_json(package.read("manifest.json"))["version"] == 2
+        assert parse_json(package.read("manifest.json"))["version"] == 3
     _, _, target = empty(tmp_path / "target")
     restore(target, raw)
     assert target.packages.snapshot(pid, threading.Event())[0] == original

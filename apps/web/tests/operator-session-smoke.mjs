@@ -128,6 +128,14 @@ try {
     audienceResult.exceptionDetails.exception?.description || audienceResult.exceptionDetails.text,
   );
   console.log(`audience mixed-target smoke passed: ${audienceResult.result.value}`);
+  const nativeSetupResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/m2m100SetupHarness.tsx').then((test) => test.runM2M100SetupChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (nativeSetupResult.exceptionDetails) throw new Error(
+    nativeSetupResult.exceptionDetails.exception?.description || nativeSetupResult.exceptionDetails.text,
+  );
+  console.log(`native model setup smoke passed: ${nativeSetupResult.result.value}`);
   const projectDigestResult = await cdp("Runtime.evaluate", {
     expression: `import('/tests/fixtures/projectDigestHarness.tsx').then((test) => test.runProjectDigestChecks())`,
     awaitPromise: true, returnByValue: true,
@@ -152,6 +160,14 @@ try {
     recorderResult.exceptionDetails.exception?.description || recorderResult.exceptionDetails.text,
   );
   console.log(`independent recording smoke passed: ${recorderResult.result.value}`);
+  const knowledgeResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/projectKnowledgeHarness.tsx').then((test) => test.runProjectKnowledgeChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (knowledgeResult.exceptionDetails) throw new Error(
+    knowledgeResult.exceptionDetails.exception?.description || knowledgeResult.exceptionDetails.text,
+  );
+  console.log(`project materials smoke passed: ${knowledgeResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;

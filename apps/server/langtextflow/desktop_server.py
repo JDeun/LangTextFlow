@@ -156,6 +156,11 @@ async def _serve_desktop(app: Any, *, host: str, port: int) -> None:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    if len(sys.argv) > 1 and sys.argv[1] == "--m2m100-prepare-worker":
+        from langtextflow.m2m100_prepare_worker import main as prepare_worker
+
+        prepare_worker(sys.argv[2:])
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "--m2m100-worker":
         from langtextflow.translation.m2m100_worker import main as m2m100_worker
 

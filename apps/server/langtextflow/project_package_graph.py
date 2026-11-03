@@ -1,4 +1,4 @@
-"""Fixed private-project package v2 graph; transport explicitly migrates v1."""
+"""Fixed private-project package v3 graph; transport explicitly migrates v1/v2."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .session_repository import SessionRepository
 from .summary_evidence import allowed_source_citations
 
 FORMAT = "langtextflow-private-project"
-VERSION = 2
+VERSION = 3
 MAX_PACKAGE_BYTES = 1024 * 1024 * 1024
 MAX_GRAPH_BYTES = 32 * 1024 * 1024
 MAX_MANIFEST_BYTES = 64 * 1024
@@ -145,6 +145,10 @@ COLUMNS = {
         "created_at",
         "updated_at",
     ],
+    "project_knowledge": [
+        "knowledge_id", "project_id", "kind", "title", "text", "done", "revision",
+        "content_sha256", "created_at", "updated_at",
+    ],
     "project_digests": [
         "digest_id",
         "project_id",
@@ -175,11 +179,16 @@ PRIMARY_KEYS = {
     "session_summaries": ["summary_id"],
     "summary_reviews": ["review_id"],
     "project_glossary_entries": ["id"],
+    "project_knowledge": ["knowledge_id"],
     "project_digests": ["digest_id"],
     "project_digest_reviews": ["review_id"],
     "project_digest_sessions": ["digest_id", "session_id"],
 }
 EXPORT_SQL = {
+    "project_knowledge": (
+        "SELECT knowledge_id,project_id,kind,title,text,done,revision,content_sha256,"
+        "created_at,updated_at FROM project_knowledge WHERE project_id=? ORDER BY rowid LIMIT ?"
+    ),
     "projects": (
         "SELECT p.project_id,p.title,p.description,p.event_date,p.location,p.status,"
         "p.created_at,p.updated_at"
@@ -266,6 +275,10 @@ EXPORT_SQL = {
     ),
 }
 INSERT_SQL = {
+    "project_knowledge": (
+        "INSERT INTO project_knowledge (knowledge_id,project_id,kind,title,text,done,revision,"
+        "content_sha256,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)"
+    ),
     "projects": (
         "INSERT INTO projects (project_id,title,description,event_date,location,status,"
         "created_at,updated_at)"
@@ -444,6 +457,7 @@ def validate_graph(graph):
                 raise PackageError("Graph refers to another project")
             if "session_id" in row and row["session_id"] not in sessions:
                 raise PackageError("Graph refers to an absent session")
+    _validate_knowledge(tables["project_knowledge"], pid)
     for row in tables["sessions"]:
         if row["ended_at"] is None:
             raise PackageError("Finish every project session before backup or restore", 409)
@@ -562,6 +576,27 @@ def validate_graph(graph):
     return graph
 
 
+def _validate_knowledge(rows, pid):
+    from .project_knowledge import MAX_CHARACTERS, MAX_ITEMS, KnowledgeInput, content_sha
+
+    if len(rows) > MAX_ITEMS:
+        raise PackageError("Project materials exceed 100 items or 120000 text characters", 413)
+    for row in rows:
+        identifier(row["knowledge_id"])
+        if row["project_id"] != pid or type(row["revision"]) is not int or row["revision"] < 1:
+            raise PackageError("Invalid project material identity or revision")
+        _flag(row["done"])
+        value = KnowledgeInput.model_validate({
+            k: row[k] for k in ("kind", "title", "text", "done")
+        }).model_dump(exclude={"expected_revision"})
+        if content_sha(value) != row["content_sha256"]:
+            raise PackageError("Project material digest mismatch")
+        _date(row["created_at"])
+        _date(row["updated_at"])
+    if sum(len(r["text"]) for r in rows) > MAX_CHARACTERS:
+        raise PackageError("Project materials exceed 120000 text characters", 413)
+
+
 def _validate_project_digests(tables, pid, sessions, versions, summaries, digests):
     from .project_digests import validate_project_citations
 
@@ -587,7 +622,7 @@ def _validate_project_digests(tables, pid, sessions, versions, summaries, digest
         if row["status"] not in {"completed", "error"}:
             raise PackageError("Wait for project jobs to finish before backup", 409)
         snapshot = parse_json(row["snapshot_json"])
-        if not isinstance(snapshot, dict) or set(snapshot) != {
+        if not isinstance(snapshot, dict) or set(snapshot) - {"knowledge"} != {
             "project",
             "sessions",
             "excluded_running_session_ids",
@@ -597,6 +632,24 @@ def _validate_project_digests(tables, pid, sessions, versions, summaries, digest
             "input_sha256",
         }:
             raise PackageError("Unsupported project digest snapshot")
+        if "knowledge" in snapshot:
+            knowledge = snapshot["knowledge"]
+            if not isinstance(knowledge, list):
+                raise PackageError("Invalid project materials snapshot")
+            columns = set(COLUMNS["project_knowledge"])
+            if any(not isinstance(r, dict) or set(r) != columns for r in knowledge):
+                raise PackageError("Invalid project materials snapshot columns")
+            if any(type(r["done"]) is not bool for r in knowledge):
+                raise PackageError("Invalid project materials snapshot completion state")
+            # Snapshot JSON uses JSON booleans while SQLite transport rows use 0/1.
+            normalized = [{**r, "done": int(r["done"])} for r in knowledge]
+            _validate_knowledge(normalized, pid)
+            current = {r["knowledge_id"]: r for r in tables["project_knowledge"]}
+            if len({r["knowledge_id"] for r in knowledge}) != len(knowledge) or any(
+                r["knowledge_id"] not in current
+                or r["revision"] > current[r["knowledge_id"]]["revision"] for r in knowledge
+            ):
+                raise PackageError("Project digest refers to foreign or missing materials")
         if (
             not isinstance(snapshot["sessions"], list)
             or not 1 <= len(snapshot["sessions"]) <= 25

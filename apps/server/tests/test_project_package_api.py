@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import threading
 from types import SimpleNamespace
 
@@ -10,11 +11,12 @@ import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
 from starlette.requests import ClientDisconnect
-from test_project_package import empty, export, prepared
+from test_project_package import empty, export, prepared, rewrite
 
 from langtextflow.config import Settings
 from langtextflow.project_package import ProjectPackageOperation
 from langtextflow.project_package_api import install_project_package_routes
+from langtextflow.project_package_graph import canonical, parse_json
 
 
 def app_for(archive):
@@ -34,6 +36,43 @@ def app_for(archive):
         asyncio.Lock(),
     )
     return app, runtime, shutdown
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "graph",
+    [[], {}, {"project_id": "x", "tables": []}, {"project_id": "x", "tables": {"sessions": None}}],
+)
+async def test_matching_hash_malformed_graph_shape_is_controlled_before_migration(tmp_path, graph):
+    _, _, source, pid = prepared(tmp_path / "source", full=False)
+    raw, _ = export(source, pid)
+
+    def malformed(entries):
+        entries["graph.json"] = canonical(graph).encode()
+        manifest = parse_json(entries["manifest.json"])
+        manifest.update(
+            graph_sha256=hashlib.sha256(entries["graph.json"]).hexdigest(),
+            graph_size_bytes=len(entries["graph.json"]),
+        )
+        entries["manifest.json"] = canonical(manifest).encode()
+
+    _, projects, target = empty(tmp_path / "target")
+    app, _, shutdown = app_for(target)
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app),
+            base_url="http://test",
+            headers={"x-test-operator": "yes"},
+        ) as client:
+            response = await client.post(
+                "/api/v1/project-packages/restore", content=rewrite(raw, entry_change=malformed)
+            )
+            assert response.status_code == 422 and "graph shape" in response.text
+        await shutdown()
+        assert projects.list() == [] and target.packages.receipts() == []
+        assert not list(target.packages.root.iterdir()) and not list(target.audio_root.iterdir())
+    finally:
+        await shutdown()
 
 
 @pytest.mark.asyncio

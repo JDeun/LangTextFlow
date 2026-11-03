@@ -121,6 +121,9 @@ class ProjectDigests:
         references: list[dict] = []
         entries = []
         notes = [{"project_metadata": dict(project)}]
+        knowledge = self.archive.knowledge.listing(project_id, connection=conn)
+        if knowledge:
+            notes.append({"untrusted_operator_authored_project_materials": knowledge})
         source_size = 0
         for number, row in enumerate(completed, 1):
             sid = row["session_id"]
@@ -258,6 +261,9 @@ class ProjectDigests:
             "notes": note_text,
             "citations": references,
         }
+        # Preserve legacy empty-project hashes and immutable historical snapshots.
+        if knowledge:
+            snapshot["knowledge"] = knowledge
         return {**snapshot, "input_sha256": hashlib.sha256(_json(snapshot).encode()).hexdigest()}
 
     @staticmethod
@@ -360,7 +366,7 @@ class ProjectDigests:
         with self.archive._connect() as conn:
             conn.execute("BEGIN")
             row = conn.execute(
-                "SELECT 1 FROM project_digests WHERE project_id=? AND digest_id=? "
+                "SELECT snapshot_json FROM project_digests WHERE project_id=? AND digest_id=? "
                 "AND status='running'",
                 (project_id, identifier),
             ).fetchone()
@@ -369,7 +375,10 @@ class ProjectDigests:
                 "ON p.session_id=d.session_id WHERE d.digest_id=? AND p.project_id=?",
                 (identifier, project_id),
             ).fetchone()[0]
-            return row is not None and count == expected_sessions
+            if row is None or count != expected_sessions:
+                return False
+            expected = json.loads(row["snapshot_json"]).get("knowledge", [])
+            return expected == self.archive.knowledge.listing(project_id, connection=conn)
 
     def listing(self, project_id):
         with self.archive._connect() as conn:
