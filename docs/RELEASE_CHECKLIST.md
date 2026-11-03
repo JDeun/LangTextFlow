@@ -21,6 +21,7 @@ A release candidate is not considered production-ready until every required item
 - synthetic lifecycle/load/soak regression harness
 - CodeQL Python + JavaScript/TypeScript
 - Windows/macOS Tauri bundle CI
+- 실제 frozen backend의 임시 저장소 기반 startup → 합성 자막 → archive/export → shutdown smoke
 - signed installer/updater release workflow와 external signing-secret hook
 
 ## Build / repository hygiene

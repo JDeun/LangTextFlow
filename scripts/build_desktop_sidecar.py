@@ -63,7 +63,7 @@ def main() -> None:
         f"{WEB_DIST}{data_separator}web-dist",
         "--collect-submodules",
         "uvicorn",
-        "--collect-submodules",
+        "--collect-all",
         "langtextflow",
         *_collect_args("faster_whisper", "ctranslate2", "tokenizers", "numpy"),
         "--distpath",
