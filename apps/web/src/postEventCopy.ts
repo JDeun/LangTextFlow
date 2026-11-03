@@ -8,6 +8,7 @@ export const POST_EVENT_COPY: Record<Locale, {
   summaryStale: string; summaryLanguage: string; summaryProvider: string;
   korean: string; english: string; japanese: string; localProvider: string;
   externalProvider: string; externalConsent: string; modelId: string;
+  providerPolicyUnknown: string; endpointUnrecorded: string;
   defaultModel: string; exportSummary: string;
   reviewText: string; reviewHint: string; saveReview: string; approveReview: string;
   approved: string; unreviewed: string; reviewSaved: string; originalDraft: string;
@@ -24,8 +25,10 @@ export const POST_EVENT_COPY: Record<Locale, {
     summaryStale: "The summary source or evidence format has changed. Review and regenerate before sharing.",
     summaryLanguage: "Summary language", summaryProvider: "Summary provider",
     korean: "Korean", english: "English", japanese: "Japanese",
-    localProvider: "Local Ollama", externalProvider: "External OpenAI-compatible",
-    externalConsent: "I explicitly approve sending this transcript to the configured external provider.",
+    localProvider: "Configured Ollama", externalProvider: "OpenAI-compatible API",
+    externalConsent: "I explicitly approve sending this transcript to the configured provider for this request.",
+    providerPolicyUnknown: "Provider transmission policy is unverified. Refresh archive before generating a summary.",
+    endpointUnrecorded: "The endpoint location used to generate this summary was not recorded.",
     modelId: "Model ID (optional)", defaultModel: "Configured default model",
     exportSummary: "Export summary text",
     reviewText: "Review summary", reviewHint: "Check meaning against the source transcript and keep exact [segment-id at 123s] citations. Approval locks this version.",
@@ -46,8 +49,10 @@ export const POST_EVENT_COPY: Record<Locale, {
     summaryStale: "요약의 원문 또는 근거 형식이 바뀌었습니다. 공유 전 확인하고 요약을 다시 생성하세요.",
     summaryLanguage: "요약 언어", summaryProvider: "요약 엔진",
     korean: "한국어", english: "영어", japanese: "일본어",
-    localProvider: "로컬 Ollama", externalProvider: "외부 OpenAI 호환 API",
-    externalConsent: "이 전사문을 설정된 외부 Provider로 전송하는 데 명시적으로 동의합니다.",
+    localProvider: "설정된 Ollama", externalProvider: "OpenAI 호환 API",
+    externalConsent: "이번 요청에서 이 전사문을 설정된 제공자로 전송하는 데 명시적으로 동의합니다.",
+    providerPolicyUnknown: "제공자의 전송 정책을 확인하지 못했습니다. 기록을 새로고침한 뒤 요약을 생성하세요.",
+    endpointUnrecorded: "이 요약을 생성할 때 사용한 엔드포인트의 위치는 기록되어 있지 않습니다.",
     modelId: "모델 ID(선택)", defaultModel: "설정된 기본 모델",
     exportSummary: "요약 텍스트 내보내기",
     reviewText: "요약 검수", reviewHint: "원문과 의미를 대조하고 [segment-id at 123s] 인용을 유지하세요. 승인하면 이 버전이 잠깁니다.",
@@ -68,8 +73,10 @@ export const POST_EVENT_COPY: Record<Locale, {
     summaryStale: "要約の原文または根拠の形式が更新されています。共有前に確認し、要約を再生成してください。",
     summaryLanguage: "要約言語", summaryProvider: "要約エンジン",
     korean: "韓国語", english: "英語", japanese: "日本語",
-    localProvider: "ローカルOllama", externalProvider: "外部OpenAI互換API",
-    externalConsent: "この原文を設定済みの外部プロバイダーへ送信することに明示的に同意します。",
+    localProvider: "設定済みOllama", externalProvider: "OpenAI互換API",
+    externalConsent: "今回のリクエストで、この原文を設定済みのプロバイダーへ送信することに明示的に同意します。",
+    providerPolicyUnknown: "プロバイダーの送信方針を確認できません。アーカイブを更新してから要約を生成してください。",
+    endpointUnrecorded: "この要約の生成時に使用したエンドポイントの場所は記録されていません。",
     modelId: "モデルID（任意）", defaultModel: "設定済みの既定モデル",
     exportSummary: "要約テキストを書き出す",
     reviewText: "要約のレビュー", reviewHint: "原文と意味を照合し、[segment-id at 123s] の引用を保持してください。承認後はこの版がロックされます。",
