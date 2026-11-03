@@ -245,7 +245,7 @@ that arbitrary source text contains no confidential strings. Store the downloade
 file securely and restore only material you are authorized to use. A download
 already delivered to the browser cannot be recalled by later deletion.
 
-Version 1 is a ZIP_STORED archive with exactly `manifest.json`, `graph.json` and
+Version 2 is a ZIP_STORED archive with exactly `manifest.json`, `graph.json` and
 the declared `media/<recording_id>.wav` entries. The graph has a fixed table and
 column allowlist; no SQL or executable instructions are read from the package,
 and package-supplied paths never determine a destination. A single SQLite read transaction collects the whole selected
@@ -255,6 +255,12 @@ JSON, 64 KiB manifest and 1 GiB total ZIP**; each recording retains the existing
 projects must be reduced in scope. Missing/changed WAVs, ongoing work or a
 historical digest referring to a source moved outside the project fail the entire
 backup. Restore the source's original linkage before backing up that closed graph.
+
+Version 2 preserves nullable recording `start_offset_ms`. The reader still accepts
+original version 1 packages: it verifies the original graph bytes/hash first, then
+performs the one known migration by adding a null (unknown) offset to each
+recording. Raw immutable digest snapshot JSON and its input hashes are unchanged;
+legacy audio is never assigned an invented zero offset.
 
 Restore preserves stable project/session/recording/version/review IDs, the raw
 JSON strings underlying immutable snapshots and SHA-256 provenance, timestamps
