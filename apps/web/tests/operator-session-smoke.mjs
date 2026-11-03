@@ -21,7 +21,7 @@ try {
     const deadline = Date.now() + 20_000;
     let ready = false;
     while (Date.now() < deadline && devServer.exitCode === null) {
-      if (serverOutput.includes(origin)
+      if (serverOutput.replace(/\u001b\[[0-9;]*m/g, "").includes(origin)
         && await fetch(page).then((response) => response.ok).catch(() => false)) {
         ready = true;
         break;
