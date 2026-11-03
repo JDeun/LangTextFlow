@@ -32,6 +32,7 @@ test("mock/source-only request never records audio or attaches unused provider m
   const payload = buildSessionStartPayload(base);
   assert.equal(payload.project_id, null);
   assert.equal(payload.record_audio, false);
+  assert.equal(payload.collect_audience_metrics, false);
   assert.equal(payload.translation_model, null);
   assert.equal(payload.correction_model, null);
   assert.deepEqual(payload.context.hotwords, ["성령", "은혜", "요한복음"]);
@@ -53,6 +54,7 @@ test("explicit opted-in live sermon retains project, recording and models", () =
   assert.equal(payload.translation_model, "local-translator");
   assert.equal(payload.context.audience_access, true);
   assert.deepEqual(payload.context.output_modes, ["audience", "projector", "obs"]);
+  assert.equal(buildSessionStartPayload({ ...base, collectAudienceMetrics: true }).collect_audience_metrics, true);
 });
 
 test("EN->KO missionary session does not leak unrelated Korean glossary fields", () => {

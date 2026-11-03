@@ -4,10 +4,17 @@ import { CAPTION_RENDER_STATS_EVENT, captionRenderStats } from "./captionRenderM
 import { useI18n } from "./i18n";
 import type { RealtimeMetrics, SessionState } from "./types";
 import { UTILITY_COPY } from "./utilityCopy";
+import { AUDIENCE_METRICS_COPY } from "./audienceMetricsCopy";
 
 interface TelemetryPanelProps {
   apiUrl: string;
   running: boolean;
+}
+
+interface AudienceMetrics {
+  reporting_enabled: boolean;
+  session_id: string | null;
+  stages: Record<string, { count: number; p50_ms: number; p95_ms: number; p99_ms: number }>;
 }
 
 function milliseconds(value: number | null) {
@@ -44,6 +51,8 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
   const { locale } = useI18n();
   const copy = UTILITY_COPY[locale].telemetry;
   const [metrics, setMetrics] = useState<RealtimeMetrics | null>(null);
+  const [audienceStats, setAudienceStats] = useState<AudienceMetrics | null>(null);
+  const audienceCopy = AUDIENCE_METRICS_COPY[locale];
   const [browserStats, setBrowserStats] = useState(() => captionRenderStats.summary());
 
   useEffect(() => {
@@ -61,16 +70,20 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
 
     const load = async () => {
       try {
-        const [metricsResponse, stateResponse] = await Promise.all([
+        const [metricsResponse, stateResponse, audienceResponse] = await Promise.all([
           fetch(`${apiUrl}/api/v1/metrics`),
           fetch(`${apiUrl}/api/v1/state`),
+          fetch(`${apiUrl}/api/v1/metrics/audience-render`),
         ]);
         if (!metricsResponse.ok) throw new Error(`metrics HTTP ${metricsResponse.status}`);
         if (!stateResponse.ok) throw new Error(`state HTTP ${stateResponse.status}`);
+        if (!audienceResponse.ok) throw new Error(`audience metrics HTTP ${audienceResponse.status}`);
         const payload = (await metricsResponse.json()) as RealtimeMetrics;
         const state = (await stateResponse.json()) as SessionState;
+        const audience = (await audienceResponse.json()) as AudienceMetrics;
         if (!disposed) {
           setMetrics(payload);
+          setAudienceStats(audience.session_id === state.session_id ? audience : null);
           setPersistenceError(state.persistence_error || "");
           setError("");
         }
@@ -158,6 +171,18 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
             </div>
           ))
         )}
+      </div>
+      <div className="telemetry-metric" data-testid="audience-render-latency">
+        <span>{audienceCopy.heading}</span>
+        {!audienceStats?.reporting_enabled ? <small>{audienceCopy.disabled}</small>
+          : Object.keys(audienceStats.stages).length === 0 ? <small>{audienceCopy.empty}</small>
+            : Object.entries(audienceStats.stages).map(([stage, values]) => (
+              <div key={stage}>
+                <strong>{stage}: p95 {milliseconds(values.p95_ms)}</strong>
+                <small>p50 {milliseconds(values.p50_ms)} · p99 {milliseconds(values.p99_ms)} · n={values.count}</small>
+              </div>
+            ))}
+        <small>{audienceCopy.detail}</small>
       </div>
       {error && <div className="telemetry-empty">{error}</div>}
       {persistenceError && (

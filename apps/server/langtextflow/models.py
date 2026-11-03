@@ -366,6 +366,7 @@ class StartSessionRequest(BaseModel):
     project_id: str | None = Field(default=None, max_length=64)
     # Explicit per-session consent; legacy clients default to no recording.
     record_audio: bool = False
+    collect_audience_metrics: bool = False
     source_language: str = Field(default="ko", min_length=2, max_length=16)
     target_languages: list[str] = Field(
         default_factory=lambda: ["en"],
@@ -415,6 +416,7 @@ class SessionState(BaseModel):
     audio_required: bool = False
     audio_sample_rate: int | None = None
     recording_enabled: bool = False
+    collect_audience_metrics: bool = False
     recording_error: str | None = None
     correction_status: CorrectionStatus = Field(default_factory=CorrectionStatus)
     translation_status: TranslationStatus = Field(default_factory=TranslationStatus)
@@ -469,6 +471,7 @@ class AudienceSessionView(BaseModel):
     session_id: str
     join_code: str
     running: bool
+    collect_audience_metrics: bool = False
     title: str
     presenter: str | None
     preset: ProductPreset

@@ -1,4 +1,4 @@
-"""In-memory, bounded rate policy for future opt-in audience telemetry ingestion.
+"""In-memory, bounded rate policy for opt-in audience telemetry ingestion.
 
 Network identity is only used as an ephemeral rate-limit key and never
 included in aggregate samples or serialized responses.

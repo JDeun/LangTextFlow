@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -8,11 +9,14 @@ from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import ValidationError
 
 from . import __version__
 from .asr import AsrEngineError
 from .asr.capabilities import AsrCapability, asr_capabilities
 from .audience_latency import AudienceLatencyAggregate
+from .audience_latency_payload import AudienceLatencyPayload
+from .audience_metric_rate_limit import AudienceMetricRateLimiter
 from .audience_security import AudienceJoinRateLimiter
 from .church_glossary_seed import church_glossary_for_source
 from .config import get_settings
@@ -88,6 +92,7 @@ runtime_provision_manager = RuntimeProvisionManager(settings)
 vibevoice_lifecycle = VibeVoiceLifecycleManager(settings)
 mdns_publisher = MdnsPublisher(settings)
 audience_latency_aggregate = AudienceLatencyAggregate()
+audience_metric_limiter = AudienceMetricRateLimiter()
 audience_join_limiter = AudienceJoinRateLimiter(
     max_failures=settings.audience_join_max_failures,
     window_seconds=settings.audience_join_window_seconds,
@@ -184,7 +189,10 @@ async def reject_remote_operator_api_before_body_parse(request: Request, call_ne
     """
     path = request.url.path
     is_audience_path = path.startswith("/api/v1/audience/")
-    if is_audience_path and request.method not in {"GET", "HEAD", "OPTIONS"}:
+    is_metric_post = request.method == "POST" and re.fullmatch(
+        r"/api/v1/audience/[A-Za-z0-9]{6}/metrics/render", path,
+    ) is not None
+    if is_audience_path and request.method not in {"GET", "HEAD", "OPTIONS"} and not is_metric_post:
         return Response(
             content='{"detail":"audience write API is disabled"}',
             status_code=405,
@@ -550,13 +558,18 @@ async def get_state(request: Request) -> SessionState:
 
 @app.get("/api/v1/metrics/audience-render")
 async def audience_render_metrics(request: Request) -> dict[str, object]:
-    """Operator-only read; no audience ingestion or network reporting enabled."""
+    """Operator-only, session-scoped aggregates; no transcript or device IDs."""
     _require_operator(request)
     return {
         "measurement": "browser_receive_to_double_raf_estimate",
         "scope": "audience",
-        "reporting_enabled": False,
-        "stages": audience_latency_aggregate.snapshot(),
+        "session_id": runtime.state.session_id if runtime.state.running else None,
+        "reporting_enabled": runtime.state.running and runtime.state.collect_audience_metrics,
+        "window_seconds": audience_latency_aggregate.window_seconds,
+        "stages": (
+            audience_latency_aggregate.snapshot()
+            if runtime.state.running and runtime.state.collect_audience_metrics else {}
+        ),
     }
 
 
@@ -1036,6 +1049,7 @@ async def start_session(request: Request, payload: StartSessionRequest) -> Sessi
         try:
             state = await runtime.start(_with_saved_glossary(payload))
             audience_latency_aggregate.reset()
+            audience_metric_limiter.reset()
             return state
         except AsrEngineError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -1053,6 +1067,7 @@ async def stop_session(request: Request) -> SessionState:
         try:
             state = await runtime.stop()
             audience_latency_aggregate.reset()
+            audience_metric_limiter.reset()
             return state
         finally:
             _allow_audio_socket_acceptance()
@@ -1065,6 +1080,56 @@ async def audio_config(request: Request) -> AudioStreamInfo:
         return runtime.audio_info()
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/v1/audience/{join_code}/metrics/render", status_code=204)
+async def submit_audience_render_metric(request: Request, join_code: str) -> Response:
+    """Validate authorization and a bounded stream before parsing untrusted JSON."""
+    if request.headers.get("x-audience-metrics-consent") != "true":
+        raise HTTPException(403, "explicit audience metrics consent required")
+    if request.headers.get("sec-fetch-site", "").casefold() == "cross-site" or not (
+        websocket_origin_allowed(
+            request.headers.get("origin"), allowed_origins=settings.cors_origins,
+            allowed_origin_regex=settings.cors_origin_regex,
+        )
+    ):
+        raise HTTPException(403, "audience metrics origin is not allowed")
+    host = request.client.host if request.client else None
+    view = _authorize_audience(host, join_code)
+    if not view.collect_audience_metrics:
+        raise HTTPException(403, "audience metrics collection is disabled")
+    if not audience_metric_limiter.allow(host):
+        raise HTTPException(429, "audience metrics rate limit exceeded")
+    if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
+        raise HTTPException(415, "expected application/json")
+    declared = request.headers.get("content-length")
+    if declared is not None and (not declared.isdecimal() or len(declared) > 3
+                                 or int(declared) > 512):
+        raise HTTPException(413, "audience metrics body exceeds limit")
+    body = bytearray()
+    try:
+        async with asyncio.timeout(2):
+            async for chunk in request.stream():
+                if len(body) + len(chunk) > 512:
+                    raise HTTPException(413, "audience metrics body exceeds limit")
+                body.extend(chunk)
+    except TimeoutError as exc:
+        raise HTTPException(408, "audience metrics body timed out") from exc
+    if declared is not None and len(body) != int(declared):
+        raise HTTPException(400, "audience metrics body length mismatch")
+    try:
+        payload = AudienceLatencyPayload.model_validate_json(body)
+    except ValidationError as exc:
+        raise HTTPException(422, "invalid audience metrics payload") from exc
+    async with _audio_transition_lock:
+        try:
+            current = runtime.audience_view(join_code)
+        except KeyError as exc:
+            raise HTTPException(409, "audience session changed") from exc
+        if current.session_id != view.session_id or not current.collect_audience_metrics:
+            raise HTTPException(409, "audience session changed")
+        audience_latency_aggregate.add(payload.stage, payload.receive_to_display_ms)
+    return Response(status_code=204)
 
 
 @app.get("/api/v1/audience/{join_code}", response_model=AudienceSessionView)

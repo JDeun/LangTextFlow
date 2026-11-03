@@ -6,6 +6,7 @@ import type {
 export interface SessionStartInputs {
   selectedProjectId: string;
   recordAudio: boolean;
+  collectAudienceMetrics?: boolean;
   needsAudio: boolean;
   sourceLanguage: string;
   targetLanguages: string[];
@@ -49,6 +50,7 @@ export function buildSessionStartPayload(input: SessionStartInputs) {
       ? input.selectedProjectId
       : null,
     record_audio: input.recordAudio && input.needsAudio,
+    collect_audience_metrics: input.collectAudienceMetrics ?? false,
     source_language: input.sourceLanguage,
     target_languages: input.targetLanguages,
     engine: input.engine,

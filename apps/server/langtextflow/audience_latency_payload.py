@@ -1,4 +1,4 @@
-"""Strict opt-in audience latency payload validation, with no ingestion route.
+"""Strict opt-in audience latency payload validation.
 
 Reject unknown fields so clients cannot accidentally transmit transcript text,
 identifiers, or timestamps to the telemetry service.

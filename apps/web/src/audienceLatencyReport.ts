@@ -1,6 +1,4 @@
-/** Privacy-first client-side policy for future audience latency reporting.
- * The transport is deliberately NOT enabled by this module.
- */
+/** Numeric-only reporting policy. The audience hook requires explicit consent. */
 export interface AudienceLatencyReport {
   stage: "partial" | "stable" | "translated" | "committed";
   receiveToDisplayMs: number;

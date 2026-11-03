@@ -123,6 +123,7 @@ export interface CorrectionStatus extends ProviderStatus {}
 export interface TranslationStatus extends ProviderStatus {}
 
 export interface SessionState {
+  collect_audience_metrics?: boolean;
   session_id: string | null;
   join_code: string | null;
   running: boolean;
@@ -178,6 +179,7 @@ export interface SessionDetail extends SessionRecord {
 }
 
 export interface AudienceSessionView {
+  collect_audience_metrics?: boolean;
   session_id: string;
   join_code: string;
   running: boolean;

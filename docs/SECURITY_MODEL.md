@@ -23,7 +23,7 @@ Reverse proxies must not expose operator endpoints to the LAN or public Internet
 
 ### Audience boundary
 
-Audience REST/WebSocket endpoints are read-only. A join code acts as a bearer capability for the active session. Invalid-code attempts are rate limited per observed socket client address. Forwarding headers are not trusted for this decision.
+Audience caption REST/WebSocket endpoints are read-only. The sole optional POST is numeric display-timing telemetry: it requires the active join code, explicit per-session operator opt-in, audience consent, an allowed browser origin, bounded body/time and rate limits. It cannot edit captions or operator state. A join code acts as a bearer capability for the active session. Invalid-code attempts are rate limited per observed socket client address. Forwarding headers are not trusted for these decisions.
 
 Join codes are appropriate for same-event LAN access, not for protecting confidential broadcasts on an untrusted public network.
 
