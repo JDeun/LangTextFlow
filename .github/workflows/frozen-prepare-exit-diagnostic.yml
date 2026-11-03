@@ -23,12 +23,22 @@ jobs:
           rustup toolchain install 1.90.0 --profile minimal
           rustup default 1.90.0
           python -m pip install "uv==0.12.13"
-          uv sync --locked --extra dev --extra whisper --extra local-mt --extra benchmark
+          uv sync --locked --extra dev --extra whisper --extra local-mt
           uv pip install "pyinstaller==6.22.2"
           cd apps/web
           npm ci
           npm run build
-      - name: Instrumented test build and bounded invalid-args controls
+      - name: Freeze exact original and instrumented binaries before adding observer tools
+        shell: bash
+        run: |
+          mkdir -p artifacts/frozen-prepare-exit
+          git rev-parse HEAD > artifacts/frozen-prepare-exit/build-source.txt
+          uv run python scripts/build_desktop_sidecar.py
+          uv run python -c "from scripts.build_desktop_sidecar import BIN_DIR, ROOT; import shutil; shutil.copy2(BIN_DIR / 'langtextflow-server-x86_64-pc-windows-msvc.exe', ROOT / 'build/frozen-diagnostic-plain.exe')"
+          uv run python -c "from scripts.diagnose_frozen_prepare_exit import build; build()"
+      - name: Install locked parent observer tools after freezing both binaries
+        run: uv sync --locked --extra dev --extra whisper --extra local-mt --extra benchmark
+      - name: Compare exact original auxiliary sequence with bounded owned observers
         run: uv run python -m scripts.diagnose_frozen_prepare_exit
       - name: Upload bounded diagnostics even on negative results
         if: always()

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import itertools
 import json
 import os
 import re
@@ -13,7 +12,10 @@ import time
 from pathlib import Path
 from unittest.mock import patch
 
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None  # Install observer tools only after freezing the original build environment.
 
 from scripts import build_desktop_sidecar
 
@@ -66,15 +68,24 @@ def alive(pid: int, created: float) -> bool:
 
 
 def case(binary: Path, root: Path, index: int, stdin_open: bool,
-         torch_zero: bool, piped: bool, *, managed_pipe: bool = False) -> dict:
+         torch_zero: bool, piped: bool, *, arguments: list[str], expected_code: int,
+         managed_pipe: bool = False) -> dict:
+    root.mkdir(parents=True, exist_ok=True)
     raw_log = root / f"case-{index}.raw"
     environment = {**os.environ, "LTF_TEST_FROZEN_DIAGNOSTIC_LOG": str(raw_log),
-                   "LANGTEXTFLOW_APP_DATA": str(root / f"case-{index}-app")}
+                   "LANGTEXTFLOW_APP_DATA": str(root),
+                   "LANGTEXTFLOW_DATABASE_PATH": str(root / "data/smoke.db"),
+                   "LANGTEXTFLOW_MODEL_CACHE_DIR": str(root / "models"),
+                   "LANGTEXTFLOW_MANAGED_RUNTIME_DIR": str(root / "runtime"),
+                   "LANGTEXTFLOW_BACKEND_PORT": "18765",
+                   "LANGTEXTFLOW_MDNS_ENABLED": "false",
+                   "HF_HOME": str(root / "models/huggingface"),
+                   "LANGTEXTFLOW_OLLAMA_URL": "http://127.0.0.1:11434"}
     if torch_zero:
         environment["USE_TORCH"] = "0"
     read_fd, write_fd = (None, None) if managed_pipe else os.pipe()
     started = time.monotonic()
-    process = subprocess.Popen([str(binary), "--m2m100-prepare-worker"],
+    process = subprocess.Popen([str(binary), *arguments],
                                stdin=subprocess.PIPE if managed_pipe else read_fd,
                                stdout=subprocess.PIPE if piped else subprocess.DEVNULL,
                                stderr=subprocess.PIPE if piped else subprocess.DEVNULL,
@@ -87,6 +98,7 @@ def case(binary: Path, root: Path, index: int, stdin_open: bool,
     owned = {}
     initial = []
     result = {"index": index, "stdin": "open_pipe" if stdin_open else "closed_pipe",
+              "arguments": arguments, "expected_code": expected_code,
               "torch": "USE_TORCH=0" if torch_zero else "inherited",
               "stdin_launcher": "Popen.PIPE+communicate" if managed_pipe else "os.pipe raw FD",
               "stdio": "PIPE" if piped else "DEVNULL", "pid": process.pid,
@@ -167,23 +179,35 @@ def main() -> int:
                                               cwd=ROOT, text=True).strip(),
         "instrumented_test_build": True, "model_downloads": False,
     }, indent=2) + "\n")
-    binary = build()
-    with binary.open("rb") as stream:
-        binary_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+    if psutil is None:
+        raise RuntimeError("install parent observer dependencies after freezing both binaries")
+    binaries = {"plain": ROOT / "build/frozen-diagnostic-plain.exe",
+                "hook": build_desktop_sidecar.BIN_DIR /
+                "langtextflow-server-x86_64-pc-windows-msvc.exe"}
+    hashes = {}
+    for label, binary in binaries.items():
+        with binary.open("rb") as stream:
+            hashes[label] = hashlib.file_digest(stream, "sha256").hexdigest()
     report = {"source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"],
                                                    cwd=ROOT, text=True).strip(),
-              "binary_sha256": binary_hash, "expected_cases": 6,
-              "instrumented_test_build": True, "model_downloads": False, "cases": []}
+              "binary_sha256": hashes, "expected_cases": 8,
+              "build_environment": "original dev/whisper/local-mt, observer installed afterward",
+              "model_downloads": False, "cases": []}
     with tempfile.TemporaryDirectory(prefix="ltf-frozen-exit-diagnostic-") as directory:
-        # Raw-FD closed/open controls plus the exact managed-PIPE launch, same binary.
-        controls = [(False, False, True, False), (True, False, True, False)]
-        controls.extend((False, torch, piped, True)
-                        for torch, piped in itertools.product((False, True), repeat=2))
-        for index, (opened, torch, piped, managed) in enumerate(controls):
-            report["cases"].append(case(binary, Path(directory), index, opened, torch, piped,
-                                        managed_pipe=managed))
-            (OUTPUT / "report.json").write_text(json.dumps(report, indent=2) + "\n")
-    return 1 if any(item["timed_out"] or item["returncode"] != 2
+        controls = [(["-B", "-S", "-I", "-c",
+                      "from multiprocessing.resource_tracker import main;main(0)"], 0, False),
+                    (["--m2m100-worker"], 2, False),
+                    (["--m2m100-prepare-worker", "--check-runtime"], 0, True),
+                    (["--m2m100-prepare-worker"], 2, False)]
+        for label, binary in binaries.items():
+            for arguments, expected, torch in controls:
+                index = len(report["cases"])
+                result = case(binary, Path(directory) / label, index, False, torch, True,
+                              arguments=arguments, expected_code=expected, managed_pipe=True)
+                result["binary"] = label
+                report["cases"].append(result)
+                (OUTPUT / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+    return 1 if any(item["timed_out"] or item["returncode"] != item["expected_code"]
                     or item.get("stdout_bytes", 0) or item.get("stderr_bytes", 0)
                     or not item["owned_tree_reaped"] for item in report["cases"]) else 0
 
