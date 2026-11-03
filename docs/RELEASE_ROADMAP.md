@@ -311,6 +311,14 @@ favor OPUS-small's speed/quality tradeoff in that limited scope. The matched
 retain substantial recognition errors and outliers. No optimal deployed model,
 six-direction quality acceptance or v1.0 release is approved.
 
+Subsequent fixes #407/#408 are merged after exact-head CI/CodeQL and independent
+focused tests: existing native MT is accessible to the long-run CLI and failed MT
+cannot report source-only success; deterministic aliases preserve protected
+numeric/negation tokens, and lexical adherence uses source-aware word boundaries.
+These fix concrete wiring/safety defects, not the unexecuted long-run or semantic
+qualification. Project digests, native setup UX and supervised real-model Rust
+worker slices are now separate active implementation tracks.
+
 ## Historical planning and audits (2026-10-22–26)
 
 The dated inventories and pending statuses below preserve the original handoff. Use the current inventory above for milestone existence and titles; do not treat historical open-PR counts or unverified-milestone statements as current state.

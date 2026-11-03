@@ -47,8 +47,13 @@ Third-party Hex code/model adoption remains a separate decision.
 
 The audit reproduced two distinct defects: deterministic aliases can change
 `not saved` to `saved` or `John 3:16` to `John 3:17` (#160), and the
-observation metric counts `act` inside `action` (#122). Their focused fix is in
-progress separately from efficacy qualification. [PR #407](https://github.com/JDeun/LangTextFlow/pull/407)
+observation metric counts `act` inside `action` (#122).
+[PR #408](https://github.com/JDeun/LangTextFlow/pull/408) subsequently fixes both,
+including source-aware metric resolution and KO/EN/JA lexical guards. It merged
+as `4ca20aedae7cef063fb41401701a2fc891ea9f22` after exact-head
+CI41643346405/CodeQL41643346471 and 48 independently rerun focused tests.
+Lexical guards are not semantic certification; the parent quality gates stay open.
+[PR #407](https://github.com/JDeun/LangTextFlow/pull/407)
 subsequently merged as `66822c40a2a9d69be09ce194e2613905ee92ff4a`: it exposes
 existing M2M100 to the runtime benchmark and prevents unavailable/failed MT from
 reporting source-only success. Exact-head CI41642506656/CodeQL41642506657 and
@@ -83,7 +88,7 @@ does not authorize blindly adding every model or production experiment.
 | [#211](https://github.com/JDeun/LangTextFlow/issues/211) | Energy-VAD monitoring and Whisper internal VAD already exist, with different roles. | RESEARCH CODE / INPUT: matched RMS/Silero/WebRTC false-trigger/missed-speech/resume scorer and annotated noise/music/pause experiment are absent. |
 | [#210](https://github.com/JDeun/LangTextFlow/issues/210) | Stage telemetry, monotonic revision/commit contracts and regression fixtures exist. | RESEARCH CODE: same-fixture stabilizer comparison for revision rate, premature commits, rework and WER-worsening rejection not implemented; production change is conditional. |
 | [#209](https://github.com/JDeun/LangTextFlow/issues/209) | Competitive research and optimization roadmap delivered. | RESEARCH / VALIDATION: five experiment children and seven source audits remain incomplete; public marketing is not measured superiority. |
-| [#160](https://github.com/JDeun/LangTextFlow/issues/160) | Source-scoped four-tier snapshots, preview digest, hotword routing and event provenance implemented. | CODE / VALIDATION: deterministic aliases can remove negation or change verse numbers; fix/regressions in progress. Native six-way glossary efficacy remains separate. |
+| [#160](https://github.com/JDeun/LangTextFlow/issues/160) | Source-scoped snapshots/digest/routing/provenance implemented; merged #408 fixes reproduced numeric/negation alias changes. | VALIDATION: native six-way glossary efficacy and semantic A/B remain; lexical guards do not establish meaning preservation for every alias. |
 | [#159](https://github.com/JDeun/LangTextFlow/issues/159) | Python nonblocking publication, bounded client/persistence queues, loss/eviction metrics and shutdown policy implemented. | REOPENED / VALIDATION: original body/comments explicitly kept deployed multi-client/long-soak/disk acceptance open. Restore tracking in M1; required Rust authority is separate #344 work. |
 | [#158](https://github.com/JDeun/LangTextFlow/issues/158) | Truthful ASR stages, PCM clock, bounded VAD recovery/replay/failover and persisted timing provenance implemented. | VALIDATION / ARCHITECTURE: independently aligned real word/mic/failover evidence and Rust audio/VAD authority; estimates must stay labeled. |
 | [#157](https://github.com/JDeun/LangTextFlow/issues/157) | Opt-in six-way M2M adapter, pinned CLI provisioner, child deadlines/cancel/reap and truthful provenance implemented. | CODE / VALIDATION: shell-free install/repair UX is absent. Fail-closed term checking is not native bias. Qualify selected checkpoints, native fanout, rights and devices. |
@@ -94,7 +99,7 @@ does not authorize blindly adding every model or production experiment.
 | [#137](https://github.com/JDeun/LangTextFlow/issues/137) | Public feature comparison and owned Operator/Glossary REA observation executed. | VALIDATION: meaningful multilingual glossary ON/OFF matrix, current-preview/audience observation and linked gap reconciliation; no competitor parity/quality certification. |
 | [#127](https://github.com/JDeun/LangTextFlow/issues/127) | Offline three-language ASR and six-way MT helpers executed; manual source override exists. | CODE / VALIDATION: native-streaming/LID confusion evaluator and representative annotated terms; current FLEURS runtime runner lacks JA. Automatic adoption is conditional. |
 | [#126](https://github.com/JDeun/LangTextFlow/issues/126) | Dynamic source/target selection, fail-closed display and six-way helper runs exist. | VALIDATION: native six-way/two-target noisy long-event quality/CPU acceptance remains. Manual source selection does not establish automatic/code-switch routing; adoption is conditional on evidence. |
-| [#122](https://github.com/JDeun/LangTextFlow/issues/122) | Target resolution, prompt hints, lexical validation and research reranking exist; rerank changed no outputs. | CODE / VALIDATION: source-term substring false positives and mixed-source metric contract; effective safe model-aware term intervention and semantic A/B remain. |
+| [#122](https://github.com/JDeun/LangTextFlow/issues/122) | Target resolution, prompt hints, lexical validation and research reranking exist; #408 fixes source-word boundaries and metric language scope. | VALIDATION: reranking changed no outputs; effective safe model-aware term intervention and semantic A/B remain unqualified. |
 | [#121](https://github.com/JDeun/LangTextFlow/issues/121) | JA seed/editor/import/snapshot/prompt/lexical diagnostics implemented. | VALIDATION / INPUT: independent JA theological review and model ON/OFF efficacy; lexical matches do not certify meaning. |
 | [#118](https://github.com/JDeun/LangTextFlow/issues/118) | OPUS research and current same-host 16-case MT comparison executed; all three candidates eligible. | VALIDATION: full 20-case scope, matched real audio, continuous queue, total RAM and reviewed meaning. Text-only OPUS speed is not a deployed optimum. |
 | [#117](https://github.com/JDeun/LangTextFlow/issues/117) | Prompt/envelope-leak fixes and post-fix text/actual-speech reruns exist. | VALIDATION: current live latency, long continuous run and independent semantic gold; retain the later real 20-second timeout. |
