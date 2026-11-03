@@ -155,6 +155,7 @@ async def lifespan(_: FastAPI):
     finally:
         await _close_audio_socket_for_transition("server shutting down")
         await runtime.shutdown()
+        await shutdown_post_event_jobs()
         await vibevoice_lifecycle.shutdown()
         await model_setup_manager.shutdown()
         await runtime_provision_manager.shutdown()
@@ -1266,4 +1267,6 @@ async def audio_socket(websocket: WebSocket) -> None:
 
 
 # Register archive routes last; all use the shared local-operator security guard.
-install_post_event_routes(app, runtime, post_event_archive, settings, _require_operator)
+shutdown_post_event_jobs = install_post_event_routes(
+    app, runtime, post_event_archive, settings, _require_operator,
+)
