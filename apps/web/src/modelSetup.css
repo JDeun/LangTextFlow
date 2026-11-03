@@ -25,7 +25,7 @@
 .preflight-repair > div:first-child small,
 .onboarding-repair > div:first-child small {
   color: #c7a15c;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
@@ -34,22 +34,22 @@
 .preflight-repair > div:first-child strong,
 .onboarding-repair > div:first-child strong {
   color: #ead7ac;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-repair > div:first-child strong {
-  font-size: 13px;
+  font-size: var(--ltf-type-label);
 }
 
 .preflight-repair > div:first-child span,
 .onboarding-repair > div:first-child span {
   color: #9c8c6d;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 
 .onboarding-repair > div:first-child span {
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .model-setup-control {
@@ -93,13 +93,13 @@
 .model-setup-heading small,
 .model-setup-meta span {
   color: #8e8167;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .model-setup-heading strong {
   overflow: hidden;
   color: #e5d7b7;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -109,7 +109,7 @@
   border-radius: 999px;
   background: #302814;
   color: #c8a85e;
-  font-size: 8px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -154,7 +154,7 @@
 
 .model-setup-meta b {
   color: #bba978;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
 }
 
@@ -164,7 +164,7 @@
   border-radius: 7px;
   background: #281619;
   color: #ee9ba4;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 

@@ -3,7 +3,7 @@
 .event-project-header > div { display:grid; gap:0.25rem; }
 .event-project-header small { opacity:0.75; }
 .event-project-options { display:flex; flex-wrap:wrap; gap:0.5rem; }
-.event-project-options button { padding:0.35rem 0.65rem; border-radius:0.55rem; border:1px solid var(--border, #d1d5db); background:transparent; cursor:pointer; color:inherit; }
+.event-project-options button { width:auto; min-height:40px; margin:0; padding:0.4rem 0.75rem; font-size:var(--ltf-type-label); border-radius:0.55rem; border:1px solid var(--border, #d1d5db); background:transparent; cursor:pointer; color:inherit; }
 .event-project-options button.selected { border-color:currentColor; font-weight:700; }
 .event-project-info { display:flex; gap:0.6rem; flex-wrap:wrap; align-items:center; }
 .event-project-info p { width:100%; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -12,7 +12,7 @@
 .event-project-form label:has(textarea), .event-project-buttons { grid-column:1 / -1; }
 .event-project-form input, .event-project-form textarea, .event-project-form select { min-width:0; width:100%; }
 .event-project-buttons { display:flex; gap:0.65rem; flex-wrap:wrap; }
-.history-project-assign { display:grid; gap:0.3rem; font-size:0.85rem; min-width:160px; }
+.history-project-assign { display:grid; gap:0.3rem; font-size:var(--ltf-type-label); min-width:160px; }
 .history-project-assign select { max-width:250px; width:100%; }
 
 /* Event-wide source/translated transcript search: compact, accessible evidence cards. */
@@ -34,7 +34,9 @@
 .project-archive-list { list-style:none; padding:0; margin:0; display:grid; gap:0.6rem; }
 .project-archive-list li { border:1px solid var(--border, #d1d5db); border-radius:0.55rem; padding:0.65rem; display:flex; justify-content:space-between; gap:0.6rem; align-items:center; flex-wrap:wrap; min-width:0; }
 .project-archive-list strong { overflow-wrap:anywhere; }
-.project-archive-status { font-size:0.85rem; }
+.project-archive-status { font-size:var(--ltf-type-label); }
+.event-project-header strong, .project-archive-header h3, .project-transcript-search h3 { font-size:var(--ltf-type-section); line-height:1.3; }
+.event-project-header small, .project-transcript-search small { opacity:1; color:var(--ltf-muted); font-size:var(--ltf-type-label); }
 
 /* Project controls increase the panel height. A sticky start button overlays
    language choices at the viewport floor; keep the action in normal flow so

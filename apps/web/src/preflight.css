@@ -19,6 +19,9 @@
   right: 18px;
   bottom: 18px;
   z-index: 50;
+  width: auto;
+  max-width: calc(100vw - 36px);
+  min-height: 44px;
   padding: 9px 12px;
   border: 1px solid #39434d;
   border-radius: 999px;
@@ -48,11 +51,12 @@
 .preflight-titlebar > div {
   display: grid;
   gap: 3px;
+  min-width: 0;
 }
 
 .preflight-titlebar small {
   color: #75818c;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -60,12 +64,15 @@
 
 .preflight-titlebar strong {
   color: #edf2f5;
-  font-size: 15px;
+  font-size: var(--ltf-type-body);
 }
 
 .preflight-close {
-  width: 28px;
-  height: 28px;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  margin: 0;
+  padding: 0;
   border: 1px solid #303943;
   border-radius: 7px;
   background: #161c22;
@@ -85,7 +92,7 @@
   border-radius: 6px;
   background: #171e25;
   color: #8d9aa5;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .preflight-recommendation {
@@ -105,7 +112,7 @@
 
 .preflight-recommendation small {
   color: #7595af;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
@@ -113,7 +120,7 @@
 
 .preflight-recommendation strong {
   color: #b9d9ef;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .preflight-recommendation ul {
@@ -122,7 +129,7 @@
   margin: 0;
   padding-left: 16px;
   color: #8ca4b6;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 
@@ -158,7 +165,7 @@
   border-radius: 50%;
   background: #273039;
   color: #a8b1b9;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
   font-style: normal;
   font-weight: 800;
 }
@@ -170,13 +177,13 @@
 
 .preflight-check strong {
   color: #dce3e9;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .preflight-check span,
 .preflight-check small {
   color: #75818c;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 
@@ -242,7 +249,7 @@
   border-radius: 8px;
   background: #241417;
   color: #f4a3ac;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
 }
 
 @media (max-width: 720px) {
