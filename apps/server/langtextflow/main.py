@@ -850,6 +850,17 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
 
 @asynccontextmanager
 async def _project_digest_transition(**scope):
+    package_transition = getattr(runtime, "project_package_transition", None)
+    if package_transition is not None:
+        async with package_transition(**scope), _digest_only_transition(**scope):
+            yield
+    else:
+        async with _digest_only_transition(**scope):
+            yield
+
+
+@asynccontextmanager
+async def _digest_only_transition(**scope):
     transition = getattr(runtime, "project_digest_transition", None)
     if transition is None:
         yield

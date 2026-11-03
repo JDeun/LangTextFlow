@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "./history.css";
 import { PostEventPanel } from "./PostEventPanel";
 import { EventProjectControls } from "./EventProjectControls";
+import { ProjectPackageControls } from "./ProjectPackageControls";
 import { ProjectArchiveIndex } from "./ProjectArchiveIndex";
 import { ProjectTranscriptSearch } from "./ProjectTranscriptSearch";
 import { HISTORY_COPY } from "./historyCopy";
@@ -340,6 +341,13 @@ export function SessionHistory({
         onSelectProject={onSelectProject}
         onProjectsChanged={async () => { await onProjectsChanged(); await refresh(); }}
       />
+
+      <ProjectPackageControls apiUrl={apiUrl} projectId={selectedProjectId} locale={locale}
+        onRestored={async (id) => {
+          const view = { ...currentView.current };
+          await onProjectsChanged();
+          if (sameScope(view)) { onSelectProject(id); await refresh(); }
+        }} />
 
       {selectedProjectId !== "all" && selectedProjectId !== "unassigned" && (
         <ProjectArchiveIndex
