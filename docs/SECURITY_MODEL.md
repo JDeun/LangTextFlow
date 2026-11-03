@@ -59,6 +59,15 @@ Live Ollama correction sends source transcript text to the operator-configured
 endpoint is local. Verify its destination and data handling before enabling
 correction; the operator controls and their model help describe this distinction.
 
+Backend model HTTP clients connect directly to the configured provider and ignore
+ambient `HTTP_PROXY`, `HTTPS_PROXY` and `ALL_PROXY` settings. VibeVoice's outbound
+WebSocket likewise disables automatic proxy discovery, so loopback configuration
+cannot silently send speech or context through an environment-selected proxy.
+This also covers model setup and health/preflight probes. HTTPX environment TLS
+overrides (`SSL_CERT_FILE`/`SSL_CERT_DIR`) are not used by these HTTP clients;
+normal certificate verification remains enabled. A deliberately configured
+non-loopback provider still receives the data authorized for that provider.
+
 Ollama/OpenAI-compatible translation, constrained correction, and post-event summary
 HTTP responses are streamed before JSON parsing. The entire envelope, including
 ignored fields and model-list metadata, is limited to 665,536 bytes (the largest

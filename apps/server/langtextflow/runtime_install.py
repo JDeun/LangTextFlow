@@ -325,7 +325,7 @@ class RuntimeProvisionManager:
 
     async def _ollama_healthy(self) -> bool:
         try:
-            async with httpx.AsyncClient(timeout=1.5) as client:
+            async with httpx.AsyncClient(timeout=1.5, trust_env=False) as client:
                 response = await client.get(f"{self.settings.ollama_url.rstrip('/')}/api/tags")
                 return response.is_success
         except Exception:

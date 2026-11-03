@@ -87,7 +87,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         self._failure = None
         self._request = request
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=False) as client:
                 config = await bounded_json_request(client, "GET", f"{self.base_url}/v1/config")
             self._sample_rate = int(config["sample_rate"])
             self._chunk_seconds = float(config.get("chunk_seconds", 2.0))
@@ -96,6 +96,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
             self._ws = await websockets.connect(
                 vibevoice_ws_url(self.base_url),
                 max_size=self.max_message_bytes,
+                proxy=None,
             )
             await self._ws.send(
                 json.dumps(
