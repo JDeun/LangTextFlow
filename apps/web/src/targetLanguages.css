@@ -12,13 +12,13 @@
 
 .target-language-heading > span {
   color: #aeb9c2;
-  font-size: 11px;
+  font-size: var(--ltf-type-label);
   font-weight: 600;
 }
 
 .target-language-heading > small {
   color: #6f7d88;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .target-language-source {
@@ -36,13 +36,13 @@
 .target-language-source b {
   min-width: 24px;
   color: #e0e7ec;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .target-language-source span {
   overflow: hidden;
   color: #aeb9c2;
-  font-size: 9px;
+  font-size: var(--ltf-type-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -52,7 +52,7 @@
   border-radius: 999px;
   background: #26313a;
   color: #9cabb6;
-  font-size: 7px;
+  font-size: var(--ltf-type-meta);
   font-style: normal;
   font-weight: 700;
 }
@@ -93,12 +93,12 @@
 .target-language-chips b {
   min-width: 24px;
   color: #d4dde4;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .target-language-chips span {
   overflow: hidden;
-  font-size: 9px;
+  font-size: var(--ltf-type-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -111,7 +111,7 @@
 .target-language-summary span,
 .target-language-summary small {
   color: #75838e;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 

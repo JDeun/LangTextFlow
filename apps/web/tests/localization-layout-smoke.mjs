@@ -96,7 +96,15 @@ async function setLocale(locale) {
   await assertLocale("UI change");
   // Check persistence across reload only after React has written the new
   // locale. Page.reload is issued through CDP, not Runtime.evaluate.
+  await evaluate("window.__ltfLocaleReloadProbe = true");
   await cdp("Page.reload", { ignoreCache: true });
+  await waitFor(async () => {
+    try {
+      return await evaluate("window.__ltfLocaleReloadProbe !== true");
+    } catch {
+      return false;
+    }
+  }, "fresh document after locale reload");
   await assertLocale("reload persistence");
 }
 
@@ -141,5 +149,43 @@ for (const [locale, stress] of Object.entries(stressSamples)) {
   if (!fits) throw new Error(`${locale} long-string localization stress caused horizontal overflow`);
 }
 
+// Check the painted caption surface too: document overflow alone misses a
+// wide aspect-ratio child clipped by its preview panel. Native consent inputs
+// must also retain a square target when their adjacent copy wraps or grows.
+for (const [width, textScale] of [[320, 100], [390, 100], [720, 100], [1440, 200]]) {
+  await cdp("Emulation.setDeviceMetricsOverride", {
+    width, height: 1000, deviceScaleFactor: 1, mobile: width < 500,
+  });
+  await evaluate(`document.documentElement.style.fontSize = "${textScale}%"`);
+  const geometry = await evaluate(`(() => {
+    const preview = document.querySelector('.preview').getBoundingClientRect();
+    const stage = document.querySelector('.stage-screen').getBoundingClientRect();
+    const inputs = [...document.querySelectorAll('input[type="checkbox"]')]
+      .filter(input => input.getClientRects().length);
+    return {
+      fits: document.documentElement.scrollWidth <= innerWidth + 1
+        && stage.left >= preview.left && stage.right <= preview.right + 1,
+      squareInputs: inputs.length > 0 && inputs.every(input => {
+        const { width, height } = input.getBoundingClientRect();
+        return width >= 16 && Math.abs(width - height) <= 1;
+      }),
+    };
+  })()`);
+  if (!geometry.fits || !geometry.squareInputs) {
+    throw new Error(`Caption/consent layout failed at ${width}px / ${textScale}% text: ${JSON.stringify(geometry)}`);
+  }
+}
+await evaluate(`document.documentElement.style.fontSize = ""`);
+const consentBefore = await evaluate(`(() => {
+  const input = document.querySelector('[data-testid="operator-metrics-consent"]');
+  input.focus();
+  return input.checked;
+})()`);
+await cdp("Input.dispatchKeyEvent", { type: "keyDown", key: " ", code: "Space", windowsVirtualKeyCode: 32 });
+await cdp("Input.dispatchKeyEvent", { type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32 });
+if (await evaluate(`document.querySelector('[data-testid="operator-metrics-consent"]').checked`) === consentBefore) {
+  throw new Error("Native consent checkbox did not toggle with Space");
+}
+
 socket.close();
-console.log("localization layout smoke passed for en/ko/ja long-string stress");
+console.log("localization layout smoke passed for en/ko/ja, narrow captions, zoom, and keyboard consent");

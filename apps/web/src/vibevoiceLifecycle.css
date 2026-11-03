@@ -39,7 +39,7 @@
 
 .vibevoice-lifecycle-heading small {
   color: #8b99a5;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
   letter-spacing: .05em;
   text-transform: uppercase;
@@ -47,7 +47,7 @@
 
 .vibevoice-lifecycle-heading strong {
   color: #dce4eb;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .vibevoice-lifecycle-heading > span {
@@ -55,7 +55,7 @@
   border-radius: 999px;
   background: #252f38;
   color: #9cabb7;
-  font-size: 8px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -80,7 +80,7 @@
 .vibevoice-lifecycle p {
   margin: 0;
   color: #86939e;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.45;
 }
 
@@ -95,7 +95,7 @@
   border-radius: 6px;
   background: #182129;
   color: #81909c;
-  font-size: 8px;
+  font-size: var(--ltf-type-meta);
 }
 
 .vibevoice-lifecycle-error {
@@ -104,14 +104,14 @@
   border-radius: 7px;
   background: #281619;
   color: #ee9ba4;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 
 .vibevoice-lifecycle-logs summary {
   color: #7f8e9a;
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .vibevoice-lifecycle-logs pre {
@@ -122,7 +122,7 @@
   border-radius: 6px;
   background: #090d11;
   color: #8998a3;
-  font-size: 8px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.35;
   white-space: pre-wrap;
 }
@@ -141,7 +141,7 @@
   background: #19232b;
   color: #d7e0e7;
   cursor: pointer;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .vibevoice-lifecycle-actions button:disabled {

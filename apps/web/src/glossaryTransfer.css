@@ -25,12 +25,12 @@
   gap: 10px;
   margin: 0;
   color: #77838f;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .glossary-transfer-policy select {
   padding: 7px 8px;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .glossary-file-input {
@@ -39,7 +39,7 @@
 
 .glossary-transfer > small {
   color: #68737f;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.45;
 }
 
@@ -50,6 +50,6 @@
   border-radius: 9px;
   background: #10251a;
   color: #8dd3aa;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.45;
 }
