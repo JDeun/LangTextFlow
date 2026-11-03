@@ -43,6 +43,7 @@ def asr_capabilities() -> list[AsrCapability]:
             declared_languages=["ko", "en", "ja"],
             warnings=[
                 "Chunked inference (not token-by-token streaming).",
+                "Segment timestamps are estimates; VAD-restored tails are bounded to received PCM.",
                 "Model availability and language-specific WER must be verified.",
                 "Hotwords are hints, not guaranteed recognition.",
             ],

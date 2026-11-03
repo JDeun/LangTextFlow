@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 from contextlib import suppress
 from dataclasses import dataclass
@@ -8,6 +9,8 @@ from typing import Any
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
 from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -178,7 +181,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         initial_prompt = " | ".join(part.strip() for part in prompt_parts if part.strip()) or None
         hotwords = ", ".join(context.asr_hotwords(source_language=request.source_language)) or None
 
-        segments, _ = self._model.transcribe(
+        segments, info = self._model.transcribe(
             audio,
             language=request.source_language,
             beam_size=1,
@@ -187,15 +190,39 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             initial_prompt=initial_prompt,
             hotwords=hotwords,
         )
+        duration = len(pcm_f32le) / 4 / self._sample_rate
+        reported_duration = getattr(info, "duration", duration)
+        speech_duration = getattr(info, "duration_after_vad", duration)
+        removed_silence = 0.0
+        if (
+            math.isfinite(reported_duration)
+            and math.isfinite(speech_duration)
+            and abs(reported_duration - duration) <= 1 / self._sample_rate
+            and 0 < speech_duration <= duration
+        ):
+            removed_silence = duration - speech_duration
         decoded: list[DecodedSegment] = []
         for segment in segments:
             text = str(segment.text).strip()
             if not text:
                 continue
+            start = float(segment.start)
+            end = float(segment.end)
+            # Upstream VAD restoration can add removed silence to a padded decoder tail.
+            if (
+                removed_silence > 0
+                and 0 <= start < duration < end <= duration + removed_silence + 0.25
+            ):
+                logger.warning(
+                    "Bounded VAD-restored segment end %.3fs to PCM duration %.3fs "
+                    "(VAD removed %.3fs); segment timestamps remain estimates",
+                    end, duration, removed_silence,
+                )
+                end = duration
             decoded.append(
                 DecodedSegment(
-                    start_seconds=max(0.0, float(segment.start)),
-                    end_seconds=max(0.0, float(segment.end)),
+                    start_seconds=start,
+                    end_seconds=end,
                     text=text,
                 )
             )
