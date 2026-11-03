@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import math
+import platform
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -238,6 +239,9 @@ async def run_runtime_benchmark(options: RuntimeBenchmarkOptions) -> dict[str, A
         startup_started = time.perf_counter()
         await runtime.start(request)
         startup_seconds = time.perf_counter() - startup_started
+        # Persistent native children are live now; retain their RSS even for a
+        # short fixture that finishes before the regular sampling interval.
+        memory.sample(force=True)
         if runtime.engine is None:
             await runtime.shutdown()
             raise RuntimeError("runtime benchmark ASR engine did not start")
@@ -324,6 +328,9 @@ async def run_runtime_benchmark(options: RuntimeBenchmarkOptions) -> dict[str, A
         "schema_version": 1,
         "scope": "runtime",
         "status": status,
+        "field_ready": False,
+        "environment": {"python": platform.python_version(), "platform": platform.platform(),
+                        "machine": platform.machine()},
         "config": {
             "requested_engine": options.engine,
             "resolved_provider": final_provider,
