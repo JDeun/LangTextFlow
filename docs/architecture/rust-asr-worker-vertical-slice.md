@@ -15,7 +15,9 @@ WebSocket, persistence and desktop behavior is preserved during parity work.
 generation, source revision and the accepted source-event projection. One
 request is admitted at a time, with no waiting admission queue; at most 128
 source chunks are retained per session. A new session or an active source
-revision cancels the old admission. A completed chunk is terminal. Dropping an
+revision cancels the old admission. An accepted inference window is terminal in
+this prototype. Its event stage remains STABLE: this is not the production
+STABLE→correction/MT→COMMITTED contract or proof of #156 parity. Dropping an
 aborted admission releases only its own logical slot; process admission remains
 leased independently until the old child has been reaped.
 
@@ -24,10 +26,15 @@ interpreter, sets offline model environment flags, and enforces a Rust monotonic
 1–120,000ms request deadline over both control writes and reply reads, including
 lazy model load. A cancellation flag is polled at up to 5ms intervals. Failed IO,
 framing, cancellation or deadline kills the child and awaits exit with a 1s
-cleanup budget. If reaping is still pending, the child and capacity permit are
-retained; a replacement sharing the slot cannot multiply children. Owner drop
-schedules a reaper holding the permit. Callers must await `stop()` before closing
-the Tokio runtime; process creation itself is an OS call, not preempted by this
+cleanup budget. The public `exchange(self, ...)` moves ownership into the future
+and returns the worker only on success. An external timeout/aborted caller thus
+cannot retain and reuse a live worker with a partially consumed pipe. If reaping
+is still pending, the child and capacity permit are retained; a replacement
+sharing the slot cannot multiply children. Owner drop starts a single independent
+OS reaper thread holding the permit, including outside/after the Tokio runtime.
+It releases capacity only after `try_wait` confirms exit. A reaper start/wait
+failure permanently retains that slot (fail closed). Await `stop()` for explicit
+cleanup; process creation itself is an OS call, not preempted by this
 request deadline. This source prototype uses Tokio 1.53.1 already pinned by the
 desktop app, with process/io/time/sync only (no new scheduling framework).
 

@@ -25,7 +25,7 @@ fn run() -> Result<(), &'static str> {
     runtime.block_on(async {
         let session = AsrSession::default();
         session.start("asr-prototype")?;
-        let mut worker = SupervisedWorker::spawn(
+        let worker = SupervisedWorker::spawn(
             &args[0],
             &[
                 "-m",
@@ -37,6 +37,7 @@ fn run() -> Result<(), &'static str> {
             worker_slot(),
         )
         .map_err(|_| "worker_spawn_failed")?;
+        let mut worker = Some(worker);
         let mut start = 0;
         let mut sequence = 0;
         let result = async {
@@ -56,9 +57,17 @@ fn run() -> Result<(), &'static str> {
                     120_000,
                 )?;
                 let reply = worker
+                    .take()
+                    .ok_or("worker_unavailable")?
                     .exchange(admitted.request(), &admitted.cancelled)
                     .await;
-                let events = session.finish(&admitted, reply.as_ref().ok())?;
+                let events = match reply {
+                    Ok((next, reply)) => {
+                        worker = Some(next);
+                        session.finish(&admitted, Some(&reply))?
+                    }
+                    Err(_) => return session.finish(&admitted, None).map(|_| ()),
+                };
                 println!(
                     "{}",
                     serde_json::json!({"status":"accepted", "scope":"rust_asr_prototype",
@@ -69,7 +78,9 @@ fn run() -> Result<(), &'static str> {
             Ok(())
         }
         .await;
-        worker.stop().await.map_err(|_| "worker_cleanup_failed")?;
+        if let Some(mut worker) = worker {
+            worker.stop().await.map_err(|_| "worker_cleanup_failed")?;
+        }
         result
     })
 }

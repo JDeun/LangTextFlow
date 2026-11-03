@@ -1,4 +1,4 @@
-//! First ASR vertical slice: Rust admission and immutable inference-result commit.
+//! First ASR vertical slice: Rust admission and immutable inference-result acceptance.
 //! It is opt-in and does not replace the production Python caption runtime.
 use crate::{validate_reply, TaskKind, WorkerReply, WorkerRequest, WorkerStatus, PROTOCOL_VERSION};
 use serde::{Deserialize, Serialize};
@@ -103,7 +103,7 @@ struct State {
     serial: u64,
     revisions: HashMap<String, u64>,
     active: Option<Active>,
-    committed: HashMap<String, Vec<SourceEvent>>,
+    accepted: HashMap<String, Vec<SourceEvent>>,
 }
 
 /// Clones refer to the same Rust-owned authority; workers never receive it.
@@ -118,7 +118,7 @@ impl Default for AsrSession {
             serial: 0,
             revisions: HashMap::new(),
             active: None,
-            committed: HashMap::new(),
+            accepted: HashMap::new(),
         })))
     }
 }
@@ -138,15 +138,15 @@ impl AsrSession {
             .ok_or("generation_exhausted")?;
         state.session_id = session_id.into();
         state.revisions.clear();
-        state.committed.clear();
+        state.accepted.clear();
         // Admission is retained until the previous request is finished/reaped.
         Ok(())
     }
 
     pub fn revise(&self, segment_id: &str, revision: u64) -> Result<(), &'static str> {
         let mut state = self.0.lock().unwrap();
-        if state.committed.contains_key(segment_id) {
-            return Err("committed_segment");
+        if state.accepted.contains_key(segment_id) {
+            return Err("accepted_chunk");
         }
         let old = state.revisions.get(segment_id).ok_or("unknown_segment")?;
         if revision <= *old {
@@ -190,7 +190,7 @@ impl AsrSession {
             .revisions
             .get(segment_id)
             .is_some_and(|old| revision < *old)
-            || state.committed.contains_key(segment_id)
+            || state.accepted.contains_key(segment_id)
         {
             return Err("stale_revision");
         }
@@ -304,7 +304,7 @@ impl AsrSession {
             });
         }
         state
-            .committed
+            .accepted
             .insert(admitted.request.segment_id.clone(), events.clone());
         Ok(events)
     }

@@ -67,7 +67,7 @@ fn rust_owns_bounded_admission_revision_generation_and_atomic_commit() {
     let events = session.finish(&current, Some(&reply(&current))).unwrap();
     assert_eq!(events[0].text, "원문");
     assert_eq!(events[0].timestamp_basis, "sample_clock_native_hint");
-    assert!(matches!(session.revise("seg", 3), Err("committed_segment")));
+    assert!(matches!(session.revise("seg", 3), Err("accepted_chunk")));
     assert!(matches!(session.finish(&old, None), Err("not_admitted")));
     let old_generation = session.admit("next", 1, "ko", chunk(), 100).unwrap();
     session.start("s2").unwrap();
@@ -115,7 +115,7 @@ fn small_decoder_padding_is_pcm_bounded_and_labeled_estimated() {
 fn real_hung_child_deadline_reaps_before_replacement_and_no_spawn_queue() {
     runtime().block_on(async {
         let slot = worker_slot();
-        let mut worker = SupervisedWorker::spawn(
+        let worker = SupervisedWorker::spawn(
             &python(),
             &["-c", "import time;time.sleep(120)"],
             slot.clone(),
@@ -137,7 +137,6 @@ fn real_hung_child_deadline_reaps_before_replacement_and_no_spawn_queue() {
             Err(WorkerError::Deadline)
         ));
         assert!(started.elapsed() < Duration::from_secs(2));
-        assert!(worker.pid().is_none());
         assert_eq!(slot.available_permits(), 1);
         session.finish(&admitted, None).unwrap_err();
         let mut replacement = SupervisedWorker::spawn(
@@ -156,7 +155,7 @@ fn real_hung_child_deadline_reaps_before_replacement_and_no_spawn_queue() {
 fn actual_child_cancellation_during_inference_kills_and_reaps() {
     runtime().block_on(async {
         let slot = worker_slot();
-        let mut worker = SupervisedWorker::spawn(
+        let worker = SupervisedWorker::spawn(
             &python(),
             &["-c", "import sys,time;sys.stdin.readline();time.sleep(120)"],
             slot.clone(),
@@ -178,7 +177,6 @@ fn actual_child_cancellation_during_inference_kills_and_reaps() {
         ));
         cancel.await.unwrap();
         assert!(session.finish(&admitted, None).is_err());
-        assert!(worker.pid().is_none());
         assert_eq!(slot.available_permits(), 1);
     });
 }
@@ -210,8 +208,7 @@ fn real_worker_crash_or_oversized_output_is_terminal() {
             "import sys,time;sys.stdout.write('x'*131072);sys.stdout.flush();time.sleep(120)",
         ] {
             let slot = worker_slot();
-            let mut worker =
-                SupervisedWorker::spawn(&python(), &["-c", code], slot.clone()).unwrap();
+            let worker = SupervisedWorker::spawn(&python(), &["-c", code], slot.clone()).unwrap();
             let session = AsrSession::default();
             session.start("s").unwrap();
             let admitted = session.admit("seg", 1, "ko", chunk(), 2000).unwrap();
@@ -219,7 +216,6 @@ fn real_worker_crash_or_oversized_output_is_terminal() {
                 .exchange(admitted.request(), &AtomicBool::new(false))
                 .await
                 .is_err());
-            assert!(worker.pid().is_none());
             assert_eq!(slot.available_permits(), 1);
         }
     });
@@ -235,8 +231,8 @@ fn actual_jsonl_worker_result_requires_current_rust_fence() {
         let code = format!(
             "import sys;sys.stdin.readline();print({result:?},flush=True);sys.stdin.readline()"
         );
-        let mut worker = SupervisedWorker::spawn(&python(), &["-c", &code], worker_slot()).unwrap();
-        let reply = worker
+        let worker = SupervisedWorker::spawn(&python(), &["-c", &code], worker_slot()).unwrap();
+        let (mut worker, reply) = worker
             .exchange(admitted.request(), &AtomicBool::new(false))
             .await
             .unwrap();
@@ -255,7 +251,7 @@ fn deadline_also_bounds_a_control_write_to_nonreading_child() {
         let mut request = admitted.request().clone();
         request.payload = "x".repeat(100_000);
         let slot = worker_slot();
-        let mut worker = SupervisedWorker::spawn(
+        let worker = SupervisedWorker::spawn(
             &python(),
             &["-c", "import time;time.sleep(120)"],
             slot.clone(),
@@ -279,7 +275,7 @@ fn aborted_owner_cannot_leak_logical_admission_or_process_slot() {
         let worker_slot = slot.clone();
         let task = tokio::spawn(async move {
             let admitted = owner.admit("seg", 1, "ko", chunk(), 10_000).unwrap();
-            let mut worker = SupervisedWorker::spawn(
+            let worker = SupervisedWorker::spawn(
                 &python(),
                 &["-c", "import time;time.sleep(120)"],
                 worker_slot,
@@ -288,7 +284,15 @@ fn aborted_owner_cannot_leak_logical_admission_or_process_slot() {
             let reply = worker
                 .exchange(admitted.request(), &admitted.cancelled)
                 .await;
-            let _ = owner.finish(&admitted, reply.as_ref().ok());
+            match reply {
+                Ok((mut worker, reply)) => {
+                    let _ = owner.finish(&admitted, Some(&reply));
+                    worker.stop().await.unwrap();
+                }
+                Err(_) => {
+                    let _ = owner.finish(&admitted, None);
+                }
+            }
         });
         while slot.available_permits() != 0 {
             tokio::task::yield_now().await;
@@ -303,4 +307,68 @@ fn aborted_owner_cannot_leak_logical_admission_or_process_slot() {
         let next = session.admit("seg", 1, "ko", chunk(), 100).unwrap();
         assert_eq!(session.finish(&next, Some(&reply(&next))).unwrap().len(), 1);
     });
+}
+
+#[test]
+fn external_timeout_consumes_worker_and_reaps_before_retry() {
+    runtime().block_on(async {
+        let slot = worker_slot();
+        let worker = SupervisedWorker::spawn(
+            &python(),
+            &["-c", "import sys,time;sys.stdin.readline();time.sleep(120)"],
+            slot.clone(),
+        )
+        .unwrap();
+        let session = AsrSession::default();
+        session.start("s").unwrap();
+        let admitted = session.admit("seg", 1, "ko", chunk(), 10_000).unwrap();
+        assert!(tokio::time::timeout(
+            Duration::from_millis(10),
+            worker.exchange(admitted.request(), &admitted.cancelled)
+        )
+        .await
+        .is_err());
+        // `worker` has moved into the cancelled future and cannot be reused.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while slot.available_permits() == 0 && Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(slot.available_permits(), 1);
+        assert!(session.finish(&admitted, None).is_err());
+        let mut replacement = SupervisedWorker::spawn(
+            &python(),
+            &["-c", "import time;time.sleep(120)"],
+            slot.clone(),
+        )
+        .unwrap();
+        replacement.stop().await.unwrap();
+    });
+}
+
+#[test]
+fn drop_outside_or_after_tokio_runtime_still_reaps_before_release() {
+    for close_runtime_first in [false, true] {
+        let rt = runtime();
+        let slot = worker_slot();
+        let worker = rt.block_on(async {
+            SupervisedWorker::spawn(
+                &python(),
+                &["-c", "import time;time.sleep(120)"],
+                slot.clone(),
+            )
+            .unwrap()
+        });
+        if close_runtime_first {
+            drop(rt);
+            drop(worker);
+        } else {
+            drop(worker);
+            drop(rt);
+        }
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while slot.available_permits() == 0 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(slot.available_permits(), 1);
+    }
 }

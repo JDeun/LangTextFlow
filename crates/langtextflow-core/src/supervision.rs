@@ -63,12 +63,31 @@ pub struct SupervisedWorker {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
     stdout: Option<BufReader<ChildStdout>>,
-    permit: Option<OwnedSemaphorePermit>,
+    permit: Option<ProcessLease>,
+}
+
+struct ProcessLease(Option<OwnedSemaphorePermit>);
+
+impl ProcessLease {
+    fn release(&mut self) {
+        self.0.take();
+    }
+}
+
+impl Drop for ProcessLease {
+    fn drop(&mut self) {
+        // If the reaper is aborted/runtime closes before confirmed exit, fail
+        // closed. Never release capacity merely because an async task vanished.
+        if let Some(permit) = self.0.take() {
+            permit.forget();
+        }
+    }
 }
 
 impl SupervisedWorker {
     pub fn spawn(program: &str, args: &[&str], slot: Arc<Semaphore>) -> Result<Self, WorkerError> {
         let permit = slot.try_acquire_owned().map_err(|_| WorkerError::Busy)?;
+        tokio::runtime::Handle::try_current().map_err(|_| WorkerError::Closed)?;
         // Trusted first-party executable/arguments only, never a shell or payload code.
         let mut child = Command::new(program)
             .args(args)
@@ -85,7 +104,7 @@ impl SupervisedWorker {
             child: Some(child),
             stdin,
             stdout,
-            permit: Some(permit),
+            permit: Some(ProcessLease(Some(permit))),
         })
     }
 
@@ -94,6 +113,15 @@ impl SupervisedWorker {
     }
 
     pub async fn exchange(
+        mut self,
+        request: &WorkerRequest,
+        cancelled: &AtomicBool,
+    ) -> Result<(Self, WorkerReply), WorkerError> {
+        let reply = self.exchange_owned(request, cancelled).await?;
+        Ok((self, reply))
+    }
+
+    async fn exchange_owned(
         &mut self,
         request: &WorkerRequest,
         cancelled: &AtomicBool,
@@ -159,6 +187,9 @@ impl SupervisedWorker {
             }
         }
         self.child.take();
+        if let Some(permit) = self.permit.as_mut() {
+            permit.release();
+        }
         self.permit.take();
         Ok(())
     }
@@ -170,17 +201,38 @@ impl Drop for SupervisedWorker {
         self.stdout.take();
         if let Some(mut child) = self.child.take() {
             let _ = child.start_kill();
-            let permit = self.permit.take();
+            let mut permit = self.permit.take();
             // Cancellation of an exchange future still kills/reaps its owned
             // child. Retain admission until wait completes, even after timeout.
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                handle.spawn(async move {
-                    let _ = child.wait().await;
-                    drop(permit);
+            let _ = std::thread::Builder::new()
+                .name("ltf-worker-reap".into())
+                .spawn(move || loop {
+                    match child.try_wait() {
+                        Ok(Some(_)) => {
+                            if let Some(permit) = permit.as_mut() {
+                                permit.release();
+                            }
+                            break;
+                        }
+                        Ok(None) => std::thread::sleep(POLL),
+                        Err(_) => break,
+                    }
                 });
-            }
-            // Outside a runtime Tokio's kill_on_drop is the last-resort kill;
-            // callers must await stop before shutting the runtime down.
+            // Independent of Tokio runtime lifetime. Failed thread start/reap
+            // drops ProcessLease without release, permanently retaining capacity.
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn unverified_reap_forgets_capacity_instead_of_releasing() {
+        let slot = worker_slot();
+        drop(ProcessLease(Some(
+            slot.clone().try_acquire_owned().unwrap(),
+        )));
+        assert_eq!(slot.available_permits(), 0);
     }
 }
