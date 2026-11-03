@@ -17,34 +17,16 @@ from .asr.faster_whisper import FasterWhisperStreamingAsrEngine
 from .benchmark import pcm16le_to_f32le
 from .models import SessionContext, StartSessionRequest
 from .parent_pipe import read_parent_pipe
-from .worker_ipc import MAX_FRAME_BYTES, PROTOCOL_VERSION
-
-IDENTITY_KEYS = (
-    "protocol_version", "request_id", "session_id", "session_generation",
-    "segment_id", "source_revision",
+from .worker_ipc import (
+    IDENTITY_KEYS,
+    MAX_FRAME_BYTES,
+    PROTOCOL_VERSION,
+    validate_inference_request,
 )
-REQUEST_KEYS = {*IDENTITY_KEYS, "task_kind", "source_language", "target_language",
-                "deadline_ms", "payload"}
 
 
 def validate_request(request: object) -> dict:
-    if not isinstance(request, dict) or set(request) != REQUEST_KEYS:
-        raise ValueError("invalid_request")
-    if (request["protocol_version"] != PROTOCOL_VERSION
-            or type(request["protocol_version"]) is not int
-            or request["task_kind"] != "asr" or request["target_language"] is not None
-            or request["source_language"] not in {"ko", "en", "ja"}
-            or type(request["deadline_ms"]) is not int
-            or not 1 <= request["deadline_ms"] <= 120_000):
-        raise ValueError("unsupported_request")
-    for key in ("request_id", "session_id", "segment_id"):
-        if not isinstance(request[key], str) or not 1 <= len(request[key]) <= 128:
-            raise ValueError("invalid_identity")
-    for key in ("session_generation", "source_revision"):
-        if type(request[key]) is not int or not 1 <= request[key] <= 2**64 - 1:
-            raise ValueError("invalid_identity")
-    if not isinstance(request["payload"], str):
-        raise ValueError("invalid_payload")
+    validate_inference_request(request, "asr")
     chunk = json.loads(request["payload"])
     if not isinstance(chunk, dict) or set(chunk) != {
         "wav_path", "start_sample", "end_sample", "sample_rate",
