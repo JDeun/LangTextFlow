@@ -56,3 +56,14 @@ async def test_audience_reads_reach_downstream(method: str) -> None:
     )
     assert result.status_code == 204
     assert called
+
+
+@pytest.mark.asyncio
+async def test_lan_summary_approval_is_rejected_before_body_parsing() -> None:
+    async def downstream(request: Request) -> Response:
+        pytest.fail("LAN request reached summary review handler")
+
+    response = await main.reject_remote_operator_api_before_body_parse(
+        _request("POST", "/api/v1/history/session/summaries/summary/reviews"), downstream,
+    )
+    assert response.status_code == 403

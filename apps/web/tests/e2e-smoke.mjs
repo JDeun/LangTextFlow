@@ -1,4 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -455,6 +456,23 @@ for (const projectId of [null, eventProject.project_id]) {
   }
 }
 
+// Seed only a deterministic model draft; review/save/approval use real HTTP and SQLite.
+execFileSync("uv", ["run", "python", "-c", `
+import json, sys
+from langtextflow.config import get_settings
+from langtextflow.post_event_archive import PostEventArchive
+from langtextflow.post_event_summary import transcript_source
+from langtextflow.session_repository import SessionRepository
+sid = json.load(sys.stdin)
+settings = get_settings()
+history = SessionRepository(settings.database_path)
+source, digest = transcript_source(history.segments(sid))
+archive = PostEventArchive(settings.database_path)
+record = archive.begin_summary(sid, language="ko", provider="ollama", model="synthetic-e2e",
+    transcript_sha256=digest, prompt_version="synthetic-e2e")
+archive.finish_summary(record["summary_id"], content="Synthetic summary " + source.split("]", 1)[0] + "]")
+`], { input: JSON.stringify(state.session_id) });
+
 await navigate("http://127.0.0.1:5173/");
 await waitFor(
   () => evaluate(`document.querySelector('.history-item') !== null`),
@@ -477,6 +495,29 @@ await waitFor(
   "paired recording player in completed event history",
 );
 await screenshot("history-detail-ko");
+
+await waitFor(
+  () => evaluate(`document.querySelector('.history-post-summary textarea')?.value.startsWith('Synthetic summary')`),
+  "summary review editor",
+);
+await evaluate(`(() => {
+  const editor = document.querySelector('.history-post-summary textarea');
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+  setter.call(editor, editor.value.replace('Synthetic summary', 'Reviewed summary'));
+  editor.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await evaluate(`Array.from(document.querySelectorAll('.history-post-summary button')).find(b => b.textContent === '검수 초안 저장').click()`);
+await waitFor(async () => {
+  const result = await fetch(`${archiveRoot}/archive`);
+  return (await result.json()).summary?.review?.content.startsWith("Reviewed summary");
+}, "persisted review draft");
+await waitFor(() => evaluate(`Array.from(document.querySelectorAll('.history-post-summary button')).some(b => b.textContent === '요약 승인 및 잠금' && !b.disabled)`), "review save completed");
+await evaluate(`Array.from(document.querySelectorAll('.history-post-summary button')).find(b => b.textContent === '요약 승인 및 잠금').click()`);
+await waitFor(() => evaluate(`document.querySelector('.history-post-summary textarea')?.readOnly === true`), "approved summary locked");
+const reviewedArchive = await (await fetch(`${archiveRoot}/archive`)).json();
+if (!reviewedArchive.summary.review.approved || !reviewedArchive.summary.content.startsWith("Synthetic summary")) {
+  throw new Error("summary approval did not preserve original model draft");
+}
 
 for (const format of ["srt", "vtt", "txt", "json"]) {
   const exportResponse = await fetch(

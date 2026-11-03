@@ -84,6 +84,22 @@ class PostEventArchive:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_one_running_summary "
                 "ON session_summaries(session_id) WHERE status='running'"
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS summary_reviews (
+                    review_id TEXT PRIMARY KEY,
+                    summary_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    approved INTEGER NOT NULL CHECK(approved IN (0,1)),
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(summary_id) REFERENCES session_summaries(summary_id)
+                        ON DELETE CASCADE
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_summary_reviews ON summary_reviews(summary_id)"
+            )
         self.cleanup_stale_partials()
 
     def cleanup_stale_partials(self, *, older_than_seconds: int = 24 * 3600) -> int:
@@ -233,7 +249,10 @@ class PostEventArchive:
             row = conn.execute(
                 "SELECT * FROM session_summaries WHERE summary_id=?", (summary_id,),
             ).fetchone()
-        return dict(row) if row else None
+        result = dict(row) if row else None
+        if result is not None:
+            result["review"] = self.latest_review(summary_id)
+        return result
 
     def latest_summary(self, session_id: str) -> dict | None:
         with self._connect() as conn:
@@ -242,4 +261,48 @@ class PostEventArchive:
                 "ORDER BY created_at DESC, rowid DESC LIMIT 1",
                 (session_id,),
             ).fetchone()
-        return dict(row) if row else None
+        return self.summary_by_id(row["summary_id"]) if row else None
+
+    def latest_review(self, summary_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM summary_reviews WHERE summary_id=? ORDER BY rowid DESC LIMIT 1",
+                (summary_id,),
+            ).fetchone()
+        result = dict(row) if row else None
+        if result is not None:
+            result["approved"] = bool(result["approved"])
+        return result
+
+    def review_summary(
+        self, session_id: str, summary_id: str, *, content: str,
+        approved: bool, expected_review_id: str | None,
+    ) -> dict:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            summary = conn.execute(
+                "SELECT status FROM session_summaries WHERE session_id=? AND summary_id=?",
+                (session_id, summary_id),
+            ).fetchone()
+            if summary is None:
+                raise KeyError("summary not found")
+            if summary["status"] != "completed":
+                raise ValueError("only completed summaries can be reviewed")
+            previous = conn.execute(
+                "SELECT * FROM summary_reviews WHERE summary_id=? ORDER BY rowid DESC LIMIT 1",
+                (summary_id,),
+            ).fetchone()
+            if previous is not None and previous["approved"]:
+                raise ValueError("approved summary is locked; generate a new summary version")
+            if (previous["review_id"] if previous else None) != expected_review_id:
+                raise ValueError("summary review changed; refresh before saving")
+            record = {
+                "review_id": str(uuid4()), "summary_id": summary_id,
+                "content": content, "approved": approved, "created_at": _now(),
+            }
+            conn.execute(
+                "INSERT INTO summary_reviews "
+                "(review_id, summary_id, content, approved, created_at) VALUES (?, ?, ?, ?, ?)",
+                tuple(record.values()),
+            )
+        return record

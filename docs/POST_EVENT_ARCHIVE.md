@@ -1,6 +1,6 @@
 # Post-event archive (initial implementation)
 
-> **Status:** pre-field, draft feature. Source transcript remains the source of truth. The AI output is an **unreviewed draft** and must be checked before publication.
+> **Status:** pre-field. Source transcript remains the source of truth. AI output starts as an **unreviewed draft**; operators can edit, save and approve it. Approval locks that version and preserves the original AI content. This records operator review, not independent semantic certification.
 
 ## Model
 
@@ -8,16 +8,18 @@ Existing `sessions` and `transcript_segments` are unchanged. New tables:
 
 - `session_recordings(recording_id, session_id, filename, media_type, size_bytes, sha256, duration_seconds, sample_rate, channels, created_at)`
 - `session_summaries(summary_id, session_id, language, provider, model, transcript_sha256, prompt_version, status, content, error, created_at, updated_at)`
+- `summary_reviews(review_id, summary_id, content, approved, created_at)` — append-only operator edits and approvals; cascades with the summary/session.
 
 Foreign keys cascade with session deletion. WAV bytes live in `<database-directory>/recordings/` and **never** as a SQLite BLOB. Managed storage uses server-generated filenames; original user filenames are not trusted. A deleted session removes its recording metadata and attempts managed file cleanup. Old orphan files following abrupt process termination may require a maintenance job (tracked in #79).
 
 ## User path
 
 1. Finish the session, then open **History > Details > Event archive**.
-2. Import a recording made through a permitted recording mechanism. Current initial UI imports **PCM16 WAV** (mono/stereo, 8–48 kHz, up to 512 MiB and four hours). **Live microphone recording is not yet implemented**; #79 covers an opt-in capture writer without blocking the ASR queue.
+2. Use the per-session opt-in to record live microphone audio, or import an authorized **PCM16 WAV** (mono/stereo, 8–48 kHz, up to 512 MiB and four hours).
 3. Play imported recordings from the same session panel.
 4. Choose **Generate / retry with local Ollama** to create a post-event summary. It defaults to the configured local `ollama_correction_model` (currently `qwen3.5:4b`); that model must be installed and reachable. No external provider is silently selected.
 5. The summary runs in an async job. The panel polls status; failure never changes or removes the original transcript. Generation is idempotent when the same transcript hash/provider/model/language/prompt version already has a completed result.
+6. Compare the summary against the transcript, retain exact source citations, save a review draft, then explicitly approve and lock it. Concurrent edits are rejected with HTTP 409. A changed source hash blocks approval; generate a new summary from the new evidence. Text export uses the saved review when present; the original AI draft remains available in the panel. Project manifests/reports retain approval and stale status.
 
 ## Automatic recording (stacked implementation)
 
@@ -62,6 +64,7 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
 | `POST /api/v1/history/{id}/recordings` | Stream raw `audio/wav` bytes of an authorized PCM16 recording, size-limited |
 | `GET /api/v1/history/{id}/recordings/{recording_id}/audio` | Local playback / download |
 | `POST /api/v1/history/{id}/summary` | Start nonblocking post-session summary generation |
+| `POST /api/v1/history/{id}/summaries/{summary_id}/reviews` | Save a cited review or approve and lock a completed summary; requires `content`, optional `approved`, and the latest `expected_review_id` (null for the first edit) |
 
 Request body for summary (optional keys):
 
@@ -77,8 +80,8 @@ Explicitly selecting the OpenAI-compatible provider requires `allow_external_pro
 
 Only **committed original-language** transcript segments are evidence; translated captions, provisional text and user-supplied reference documents are not fed as speech evidence. The text includes segment IDs and source timestamps. Large transcripts are chunked and hierarchically reduced; the transcript SHA-256 distinguishes old summaries from new revisions. The system prompt treats transcripts as untrusted data. These measures reduce, but do **not eliminate**, hallucination and prompt-injection risk.
 
-- Auto recording, time-accurate seek from the transcript, privacy notice/consent, retention quotas and encrypted-at-rest handling require #79.
-- Summary editing, human approval, proof-link validation, model quality benchmarks and stale-UI banners require #80 and #81.
+- Time-accurate seek, participant privacy notice/consent, retention quotas and encrypted-at-rest handling remain separate acceptance work under #79.
+- Summary editing, approval locking, citation identity validation and stale-UI banners are implemented. Citation validity does not establish factual accuracy; model quality and independent human acceptance remain under #80 and #81.
 - Real device/microphone 30/60/90-minute acceptance remains separate.
 - WAV imports are **not automatically aligned** with the live transcript; imported audio may include different leading/trailing silence.
 - Incomplete/interrupted sessions can have missing committed text; verify missing portions before dissemination.

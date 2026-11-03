@@ -9,6 +9,8 @@ export const POST_EVENT_COPY: Record<Locale, {
   korean: string; english: string; japanese: string; localProvider: string;
   externalProvider: string; externalConsent: string; modelId: string;
   defaultModel: string; exportSummary: string;
+  reviewText: string; reviewHint: string; saveReview: string; approveReview: string;
+  approved: string; unreviewed: string; reviewSaved: string; originalDraft: string;
 }> = {
   en: {
     heading: "Event archive", detail: "Transcript, optional recording, and AI summary are linked to this session.",
@@ -24,6 +26,10 @@ export const POST_EVENT_COPY: Record<Locale, {
     externalConsent: "I explicitly approve sending this transcript to the configured external provider.",
     modelId: "Model ID (optional)", defaultModel: "Configured default model",
     exportSummary: "Export summary text",
+    reviewText: "Review summary", reviewHint: "Check meaning against the source transcript and keep exact [segment-id at 123s] citations. Approval locks this version.",
+    saveReview: "Save review draft", approveReview: "Approve and lock summary",
+    approved: "Operator approved · locked", unreviewed: "Unapproved draft · verify before sharing",
+    reviewSaved: "Review draft saved.", originalDraft: "Original AI draft",
   },
   ko: {
     heading: "행사 아카이브", detail: "원문 전사문·녹음·AI 요약을 동일한 세션에서 관리합니다.",
@@ -39,6 +45,10 @@ export const POST_EVENT_COPY: Record<Locale, {
     externalConsent: "이 전사문을 설정된 외부 Provider로 전송하는 데 명시적으로 동의합니다.",
     modelId: "모델 ID(선택)", defaultModel: "설정된 기본 모델",
     exportSummary: "요약 텍스트 내보내기",
+    reviewText: "요약 검수", reviewHint: "원문과 의미를 대조하고 [segment-id at 123s] 인용을 유지하세요. 승인하면 이 버전이 잠깁니다.",
+    saveReview: "검수 초안 저장", approveReview: "요약 승인 및 잠금",
+    approved: "운영자 승인 완료 · 잠김", unreviewed: "미승인 초안 · 공유 전 검수 필요",
+    reviewSaved: "검수 초안을 저장했습니다.", originalDraft: "AI 원본 초안",
   },
   ja: {
     heading: "イベントアーカイブ", detail: "原文・録音・AI要約をセッション単位で管理します。",
@@ -54,6 +64,10 @@ export const POST_EVENT_COPY: Record<Locale, {
     externalConsent: "この原文を設定済みの外部プロバイダーへ送信することに明示的に同意します。",
     modelId: "モデルID（任意）", defaultModel: "設定済みの既定モデル",
     exportSummary: "要約テキストを書き出す",
+    reviewText: "要約のレビュー", reviewHint: "原文と意味を照合し、[segment-id at 123s] の引用を保持してください。承認後はこの版がロックされます。",
+    saveReview: "レビュー下書きを保存", approveReview: "要約を承認してロック",
+    approved: "運営者承認済み・ロック", unreviewed: "未承認の下書き・共有前に確認",
+    reviewSaved: "レビュー下書きを保存しました。", originalDraft: "AIの元の下書き",
   },
 };
 

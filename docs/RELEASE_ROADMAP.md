@@ -1,5 +1,26 @@
 # Release Roadmap & Repository Hygiene
-2026-10-26 · Tracking #224 · **existing numeric milestone assignments observed; milestone inventory/title verification pending**
+2026-11-03 · Tracking #224 · **Milestone inventory verified through the repository API; field/release acceptance remains open.**
+
+## Current inventory (2026-11-03)
+
+`GET /repos/JDeun/LangTextFlow/milestones?state=all&per_page=100` verified:
+
+| Number | Exact title |
+|---|---|
+| 1 | M0 - Repository Hygiene & Baseline |
+| 2 | M1 - Runtime Reliability |
+| 3 | M2 - Multilingual Quality |
+| 4 | M3 - Hardware & Field Qualification |
+| 5 | M4 - Product Completion |
+| 6 | M5 - v1.0 Stable Release |
+
+The open inventory contains **52 issues and 16 PRs**. No issues were closed by this inventory pass. Previous claims that milestone titles or M5 could not be verified are historical connector limitations, resolved by this read-only GitHub CLI/API check. Human owners, independent bilingual review, consented event audio, physical 4/8GB devices and signing/installer acceptance remain unverified.
+
+Local baseline at `39e8635`: 774 backend tests and 73 frontend tests passed, along with frontend typecheck/build, Ruff, Markdown links, wiki structure, UI localization and CSS gates. These are code checks, not field evidence. Runtime session snapshots and operator summary review are tracked by the completion PR; only merged code and exact-head checks establish integration.
+
+## Historical planning and audits (2026-10-22–26)
+
+The dated inventories and pending statuses below preserve the original handoff. Use the current inventory above for milestone existence and titles; do not treat historical open-PR counts or unverified-milestone statements as current state.
 
 ## Scope and existing backlog
 Open issue search showed architecture #154–#161; multilingual #117–#139; ASR #100–#115; post-event #78–#86; new competitor research #209–#222. Research documents from PR #215 and #223 have been merged into `main`. Runtime PRs #199 (ASR fallback), #200 (glossary capacity), and #201 (WebSocket caption projection) have also been merged. These changes do **not** establish field accuracy or hardware acceptance.
