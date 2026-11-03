@@ -122,16 +122,13 @@ def fake_native_inference(monkeypatch):
     )
 
     async def prepare(self):
-        self._engine = self._tokenizer = object()
+        pass
 
     monkeypatch.setattr(M2M100CT2Translator, "prepare", prepare)
-    monkeypatch.setattr(
-        M2M100CT2Translator,
-        "_translate_sync",
-        lambda self, text, source, target, tokenizer, engine: (
-            "한국어 번역" if target == "ko" else "English translation"
-        ),
-    )
+    async def infer(self, text, source, target):
+        return "한국어 번역" if target == "ko" else "English translation"
+
+    monkeypatch.setattr(M2M100CT2Translator, "_translate_rpc", infer)
 
 
 @pytest.mark.asyncio

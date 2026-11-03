@@ -77,6 +77,17 @@ def test_project_glossary_import_preserves_ids_and_cascades_project_deletion(sto
     assert [x.term for x in scoped.list(second)] == ["믿음"]
 
 
+def test_project_import_keeps_one_canonical_identity_across_presets(stores):
+    _, _, scoped, first, _ = stores
+    original = scoped.create(first, _term("Grace", source="en"))
+    with pytest.raises(ValueError, match="duplicate project glossary"):
+        scoped.import_entries(first, [
+            _term("new"), _term("grace", source="en"),
+            _term("GRACE", source="en", presets=[ProductPreset.CHURCH]),
+        ])
+    assert scoped.list(first) == [original]
+
+
 def test_session_snapshot_project_precedence_and_source_isolation(monkeypatch, stores):
     _, global_terms, scoped, first, second = stores
     global_terms.create(
