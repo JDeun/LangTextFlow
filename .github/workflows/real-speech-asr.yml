@@ -113,5 +113,6 @@ jobs:
           path: |
             artifacts/fleurs-asr/summary.json
             artifacts/fleurs-asr/report-*.json
+            artifacts/fleurs-asr/failure-*.json
           if-no-files-found: warn
           retention-days: 14

@@ -114,7 +114,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             raise ValueError("audio frame must contain little-endian float32 PCM")
         if len(pcm_f32le) > self.max_frame_bytes:
             raise ValueError("audio frame is larger than the configured safety limit")
-        await self._queue.put(pcm_f32le)
+        assert self._worker_task is not None
+        await self._enqueue_audio(self._queue, pcm_f32le, self._worker_task)
 
     async def end_audio(self) -> None:
         if self._queue is None or self._ended or self._failure is not None:
@@ -259,7 +260,9 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                 or segment.end_seconds > chunk_duration_seconds + 0.25
             ):
                 raise AsrEngineError(
-                    "faster-whisper returned out-of-bounds segment timestamps"
+                    "faster-whisper returned out-of-bounds segment timestamps: "
+                    f"{segment.start_seconds:.3f}–{segment.end_seconds:.3f}s "
+                    f"for {chunk_duration_seconds:.3f}s input"
                 )
             self._sequence += 1
             start_ms = min(
