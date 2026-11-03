@@ -204,7 +204,7 @@ def install_post_event_routes(
 
     @app.get("/api/v1/history/{session_id}/recordings/{recording_id}/audio")
     async def download_recording(
-        request: Request, session_id: str, recording_id: str,
+        request: Request, session_id: str, recording_id: str, download: bool = False,
     ):
         require_operator(request)
         await finished_session(session_id)
@@ -214,7 +214,7 @@ def install_post_event_routes(
         return FileResponse(
             path, media_type="audio/wav",
             filename=f"langtextflow-{session_id}.wav",
-            content_disposition_type="inline",
+            content_disposition_type="attachment" if download else "inline",
         )
 
     @app.post("/api/v1/history/{session_id}/summary", status_code=202)
@@ -224,6 +224,28 @@ def install_post_event_routes(
         require_operator(request)
         async with summary_start_lock:
             return await start_summary(session_id, payload)
+
+    @app.post("/api/v1/history/{session_id}/summaries/{summary_id}/cancel")
+    async def cancel_summary(request: Request, session_id: str, summary_id: str) -> dict:
+        require_operator(request)
+        async with summary_start_lock:
+            await finished_session(session_id)
+            record = await asyncio.to_thread(archive.summary_by_id, summary_id)
+            if record is None or record["session_id"] != session_id:
+                raise HTTPException(404, "summary not found")
+            if record["status"] != "running":
+                return record
+            task = next((task for task, sid in summary_jobs.items() if sid == summary_id), None)
+            if task is None:
+                raise HTTPException(409, "summary is not managed by this application instance")
+            task.cancel("operator")
+            await asyncio.gather(task, return_exceptions=True)
+            # A task cancelled before its first step cannot run its exception handler.
+            await asyncio.to_thread(
+                archive.finish_summary, summary_id,
+                error="Summary generation cancelled by operator; retry explicitly",
+            )
+            return await asyncio.to_thread(archive.summary_by_id, summary_id)
 
     async def start_summary(session_id: str, payload: SummaryRequest) -> dict:
         await finished_session(session_id)
@@ -301,10 +323,12 @@ def install_post_event_routes(
                 await asyncio.to_thread(
                     archive.finish_summary, record["summary_id"], content=content,
                 )
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as exc:
                 await asyncio.to_thread(
                     archive.finish_summary, record["summary_id"],
-                    error="Summary generation cancelled during application shutdown; retry later",
+                    error=("Summary generation cancelled by operator; retry explicitly"
+                           if exc.args == ("operator",) else
+                           "Summary generation cancelled during application shutdown; retry later"),
                 )
                 raise
             except Exception:
