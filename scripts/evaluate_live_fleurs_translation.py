@@ -230,6 +230,9 @@ def model_hashes(directory: Path | None) -> dict[str, str]:
     for name in (
         "model.bin",
         "config.json",
+        "preprocessor_config.json",
+        "vocabulary.txt",
+        "vocabulary.json",
         "tokenizer.json",
         "shared_vocabulary.json",
         "tokenizer_config.json",
