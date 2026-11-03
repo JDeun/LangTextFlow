@@ -266,6 +266,18 @@ fn exercise_history_failure(write_failure: bool) {
         assert!(started.elapsed() < Duration::from_secs(10));
         let report = writer.sink().metrics();
         assert!(!report.complete && (report.dropped > 0 || report.write_errors > 0));
+        let live_end: Option<String> = connection
+            .query_row(
+                "SELECT ended_at FROM sessions WHERE session_id='history-session'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(live_end.is_none()); // Data-write failure cannot end the live source session.
+        if write_failure {
+            let diagnostic = writer.flush().await.unwrap();
+            assert!(diagnostic.write_errors > 0 && !diagnostic.complete && !diagnostic.stopped);
+        }
         if !write_failure {
             connection.execute_batch("ROLLBACK").unwrap();
         }
@@ -277,6 +289,17 @@ fn exercise_history_failure(write_failure: bool) {
         assert!(!stopped.complete);
         if write_failure {
             assert_eq!(stopped.error, Some("history_write_failed"));
+            let saved_end: Option<String> = connection
+                .query_row(
+                    "SELECT ended_at FROM sessions WHERE session_id='history-session'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert!(
+                saved_end.is_some(),
+                "observed stop must still persist after INSERT-only failure"
+            );
         }
         assert!(ended.elapsed() < Duration::from_secs(4));
         server.stop().await.unwrap();

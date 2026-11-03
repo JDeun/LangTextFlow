@@ -9,8 +9,8 @@ a model, physical device, release or field deployment.
 
 The existing Python control plane calls `SessionRepository.initialize()` and
 `create_session()` before attaching the Rust writer. Those methods remain the
-schema/migration and session-metadata bootstrap authority in this slice. Python
-inference workers receive no database handle, database path or storage capability.
+schema/migration and session-metadata bootstrap authority in this slice. Database
+writes stay in Rust; inference request payloads and arguments gain no database handle or path.
 
 `HistoryWriter::open` opens that existing database read/write, without creating an
 absent file or parallel schema. It requires the migrated transcript columns and an
@@ -54,8 +54,10 @@ The queue capacity is explicit, 1–32 canonical-frame/invalidation operations.
 Existing projection bounds limit each frame to under 1 MiB. Source/MT/WebSocket publication only calls
 `try_send`; it never waits for SQLite or a queue slot. Overflow increments dropped
 and marks persistence incomplete. A SQLite failure rejects subsequent **history
-enqueue only**, reports a fixed error category and drains/discards remaining
-bounded work. ASR/PCM admission, MT and fast observer progress continue. Database
+enqueue only**, reports a fixed error category and discards remaining bounded
+data work. Its owned control channel remains alive for flush observations and the
+later actual session-end update; a data error cannot prematurely end the live
+session or suppress its eventual observed stop. ASR/PCM admission, MT and fast observer progress continue. Database
 errors, paths, SQL text and credentials are not serialized into diagnostics.
 
 `flush()` is a control-plane barrier with a three-second wait bound. `stop()` first

@@ -68,11 +68,13 @@ impl HistorySink {
         source: &str,
         targets: &[String],
     ) -> bool {
+        let shared = self.shared.lock().unwrap();
         self.session_id == sid
             && self.generation == generation
             && self.source == source
             && self.targets == targets
-            && self.shared.lock().unwrap().sender.is_some()
+            && shared.sender.is_some()
+            && shared.metrics.write_errors == 0
     }
 
     pub(crate) fn enqueue(&self, event: JsonFrame) {
@@ -85,10 +87,11 @@ impl HistorySink {
 
     fn enqueue_command(&self, command: Command) {
         let mut shared = self.shared.lock().unwrap();
-        let sent = shared
-            .sender
-            .as_ref()
-            .is_some_and(|sender| sender.try_send(command).is_ok());
+        let sent = shared.metrics.write_errors == 0
+            && shared
+                .sender
+                .as_ref()
+                .is_some_and(|sender| sender.try_send(command).is_ok());
         if sent {
             shared.metrics.accepted += 1;
         } else {
@@ -286,6 +289,7 @@ fn open_existing(
 }
 
 fn run(mut connection: Connection, mut receiver: mpsc::Receiver<Command>, sink: HistorySink) {
+    let mut failed = false;
     while let Some(command) = receiver.blocking_recv() {
         match command {
             Command::Flush(tx) => {
@@ -293,6 +297,10 @@ fn run(mut connection: Connection, mut receiver: mpsc::Receiver<Command>, sink: 
                 continue;
             }
             command => {
+                if failed {
+                    sink.shared.lock().unwrap().metrics.dropped += 1;
+                    continue;
+                }
                 let result = match command {
                     Command::Event(raw) => {
                         persist(&mut connection, &sink, raw.get()).map(|changed| (changed, 0))
@@ -317,15 +325,7 @@ fn run(mut connection: Connection, mut receiver: mpsc::Receiver<Command>, sink: 
                         shared.metrics.write_errors += 1;
                         shared.metrics.complete = false;
                         shared.metrics.error = Some(error);
-                        shared.sender.take();
-                        receiver.close();
-                        drop(shared);
-                        while let Ok(command) = receiver.try_recv() {
-                            if !matches!(command, Command::Flush(_)) {
-                                sink.shared.lock().unwrap().metrics.dropped += 1;
-                            }
-                        }
-                        break;
+                        failed = true; // Reject data, retain control until the observed session stop.
                     }
                 }
             }
