@@ -121,6 +121,8 @@ class SessionRepository:
                     speaker TEXT,
                     confidence REAL,
                     correction_json TEXT,
+                    asr_provenance_json TEXT,
+                    translation_provenance_json TEXT NOT NULL DEFAULT '{}',
                     committed INTEGER NOT NULL,
                     emitted_at TEXT NOT NULL,
                     PRIMARY KEY (session_id, segment_id),
@@ -151,6 +153,14 @@ class SessionRepository:
                     "ALTER TABLE transcript_segments ADD COLUMN "
                     "translation_states_json TEXT NOT NULL DEFAULT '{}'"
                 )
+            for column, declaration in (
+                ("asr_provenance_json", "TEXT"),
+                ("translation_provenance_json", "TEXT NOT NULL DEFAULT '{}'"),
+            ):
+                if column not in segment_columns:
+                    connection.execute(
+                        f"ALTER TABLE transcript_segments ADD COLUMN {column} {declaration}"
+                    )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_started_at ON sessions(started_at DESC)"
             )
@@ -264,8 +274,8 @@ class SessionRepository:
                     session_id, segment_id, version, source_revision, stage, source_language,
                     text, original_text, translations_json, translation_states_json,
                     start_ms, end_ms, speaker, confidence, correction_json,
-                    committed, emitted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    committed, emitted_at, asr_provenance_json, translation_provenance_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id, segment_id) DO UPDATE SET
                     version = excluded.version,
                     source_revision = excluded.source_revision,
@@ -284,6 +294,8 @@ class SessionRepository:
                     speaker = excluded.speaker,
                     confidence = excluded.confidence,
                     correction_json = excluded.correction_json,
+                    asr_provenance_json = excluded.asr_provenance_json,
+                    translation_provenance_json = excluded.translation_provenance_json,
                     committed = excluded.committed,
                     emitted_at = excluded.emitted_at
                 WHERE excluded.version > transcript_segments.version
@@ -336,6 +348,10 @@ class SessionRepository:
                     correction_json,
                     int(event.committed),
                     event.emitted_at.isoformat(),
+                    (event.asr_provenance.model_dump_json()
+                     if event.asr_provenance is not None else None),
+                    json.dumps({language: item.model_dump(mode="json")
+                                for language, item in event.translation_provenance.items()}),
                 ),
             )
 
@@ -492,6 +508,9 @@ class SessionRepository:
                 else None
             ),
             correction=correction,
+            asr_provenance=(json.loads(row["asr_provenance_json"])
+                            if row["asr_provenance_json"] is not None else None),
+            translation_provenance=json.loads(row["translation_provenance_json"]),
             committed=bool(row["committed"]),
             emitted_at=datetime.fromisoformat(str(row["emitted_at"])),
         )

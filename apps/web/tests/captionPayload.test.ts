@@ -88,3 +88,56 @@ test("rejects invalid target-language status", () => {
     ...transcript, translation_states: { ko: "imaginary-status" },
   })), /caption event is invalid/);
 });
+
+const asrProvenance = {
+  provider: "faster-whisper", configured_model: "small", verified_model: null,
+  model_revision: null, timestamp_basis: "sample_clock_native_hint", sample_rate: 16000,
+  audio_chunk_start_sample: 0, audio_chunk_end_sample: 64000, auto_generation: 1,
+  timeline_offset_samples: 32000, replay_prefix_samples: 16000, overlap_trimmed: true,
+};
+const mtProvenance = {
+  provider: "ollama", requested_model: null, configured_model: "qwen3.5:4b",
+  verified_model: null, model_revision: null,
+};
+
+test("retains optional ASR timing/replay and independently failed target provenance", () => {
+  const event = {
+    ...transcript, asr_provenance: asrProvenance,
+    translation_states: { en: "available", ja: "failed" }, translations: { en: "English" },
+    translation_provenance: { en: mtProvenance, ja: mtProvenance },
+  };
+  assert.deepEqual(parseCaptionPayload(JSON.stringify(event)), event);
+  assert.deepEqual(parseCaptionPayload(JSON.stringify({ type: "snapshot", segments: [event] })),
+    { type: "snapshot", segments: [event] });
+  assert.doesNotThrow(() => parseCaptionPayload(JSON.stringify({
+    ...transcript, asr_provenance: null, translation_provenance: {},
+  })));
+});
+
+test("rejects malformed, unbounded, private-location and fabricated alignment provenance", () => {
+  for (const update of [
+    { sample_rate: 0 }, { auto_generation: -1 }, { timeline_offset_samples: 2 ** 53 },
+    { audio_chunk_start_sample: 64001 }, { replay_prefix_samples: "10" },
+    { timestamp_basis: "native_aligned" }, { overlap_trimmed: null },
+    { provider: "https://endpoint?secret" }, { configured_model: "/private/operator/model" },
+    { verified_model: "C:\\private\\model" }, { model_revision: "x".repeat(201) },
+  ]) {
+    assert.throws(() => parseCaptionPayload(JSON.stringify({
+      ...transcript, asr_provenance: { ...asrProvenance, ...update },
+    })));
+  }
+  for (const update of [
+    { requested_model: "https://host/model?token=secret" }, { provider: "user@host" },
+    { configured_model: "C:secret" }, { model_revision: 123 },
+    { requested_model: "sk-private-api-key" },
+  ]) {
+    assert.throws(() => parseCaptionPayload(JSON.stringify({
+      ...transcript, translation_provenance: { en: { ...mtProvenance, ...update } },
+    })));
+  }
+  assert.throws(() => parseCaptionPayload(JSON.stringify({
+    ...transcript, translation_provenance: Object.fromEntries(
+      Array.from({ length: 11 }, (_, index) => [`lang${index}`, mtProvenance]),
+    ),
+  })));
+});

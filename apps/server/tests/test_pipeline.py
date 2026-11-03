@@ -250,7 +250,10 @@ async def test_pipeline_records_fallback_provenance_when_llm_correction_fails() 
     assert corrected.correction.llm_applied is False
     assert corrected.correction.deterministic_changed is True
     assert corrected.correction.fallback_reason is not None
-    assert "unsafe rewrite" in corrected.correction.fallback_reason
+    assert corrected.correction.fallback_reason == (
+        "correction provider failed; using deterministic result"
+    )
+    assert "unsafe rewrite" in pipeline.correction_status.error
     assert pipeline.correction_status.error is not None
     assert "deterministic result" in pipeline.correction_status.error
 

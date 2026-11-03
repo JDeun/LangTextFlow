@@ -47,6 +47,37 @@ Transition from `TranscriptEvent(stage, version, translations)` without destroyi
 - Existing legacy `TranscriptEvent` and WebSocket snapshot shapes remain supported during the migration. Add adapters/versioned payloads first, then migrate the consumers and persistence; do not change producer + consumer blindly in one PR.
 - Persist model revision/licensing and the captured glossary hash when necessary, with operator consent/privacy constraints respected.
 
+### Implemented optional provenance checkpoint (2026-11-03)
+
+`TranscriptEvent.asr_provenance` and per-target `translation_provenance` extend the existing
+event and snapshot shapes. They follow each source revision through correction, independent
+target success/failure, commit, SQLite, history/reconnect and JSON export. Missing legacy ASR
+metadata stays `null`; missing target metadata stays `{}`. Migration adds nullable/default
+columns without reconstructing historical model identities or timing evidence.
+
+- `provider` identifies the selected adapter. `configured_model` records its effective public
+  model identifier, including server defaults when the request omitted a model. MT also keeps
+  `requested_model`. Configuration is not verified inference identity: `verified_model` and
+  `model_revision` remain `null` unless independently known. No new hashing or downloads occur.
+- ASR `timestamp_basis` is `synthetic` (mock), `sample_clock_native_hint` (Whisper decoder
+  hints bounded by PCM chunks), `sample_clock_estimated` (text-only timestamp recovery or
+  bounded VAD restoration), `sequence_estimated` (VibeVoice message ordering bounded by
+  transmitted audio), or `unknown`. None asserts native word alignment. Input chunk sample
+  bounds describe input coverage, not the spoken segment's exact boundaries.
+- AUTO adds `auto_generation`, integer `timeline_offset_samples`, `replay_prefix_samples` and
+  `overlap_trimmed`. Chunk bounds remain provider-local; adding the offset gives session input
+  coordinates. The replay prefix is the provider-local input interval `[0, replay_prefix_samples)`;
+  later output from that provider is not automatically labelled replayed. A provider without
+  timing metadata remains `unknown` even when AUTO knows its offset. Stale callbacks stay fenced.
+- Public model identifiers are bounded; absolute paths, endpoint URLs, queries and credential
+  forms become `null`. Free-form correction exception text is withheld from public events;
+  operator correction status retains the diagnostic detail. Legacy correction reasons receive
+  the same safe public fallback label on read, without rewriting the database.
+
+The regression uses production runtime, provider adapter, audience WebSocket and SQLite paths
+with deterministic provider responses. It verifies wiring and privacy, not model quality,
+real network performance or field/hardware qualification.
+
 ## Scheduler and overload policy (#155, #156)
 
 - Bound admitted source segments and pending target tasks. Avoid unbounded `create_task`, unbounded model inference, and accumulated stale retries.

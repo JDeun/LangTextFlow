@@ -240,6 +240,10 @@ async def test_faster_whisper_preserves_valid_native_decode_without_text_only_re
     assert options["initial_prompt"] == "FLEURS test-set real speech evaluation"
     assert [(event.start_ms, event.end_ms) for event in published] == [(850, 4000)]
     assert engine.timestamp_recovery_count == 0
+    assert published[0].asr_provenance.timestamp_basis == "sample_clock_native_hint"
+    assert published[0].asr_provenance.sample_rate == 16000
+    assert published[0].asr_provenance.audio_chunk_start_sample == 0
+    assert published[0].asr_provenance.audio_chunk_end_sample == 64000
 
 
 @pytest.mark.asyncio
@@ -264,6 +268,11 @@ async def test_faster_whisper_retries_invalid_native_time_once_before_publishing
     assert [call["without_timestamps"] for call in calls] == [False, True]
     assert [event.text for event in published] == ["recovered chunk text"]
     assert engine.timestamp_recovery_count == 1
+    assert published[0].asr_provenance.timestamp_basis == "sample_clock_estimated"
+    assert published[0].asr_provenance.audio_chunk_end_sample == 64000
+    await engine._process_chunk(pcm(4))
+    assert published[1].asr_provenance.timestamp_basis == "sample_clock_native_hint"
+    assert published[1].asr_provenance.audio_chunk_start_sample == 64000
     assert engine.timestamp_recovery_errors == [{
         "error_type": "out_of_bounds_timestamp",
         "error": "faster-whisper returned out-of-bounds segment timestamps: "
@@ -385,6 +394,8 @@ async def test_faster_whisper_bounds_vad_restored_tail_using_transcribe_metadata
     assert published[0].text == "source speech"
     assert "VAD removed 0.850s" in caplog.text
     assert "segment timestamps remain estimates" in caplog.text
+    assert all(event.asr_provenance.timestamp_basis == "sample_clock_estimated"
+               for event in published)
 
 
 @pytest.mark.asyncio

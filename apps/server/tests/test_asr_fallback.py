@@ -7,7 +7,7 @@ import pytest
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError
 from langtextflow.asr.fallback import ReplayFallbackAsrEngine, StartupFallbackAsrEngine
-from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+from langtextflow.models import AsrProvenance, CaptionStage, StartSessionRequest, TranscriptEvent
 
 
 class FakeEngine(AsrEngine):
@@ -271,6 +271,32 @@ async def test_replay_fallback_replays_recent_audio_rebases_time_and_suppresses_
     assert published[1].start_ms == 1000
     assert published[1].end_ms == 1500
     assert published[1].text == "again"
+    assert published[0].asr_provenance.provider == "primary"
+    assert published[0].asr_provenance.timestamp_basis == "unknown"
+    assert published[0].asr_provenance.auto_generation == 0
+    assert published[0].asr_provenance.replay_prefix_samples == 0
+    replay = published[1].asr_provenance
+    assert replay.provider == "fallback" and replay.timestamp_basis == "unknown"
+    assert replay.sample_rate == 10 and replay.auto_generation == 1
+    assert replay.timeline_offset_samples == 5 and replay.replay_prefix_samples == 10
+    assert replay.overlap_trimmed
+    # Later input is outside the provider-local replay prefix; native hints
+    # and chunk bounds remain distinct from the global timeline offset.
+    await engine.feed_audio(pcm(5, 0.4))
+    native = AsrProvenance(
+        provider="faster-whisper", configured_model="small",
+        timestamp_basis="sample_clock_native_hint", sample_rate=10,
+        audio_chunk_start_sample=10, audio_chunk_end_sample=15,
+    )
+    await created["fallback"].publish(TranscriptEvent(
+        segment_id="fresh", version=1, stage=CaptionStage.STABLE, source_language="en",
+        text="fresh input", start_ms=1000, end_ms=1500, asr_provenance=native,
+    ))
+    fresh = published[-1]
+    assert (fresh.start_ms, fresh.end_ms) == (1500, 2000)
+    assert fresh.asr_provenance == native.model_copy(update={
+        "auto_generation": 1, "timeline_offset_samples": 5, "replay_prefix_samples": 10,
+    })
 
     await engine.stop()
 

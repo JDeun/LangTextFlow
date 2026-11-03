@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
-from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+from langtextflow.models import AsrProvenance, CaptionStage, StartSessionRequest, TranscriptEvent
 from langtextflow.native_work import run_native_work
 from langtextflow.whisper_cache import prepare_whisper_model, resolve_whisper_model
 
@@ -21,6 +21,7 @@ class DecodedSegment:
     start_seconds: float
     end_seconds: float
     text: str
+    estimated_timestamps: bool = False
 
 
 def _validate_timestamps(segments: list[DecodedSegment], duration: float) -> None:
@@ -251,6 +252,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                     continue
                 start = float(segment.start)
                 end = float(segment.end)
+                estimated = without_timestamps
                 # VAD restoration can add removed silence to a padded decoder tail.
                 if (
                     removed_silence > 0
@@ -262,11 +264,13 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                         end, duration, removed_silence,
                     )
                     end = duration
+                    estimated = True
                 decoded.append(
                     DecodedSegment(
                         start_seconds=start,
                         end_seconds=end,
                         text=text,
+                        estimated_timestamps=estimated,
                     )
                 )
             return decoded
@@ -368,6 +372,14 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                     stage=CaptionStage.STABLE,
                     source_language=self._request.source_language,
                     text=segment.text,
+                    asr_provenance=AsrProvenance(
+                        provider="faster-whisper", configured_model=self.model_name,
+                        timestamp_basis=("sample_clock_estimated" if segment.estimated_timestamps
+                                         else "sample_clock_native_hint"),
+                        sample_rate=self.sample_rate,
+                        audio_chunk_start_sample=self._audio_cursor_samples,
+                        audio_chunk_end_sample=self._audio_cursor_samples + chunk_samples,
+                    ),
                     start_ms=start_ms,
                     end_ms=end_ms,
                 )

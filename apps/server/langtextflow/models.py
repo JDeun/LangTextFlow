@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Literal
@@ -268,6 +269,19 @@ class SessionContext(BaseModel):
         return self.reference_text[:max_chars].rstrip()
 
 
+def public_model_identity(value: str | None) -> str | None:
+    """Only public model identifiers; local locations and endpoint strings stay private."""
+    if not isinstance(value, str) or len(value) > 200:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]*(?:/[A-Za-z0-9][A-Za-z0-9_.:-]*)?", value):
+        return None
+    if value.startswith(("sk-", "hf_", "ghp_", "github_pat_", "xoxb-", "xoxp-")):
+        return None
+    if ".." in value or ":/" in value or re.match(r"^[A-Za-z]:", value):
+        return None
+    return value
+
+
 class CorrectionProvenance(BaseModel):
     method: str = Field(pattern="^(deterministic|llm|fallback)$")
     provider: str | None = Field(default=None, max_length=80)
@@ -277,6 +291,66 @@ class CorrectionProvenance(BaseModel):
     llm_applied: bool = False
     changed: bool = False
     fallback_reason: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def public_identity(cls, value: str | None) -> str | None:
+        return public_model_identity(value)
+
+    @field_validator("fallback_reason", mode="before")
+    @classmethod
+    def public_reason(cls, value: str | None) -> str | None:
+        # Provider exception bodies can contain private paths, URLs and credentials.
+        if value is None or value in {
+            "correction provider unavailable", "correction timed out; using deterministic result",
+            "correction provider failed; using deterministic result",
+        }:
+            return value
+        return "correction provider failed; using deterministic result"
+
+
+class AsrProvenance(BaseModel):
+    provider: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$")
+    configured_model: str | None = None
+    verified_model: str | None = None
+    model_revision: str | None = None
+    timestamp_basis: Literal[
+        "unknown", "synthetic", "sample_clock_native_hint",
+        "sample_clock_estimated", "sequence_estimated",
+    ] = "unknown"
+    sample_rate: int | None = Field(default=None, ge=1, le=384_000)
+    # Input chunk bounds, not word/segment alignment. AUTO keeps provider-local bounds.
+    audio_chunk_start_sample: int | None = Field(default=None, ge=0, le=2**53 - 1)
+    audio_chunk_end_sample: int | None = Field(default=None, ge=0, le=2**53 - 1)
+    auto_generation: int | None = Field(default=None, ge=0, le=1_000_000)
+    timeline_offset_samples: int | None = Field(default=None, ge=0, le=2**53 - 1)
+    replay_prefix_samples: int | None = Field(default=None, ge=0, le=2**53 - 1)
+    overlap_trimmed: bool = False
+
+    @field_validator("configured_model", "verified_model", "model_revision")
+    @classmethod
+    def public_identity(cls, value: str | None) -> str | None:
+        return public_model_identity(value)
+
+    @model_validator(mode="after")
+    def ordered_chunk(self) -> AsrProvenance:
+        if (self.audio_chunk_start_sample is not None and self.audio_chunk_end_sample is not None
+                and self.audio_chunk_end_sample < self.audio_chunk_start_sample):
+            raise ValueError("audio chunk end cannot precede start")
+        return self
+
+
+class TranslationProvenance(BaseModel):
+    provider: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$")
+    requested_model: str | None = None
+    configured_model: str | None = None
+    verified_model: str | None = None
+    model_revision: str | None = None
+
+    @field_validator("requested_model", "configured_model", "verified_model", "model_revision")
+    @classmethod
+    def public_identity(cls, value: str | None) -> str | None:
+        return public_model_identity(value)
 
 
 TranslationTargetState = Literal[
@@ -298,6 +372,10 @@ class TranscriptEvent(BaseModel):
     translation_states: dict[str, TranslationTargetState] = Field(
         default_factory=dict, max_length=MAX_TARGET_LANGUAGES
     )
+    asr_provenance: AsrProvenance | None = None
+    translation_provenance: dict[str, TranslationProvenance] = Field(
+        default_factory=dict, max_length=MAX_TARGET_LANGUAGES,
+    )
     start_ms: int = Field(ge=0)
     end_ms: int | None = Field(default=None, ge=0)
     speaker: str | None = Field(default=None, max_length=160)
@@ -315,6 +393,19 @@ class TranscriptEvent(BaseModel):
     @classmethod
     def normalize_source_language(cls, value: str) -> str:
         return value.strip().lower()
+
+    @field_validator("translation_provenance")
+    @classmethod
+    def normalize_provenance_languages(
+        cls, value: dict[str, TranslationProvenance],
+    ) -> dict[str, TranslationProvenance]:
+        normalized: dict[str, TranslationProvenance] = {}
+        for language, provenance in value.items():
+            key = language.strip().lower()
+            if not 2 <= len(key) <= 16 or key in normalized:
+                raise ValueError("invalid or duplicate provenance target language")
+            normalized[key] = provenance
+        return normalized
 
     @field_validator("translations")
     @classmethod
