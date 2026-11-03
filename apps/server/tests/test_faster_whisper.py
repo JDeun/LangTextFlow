@@ -185,7 +185,9 @@ async def test_faster_whisper_uses_integer_pcm_clock_across_many_chunks() -> Non
     await engine.stop()
 
 
-def native_timestamp_engine(monkeypatch, publish, *, start=0.85, end=4.85, info=None):
+def native_timestamp_engine(
+    monkeypatch, publish, *, start=0.85, end=4.85, info=None, options_out=None,
+):
     # Keep the base test suite independent of the optional numpy/Whisper install.
     monkeypatch.setitem(sys.modules, "numpy", SimpleNamespace(
         float32=float,
@@ -195,12 +197,40 @@ def native_timestamp_engine(monkeypatch, publish, *, start=0.85, end=4.85, info=
     def transcribe(audio, **options):
         assert audio == pcm(4)
         assert options["vad_filter"] is True
+        assert options["without_timestamps"] is True
+        if options_out is not None:
+            options_out.update(options)
         return iter([SimpleNamespace(start=start, end=end, text=" source speech ")]), info
 
     engine = FasterWhisperStreamingAsrEngine(publish)
     engine._model = SimpleNamespace(transcribe=transcribe)
     engine._request = StartSessionRequest(engine="faster-whisper")
     return engine
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_uses_text_only_decoding_with_pcm_vad_chunk_spans(monkeypatch):
+    published = []
+    options = {}
+
+    async def publish(event):
+        published.append(event)
+
+    engine = native_timestamp_engine(
+        monkeypatch, publish, end=4.0, options_out=options,
+        info=SimpleNamespace(duration=4.0, duration_after_vad=3.15),
+    )
+    engine._request = StartSessionRequest(
+        engine="faster-whisper", source_language="ko",
+        context=SessionContext(title="FLEURS test-set real speech evaluation"),
+    )
+    await engine._process_chunk(pcm(4))
+    assert engine.chunk_seconds == 4.0
+    assert options["without_timestamps"] is True
+    assert options["vad_filter"] is True and options["beam_size"] == 1
+    assert options["condition_on_previous_text"] is False
+    assert options["initial_prompt"] == "FLEURS test-set real speech evaluation"
+    assert [(event.start_ms, event.end_ms) for event in published] == [(850, 4000)]
 
 
 @pytest.mark.asyncio

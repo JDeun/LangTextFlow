@@ -71,6 +71,30 @@ recognition result. Neither failed run supplies a valid three-clip aggregate.
 The default four-second CPU path remains unqualified under #101/#158; these fixes
 do not solve its recognition quality or justify a default/model promotion.
 
+## Text-only live decoding and chunk-span timing
+
+The live adapter requests `without_timestamps=True` while retaining the four-second
+default, beam size one, VAD, context hints and existing invalid-time rejection. It
+uses faster-whisper's PCM/VAD chunk-span estimates instead of sampling model timestamp
+tokens. This is not word alignment or a precise speech-boundary claim. Capability
+`timestamp_origin="chunk_segment"` identifies these local chunk spans; word timestamps
+remain unsupported. Unexpected future nonfinite, inverted or out-of-range decoder output
+still fails closed rather than being arbitrarily clamped.
+
+The installed faster-whisper 1.2.1 implementation pads encoder features to 3,000 frames
+even for a four-second input; timestamp-token segment ends are not bounded by the actual
+PCM duration. `clip_timestamps` restricts input windows but bypasses VAD and does not bound
+generated end tokens. `chunk_length=4` still pads the encoder input and did not change
+small-model output in the local pilot. Neither option is used as a timing fix.
+
+A local cached-small CPU INT8 experiment on public FLEURS item 1883, using the same
+evaluation title, compared three four-second speech chunks and the final 0.48-second
+tail. Text-only decoding returned spans 0.85–4 / 0–4 / 0–4 seconds, versus native timestamp
+tokens 0.85–3.99 / 0–3.96 / 0–4 seconds. Both produced clip CER 0.1132 / WER 0.4286;
+total inference was 8.060 versus 8.159 seconds in one local run. Silence/tail inputs
+produced no text. This small-model observation does not validate tiny/base failures or
+establish a latency/quality ranking; their pinned three-clip hosted reruns are required.
+
 ## Data handling
 
 - Avoid downloading arbitrary YouTube content. This benchmark uses an explicitly attributed dataset instead.

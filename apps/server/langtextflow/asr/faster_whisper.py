@@ -186,6 +186,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             language=request.source_language,
             beam_size=1,
             condition_on_previous_text=False,
+            # Use PCM/VAD chunk spans instead of sampling unbounded decoder time tokens.
+            without_timestamps=True,
             vad_filter=True,
             initial_prompt=initial_prompt,
             hotwords=hotwords,
