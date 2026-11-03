@@ -131,6 +131,40 @@ def test_digest_is_canonical_and_binds_scope_and_effective_entries():
         )
 
 
+def test_reviewed_snapshot_resolves_all_four_layers_and_reverts(stores):
+    _, global_terms, scoped, project = stores
+    global_terms.create(term(translation="global"))
+    preset = global_terms.create(term(translation="preset", presets=[ProductPreset.CHURCH]))
+    overlay = scoped.create(project, term(translation="project"))
+    client = TestClient(main.app, client=("127.0.0.1", 40000))
+    request = payload(project, context={"preset": "church", "glossary": [
+        term(translation="session").model_dump(mode="json"),
+    ]})
+
+    def review_and_start(expected):
+        reviewed = client.post("/api/v1/glossary/resolve", json=request)
+        assert reviewed.status_code == 200
+        snapshot = reviewed.json()
+        assert len(snapshot["entries"]) == 1
+        assert snapshot["entries"][0]["translations"]["ko"] == expected
+        started = client.post("/api/v1/session/start", json={
+            **request, "glossary_snapshot_sha256": snapshot["sha256"],
+        })
+        assert started.status_code == 200
+        effective = main.runtime.start.await_args.args[0].context.glossary
+        assert [entry.model_dump(mode="json") for entry in effective] == snapshot["entries"]
+        return snapshot["sha256"]
+
+    digests = [review_and_start("session")]
+    request["context"]["glossary"] = []
+    digests.append(review_and_start("project"))
+    scoped.delete(project, overlay.id)
+    digests.append(review_and_start("preset"))
+    global_terms.delete(preset.id)
+    digests.append(review_and_start("global"))
+    assert len(set(digests)) == 4
+
+
 def test_changed_review_rejects_before_runtime_or_audio_transition_and_legacy_starts(stores):
     _, global_terms, _, _ = stores
     saved = global_terms.create(term())
