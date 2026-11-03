@@ -183,7 +183,8 @@ async def test_parent_eof_terminates_actual_worker_during_native_work(tmp_path, 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("content", [b"x" * MAX_FRAME_BYTES, b"{}\n"])
+@pytest.mark.parametrize("content", [b"x" * MAX_FRAME_BYTES, b"{}\n"],
+                         ids=["unterminated-at-limit", "invalid-contract"])
 async def test_unbounded_or_invalid_input_exits_before_native_load(tmp_path, content):
     process, marker = await child(tmp_path)
     try:
