@@ -83,6 +83,22 @@ Replay는 의도적으로 이미 처리된 오디오 일부를 다시 전송합�
 
 ## 현재 한계
 
+모델 준비에도 deadline을 적용합니다. 선택적인 보정·번역 제공자의 `prepare()`는
+`LANGTEXTFLOW_PROVIDER_PREPARE_TIMEOUT_SECONDS`(기본 30초)를 넘으면 해당 기능만
+사용 불가로 표시하고 원문 자막을 유지합니다. 세션 제공자 초기화에는
+`LANGTEXTFLOW_SESSION_START_TIMEOUT_SECONDS`(기본 120초)의 공유 예산을 적용하며,
+Auto의 개별 ASR 후보와 세션 도중 handoff에도 같은 설정의 상한을 사용합니다.
+시작 실패·취소 시 생성 중인 세션과 persistence/pipeline 작업을 정리하고 종료 요청과
+다음 시작이 lifecycle lock에 영구 대기하지 않게 합니다. 이 예산은 모델 초기화용이며
+SQLite나 운영체제 파일 I/O 자체의 강제 종료를 보장하지 않습니다.
+
+Whisper 로드·추론과 M2M100 로드에는 각각 프로세스 단위로 하나의 native 작업만
+허용합니다. 비동기 요청을 취소해도 실행 중인 native thread를 강제로 중단하지는
+못하므로 실제 작업 종료까지 자리를 유지하고 추가 요청은 빠르게 실패시킵니다.
+늦게 완료된 모델은 취소된 제공자에 붙이지 않습니다. native 코드 자체가 영구 정지하면
+앱 재시작이 필요하며, 강제 종료·재시작까지 보장하는 격리는 별도 process worker의
+acceptance 대상입니다. 이는 현장 성능이나 native 취소 검증을 통과했다는 뜻이 아닙니다.
+
 - 한 세션 안에서 실패한 provider를 다시 retry/failback하지 않습니다.
 - exact text overlap만 제거하며 fuzzy semantic dedupe는 하지 않습니다.
 - replay buffer는 메모리 기반이며 프로세스 crash 이후 복구에는 사용할 수 없습니다.

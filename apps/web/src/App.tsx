@@ -530,7 +530,7 @@ function OperatorApp() {
               disabled={running}
             >
               <option value="none">{operatorCopy.rulesOnly}</option>
-              <option value="ollama">Ollama constrained correction (local)</option>
+              <option value="ollama">{operatorCopy.configuredCorrection}</option>
             </select>
             <small>{t("engines.correctionHelp")}</small>
           </label>

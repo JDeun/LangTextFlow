@@ -2,6 +2,7 @@ import type { Locale } from "./locales";
 
 export const OPERATOR_COPY: Record<Locale, {
   rulesOnly: string;
+  configuredCorrection: string;
   correctionDefaultHelp: string;
   configuredDefaultModel: string;
   noTranslation: string;
@@ -27,7 +28,8 @@ export const OPERATOR_COPY: Record<Locale, {
 }> = {
   en: {
     rulesOnly: "Rule-based correction only",
-    correctionDefaultHelp: "Leave blank to use the configured correction model, or enter a local instruction model.",
+    configuredCorrection: "Configured Ollama correction",
+    correctionDefaultHelp: "Leave blank for the configured model. Source transcript text is sent to the configured Ollama endpoint; verify whether it is local or remote before enabling correction.",
     configuredDefaultModel: "Configured default model",
     noTranslation: "No translation",
     translationRecommended: "Leave blank to use this provider's configured model. Verify its languages and quality before use.",
@@ -50,7 +52,8 @@ export const OPERATOR_COPY: Record<Locale, {
   },
   ko: {
     rulesOnly: "규칙 기반 보정만",
-    correctionDefaultHelp: "비워두면 설정된 보정 모델을 사용합니다. 다른 로컬 instruction model을 직접 입력할 수 있습니다.",
+    configuredCorrection: "설정된 Ollama 보정",
+    correctionDefaultHelp: "비워두면 설정된 보정 모델을 사용합니다. 원문 전사문이 설정된 Ollama 주소로 전송됩니다. 보정을 켜기 전에 로컬·원격 주소인지 확인하세요.",
     configuredDefaultModel: "서버에 설정된 기본 모델",
     noTranslation: "번역 사용 안 함",
     translationRecommended: "비워두면 이 번역 엔진에 설정된 모델을 사용합니다. 사용 전 언어 지원과 품질을 확인하세요.",
@@ -73,7 +76,8 @@ export const OPERATOR_COPY: Record<Locale, {
   },
   ja: {
     rulesOnly: "ルールベース補正のみ",
-    correctionDefaultHelp: "空欄なら設定済みの補正モデルを使用します。別のローカル instruction model も入力できます。",
+    configuredCorrection: "設定済みOllama補正",
+    correctionDefaultHelp: "空欄なら設定済みの補正モデルを使用します。原文は設定済みのOllamaエンドポイントへ送信されます。補正を有効にする前に、ローカルかリモートかを確認してください。",
     configuredDefaultModel: "サーバーに設定済みのモデル",
     noTranslation: "翻訳しない",
     translationRecommended: "空欄ならプロバイダーの設定済みモデルを使用します。使用前に対応言語と品質を確認してください。",

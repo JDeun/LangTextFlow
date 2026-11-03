@@ -37,6 +37,21 @@ POST /api/v1/setup/faster-whisper/prefetch
 
 Ollama pull은 local Ollama HTTP API의 streaming response를 backend가 소비합니다. status, digest, completed, total을 job state로 정규화하고 UI는 LangTextFlow job endpoint만 polling합니다.
 
+진행 응답은 모델 가중치 파일이 아닌 NDJSON 메타데이터입니다. UTF-8 한 줄을
+최대 665,536바이트로 제한하며, 줄바꿈 없는 긴 응답도 읽는 중에 거절합니다.
+LF·CRLF, 청크 사이에서 나뉜 UTF-8, 마지막 줄바꿈 없는 정상 레코드를 처리하고
+작은 진행 메시지를 버퍼가 찰 때까지 지연하지 않습니다. 전체 진행 스트림의 총량이나
+모델의 다운로드 크기·시간에는 이 줄별 상한을 적용하지 않습니다.
+
+`Accept-Encoding: identity`를 요청하고 압축 응답은 읽기 전에 거절합니다.
+리다이렉트를 따라가지 않으며 HTTP 오류는 코드만 표시합니다. 응답 안의 `error`
+레코드도 원격 본문·자격증명을 표시하지 않는 작업 실패로 처리합니다. 실패·취소 후에는
+같은 모델을 명시적으로 다시 요청할 수 있습니다.
+
+[Ollama pull API 계약](https://github.com/ollama/ollama/blob/main/docs/api.md#pull-a-model)에 따라
+마지막 유효 진행 레코드가 `status: success`인 경우에만 완료로 표시합니다. 진행 도중
+HTTP 연결이 정상 종료되어도 성공 레코드가 없으면 작업 실패이며, 완료율을 100%로 올리지 않습니다.
+
 취소는 LangTextFlow가 보유한 streaming request를 중단하는 best-effort 동작입니다. 별도의 Ollama server-side 강제 취소 API가 있다고 가정하지 않습니다.
 
 모델 준비가 완료되면 preflight를 다시 실행해 translation model readiness를 확인합니다.
