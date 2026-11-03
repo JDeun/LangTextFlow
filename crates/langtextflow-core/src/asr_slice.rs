@@ -311,6 +311,14 @@ impl AsrSession {
                 },
             });
         }
+        // Parsing/projection may itself consume the remaining budget. This is
+        // the linearization point; no result is stored after cancel/expiry.
+        if admitted.cancelled.load(Ordering::Acquire) {
+            return Err("cancelled");
+        }
+        if std::time::Instant::now() >= admitted.deadline {
+            return Err("deadline_expired");
+        }
         state
             .accepted
             .insert(admitted.request.segment_id.clone(), events.clone());
