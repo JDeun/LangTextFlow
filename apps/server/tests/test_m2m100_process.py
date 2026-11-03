@@ -16,6 +16,70 @@ from langtextflow.translation import m2m100_ct2 as mt
 from langtextflow.translation.base import TranslationError
 
 
+async def test_prepare_watchdog_allows_native_import_to_query_console(tmp_path):
+    """The Windows CRT locks a descriptor during blocking read; libraries query fd0."""
+    (tmp_path / "ctranslate2.py").write_text('''
+class Translator:
+    def __init__(self, *args, **kwargs): pass
+''')
+    (tmp_path / "transformers.py").write_text('''
+import os, time
+from types import SimpleNamespace
+time.sleep(.1)
+os.isatty(0)
+os.fstat(0)
+os.close(os.dup(0))
+class M2M100Tokenizer:
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        return SimpleNamespace(lang_code_to_token={'ko':'ko','en':'en','ja':'ja'})
+''')
+    shim = tmp_path / "prepare.py"
+    shim.write_text('''
+import hashlib, sys
+from dataclasses import replace
+from langtextflow import m2m100_prepare_worker as worker
+worker.FILES = tuple(replace(item, sha256=hashlib.sha256(b'fixture').hexdigest(),
+                             maximum_bytes=32) for item in worker.FILES)
+class Response:
+    is_redirect = False
+    headers = {}
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def raise_for_status(self): pass
+    def iter_raw(self, size): yield b'fixture'
+class Client:
+    def __init__(self, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def stream(self, *args, **kwargs): return Response()
+worker.httpx.Client = Client
+worker.main(sys.argv[1:])
+''')
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    child = await asyncio.create_subprocess_exec(
+        sys.executable, str(shim), str(stage), "0", str(tmp_path / "absent-model"),
+        str(tmp_path / "absent-tokenizer"), stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1])},
+    )
+    try:
+        # Keep stdin open. Closing it via communicate() would conceal the CRT lock conflict.
+        line = await asyncio.wait_for(child.stdout.readline(), 4)
+        assert json.loads(line) == {"ready": True}
+        child.stdin.close()
+        await asyncio.wait_for(child.wait(), 3)
+        assert child.returncode == 0 and await child.stderr.read() == b""
+    finally:
+        child.stdin.close()
+        try:
+            await asyncio.wait_for(child.wait(), 3)
+        except TimeoutError:
+            child.kill()
+            await child.wait()
+
+
 @pytest.fixture
 def process_provider(tmp_path, monkeypatch):
     for name in ("model.bin", "config.json", "tokenizer_config.json",

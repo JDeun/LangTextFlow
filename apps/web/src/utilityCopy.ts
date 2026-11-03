@@ -9,6 +9,9 @@ const en = {
     truncated: "up to 60,000 characters used", localExtract: "extracted locally when the session starts", remove: "Remove",
   },
   model: {
+    nativeTitle: "M2M100 CPU (experimental)",
+    nativeHelp: "Prepare, verify or repair a pinned ~0.5 GB model. Downloads occur only on request; no speech is sent. Requires the local-mt runtime. Custom paths use manual provisioning. Field quality is not qualified.",
+    prepareRepair: "Prepare / verify / repair M2M100",
     asrModel: "ASR model", translationModel: "translation model", predownload: "download in advance", download: "download",
     stateHttp: "Model setup status HTTP", stateFailed: "Could not check model setup status.", startFailed: "Could not start the model download.",
     cancelFailed: "Could not cancel the download request.", preparing: "Preparing…", cancelling: "Cancelling…", cancel: "Cancel download request", retry: "Try again",
@@ -42,6 +45,9 @@ const ko: UtilityCopy = {
     truncated: "60,000자까지 사용", localExtract: "세션 시작 시 로컬 추출", remove: "제거",
   },
   model: {
+    nativeTitle: "M2M100 CPU (실험적)",
+    nativeHelp: "고정된 약 0.5 GB 모델을 준비·검증·복구합니다. 요청할 때만 다운로드하며 음성을 전송하지 않습니다. local-mt 런타임이 필요하고 사용자 지정 경로는 수동으로 준비합니다. 현장 품질은 미승인입니다.",
+    prepareRepair: "M2M100 준비 / 검증 / 복구",
     asrModel: "ASR 모델", translationModel: "번역 모델", predownload: "미리 다운로드", download: "다운로드",
     stateHttp: "모델 준비 상태 HTTP", stateFailed: "모델 준비 상태를 확인하지 못했습니다.", startFailed: "모델 다운로드를 시작하지 못했습니다.",
     cancelFailed: "다운로드 요청을 취소하지 못했습니다.", preparing: "준비 중…", cancelling: "취소 중…", cancel: "다운로드 요청 취소", retry: "다시 시도",
@@ -72,6 +78,9 @@ const ja: UtilityCopy = {
     truncated: "60,000文字まで使用", localExtract: "セッション開始時にローカル抽出", remove: "削除",
   },
   model: {
+    nativeTitle: "M2M100 CPU（実験的）",
+    nativeHelp: "固定した約0.5 GBモデルを準備・検証・修復します。要求時のみダウンロードし、音声は送信しません。local-mtランタイムが必要です。カスタムパスは手動で準備します。現場品質は未承認です。",
+    prepareRepair: "M2M100の準備 / 検証 / 修復",
     asrModel: "ASRモデル", translationModel: "翻訳モデル", predownload: "事前ダウンロード", download: "ダウンロード",
     stateHttp: "モデル準備状態 HTTP", stateFailed: "モデル準備状態を確認できませんでした。", startFailed: "モデルのダウンロードを開始できませんでした。",
     cancelFailed: "ダウンロード要求をキャンセルできませんでした。", preparing: "準備中…", cancelling: "キャンセル中…", cancel: "ダウンロードをキャンセル", retry: "再試行",

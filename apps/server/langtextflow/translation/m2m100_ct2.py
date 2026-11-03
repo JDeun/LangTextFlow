@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import sys
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
@@ -62,6 +63,7 @@ class _M2M100Worker:
         self.process = None
         self.ready = False
         self._released = False
+        self.released = asyncio.Event()
         self._closing: asyncio.Task | None = None
         self._late_cleanup: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -70,7 +72,8 @@ class _M2M100Worker:
         self._launch = asyncio.create_task(asyncio.create_subprocess_exec(
             *command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, limit=IPC_LIMIT,
-            env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"},
+            env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+                 "USE_TORCH": "0", "PYINSTALLER_RESET_ENVIRONMENT": "0"},
         ))
         self._launch.add_done_callback(self._schedule_late_spawn_cleanup)
 
@@ -84,8 +87,8 @@ class _M2M100Worker:
                 lambda done: None if done.cancelled() else done.exception()
             )
 
-    async def start(self) -> None:
-        async with asyncio.timeout(LOAD_TIMEOUT_SECONDS):
+    async def start(self, *, timeout: float | None = None) -> None:
+        async with asyncio.timeout(LOAD_TIMEOUT_SECONDS if timeout is None else timeout):
             self.process = await asyncio.shield(self._launch)
             if await self._read() != {"ready": True}:
                 raise TranslationError("Local M2M100 CPU worker could not initialize")
@@ -171,6 +174,7 @@ class _M2M100Worker:
         if not self._released:
             self._released = True
             _CHILD_SLOT.release()
+            self.released.set()
 
 
 class M2M100CT2Translator(Translator):
@@ -249,17 +253,30 @@ class M2M100CT2Translator(Translator):
                 "check CT2 weights, tokenizer and optional dependencies."
             ) from exc
 
-    def _prepare_sync(self) -> tuple[Any, Any]:
+    def _prepare_sync(
+        self, *, report_phase: Callable[[str], None] | None = None,
+    ) -> tuple[Any, Any]:
+        if report_phase is not None:
+            report_phase("native_import_ct2")
         import ctranslate2
+
+        if report_phase is not None:
+            report_phase("native_import_tokenizer")
         from transformers import M2M100Tokenizer
 
+        if report_phase is not None:
+            report_phase("native_tokenizer_load")
         tokenizer = M2M100Tokenizer.from_pretrained(
             str(self.tokenizer_dir), local_files_only=True
         )
+        if report_phase is not None:
+            report_phase("native_engine_load")
         engine = ctranslate2.Translator(
             str(self.model_dir), device="cpu", compute_type="int8",
             inter_threads=1, intra_threads=self.cpu_threads,
         )
+        if report_phase is not None:
+            report_phase("native_language_check")
         for language in SUPPORTED_LANGUAGES:
             if language not in tokenizer.lang_code_to_token:
                 raise ValueError("M2M100 local tokenizer lacks a required language code")
