@@ -93,3 +93,39 @@ def test_latency_summary_reports_percentiles() -> None:
     assert summary["p50_ms"] == 200.0
     assert summary["p95_ms"] == 400.0
     assert summary["max_ms"] == 400.0
+
+
+async def test_runtime_benchmark_exposes_memory_scope_and_is_not_field_qualification(
+    tmp_path, monkeypatch,
+):
+    import wave
+
+    from test_faster_whisper import FakeFasterWhisperEngine
+
+    from langtextflow.models import ProductPreset
+    from langtextflow.runtime_benchmark import (
+        InstrumentedRuntime,
+        RuntimeBenchmarkOptions,
+        run_runtime_benchmark,
+    )
+
+    monkeypatch.setattr(InstrumentedRuntime, "_build_engine", lambda runtime, _: (
+        FakeFasterWhisperEngine(runtime.pipeline.ingest, chunk_seconds=.1)
+    ))
+
+    path = tmp_path / "synthetic.wav"
+    with wave.open(str(path), "wb") as audio:
+        audio.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        audio.writeframes(b"\0\0" * 1600)
+    result = await run_runtime_benchmark(RuntimeBenchmarkOptions(
+        audio_path=path, engine="faster-whisper", source_language="ko", target_languages=("en",),
+        translation_provider="none", translation_model=None, preset=ProductPreset.GENERAL,
+        pace="max", chunk_ms=100, duration_minutes=None, settle_seconds=0,
+        drain_timeout_seconds=1, reference_path=None, output_path=None,
+        title="Synthetic memory wiring test", hotwords=(),
+    ))
+    assert result["field_ready"] is False
+    assert result["environment"]["platform"]
+    assert result["memory"]["scope"] == "parent_process"
+    assert result["memory"]["process_tree"]["scope"] == "parent_and_recursive_descendants"
+    assert result["memory"]["sample_count"] >= 3  # start, provider prepared, before shutdown

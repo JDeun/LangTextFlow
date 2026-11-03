@@ -44,7 +44,7 @@ jobs:
       - name: Install pinned uv bootstrap
         run: python -m pip install "uv==0.12.13"
       - name: Sync locked backend dependencies
-        run: uv sync --locked --extra dev
+        run: uv sync --locked --extra dev --extra benchmark
       - name: Verify installed dependency consistency
         run: uv pip check
       - name: Repository hygiene scan

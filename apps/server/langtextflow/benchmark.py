@@ -10,6 +10,7 @@ import time
 import unicodedata
 import wave
 from array import array
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -128,22 +129,41 @@ class SegmentCollector:
 
 
 class MemoryTracker:
-    """Optional RSS sampler. psutil is intentionally a benchmark-only dependency."""
+    """Separate parent RSS from bounded, sampled descendant RSS sums.
+
+    Summed RSS double-counts shared pages and excludes separately launched
+    services. It is not physical RAM, PSS, GPU memory, or an OS high-water mark.
+    """
+
+    MAX_SAMPLES = 4096
+    MAX_PROCESSES = 64
 
     def __init__(self, *, interval_seconds: float = 5.0) -> None:
         self.interval_seconds = max(0.1, interval_seconds)
-        self.samples: list[dict[str, float]] = []
+        self.samples: deque[dict[str, float]] = deque(maxlen=self.MAX_SAMPLES)
+        self._tree_samples: deque[dict[str, Any]] = deque(maxlen=self.MAX_SAMPLES)
         self.available = False
+        self._psutil: Any | None = None
         self._process: Any | None = None
         self._started_at: float | None = None
         self._last_sample_at = 0.0
+        self._rss_values: list[float] = []  # first, last, lifetime sampled peak
+        self._tree_values: list[float] = []
+        self._observed_tree_peak: float | None = None
+        self._sample_count = 0
+        self._complete_tree_count = 0
+        self._partial_tree_count = 0
+        self._errors: dict[str, int] = {}
         try:
             import psutil
 
+            self._psutil = psutil
             self._process = psutil.Process()
             self.available = True
         except ImportError:
             self._process = None
+        except (psutil.Error, OSError, NotImplementedError):
+            self._error("parent_unavailable")
 
     def start(self) -> None:
         self._started_at = time.perf_counter()
@@ -156,29 +176,112 @@ class MemoryTracker:
         now = time.perf_counter()
         if not force and now - self._last_sample_at < self.interval_seconds:
             return
-        rss_mb = self._process.memory_info().rss / (1024 * 1024)
+        self._last_sample_at = now
+        elapsed = round(now - self._started_at, 3)
+        self._sample_count += 1
+        try:
+            parent_rss = self._process.memory_info().rss
+        except (self._psutil.Error, OSError, NotImplementedError):
+            self._error("parent_unavailable")
+            self._partial_tree_count += 1
+            self._tree_samples.append({"elapsed_seconds": elapsed, "rss_mb": None,
+                                       "process_count": 0, "complete": False})
+            return
+        rss_mb = round(parent_rss / (1024 * 1024), 2)
+        self._track(self._rss_values, rss_mb)
         self.samples.append(
             {
-                "elapsed_seconds": round(now - self._started_at, 3),
-                "rss_mb": round(rss_mb, 2),
+                "elapsed_seconds": elapsed,
+                "rss_mb": rss_mb,
             }
         )
-        self._last_sample_at = now
+        tree_rss, count, complete = self._tree_rss(parent_rss)
+        tree_mb = round(tree_rss / (1024 * 1024), 2)
+        self._observed_tree_peak = max(self._observed_tree_peak or 0, tree_mb)
+        if complete:
+            self._track(self._tree_values, tree_mb)
+            self._complete_tree_count += 1
+        else:
+            self._partial_tree_count += 1
+        self._tree_samples.append({"elapsed_seconds": elapsed, "rss_mb": tree_mb,
+                                   "process_count": count, "complete": complete})
+
+    @staticmethod
+    def _track(values: list[float], value: float) -> None:
+        if not values:
+            values.extend([value, value, value])
+        else:
+            values[1], values[2] = value, max(values[2], value)
+
+    def _error(self, code: str) -> None:
+        self._errors[code] = self._errors.get(code, 0) + 1
+
+    def _tree_rss(self, parent_rss: int) -> tuple[int, int, bool]:
+        pending = [self._process]
+        seen: set[int] = set()
+        total, count, complete = parent_rss, 1, True
+        while pending:
+            process = pending.pop()
+            if process.pid in seen:
+                continue
+            seen.add(process.pid)
+            if process is not self._process:
+                try:
+                    if not process.is_running():
+                        raise self._psutil.NoSuchProcess(process.pid)
+                    total += process.memory_info().rss
+                    count += 1
+                except (self._psutil.Error, OSError, NotImplementedError):
+                    complete = False
+                    self._error("descendant_unavailable")
+            try:
+                children = process.children(recursive=False)
+            except (self._psutil.Error, OSError, NotImplementedError):
+                complete = False
+                self._error("descendant_discovery_failed")
+                continue
+            remaining = self.MAX_PROCESSES - len(seen) - len(pending)
+            if len(children) > remaining:
+                complete = False
+                self._error("process_limit")
+            pending.extend(children[:max(0, remaining)])
+        return total, count, complete
 
     def report(self) -> dict[str, Any]:
-        if not self.available:
-            return {
-                "available": False,
-                "rss_peak_mb": None,
-                "rss_growth_mb": None,
-                "samples": [],
-            }
-        values = [sample["rss_mb"] for sample in self.samples]
         return {
-            "available": True,
-            "rss_peak_mb": max(values) if values else None,
-            "rss_growth_mb": round(values[-1] - values[0], 2) if len(values) >= 2 else 0.0,
-            "samples": self.samples,
+            "available": self.available,
+            "rss_peak_mb": self._rss_values[2] if self._rss_values else None,
+            "rss_growth_mb": round(self._rss_values[1] - self._rss_values[0], 2)
+            if self._rss_values else (0.0 if self.available else None),
+            "samples": list(self.samples),
+            "scope": "parent_process",
+            "method": "psutil.Process.memory_info.rss",
+            "psutil_version": getattr(self._psutil, "__version__", None),
+            "platform": platform.system(),
+            "unit": "MiB",
+            "interval_seconds": self.interval_seconds,
+            "sample_count": self._sample_count,
+            "retained_sample_limit": self.MAX_SAMPLES,
+            "sample_retention": "latest_samples; peaks_and_growth_cover_all_samples",
+            "errors": dict(self._errors),
+            "process_tree": {
+                "available": bool(self._tree_values),
+                "complete": bool(self._tree_values) and self._partial_tree_count == 0,
+                "scope": "parent_and_recursive_descendants",
+                "method": "psutil_sum_sampled_rss_not_pss",
+                "platform": platform.system(),
+                "unit": "MiB",
+                "rss_peak_mb": self._tree_values[2] if self._tree_values else None,
+                "rss_growth_mb": round(self._tree_values[1] - self._tree_values[0], 2)
+                if self._tree_values else None,
+                "observed_rss_peak_mb": self._observed_tree_peak,
+                "complete_sample_count": self._complete_tree_count,
+                "partial_sample_count": self._partial_tree_count,
+                "process_limit": self.MAX_PROCESSES,
+                "samples": list(self._tree_samples),
+                "shared_pages_counted_per_process": True,
+                "external_services_included": False,
+            },
         }
 
 
@@ -568,6 +671,7 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
 
     return {
         "schema_version": 1,
+        "field_ready": False,
         "status": status,
         "generated_at": datetime.now(UTC).isoformat(),
         "environment": {

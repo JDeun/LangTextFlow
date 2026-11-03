@@ -283,10 +283,74 @@ WER와 CER를 함께 봅니다.
 
 공개 가능한 결과만 익명화·집계한 뒤 문서나 release artifact로 올립니다.
 
-`memory.*`는 benchmark CLI가 실행되는 backend Python process의 RSS입니다.
+`memory.rss_peak_mb`, `rss_growth_mb`, `samples[].rss_mb`는 계속 benchmark
+Python **부모 프로세스 RSS**입니다. 기존 결과와 의미를 바꾸지 않습니다.
+`scripts/evaluate_live_fleurs_translation.py`의 `python_process_rss`도 같은
+MemoryTracker를 쓰므로 이 안에 다음 별도 지표가 포함됩니다.
 
-- faster-whisper: 같은 Python process이므로 의미가 큼
-- VibeVoice: 별도 sidecar process/GPU memory는 포함되지 않음
-- GPU VRAM: 현재 harness에서 직접 수집하지 않음
+- `process_tree`: 부모와 재귀 자손의 **동시 샘플 RSS 합**. 네이티브 M2M100처럼
+  benchmark가 소유한 자식이 모델을 로드하면 그 RSS도 포함합니다.
+- `method=psutil_sum_sampled_rss_not_pss`, OS, MiB 단위, 샘플 간격을 기록합니다.
+  공유 페이지는 프로세스마다 중복 계산하므로 실제 물리 RAM/PSS가 아닙니다.
+  샘플 사이에 사라진 프로세스나 일시적인 peak는 놓칠 수 있습니다.
+- 사라진/접근 불가 프로세스 또는 64개 탐색 상한에 걸린 샘플은 `complete=false`.
+  `rss_peak_mb`는 완전히 읽은 샘플의 최대값이며, 부분 합의 최대값은
+  `observed_rss_peak_mb`로 분리합니다. 비교 전 전체 `complete`와 오류 개수도 확인합니다.
+- 시계열은 최근 4,096개만 보존하지만 peak/growth 집계는 모든 샘플을 반영합니다.
+  부모 조회 실패/psutil 미설치는 benchmark를 중단하지 않고 가용성과 오류를 남깁니다.
+- 별도 실행된 Ollama/VibeVoice/Docker 서비스, 브라우저와 GPU VRAM은 포함하지 않습니다.
+  해당 서비스의 RSS/컨테이너 메모리/VRAM은 같은 시각에 별도로 수집해야 합니다.
 
-최종 hardware benchmark에서는 NVIDIA VRAM과 VibeVoice sidecar RSS도 별도로 기록합니다.
+스레드 기반 이전 실행의 부모 RSS와 새 child 실행의 부모 RSS를 총량처럼 비교하지
+마세요. 같은 sampler/간격/OS/프로세스 구성으로 다시 실행한 process-tree 지표를
+사용하고 외부 서비스 메모리를 따로 제시합니다. 이는 `field_ready=false`인
+연구 측정이며 4GB/8GB 실기기 승인이나 장시간 안정성 증명이 아닙니다.
+
+## 제한된 동일 입력 후보 비교 실행 계획
+
+새 모델을 내려받기 전에 기존 캐시와 권리 검토된 revision/SHA manifest를 확인합니다.
+입력은 pinned FLEURS revision `fdd74f7cdf01fc7641ab3072b6a38d364b3667f6`
+(CC BY 4.0)의 같은 한국어 3개 clip으로 고정합니다. 다음 기존 ASR 하네스는
+PCM SHA-256, 순서, 원문 reference, duration이 일치하지 않으면 비교를 거부합니다.
+이미 확인한 SenseVoice/큰 OPUS 음성·품질 실패를 재다운로드해 반복하지 않습니다.
+
+```bash
+# 이미 준비된 모델·FLEURS 데이터 캐시만 사용. Linux의 같은 CPU runner에서 실행.
+export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+for candidate in qwen3-0.6b zipformer-ko whispercpp-base; do
+  timeout 600 python -m scripts.benchmark_cpu_asr_candidates \
+    --candidate "$candidate" --model-dir "$ASR_CACHE/$candidate" \
+    --threads 2 --pace realtime --whisper-cli "$WHISPER_CPP" \
+    --output "artifacts/fair-asr/$candidate.json"
+done
+python -m scripts.compare_cpu_asr_candidates \
+  artifacts/fair-asr/qwen3-0.6b.json artifacts/fair-asr/zipformer-ko.json \
+  artifacts/fair-asr/whispercpp-base.json --output artifacts/fair-asr/comparison.json
+```
+
+1. 위 ASR 비교는 source CER/WER, cold load와 inference/전체 RTF를 같은 하네스로
+   계산합니다. 기존 challenger의 `resources.rss_peak_mb`는 부모+자손 합이며 새
+   MemoryTracker의 부모 RSS와 혼합하지 않습니다. first-caption/p95와 명시적으로
+   분리된 부모/자손 RSS는 제품 runtime 하네스에서 추가 측정해야 합니다.
+   Whisper.cpp와 production faster-whisper는 서로 다른
+   실행 backend이므로 명칭을 섞지 않습니다. production small을 추가할 때는 동일
+   WAV/reference를 `langtextflow-benchmark`에 전달하고 CPU thread/청크/힌트 설정까지
+   기록합니다. utterance replay가 streaming 성능을 입증하지는 않습니다.
+2. MT 단독 비교는 `church_translation_quality.v1.jsonl`에서 같은 **16개 KO→EN**
+   row만 사용합니다. 기존 `compare_church_cpu_pipeline.text_benchmark`를 공통 scorer로
+   재사용하면 OPUS-small의 `CTranslateMarian.translate`, M2M100의 고정 `ko/en` adapter,
+   TranslateGemma의 고정 `SessionContext(preset="church")` adapter에 같은 문자열을
+   넣어 같은 chrF++/용어/유효 출력/지연 지표를 계산할 수 있습니다. 각 후보는 별도
+   프로세스에서 순차 실행하고 1회 cold + 3회 warm, 같은 순서와 glossary OFF/ON
+   snapshot을 기록합니다. 현재 별개 MT CLI 결과는 corpus와 glossary 개입이 달라
+   서로 바로 순위를 매기지 않습니다. 공통 adapter 실행 전 이 차이를 없애야 합니다.
+3. 6방향은 별도 `lecture_multilingual_ko_en_ja.v1.jsonl`의 동일 8개 문장과
+   `church_glossary_multilingual.v1.json`으로 M2M100/지원 LLM만 비교합니다.
+   KO→EN 전용 OPUS-small을 나머지 5방향 후보로 표시하지 않습니다.
+   두 텍스트 fixture의 reference는 **synthetic_unreviewed**이며, FLEURS의 다른 언어 ID를
+   번역 정답으로 조합하지 않습니다. 이 단계의 점수는 인간 검수된 신학적 정확성이나
+   실제 음성의 정렬된 번역 품질을 의미하지 않습니다.
+
+후보마다 fixture/model/source SHA, 실제 성공/실패 건수, directed pair, CPU/스레드,
+청크·deadline·glossary·sampler 설정을 함께 보존합니다. 실패를 제외한 평균만으로
+승자를 고르지 않으며, 동일 입력/측정 방식이 확보되기 전에는 최적 조합을 주장하지 않습니다.
