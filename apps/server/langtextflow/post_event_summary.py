@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Awaitable, Callable
 from typing import Literal
 
 import httpx
@@ -171,6 +172,7 @@ async def generate_summary(
     settings: Settings,
     allow_external_provider: bool,
     project_notes: str | None = None,
+    send_guard: Callable[[], Awaitable[None]] | None = None,
 ) -> str:
     """Hierarchical, bounded requests, local Ollama default, no implicit cloud fallback."""
     if provider in summary_external_providers(settings) and not allow_external_provider:
@@ -231,6 +233,8 @@ async def generate_summary(
                 {"role": "system", "content": system},
                 {"role": "user", "content": body},
             ]
+            if send_guard is not None:
+                await send_guard()
             if provider == "ollama":
                 payload = await bounded_json_request(
                     client, "POST",

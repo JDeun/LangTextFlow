@@ -182,7 +182,15 @@ The global **two-summary-job** and **ten-minute generation** limits are shared
 with per-session summaries. Generation is asynchronous; cancellation/shutdown
 terminates the job, restart marks unfinished attempts failed for explicit retry.
 An HTTP request cancelled during SQLite admission cannot leave an unmanaged
-running row. Inference happens outside the snapshot transaction. A source change
+running row: an independent admission owner retains the shared slot and a native
+thread cancellation fence until handoff or cleanup. Shutdown drains pending
+admissions too, including repeated HTTP/shutdown cancellation. Inference happens
+outside the snapshot transaction. Deleting a source session/project or moving or
+detaching a source cancels and waits for related jobs before the API mutation.
+Every provider request, including intermediate/reduction/final stages, rechecks
+source existence and project membership; direct database changes also prevent
+further sends. An already transmitted request cannot be recalled from a provider.
+A source change
 during inference preserves a stale draft; it cannot silently approve new evidence.
 
 All endpoints below are local-operator/origin protected; audience codes grant no

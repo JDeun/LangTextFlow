@@ -355,6 +355,22 @@ class ProjectDigests:
                 ("error" if error else "completed", content, error, _now(), identifier),
             )
 
+    def evidence_present(self, project_id, identifier, expected_sessions):
+        """Revoke further provider sends after source deletion or membership change."""
+        with self.archive._connect() as conn:
+            conn.execute("BEGIN")
+            row = conn.execute(
+                "SELECT 1 FROM project_digests WHERE project_id=? AND digest_id=? "
+                "AND status='running'",
+                (project_id, identifier),
+            ).fetchone()
+            count = conn.execute(
+                "SELECT COUNT(*) FROM project_digest_sessions d JOIN project_sessions p "
+                "ON p.session_id=d.session_id WHERE d.digest_id=? AND p.project_id=?",
+                (identifier, project_id),
+            ).fetchone()[0]
+            return row is not None and count == expected_sessions
+
     def listing(self, project_id):
         with self.archive._connect() as conn:
             conn.execute("BEGIN")

@@ -246,7 +246,7 @@ def test_bounds_fail_closed_and_restart_never_overwrites_approved(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM project_digest_reviews").fetchone()[0] == 0
 
 
-def setup_api(archive, *, settings=None, jobs=None, timeout=600):
+def setup_api(archive, *, settings=None, jobs=None, timeout=600, runtime=None):
     app = FastAPI()
 
     def guard(request):
@@ -261,7 +261,7 @@ def setup_api(archive, *, settings=None, jobs=None, timeout=600):
     jobs = {} if jobs is None else jobs
     close = install_project_digest_routes(
         app,
-        SimpleNamespace(),
+        runtime or SimpleNamespace(),
         archive,
         settings or Settings(storage_reserve_mb=64),
         guard,
@@ -436,15 +436,19 @@ def test_chronology_orders_timezone_instants_rather_than_iso_text(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cancelled_http_admission_owns_late_sqlite_row(tmp_path, monkeypatch):
+@pytest.mark.parametrize("after_begin", [False, True])
+async def test_repeated_http_cancel_and_shutdown_own_late_sqlite_row(
+    tmp_path, monkeypatch, after_begin
+):
     _, _, archive, pid = seed(tmp_path)
     entered, release = threading.Event(), threading.Event()
     original = archive.project_digests.begin
 
     def delayed(*args, **kwargs):
+        result = original(*args, **kwargs) if after_begin else None
         entered.set()
         assert release.wait(3)
-        return original(*args, **kwargs)
+        return result if after_begin else original(*args, **kwargs)
 
     monkeypatch.setattr(archive.project_digests, "begin", delayed)
     app, jobs, close = setup_api(archive)
@@ -458,16 +462,216 @@ async def test_cancelled_http_admission_owns_late_sqlite_row(tmp_path, monkeypat
                     break
                 await asyncio.sleep(0.005)
             assert entered.is_set()
-            task.cancel()
-            await asyncio.sleep(0)
-            release.set()
+            for _ in range(3):
+                task.cancel()
+                await asyncio.sleep(0)
             with pytest.raises(asyncio.CancelledError):
                 await task
+            assert len(jobs) == 1  # The native admission still owns its global slot.
+            closing = asyncio.create_task(close())
+            await asyncio.sleep(0.01)
+            assert not closing.done()
+            release.set()
+            await closing
             versions = archive.project_digests.listing(pid)["versions"]
-            assert len(versions) == 1 and versions[0]["status"] == "error" and not jobs
+            assert all(row["status"] == "error" for row in versions) and not jobs
+            assert len(versions) == (1 if after_begin else 0)
         finally:
             release.set()
             await close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_shutdown_does_not_cancel_native_admission_owner(tmp_path, monkeypatch):
+    _, _, archive, pid = seed(tmp_path)
+    original = archive.project_digests.begin
+    entered, release = threading.Event(), threading.Event()
+
+    def delayed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        entered.set()
+        assert release.wait(3)
+        return result
+
+    monkeypatch.setattr(archive.project_digests, "begin", delayed)
+    app, jobs, close = setup_api(archive)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+    ) as client:
+        request = asyncio.create_task(client.post(f"/api/v1/projects/{pid}/digests", json={}))
+        try:
+            for _ in range(100):
+                if entered.is_set():
+                    break
+                await asyncio.sleep(0.005)
+            assert entered.is_set()
+            request.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await request
+            closing = asyncio.create_task(close())
+            await asyncio.sleep(0.01)
+            closing.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await closing
+            assert len(jobs) == 1
+            release.set()
+            await close()
+            assert (
+                not jobs
+                and archive.project_digests.listing(pid)["versions"][0]["status"] == "error"
+            )
+        finally:
+            release.set()
+            await close()
+
+
+def test_loop_teardown_native_fence_terminalizes_after_sqlite_commit(tmp_path, monkeypatch):
+    _, _, archive, pid = seed(tmp_path)
+    original = archive.project_digests.begin
+    entered, release = threading.Event(), threading.Event()
+
+    def delayed(*args, **kwargs):
+        result = original(*args, **kwargs)
+        entered.set()
+        assert release.wait(3)
+        return result
+
+    monkeypatch.setattr(archive.project_digests, "begin", delayed)
+
+    async def run_then_teardown():
+        app, jobs, _ = setup_api(archive)
+        client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+        )
+        request = asyncio.create_task(client.post(f"/api/v1/projects/{pid}/digests", json={}))
+        for _ in range(100):
+            if entered.is_set():
+                break
+            await asyncio.sleep(0.005)
+        assert entered.is_set() and not request.done() and jobs
+        threading.Timer(0.05, release.set).start()
+        # asyncio.run now cancels HTTP/native/owner tasks together before the
+        # native begin returns. Only its thread-level fence can finish this row.
+
+    try:
+        asyncio.run(run_then_teardown())
+        rows = archive.project_digests.listing(pid)["versions"]
+        assert len(rows) == 1 and rows[0]["status"] == "error"
+    finally:
+        release.set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["session-delete", "project-delete", "move", "detach"])
+async def test_real_mutation_routes_cancel_owned_project_request_before_changing_scope(
+    tmp_path, monkeypatch, mutation
+):
+    history, projects, archive, pid = seed(tmp_path)
+    from langtextflow import main, project_digest_api
+
+    monkeypatch.setattr(main, "project_repository", projects)
+    monkeypatch.setattr(main, "post_event_archive", archive)
+    monkeypatch.setattr(main.runtime, "history", history)
+    monkeypatch.setattr(main.runtime, "state", SessionState())
+    monkeypatch.setattr(main.runtime, "project_digest_transition", None)
+    first, release = asyncio.Event(), asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def held(*args, **kwargs):
+        first.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(project_digest_api, "generate_summary", held)
+    app, jobs, close = setup_api(archive, runtime=main.runtime)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+    ) as client:
+        record = (await client.post(f"/api/v1/projects/{pid}/digests", json={})).json()
+        await asyncio.wait_for(first.wait(), 1)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=main.app), base_url="http://127.0.0.1"
+        ) as operator:
+            if mutation == "session-delete":
+                response = await operator.delete("/api/v1/history/session-0")
+            elif mutation == "project-delete":
+                response = await operator.delete(f"/api/v1/projects/{pid}")
+            else:
+                other = projects.create(ProjectInput(title="Other")) if mutation == "move" else None
+                response = await operator.put(
+                    "/api/v1/history/session-0/project",
+                    json={"project_id": other.project_id if other else None},
+                )
+            assert response.status_code in (200, 204)
+        assert cancelled.is_set() and not jobs
+        if mutation in {"move", "detach"}:
+            row = archive.project_digests.get(pid, record["digest_id"])
+            assert row["status"] == "error" and row["stale"] and not row["evidence_available"]
+    release.set()
+    await close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["delete", "move", "detach"])
+async def test_each_real_provider_http_send_rechecks_direct_sqlite_scope_revocation(
+    tmp_path, monkeypatch, mutation
+):
+    history, projects, archive, pid = seed(tmp_path, count=2)
+    from langtextflow import post_event_summary
+
+    event = history.segments("session-0")[0]
+    history.upsert_segment(
+        "session-0",
+        event.model_copy(
+            update={
+                "segment_id": "long-source",
+                "original_text": "SYNTHETIC_DELETED_SOURCE " * 600,
+                "text": "SYNTHETIC_DELETED_SOURCE " * 600,
+                "start_ms": 4000,
+                "end_ms": 8000,
+            }
+        ),
+    )
+    summarize(history, archive, "session-0")
+    text = cited(archive.project_digests.snapshot(pid))
+    first, release = asyncio.Event(), asyncio.Event()
+    sends = []
+
+    async def provider(request):
+        sends.append(json.loads(request.content))
+        if len(sends) == 1:
+            first.set()
+            await release.wait()
+        return httpx.Response(200, json={"message": {"content": text}})
+
+    client_type = httpx.AsyncClient
+    monkeypatch.setattr(
+        post_event_summary.httpx,
+        "AsyncClient",
+        lambda **kw: client_type(transport=httpx.MockTransport(provider), **kw),
+    )
+    app, jobs, close = setup_api(archive)
+    async with client_type(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1"
+    ) as client:
+        response = await client.post(f"/api/v1/projects/{pid}/digests", json={})
+        assert response.status_code == 202
+        await asyncio.wait_for(first.wait(), 1)
+        if mutation == "delete":
+            history.delete_session("session-0")
+        else:
+            other = projects.create(ProjectInput(title="Other")) if mutation == "move" else None
+            projects.assign("session-0", other.project_id if other else None)
+        release.set()
+        for _ in range(100):
+            if not jobs:
+                break
+            await asyncio.sleep(0.005)
+        assert not jobs and len(sends) == 1  # Only the already transmitted request is irrevocable.
+    await close()
 
 
 @pytest.mark.asyncio
