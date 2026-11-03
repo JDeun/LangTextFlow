@@ -14,6 +14,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust-worker-protocol:
+    name: Experimental worker protocol (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.11"
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.90.0 --profile minimal
+      - name: Test protocol and actual Python JSONL transport
+        env:
+          LTF_WORKER_PYTHON: python
+        run: cargo +1.90.0 test --locked --manifest-path crates/Cargo.toml --workspace
+
   backend:
     runs-on: ubuntu-latest
     timeout-minutes: 20
