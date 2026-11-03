@@ -17,6 +17,22 @@ from .glossary_selection import _mentioned, relevant_glossary
 
 SUPPORTED_LANGUAGES = frozenset({"ko", "en", "ja"})
 MODEL_ID = "facebook/m2m100_418M"
+_MODEL_FILES = ("model.bin", "config.json")
+_TOKENIZER_FILES = ("tokenizer_config.json", "sentencepiece.bpe.model", "vocab.json")
+
+
+def missing_m2m100_cache_files(model_dir: str | Path, tokenizer_dir: str | Path) -> list[str]:
+    """Share the local-file contract between preflight and native initialization."""
+    missing = []
+    for label, directory, names in (
+        ("CTranslate2", Path(model_dir), _MODEL_FILES),
+        ("M2M100 tokenizer", Path(tokenizer_dir), _TOKENIZER_FILES),
+    ):
+        absent = [name for name in names if not (directory / name).is_file()]
+        if absent:
+            missing.append(f"{label}: {', '.join(absent)}")
+    return missing
+
 
 # Process-wide bound: timed-out asyncio callers cannot cancel a running native
 # inference. Limit the model to one CPU worker and three queued requests even
@@ -57,22 +73,15 @@ class M2M100CT2Translator(Translator):
         self._inference_lock = Lock()
 
     async def prepare(self) -> None:
-        model_ready = all(
-            (self.model_dir / name).is_file()
-            for name in ("model.bin", "config.json")
-        )
-        tokenizer_ready = all(
-            (self.tokenizer_dir / name).is_file()
-            for name in ("tokenizer_config.json", "sentencepiece.bpe.model")
-        )
-        if not model_ready or not tokenizer_ready:
+        if missing_m2m100_cache_files(self.model_dir, self.tokenizer_dir):
             raise TranslationError(
                 "Local M2M100 model/tokenizer cache is missing. "
                 "Use the pinned CPU model provisioning process; no cloud fallback."
             )
         try:
             await asyncio.to_thread(self._prepare_sync)
-        except (ImportError, OSError, ValueError, RuntimeError) as exc:
+        except Exception as exc:
+            # Tokenizer/native initialization failures must not disable source captions.
             raise TranslationError(
                 "Local M2M100 CPU provider could not initialize; "
                 "check CT2 weights, tokenizer and optional dependencies."
