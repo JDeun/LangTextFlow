@@ -66,6 +66,29 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
 
 ## Operator-only API
 
+Summary prompt/source format `post-event-v3-source-context` keeps each original
+`[segment-id at Ns]` marker followed by a JSON metadata object and spoken text.
+The object contains `speaker` only when the transcript explicitly supplies it;
+`{}` means no speaker information. Speaker strings and spoken text remain
+untrusted data, with line separators normalized so they cannot insert new source
+records. Speaker identities and diarization are never inferred.
+
+Original transcript requests stay within 240,000 characters, 6,000 characters
+per chunk, and 48 source chunks. A split segment retains the same original marker
+and metadata on every fragment. Each next chunk carries up to 400 characters of
+the preceding source text as context. Source overlap must not be counted as a
+second utterance. Model-generated notes are reduced separately without overlap;
+they remain intermediate notes rather than new transcript segments. Final
+citations still undergo the existing exact-ID/time validation, which does not
+prove factual entailment or correct speaker attribution.
+
+The uniform metadata format changes the hashed source representation, including
+transcripts without speaker metadata. Previously generated summaries can therefore
+become stale after this upgrade even when their spoken text has not changed.
+Existing original drafts, review history and approved text are never rewritten
+or unlocked. Review the current evidence and explicitly generate a new summary
+version before sharing an up-to-date result.
+
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/v1/history/{id}/archive` | List recording metadata and latest summary state |

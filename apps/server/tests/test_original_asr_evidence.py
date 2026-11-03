@@ -43,7 +43,7 @@ async def test_raw_asr_survives_correction_persistence_export_and_summarization(
     restored = SessionRepository(str(tmp_path / "history.db")).segments("session-1")
     assert restored[0].text == "요한복음"
     assert restored[0].original_text == "요한 보금"
-    assert transcript_source(restored)[0] == "[source at 0s] 요한 보금"
+    assert transcript_source(restored)[0] == "[source at 0s] {} 요한 보금"
     exported = json.loads(export_json(history.get_session("session-1"), restored))
     assert exported["segments"][0]["original_text"] == "요한 보금"
     # Editing the display track must not silently replace a summary's raw source.
