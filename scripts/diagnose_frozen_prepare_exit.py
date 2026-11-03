@@ -8,6 +8,7 @@ import os
 import re
 import subprocess
 import tempfile
+import threading
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -65,43 +66,56 @@ def alive(pid: int, created: float) -> bool:
 
 
 def case(binary: Path, root: Path, index: int, stdin_open: bool,
-         torch_zero: bool, piped: bool) -> dict:
+         torch_zero: bool, piped: bool, *, managed_pipe: bool = False) -> dict:
     raw_log = root / f"case-{index}.raw"
     environment = {**os.environ, "LTF_TEST_FROZEN_DIAGNOSTIC_LOG": str(raw_log),
                    "LANGTEXTFLOW_APP_DATA": str(root / f"case-{index}-app")}
     if torch_zero:
         environment["USE_TORCH"] = "0"
-    read_fd, write_fd = os.pipe()
+    read_fd, write_fd = (None, None) if managed_pipe else os.pipe()
     started = time.monotonic()
     process = subprocess.Popen([str(binary), "--m2m100-prepare-worker"],
-                               stdin=read_fd,
+                               stdin=subprocess.PIPE if managed_pipe else read_fd,
                                stdout=subprocess.PIPE if piped else subprocess.DEVNULL,
                                stderr=subprocess.PIPE if piped else subprocess.DEVNULL,
                                cwd=root, env=environment)
-    os.close(read_fd)
-    if not stdin_open:
+    if read_fd is not None:
+        os.close(read_fd)
+    if not stdin_open and write_fd is not None:
         os.close(write_fd)
         write_fd = None
     owned = {}
     initial = []
     result = {"index": index, "stdin": "open_pipe" if stdin_open else "closed_pipe",
               "torch": "USE_TORCH=0" if torch_zero else "inherited",
+              "stdin_launcher": "Popen.PIPE+communicate" if managed_pipe else "os.pipe raw FD",
               "stdio": "PIPE" if piped else "DEVNULL", "pid": process.pid,
               "timeout_seconds": 30, "timed_out": False}
     try:
-        while process.poll() is None and time.monotonic() - started < 30:
-            current = observe(process.pid, owned)
-            if len(current) > len(initial):
-                initial = current
-            time.sleep(.1)
-        remaining = max(.001, 30 - (time.monotonic() - started))
+        stop_observer = threading.Event()
+
+        def watch() -> None:
+            nonlocal initial
+            while not stop_observer.is_set():
+                current = observe(process.pid, owned)
+                if len(current) > len(initial):
+                    initial = current
+                stop_observer.wait(.1)
+
+        observer = threading.Thread(target=watch, daemon=True)
+        observer.start()
         try:
-            stdout, stderr = process.communicate(timeout=remaining)
+            # Match smoke_auxiliary_command exactly: close managed stdin immediately.
+            stdout, stderr = process.communicate(b"" if managed_pipe else None, timeout=30)
             result["stdout_bytes"] = len(stdout or b"")
             result["stderr_bytes"] = len(stderr or b"")
         except subprocess.TimeoutExpired:
             result["timed_out"] = True
             result["timeout_tree"] = observe(process.pid, owned)
+        finally:
+            stop_observer.set()
+            observer.join(timeout=1)
+            result["observer_finished"] = not observer.is_alive()
         result["process_returncode_before_cleanup"] = process.poll()
     finally:
         result["observed_tree"] = initial
@@ -114,7 +128,7 @@ def case(binary: Path, root: Path, index: int, stdin_open: bool,
             except subprocess.TimeoutExpired:
                 result.setdefault("cleanup_errors", []).append("taskkill_timeout")
         # Only identities descended from our child are eligible for cleanup.
-        for pid, created in reversed(list(owned.items())):
+        for pid, created in reversed(list(owned.copy().items())):
             try:
                 child = psutil.Process(pid)
                 if child.create_time() == created and child.is_running():
@@ -131,8 +145,8 @@ def case(binary: Path, root: Path, index: int, stdin_open: bool,
             os.close(write_fd)
         result["returncode"] = process.returncode
         result["duration_seconds"] = round(time.monotonic() - started, 3)
-        result["owned_tree_reaped"] = not any(alive(pid, created)
-                                               for pid, created in owned.items())
+        result["owned_tree_reaped"] = result["observer_finished"] and not any(
+            alive(pid, created) for pid, created in owned.copy().items())
         if raw_log.exists():
             with raw_log.open("rb") as stream:
                 data = stream.read(65537)
@@ -158,11 +172,16 @@ def main() -> int:
         binary_hash = hashlib.file_digest(stream, "sha256").hexdigest()
     report = {"source_sha": subprocess.check_output(["git", "rev-parse", "HEAD"],
                                                    cwd=ROOT, text=True).strip(),
-              "binary_sha256": binary_hash, "expected_cases": 8,
+              "binary_sha256": binary_hash, "expected_cases": 6,
               "instrumented_test_build": True, "model_downloads": False, "cases": []}
     with tempfile.TemporaryDirectory(prefix="ltf-frozen-exit-diagnostic-") as directory:
-        for index, flags in enumerate(itertools.product((False, True), repeat=3)):
-            report["cases"].append(case(binary, Path(directory), index, *flags))
+        # Raw-FD closed/open controls plus the exact managed-PIPE launch, same binary.
+        controls = [(False, False, True, False), (True, False, True, False)]
+        controls.extend((False, torch, piped, True)
+                        for torch, piped in itertools.product((False, True), repeat=2))
+        for index, (opened, torch, piped, managed) in enumerate(controls):
+            report["cases"].append(case(binary, Path(directory), index, opened, torch, piped,
+                                        managed_pipe=managed))
             (OUTPUT / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     return 1 if any(item["timed_out"] or item["returncode"] != 2
                     or item.get("stdout_bytes", 0) or item.get("stderr_bytes", 0)
