@@ -5,7 +5,7 @@ import type { ModelSetupJob } from "./types";
 import { UTILITY_COPY } from "./utilityCopy";
 import "./modelSetup.css";
 
-type SetupProvider = "ollama" | "faster-whisper";
+type SetupProvider = "ollama" | "faster-whisper" | "m2m100-ct2";
 
 interface ModelSetupControlProps {
   provider?: SetupProvider;
@@ -25,6 +25,7 @@ function formatBytes(value: number | null) {
 }
 
 function setupEndpoint(provider: SetupProvider) {
+  if (provider === "m2m100-ct2") return "/api/v1/setup/m2m100/prepare";
   return provider === "ollama"
     ? "/api/v1/setup/ollama/pull"
     : "/api/v1/setup/faster-whisper/prefetch";
@@ -41,7 +42,7 @@ export function ModelSetupControl({
   const [job, setJob] = useState<ModelSetupJob | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const actionLabel = provider === "faster-whisper"
+  const actionLabel = provider === "m2m100-ct2" ? copy.prepareRepair : provider === "faster-whisper"
     ? `${model || copy.asrModel} ${copy.predownload}`
     : `${model || copy.translationModel} ${copy.download}`;
 
@@ -123,7 +124,8 @@ export function ModelSetupControl({
   if (!enabled && !job) return null;
 
   return (
-    <div className="model-setup-control">
+    <div className={provider === "m2m100-ct2"
+      ? "model-setup-control native-model-setup" : "model-setup-control"}>
       {!job && (
         <button onClick={start} disabled={busy || !enabled || !model.trim()}>
           {busy ? copy.preparing : actionLabel}
@@ -152,8 +154,8 @@ export function ModelSetupControl({
               {busy ? copy.cancelling : copy.cancel}
             </button>
           )}
-          {TERMINAL.has(job.state) && job.state !== "completed" && (
-            <button onClick={() => setJob(null)}>{copy.retry}</button>
+          {TERMINAL.has(job.state) && (job.state !== "completed" || provider === "m2m100-ct2") && (
+            <button disabled={!enabled} onClick={() => setJob(null)}>{copy.retry}</button>
           )}
         </div>
       )}
