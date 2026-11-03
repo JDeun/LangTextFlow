@@ -54,10 +54,10 @@ jobs:
           set -euo pipefail
           python -m pip install "uv==0.12.13"
           uv sync --locked --extra dev --extra benchmark
-          uv pip install --python .venv/bin/python "torch==2.15.0" \
+          uv pip install --python .venv/bin/python "torch==2.15.0" "torchaudio==2.11.1" \
             --index-url https://download.pytorch.org/whl/cpu
           uv pip install --python .venv/bin/python "setuptools==84.2.1" \
-            "funasr==1.4.15" "torchaudio==2.11.1" "transformers==5.22.1" "tokenizers==0.23.3" \
+            "funasr==1.4.15" "transformers==5.22.1" "tokenizers==0.23.3" \
             "huggingface-hub==2.4.0" "datasets==5.1.0" "fsspec==2026.7.0" \
             "soundfile==0.13.1"
           uv run --no-sync python - <<'PY'
@@ -66,7 +66,8 @@ jobs:
           assert torch.accelerator.current_accelerator() is None, "Hosted CPU experiment must not acquire a GPU"
           import torchaudio
           assert torch.__version__.split("+")[0] == "2.15.0"
-          assert torchaudio.__version__.split("+")[0] == "2.11.1"
+          assert torchaudio.__version__ == "2.11.1+cpu"
+          assert torch.__version__ == "2.15.0+cpu"
           from funasr import AutoModel
           probe = torchaudio.transforms.Resample(16000, 8000)(torch.zeros(1, 1600))
           assert probe.shape[-1] == 800
