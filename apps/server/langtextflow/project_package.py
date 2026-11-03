@@ -574,7 +574,7 @@ class ProjectPackageOperation:
             or comment
             or entries_disk != entries
             or not 2 <= entries <= MAX_MEDIA + 2
-            or central_size > 512 * 1024
+            or central_size > entries * 128
             or offset + central_size != self.size - 22
         ):
             raise PackageError("Unsupported or oversized private ZIP directory")
@@ -588,6 +588,8 @@ class ProjectPackageOperation:
             total += info.file_size
             if (
                 info.compress_type != zipfile.ZIP_STORED
+                or info.filename != info.orig_filename
+                or info.comment
                 or info.compress_size != info.file_size
                 or info.flag_bits & 1
                 or info.extra

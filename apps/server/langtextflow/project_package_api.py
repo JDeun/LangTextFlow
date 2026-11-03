@@ -210,16 +210,21 @@ def install_project_package_routes(app, runtime, archive, settings, require_oper
             raise fail(exc) from exc
 
         async def body():
-            try:
-                chunk = first
-                while chunk:
-                    yield chunk
-                    chunk = await execute(op, op.read)
-            finally:
-                # The owner is independent of repeated disconnect cancellation.
-                abandon(op)
+            chunk = first
+            while chunk:
+                yield chunk
+                chunk = await execute(op, op.read)
 
-        return StreamingResponse(
+        class OwnedDownload(StreamingResponse):
+            async def __call__(self, scope, receive, send):
+                try:
+                    await super().__call__(scope, receive, send)
+                finally:
+                    # Covers header-send failure before the generator even starts.
+                    # Cleanup ownership is independent of disconnect cancellation.
+                    abandon(op)
+
+        return OwnedDownload(
             body(),
             media_type="application/zip",
             headers={

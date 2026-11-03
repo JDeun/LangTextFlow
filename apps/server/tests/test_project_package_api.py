@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 from fastapi import FastAPI, HTTPException
+from starlette.requests import ClientDisconnect
 from test_project_package import empty, export, prepared
 
 from langtextflow.config import Settings
@@ -231,3 +232,50 @@ async def test_stream_disconnect_cleans_owned_upload(tmp_path):
     await shutdown()
     assert projects.list() == [] and not list(target.audio_root.iterdir())
     assert not list(target.packages.root.iterdir())
+
+
+@pytest.mark.asyncio
+async def test_download_disconnect_before_first_body_chunk_releases_owned_lease(tmp_path):
+    _, _, archive, pid = prepared(tmp_path)
+    app, _, shutdown = app_for(archive)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"x-test-operator": "yes"},
+    ) as client:
+        prepared_zip = (await client.post(f"/api/v1/projects/{pid}/package")).json()
+        path = f"/api/v1/project-packages/{prepared_zip['export_id']}/download"
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def failed_send(message):
+            raise OSError("Owned fake client disconnected before response headers")
+
+        try:
+            with pytest.raises(ClientDisconnect):
+                await app(
+                    {
+                        "type": "http",
+                        "asgi": {"version": "3.0", "spec_version": "2.4"},
+                        "http_version": "1.1",
+                        "method": "GET",
+                        "scheme": "http",
+                        "path": path,
+                        "raw_path": path.encode(),
+                        "query_string": b"",
+                        "root_path": "",
+                        "headers": [(b"x-test-operator", b"yes")],
+                        "client": ("127.0.0.1", 1234),
+                        "server": ("test", 80),
+                    },
+                    receive,
+                    failed_send,
+                )
+            for _ in range(100):
+                if (await client.get("/api/v1/project-packages")).json()["prepared"] is None:
+                    break
+                await asyncio.sleep(0.01)
+            assert not list(archive.packages.root.iterdir())
+        finally:
+            await shutdown()
