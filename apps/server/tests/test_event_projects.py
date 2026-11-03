@@ -144,7 +144,9 @@ async def test_project_api_crud_and_operator_boundary(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(main, "project_repository", repository)
     monkeypatch.setattr(
         main, "runtime",
-        SimpleNamespace(history=history, state=SessionState(running=False)),
+        SimpleNamespace(
+            history=history, state=SessionState(session_id="api-session", running=True),
+        ),
     )
     local = SimpleNamespace(
         client=SimpleNamespace(host="127.0.0.1"), headers={},
@@ -161,6 +163,7 @@ async def test_project_api_crud_and_operator_boundary(tmp_path, monkeypatch) -> 
         main.ProjectAssignment(project_id=created.project_id),
     )
     assert detail.project_id == created.project_id
+    assert main.runtime.state.project_id == created.project_id
     with pytest.raises(HTTPException) as error:
         await main.projects(remote)
     assert error.value.status_code == 403
@@ -171,6 +174,7 @@ async def test_project_api_crud_and_operator_boundary(tmp_path, monkeypatch) -> 
         )
     assert error.value.status_code == 404
     await main.delete_project(local, created.project_id)
+    assert main.runtime.state.running and main.runtime.state.project_id is None
     assert history.get_session("api-session").project_id is None
     assert history.segments("api-session")[0].text == "행사 내용"
 

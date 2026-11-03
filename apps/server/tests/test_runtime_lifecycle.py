@@ -12,8 +12,40 @@ from langtextflow.models import (
     StartSessionRequest,
     TranscriptEvent,
 )
+from langtextflow.project_repository import ProjectInput, ProjectRepository
 from langtextflow.runtime import CaptionRuntime
 from langtextflow.session_repository import SessionRepository
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("server_profile,request_profile,effective", [
+    ("standard", "standard", "standard"), ("standard", "low", "low"),
+    ("low", "standard", "low"),
+])
+async def test_operator_state_retains_project_and_effective_resource_profile(
+    tmp_path, server_profile, request_profile, effective,
+):
+    db = str(tmp_path / "hydrate.db")
+    runtime = CaptionRuntime(Settings(database_path=db, resource_profile=server_profile))
+    await runtime.initialize()
+    project = ProjectRepository(db).create(ProjectInput(title="Recovered event"))
+    request = StartSessionRequest(
+        project_id=project.project_id, engine="mock", resource_profile=request_profile,
+        source_language="en", target_languages=["ko", "ja"], translation_provider="none",
+        context=SessionContext(title="Recovered session", presenter="Speaker", preset="lecture"),
+    )
+    try:
+        state = await runtime.start(request)
+        assert state.project_id == project.project_id
+        assert state.resource_profile == effective
+        assert state.source_language == "en" and state.target_languages == ["ko", "ja"]
+        assert state.context == request.context
+        assert state.translation_status.provider == "none"
+        audience = runtime.audience_view(state.join_code).model_dump()
+        assert not {"project_id", "resource_profile", "context", "hotwords"} & audience.keys()
+        assert audience["source_language"] == "en" and audience["target_languages"] == ["ko", "ja"]
+    finally:
+        await runtime.shutdown()
 
 
 @pytest.mark.asyncio

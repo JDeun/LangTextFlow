@@ -699,6 +699,8 @@ async def delete_project(request: Request, project_id: str) -> Response:
     deleted = await asyncio.to_thread(project_repository.delete, project_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="project not found")
+    if runtime.state.project_id == project_id:
+        runtime.state.project_id = None
     return Response(status_code=204)
 
 
@@ -714,6 +716,8 @@ async def assign_session_project(
     result = await asyncio.to_thread(runtime.history.get_session, session_id)
     if result is None:
         raise HTTPException(status_code=404, detail="session not found")
+    if runtime.state.session_id == session_id:
+        runtime.state.project_id = result.project_id
     return result
 
 

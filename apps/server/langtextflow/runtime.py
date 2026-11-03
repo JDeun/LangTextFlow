@@ -409,11 +409,18 @@ class CaptionRuntime:
         self.engine = engine
         self.state = SessionState(
             session_id=str(uuid4()),
+            project_id=request.project_id,
             join_code=self._join_code(),
             running=False,
             source_language=request.source_language,
             target_languages=request.target_languages,
             engine=request.engine,
+            resource_profile=(
+                "low" if (
+                    self.settings.resource_profile == "low" or request.resource_profile == "low"
+                )
+                else "standard"
+            ),
             context=request.context,
             audio_required=engine.accepts_audio,
             audio_sample_rate=engine.sample_rate,
