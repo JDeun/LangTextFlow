@@ -10,3 +10,6 @@ Indexed previously documented ASR/MT quality failures, glossary gaps, streaming/
 
 ## 2026-11-03 — lint | Index table formatting
 Created [PR401](https://github.com/JDeun/LangTextFlow/pull/401) to separate literal newline escapes that merged the existing index rows and paragraph. Markdown links and the existing structural wiki check passed. This is a mechanical formatting repair; it does not rewrite research conclusions, alter raw records, promote models, or deploy semantic lint. The same PR records tested implementation checkpoints separately in the release roadmap.
+
+## 2026-11-03 — audit | Full issue acceptance and evidence reconciliation
+Expanded [PR401](https://github.com/JDeun/LangTextFlow/pull/401) with the canonical 65-issue audit after rereading bodies/comments and comparing code, linked implementation and original model artifacts. Recorded #101/#128 scoped completion and #159 reopening; corrected optional-only wording that conflicted with the recorded #344 Rust-core decision. The index now points to the current audit and labels the old matrix historical. Original same-corpus MT and four ASR ZIP results are retained with scope/identity limits; no raw provenance record, accepted ADR, model default or field/release approval changed.

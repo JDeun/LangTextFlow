@@ -268,12 +268,48 @@ synthetic data and publishes [sanitized evidence](research/evidence/rea-owned-ui
 It closes the first-party-tool execution checkbox in #137, not Cuckoo parity,
 model quality, native audio or human accessibility acceptance.
 
-Through merged #399 at `b0a7ac0402bb501609962e36ad4d168f91c33bd5`, there
-are **47 open issues**: M0 11, M1 8, M2 18, M3 5, M4 5. All remain classified
-and milestoned, without human assignees. Event-level provenance, child-inclusive
-benchmark memory and the final integrated packaging checkpoint are still being
-completed; physical hardware, bilingual/field review, rights and signed release
-gates above remain open. No optimal model combination or v1.0 release is approved.
+Through #400/#402/#403 at `900d211a0165bc334103b0bf291a61436f8e8472`,
+mixed-target/reconnect browser acceptance closes #161; event/provider/timestamp
+provenance persists through SQLite, export and reconnect; benchmark memory now
+separately reports sampled child-inclusive RSS with partial/error accounting.
+The integrated local core checkpoint passed **1176 backend / 91 frontend tests**
+and build/lint gates. OS-process access required running the real-child RSS test
+outside the sandbox; that test was not weakened or skipped.
+
+Current-source [native run41628932696](https://github.com/JDeun/LangTextFlow/actions/runs/41628932696)
+completed actual base ASR + M2M100 KO→EN/EN→KO with 2/2 translated committed
+captions per direction, drained queues and child cleanup. Its eight-second decode
+window produced first captions around 8.4 seconds; sampled process-tree RSS peaked
+at 2906.33 / 3588.45 MiB. One KO timestamp was recovered and a wrong year remains.
+These are short in-process-hub observations, not audience-paint latency, physical
+4GB qualification, semantic acceptance or a long soak. See the
+[original-artifact checkpoint](REAL_SPEECH_EVALUATION.md#current-source-subprocess-and-memory-checkpoint-2026-11-03).
+Unsigned Windows/macOS packaging and frozen-process smoke passed at the same source
+in [run41628928751](https://github.com/JDeun/LangTextFlow/actions/runs/41628928751).
+Signing, notarization and actual installer upgrade/rollback remain unverified.
+
+At main `e60365c35adfffe7dd76009de0e89b32f21808bc`, the full API inventory
+contained **65 issues: initially 46 open / 19 closed**, excluding PRs. After
+original-scope acceptance checks, #101/#128 closed completed and #159 reopened
+for its unfulfilled explicit acceptance. The resulting inventory is **45 open /
+20 closed**: M0 11, M1 8, M2 17, M3 4, M4 5; all 45 open issues have
+labels/milestones and no assignee.
+The [full issue audit](M0_ISSUE_AUDIT.md) distinguishes unfinished implementation,
+research, quality evidence and external acceptance. **Completion is not reduced
+to model selection.** In particular #86's project AI digest/review and restorable
+archive are missing; the
+[recorded user-approved Rust-core target](https://github.com/JDeun/LangTextFlow/issues/344#issuecomment-6536557339)
+in #344 remains an implementation obligation. The echo-only scaffold does not
+meet real-worker, cancellation/restart, authoritative ownership or cutover gates.
+Earlier descriptions of all #344 work as optional research were incorrect;
+optional adoption of Hex code/models is a separate decision.
+
+#405/#406 add and run one same-host, same-16-case KO→EN CPU text comparison;
+[inspected results](CACHED_MT_TEXT_COMPARISON.md#first-common-corpus-result-2026-11-03)
+favor OPUS-small's speed/quality tradeoff in that limited scope. The matched
+[eight-clip ASR results](REAL_SPEECH_EVALUATION.md#eight-clip-four-second-basesmall-comparison-2026-11-03)
+retain substantial recognition errors and outliers. No optimal deployed model,
+six-direction quality acceptance or v1.0 release is approved.
 
 ## Historical planning and audits (2026-10-22–26)
 

@@ -6,6 +6,6 @@ This index is maintained by the agent under the [wiki schema](../schema.md). The
 |---|---|---|---|
 | Prior work / failed experiments | [prior-work-ledger.md](prior-work-ledger.md) | [research index](../../research/README.md) and issue evidence | Issue-level audit; measurements not independently rerun |
 | Research landscape | [research-landscape.md](research-landscape.md) | [research index](../../research/README.md) | Existing reports indexed; field measurements not established |
-| Research and implementation audit | [audit-coverage-matrix.md](audit-coverage-matrix.md) | [prior work ledger](prior-work-ledger.md) and linked issues | Issue-state audit; code and field qualification pending |
+| Research and implementation audit | [Current full issue audit](../../M0_ISSUE_AUDIT.md); [historical coverage matrix](audit-coverage-matrix.md) | [prior work ledger](prior-work-ledger.md), source, artifacts and linked issues | All 65 issue bodies/comments reconciled; required code, research and field gates remain |
 
 For a new question, read this index first, then the cited reports and source links. Add new entries only when the corresponding page exists.
