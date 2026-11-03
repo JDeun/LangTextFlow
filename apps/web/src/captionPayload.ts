@@ -27,6 +27,38 @@ function isTranslations(value: unknown): value is Record<string, string> {
   );
 }
 
+function isPublicModel(value: unknown): boolean {
+  return value === null || (typeof value === "string" && value.length <= 200 && value.trim() === value &&
+    /^[A-Za-z0-9][A-Za-z0-9_.:-]*(?:\/[A-Za-z0-9][A-Za-z0-9_.:-]*)?$/.test(value) &&
+    !value.includes("..") && !value.includes(":/") && !/^[A-Za-z]:/.test(value) &&
+    !/^(sk-|hf_|ghp_|github_pat_|xoxb-|xoxp-)/.test(value));
+}
+
+function isModelProvenance(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && typeof value.provider === "string" &&
+    value.provider.trim() === value.provider &&
+    /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(value.provider) &&
+    ["configured_model", "verified_model", "model_revision"].every(
+      (key) => isPublicModel(value[key]),
+    );
+}
+
+function isAsrProvenance(value: unknown): boolean {
+  if (value === null) return true;
+  if (!isModelProvenance(value)) return false;
+  if (!["unknown", "synthetic", "sample_clock_native_hint", "sample_clock_estimated",
+    "sequence_estimated"].includes(value.timestamp_basis as string)) return false;
+  const bounded = (key: string, max: number, min = 0) => value[key] === null ||
+    (Number.isSafeInteger(value[key]) && (value[key] as number) >= min &&
+      (value[key] as number) <= max);
+  if (!bounded("sample_rate", 384000, 1) || !bounded("auto_generation", 1000000) ||
+    !["audio_chunk_start_sample", "audio_chunk_end_sample", "timeline_offset_samples",
+      "replay_prefix_samples"].every((key) => bounded(key, Number.MAX_SAFE_INTEGER))) return false;
+  if (value.audio_chunk_start_sample !== null && value.audio_chunk_end_sample !== null &&
+    (value.audio_chunk_end_sample as number) < (value.audio_chunk_start_sample as number)) return false;
+  return typeof value.overlap_trimmed === "boolean";
+}
+
 export function isTranscriptEvent(value: unknown): value is TranscriptEvent {
   if (!isRecord(value) || value.type !== "transcript") return false;
   if (typeof value.segment_id !== "string" || !value.segment_id) return false;
@@ -47,6 +79,13 @@ export function isTranscriptEvent(value: unknown): value is TranscriptEvent {
       ([language, state]) =>
         language.length > 0 && typeof state === "string" && TARGET_STATES.has(state),
     )
+  )) return false;
+  if (value.asr_provenance !== undefined && !isAsrProvenance(value.asr_provenance)) return false;
+  if (value.translation_provenance !== undefined && (
+    !isRecord(value.translation_provenance) || Object.keys(value.translation_provenance).length > 10 ||
+    !Object.entries(value.translation_provenance).every(([language, provenance]) =>
+      language.length >= 2 && language.length <= 16 && isModelProvenance(provenance) &&
+      isPublicModel(provenance.requested_model))
   )) return false;
   if (!Number.isInteger(value.start_ms) || (value.start_ms as number) < 0) return false;
   if (

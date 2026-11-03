@@ -93,6 +93,30 @@ export interface CorrectionProvenance {
 export type TranslationTargetState =
   | "pending" | "available" | "failed" | "timed_out" | "unsupported";
 
+export interface AsrProvenance {
+  provider: string;
+  configured_model: string | null;
+  verified_model: string | null;
+  model_revision: string | null;
+  timestamp_basis: "unknown" | "synthetic" | "sample_clock_native_hint" |
+    "sample_clock_estimated" | "sequence_estimated";
+  sample_rate: number | null;
+  audio_chunk_start_sample: number | null;
+  audio_chunk_end_sample: number | null;
+  auto_generation: number | null;
+  timeline_offset_samples: number | null;
+  replay_prefix_samples: number | null;
+  overlap_trimmed: boolean;
+}
+
+export interface TranslationProvenance {
+  provider: string;
+  requested_model: string | null;
+  configured_model: string | null;
+  verified_model: string | null;
+  model_revision: string | null;
+}
+
 export interface TranscriptEvent {
   type: "transcript";
   segment_id: string;
@@ -105,6 +129,8 @@ export interface TranscriptEvent {
   translations: Record<string, string>;
   // Optional for old sessions and unchanged ASR adapters.
   translation_states?: Record<string, TranslationTargetState>;
+  asr_provenance?: AsrProvenance | null;
+  translation_provenance?: Record<string, TranslationProvenance>;
   start_ms: number;
   end_ms: number | null;
   speaker: string | null;

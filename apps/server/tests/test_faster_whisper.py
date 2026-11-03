@@ -31,6 +31,46 @@ async def wait_for_failure(
     raise AssertionError("faster-whisper worker failure was not observed before timeout")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("local_directory", [True, False])
+async def test_effective_model_identity_does_not_publish_relative_local_directory(
+    monkeypatch, tmp_path, local_directory,
+):
+    from langtextflow.asr import faster_whisper
+
+    monkeypatch.chdir(tmp_path)
+    local = tmp_path / "private" / "checkpoint"
+    local.mkdir(parents=True)
+    for filename in ("model.bin", "config.json", "tokenizer.json"):
+        (local / filename).write_text("fixture")
+    loaded = []
+
+    def load(path, **kwargs):
+        loaded.append(path)
+        return object()
+
+    monkeypatch.setitem(sys.modules, "faster_whisper", SimpleNamespace(WhisperModel=load))
+    if not local_directory:
+        monkeypatch.setattr(faster_whisper, "resolve_whisper_model", lambda *_: local)
+    name = "private/checkpoint" if local_directory else "Systran/faster-whisper-small"
+    published = []
+
+    async def publish(event):
+        published.append(event)
+
+    engine = FasterWhisperStreamingAsrEngine(publish, model=name)
+    engine._model = engine._load_model_sync()
+    engine._request = StartSessionRequest(engine="faster-whisper")
+    monkeypatch.setattr(engine, "_transcribe_chunk_sync", lambda *_: [
+        DecodedSegment(0, 1, "source"),
+    ])
+    await engine._process_chunk(pcm(1))
+    assert loaded == [str(local)]
+    provenance = published[0].asr_provenance
+    assert provenance.configured_model == (None if local_directory else name)
+    assert provenance.verified_model is None and provenance.model_revision is None
+
+
 class FakeFasterWhisperEngine(FasterWhisperStreamingAsrEngine):
     def __init__(self, publish, **kwargs) -> None:
         super().__init__(publish, **kwargs)
@@ -240,6 +280,10 @@ async def test_faster_whisper_preserves_valid_native_decode_without_text_only_re
     assert options["initial_prompt"] == "FLEURS test-set real speech evaluation"
     assert [(event.start_ms, event.end_ms) for event in published] == [(850, 4000)]
     assert engine.timestamp_recovery_count == 0
+    assert published[0].asr_provenance.timestamp_basis == "sample_clock_native_hint"
+    assert published[0].asr_provenance.sample_rate == 16000
+    assert published[0].asr_provenance.audio_chunk_start_sample == 0
+    assert published[0].asr_provenance.audio_chunk_end_sample == 64000
 
 
 @pytest.mark.asyncio
@@ -264,6 +308,11 @@ async def test_faster_whisper_retries_invalid_native_time_once_before_publishing
     assert [call["without_timestamps"] for call in calls] == [False, True]
     assert [event.text for event in published] == ["recovered chunk text"]
     assert engine.timestamp_recovery_count == 1
+    assert published[0].asr_provenance.timestamp_basis == "sample_clock_estimated"
+    assert published[0].asr_provenance.audio_chunk_end_sample == 64000
+    await engine._process_chunk(pcm(4))
+    assert published[1].asr_provenance.timestamp_basis == "sample_clock_native_hint"
+    assert published[1].asr_provenance.audio_chunk_start_sample == 64000
     assert engine.timestamp_recovery_errors == [{
         "error_type": "out_of_bounds_timestamp",
         "error": "faster-whisper returned out-of-bounds segment timestamps: "
@@ -385,6 +434,8 @@ async def test_faster_whisper_bounds_vad_restored_tail_using_transcribe_metadata
     assert published[0].text == "source speech"
     assert "VAD removed 0.850s" in caplog.text
     assert "segment timestamps remain estimates" in caplog.text
+    assert all(event.asr_provenance.timestamp_basis == "sample_clock_estimated"
+               for event in published)
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,7 @@ import httpx
 import websockets
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
-from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+from langtextflow.models import AsrProvenance, CaptionStage, StartSessionRequest, TranscriptEvent
 from langtextflow.provider_http import bounded_json_request
 
 logger = logging.getLogger(__name__)
@@ -244,6 +244,11 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
                         stage=CaptionStage.STABLE,
                         source_language=self._request.source_language,
                         text=text,
+                        asr_provenance=AsrProvenance(
+                            provider="vibevoice", timestamp_basis="sequence_estimated",
+                            sample_rate=self.sample_rate,
+                            audio_chunk_end_sample=self._transmitted_audio_bytes // 4,
+                        ),
                         start_ms=start_ms,
                         end_ms=end_ms,
                     )
