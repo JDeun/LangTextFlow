@@ -2,7 +2,8 @@
  *
  * A failed device/preflight check is not permission to stop a remote session
  * initiated from a different operator tab. If a server start was acknowledged,
- * always try its rollback even if stopping local microphone capture fails.
+ * try its rollback even if stopping local microphone capture fails. The remote
+ * operation must target a known acknowledged session ID, never guessed ownership.
  */
 export async function rollbackFailedSessionStart(
   startConfirmed: boolean,
