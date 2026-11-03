@@ -24,6 +24,8 @@ import { LiveCaption } from "./LiveCaption";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { OPERATOR_COPY } from "./operatorCopy";
 import { RECORDING_COPY } from "./recordingCopy";
+import { AUDIENCE_METRICS_COPY } from "./audienceMetricsCopy";
+import { useAudienceLatencyReporting } from "./useAudienceLatencyReporting";
 import { PreflightPanel } from "./PreflightPanel";
 import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
 import { SessionHistory } from "./SessionHistory";
@@ -82,11 +84,14 @@ function captionLanguages(sourceLanguage: string, targetLanguages: string[]) {
 }
 
 function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode: boolean }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { connected, segments, terminalError } = useCaptionSocket(
     `/ws/audience/${encodeURIComponent(joinCode)}`,
   );
   const [session, setSession] = useState<AudienceSessionView | null>(null);
+  const [metricsConsent, setMetricsConsent] = useState(false);
+  useAudienceLatencyReporting(API_URL, joinCode,
+    metricsConsent && Boolean(session?.collect_audience_metrics) && connected && !displayMode);
   const [error, setError] = useState("");
   const queryLanguage = new URLSearchParams(window.location.search).get("lang") ?? "";
   const [language, setLanguage] = useState(queryLanguage);
@@ -156,6 +161,14 @@ function AudienceApp({ joinCode, displayMode }: { joinCode: string; displayMode:
           ))}
         </select>
       </label>
+      {session.collect_audience_metrics && (
+        <label>
+          <input type="checkbox" checked={metricsConsent}
+            data-testid="audience-metrics-consent"
+            onChange={(event) => setMetricsConsent(event.target.checked)} />
+          {AUDIENCE_METRICS_COPY[locale].audienceConsent}
+        </label>
+      )}
       <section className="audience-caption-card">
         <LiveCaption
           segment={latest}
@@ -235,6 +248,7 @@ function OperatorApp() {
   const [deviceId, setDeviceId] = useState("");
   // Recording consent is always an explicit per-session choice (never persisted).
   const [recordAudio, setRecordAudio] = useState(false);
+  const [collectAudienceMetrics, setCollectAudienceMetrics] = useState(false);
   const [session, setSession] = useState<SessionState | null>(null);
   const [projects, setProjects] = useState<EventProject[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("all");
@@ -246,6 +260,7 @@ function OperatorApp() {
   );
 
   const running = session?.running ?? false;
+  useEffect(() => { if (!running) setCollectAudienceMetrics(false); }, [running]);
   const latest = segments.at(-1);
   const recent = useMemo(() => segments.slice(-6).reverse(), [segments]);
   const availablePreviewLanguages = useMemo(
@@ -422,6 +437,7 @@ function OperatorApp() {
         body: JSON.stringify(buildSessionStartPayload({
           selectedProjectId,
           recordAudio,
+          collectAudienceMetrics,
           needsAudio,
           sourceLanguage,
           targetLanguages,
@@ -644,6 +660,12 @@ function OperatorApp() {
             {recordingCopy.help}
           </small>
           {session?.recording_error && <small role="alert">{session.recording_error}</small>}
+          <label className="recording-opt-in">
+            <input type="checkbox" checked={running ? Boolean(session?.collect_audience_metrics) : collectAudienceMetrics} disabled={running}
+              data-testid="operator-metrics-consent"
+              onChange={(event) => setCollectAudienceMetrics(event.target.checked)} />
+            <span>{AUDIENCE_METRICS_COPY[locale].operatorConsent}</span>
+          </label>
           <label>
             {t("session.presenter")}
             <input

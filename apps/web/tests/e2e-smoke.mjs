@@ -346,6 +346,8 @@ await waitFor(
   "mock engine state and enabled session start",
 );
 
+await evaluate(`document.querySelector('[data-testid="operator-metrics-consent"]').click()`);
+
 const keyboardFocus = await evaluate(`(() => {
   const button = document.querySelector('[data-testid="session-toggle"]');
   if (!button || button.disabled) return false;
@@ -364,6 +366,7 @@ await screenshot("operator-live-ko");
 const stateResponse = await fetch("http://127.0.0.1:8000/api/v1/state");
 if (!stateResponse.ok) throw new Error(`state request failed: ${stateResponse.status}`);
 const state = await stateResponse.json();
+if (!state.collect_audience_metrics) throw new Error("operator metrics opt-in did not reach session");
 if (!state.running || !state.join_code || !state.session_id) {
   throw new Error(`invalid running state: ${JSON.stringify(state)}`);
 }
@@ -383,6 +386,21 @@ await waitFor(
   "audience live view",
 );
 await screenshot("audience-ko");
+const metricsUrl = "http://127.0.0.1:8000/api/v1/metrics/audience-render";
+if (Object.keys((await (await fetch(metricsUrl)).json()).stages).length !== 0) {
+  throw new Error("audience reported metrics before its own consent");
+}
+await evaluate(`(async () => {
+  document.querySelector('[data-testid="audience-metrics-consent"]').click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  window.dispatchEvent(new CustomEvent('langtextflow:caption-render-metric', {
+    detail: { stage: 'stable', receiveToPaintMs: 25, segmentId: 'never-upload-this-id' }
+  }));
+})()`);
+await waitFor(async () => {
+  const result = await (await fetch(metricsUrl)).json();
+  return result.reporting_enabled && Object.values(result.stages).some(stage => stage.count > 0);
+}, "opted-in audience browser report reaches authorized aggregation");
 await setViewport(390, 844, true);
 await screenshot("audience-mobile-ko");
 const audienceIsolation = await evaluate(`(() => {
@@ -393,10 +411,19 @@ const audienceIsolation = await evaluate(`(() => {
 if (!audienceIsolation) throw new Error("audience view leaked operator UI or overflows horizontally");
 await setViewport(1440, 1000, false);
 
+await navigate("http://127.0.0.1:5173/");
+await waitFor(
+  () => evaluate(`document.querySelector('[data-testid="audience-render-latency"]')?.textContent.includes(': p95')`),
+  "operator displays the audience aggregate",
+);
+
 const stopResponse = await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });
 if (!stopResponse.ok) throw new Error(`session stop failed: ${stopResponse.status}`);
 const stopped = await stopResponse.json();
 if (stopped.running) throw new Error("session remained running after stop");
+if (Object.keys((await (await fetch(metricsUrl)).json()).stages).length !== 0) {
+  throw new Error("audience observations survived the session transition");
+}
 
 // Synthetic 1-second WAV checks the finished-session recording import/playback
 // contract without involving a real microphone or storing external media.
@@ -478,6 +505,9 @@ await waitFor(
   () => evaluate(`document.querySelector('.history-item') !== null`),
   "session history record after stop",
 );
+if (!await evaluate(`document.querySelector('[data-testid="audience-render-latency"]') !== null`)) {
+  throw new Error("operator audience metrics display is missing");
+}
 const historyOpened = await evaluate(`(() => {
   const button = document.querySelector('.history-open');
   if (!button) return false;

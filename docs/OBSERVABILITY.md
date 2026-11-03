@@ -97,7 +97,13 @@ LANGTEXTFLOW_ASR_HEALTH_CHECK_SECONDS=0.25
 
 Failover 세부 동작은 [`FAILOVER.md`](FAILOVER.md)를 참고하세요.
 
-## 다음 단계
+## 청중 장치의 선택적 표시 지연
+
+운영자는 세션 시작 전에 청중 지연 수집을 켤 수 있습니다. 청중이 개별적으로 동의하면 브라우저가 최대 약 6초에 한 번 숫자 표본을 보냅니다. 운영자 Telemetry의 **청중 화면 표시 지연(추정)**은 로컬 탭 측정과 별도로 `/api/v1/metrics/audience-render`의 집계를 표시합니다. 기본 비활성화이며 자막 내용이나 기기 식별자는 수집하지 않습니다.
+
+집계는 최근 60초·단계별 최대 512개 표본의 p50/p95/p99와 개수입니다. double-rAF는 실제 compositor 표시 시각의 근사이며, 지원 브라우저·활성 탭·동의한 청중만 표본에 포함됩니다. 서버 송신·오디오 입력 시각을 비교하지 않으므로 네트워크나 음성 입력부터 화면까지의 전체 지연을 증명하지 않습니다. [보안 경계](AUDIENCE_SECURITY.md#선택적-화면-지연-보고)를 참조하세요.
+
+## 남은 현장 계측
 
 - 실제 한국어/영어 집회 샘플에서 failover detection/startup/replay latency 측정
 - handoff 전후 duplicate/gap rate 측정

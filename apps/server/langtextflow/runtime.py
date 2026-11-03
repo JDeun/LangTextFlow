@@ -418,6 +418,7 @@ class CaptionRuntime:
             audio_required=engine.accepts_audio,
             audio_sample_rate=engine.sample_rate,
             recording_enabled=request.record_audio,
+            collect_audience_metrics=request.collect_audience_metrics,
             recording_error=None,
             correction_status=self.pipeline.correction_status,
             translation_status=self.pipeline.status,
@@ -607,5 +608,6 @@ class CaptionRuntime:
             source_language=self.state.source_language,
             target_languages=self.state.target_languages,
             display_settings=context.display_settings,
+            collect_audience_metrics=self.state.collect_audience_metrics,
             started_at=self.state.started_at,
         )
