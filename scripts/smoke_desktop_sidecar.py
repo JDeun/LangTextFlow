@@ -78,6 +78,7 @@ def main() -> None:
             "LANGTEXTFLOW_BACKEND_PORT": str(port),
             "LANGTEXTFLOW_MDNS_ENABLED": "false",
             "HF_HOME": str(root / "models" / "huggingface"),
+            "LANGTEXTFLOW_OLLAMA_URL": "http://127.0.0.1:11434",
         }
         smoke_multiprocessing_helper(binary, root, environment)
         with (root / "sidecar.log").open("wb") as log:
