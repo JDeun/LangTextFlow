@@ -14,6 +14,7 @@ from .prompt_safety import (
     bounded_model_text,
     untrusted_json,
 )
+from .provider_http import bounded_json_request
 
 _LANGUAGE_NAMES = {
     "ko": "Korean",
@@ -73,9 +74,7 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
     async def prepare(self) -> None:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                response = await client.get(f"{self.base_url}/api/tags")
-                response.raise_for_status()
-                payload = response.json()
+                payload = await bounded_json_request(client, "GET", f"{self.base_url}/api/tags")
         except Exception as exc:
             raise CorrectionError(f"Ollama is unavailable: {exc}") from exc
 
@@ -113,7 +112,8 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         )
         try:
             async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
-                response = await client.post(
+                payload = await bounded_json_request(
+                    client, "POST",
                     f"{self.base_url}/api/chat",
                     json={
                         "model": self.model,
@@ -123,8 +123,6 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
                         "options": {"temperature": 0},
                     },
                 )
-                response.raise_for_status()
-                payload = response.json()
         except Exception as exc:
             raise CorrectionError(f"Ollama correction failed: {exc}") from exc
 

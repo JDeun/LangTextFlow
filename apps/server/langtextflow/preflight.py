@@ -15,6 +15,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .provider_http import bounded_json_request
 from .whisper_cache import managed_whisper_cache, resolve_whisper_model
 
 
@@ -281,9 +282,9 @@ def _require_model_listing(
 async def _vibevoice_check(settings: Settings) -> PreflightCheck:
     try:
         async with httpx.AsyncClient(timeout=2.5) as client:
-            response = await client.get(f"{settings.vibevoice_url.rstrip('/')}/v1/config")
-            response.raise_for_status()
-            payload = response.json()
+            payload = await bounded_json_request(
+                client, "GET", f"{settings.vibevoice_url.rstrip('/')}/v1/config",
+            )
             if not isinstance(payload, dict):
                 raise ValueError("VibeVoice config response must be a JSON object")
             # Match the streaming adapter's actual readiness requirements:
@@ -317,9 +318,9 @@ async def _vibevoice_check(settings: Settings) -> PreflightCheck:
 async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]:
     try:
         async with httpx.AsyncClient(timeout=2.5) as client:
-            response = await client.get(f"{settings.ollama_url.rstrip('/')}/api/tags")
-            response.raise_for_status()
-            payload = response.json()
+            payload = await bounded_json_request(
+                client, "GET", f"{settings.ollama_url.rstrip('/')}/api/tags",
+            )
             models = _require_model_listing(payload, "models", "Ollama")
     except Exception as exc:
         return [
@@ -381,9 +382,9 @@ async def _openai_compatible_checks(
     )
     try:
         async with httpx.AsyncClient(timeout=2.5) as client:
-            response = await client.get(f"{base_url}/models", headers=headers)
-            response.raise_for_status()
-            payload = response.json()
+            payload = await bounded_json_request(
+                client, "GET", f"{base_url}/models", headers=headers,
+            )
             models = _require_model_listing(payload, "data", "OpenAI-compatible")
     except Exception as exc:
         return [

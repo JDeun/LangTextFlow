@@ -52,6 +52,26 @@ VibeVoice, Ollama, LM Studio/vLLM-compatible endpoints, and future model provide
 
 A compromised model server can still return incorrect content. LangTextFlow's model-output checks reduce blast radius but are not a substitute for trusted model artifacts and hosts.
 
+Ollama/OpenAI-compatible translation, constrained correction, and post-event summary
+HTTP responses are streamed before JSON parsing. The entire envelope, including
+ignored fields and model-list metadata, is limited to 665,536 bytes (the largest
+50,000-character output with worst-case JSON escaping plus 64 KiB of envelope room).
+`Content-Length` can reject a response early, and actual received bytes are always
+counted even when that header is absent or false. Existing extracted-text character
+limits still apply afterward. Oversized responses fail the provider operation;
+correction retains its deterministic/source fallback, translations remain unavailable,
+and summary jobs store a safe error without replacing the source transcript.
+
+These requests advertise `Accept-Encoding: identity` and reject a compressed
+response before reading it, preventing decompression from allocating an oversized
+body ahead of the byte check. Providers/proxies must honor identity encoding;
+automatic gzip/Brotli decompression is intentionally unsupported on these paths.
+Redirects are not followed, and HTTP status failures expose only the status code,
+without provider URLs, query strings, credentials, or response bodies.
+The same bound covers preflight model/configuration probes and VibeVoice HTTP
+configuration/health responses. Ollama model-download progress uses a separate
+NDJSON streaming protocol; this JSON response cap does not bound its progress lines.
+
 ## Availability controls
 
 - bounded ASR, post-processing, and persistence queues;

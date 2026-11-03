@@ -19,6 +19,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .provider_http import bounded_json_request
 
 HealthProbe = Callable[[], Awaitable[bool]]
 ProcessSpawner = Callable[[list[str], str, dict[str, str]], Awaitable[Any]]
@@ -283,8 +284,9 @@ class VibeVoiceLifecycleManager:
                 return False
         try:
             async with httpx.AsyncClient(timeout=1.5) as client:
-                response = await client.get(f"{self.settings.vibevoice_url.rstrip('/')}/v1/config")
-                response.raise_for_status()
+                await bounded_json_request(
+                    client, "GET", f"{self.settings.vibevoice_url.rstrip('/')}/v1/config",
+                )
             return True
         except Exception:
             return False

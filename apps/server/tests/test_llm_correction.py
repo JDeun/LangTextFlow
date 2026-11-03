@@ -1,5 +1,6 @@
 import json
 
+import httpx
 import pytest
 
 from langtextflow.llm_correction import (
@@ -76,50 +77,27 @@ def test_candidate_rejects_translation_or_aggressive_rewrite() -> None:
         )
 
 
-class FakeResponse:
-    def __init__(self, content: str | None = None) -> None:
-        self.content = content or json.dumps(
-            {"corrected_text": "오늘 요한복음 3장 말씀입니다"},
-            ensure_ascii=False,
-        )
+def _mock_corrector(monkeypatch, content):
+    requests = []
+    native_client = httpx.AsyncClient
 
-    def raise_for_status(self) -> None:
-        return
+    def respond(request):
+        assert str(request.url).endswith("/api/chat")
+        requests.append(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": content}})
 
-    def json(self) -> dict[str, object]:
-        return {"message": {"content": self.content}}
-
-
-class FakeClient:
-    response_content: str | None = None
-    last_payload: dict[str, object] | None = None
-
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        del args, kwargs
-
-    async def __aenter__(self) -> "FakeClient":
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        del args
-
-    async def post(self, url: str, **kwargs: object) -> FakeResponse:
-        assert url.endswith("/api/chat")
-        payload = kwargs["json"]
-        assert isinstance(payload, dict)
-        self.__class__.last_payload = payload
-        assert payload["format"] == "json"
-        assert payload["options"] == {"temperature": 0}
-        return FakeResponse(self.__class__.response_content)
+    monkeypatch.setattr("langtextflow.llm_correction.httpx.AsyncClient", lambda **options:
+        native_client(transport=httpx.MockTransport(respond), **options))
+    return requests
 
 
 @pytest.mark.asyncio
 async def test_ollama_corrector_parses_json_and_applies_guard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    FakeClient.response_content = None
-    FakeClient.last_payload = None
-    monkeypatch.setattr("langtextflow.llm_correction.httpx.AsyncClient", FakeClient)
+    requests = _mock_corrector(monkeypatch, json.dumps(
+        {"corrected_text": "오늘 요한복음 3장 말씀입니다"}, ensure_ascii=False,
+    ))
     corrector = OllamaConstrainedCorrector(
         base_url="http://127.0.0.1:11434",
         model="test-model",
@@ -132,8 +110,9 @@ async def test_ollama_corrector_parses_json_and_applies_guard(
     )
 
     assert corrected == "오늘 요한복음 3장 말씀입니다"
-    assert FakeClient.last_payload is not None
-    messages = FakeClient.last_payload["messages"]
+    assert requests[0]["format"] == "json"
+    assert requests[0]["options"] == {"temperature": 0}
+    messages = requests[0]["messages"]
     assert messages[0]["role"] == "system"
     assert messages[1]["role"] == "user"
 
@@ -142,8 +121,7 @@ async def test_ollama_corrector_parses_json_and_applies_guard(
 async def test_ollama_corrector_rejects_oversized_model_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    FakeClient.response_content = "x" * (MAX_CORRECTION_RESPONSE_CHARS + 1)
-    monkeypatch.setattr("langtextflow.llm_correction.httpx.AsyncClient", FakeClient)
+    _mock_corrector(monkeypatch, "x" * (MAX_CORRECTION_RESPONSE_CHARS + 1))
     corrector = OllamaConstrainedCorrector(
         base_url="http://127.0.0.1:11434",
         model="test-model",
@@ -157,34 +135,15 @@ async def test_ollama_corrector_rejects_oversized_model_response(
         )
 
 
-class _BadPrepareResponse:
-    def raise_for_status(self) -> None:
-        return
-
-    def json(self) -> list[object]:
-        return []
-
-
-class _BadPrepareClient:
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        del args, kwargs
-
-    async def __aenter__(self) -> "_BadPrepareClient":
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        del args
-
-    async def get(self, url: str) -> _BadPrepareResponse:
-        assert url.endswith("/api/tags")
-        return _BadPrepareResponse()
-
-
 @pytest.mark.asyncio
 async def test_ollama_corrector_prepare_rejects_non_object_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("langtextflow.llm_correction.httpx.AsyncClient", _BadPrepareClient)
+    native_client = httpx.AsyncClient
+    monkeypatch.setattr("langtextflow.llm_correction.httpx.AsyncClient", lambda **options:
+        native_client(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=[])), **options,
+        ))
     corrector = OllamaConstrainedCorrector(
         base_url="http://127.0.0.1:11434",
         model="test-model",
