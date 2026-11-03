@@ -2,6 +2,9 @@ import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { ProjectKnowledgePanel } from "../../src/ProjectKnowledgePanel";
 import { PROJECT_KNOWLEDGE_COPY } from "../../src/projectKnowledgeCopy";
+import { ProjectArchiveIndex } from "../../src/ProjectArchiveIndex";
+import { POST_EVENT_COPY } from "../../src/postEventCopy";
+import { PROJECT_DIGEST_COPY } from "../../src/projectDigestCopy";
 
 export async function runProjectKnowledgeChecks() {
   const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
@@ -84,6 +87,64 @@ export async function runProjectKnowledgeChecks() {
     await tick(); held = new Response(); held.json = () => new Promise(resolve => { release = () => resolve([item("B")]); });
     render("A"); await until(() => held === null, "unmount fixture not fetched");
     flushSync(() => root.unmount()); release?.(); await tick();
+    await compositeDraftPreservation();
     return "materials actual React: original Unicode, TODO/revision save, UTF-8/invalid file handling, late file/user-edit/save/JSON scope/unmount fences, deletion identity";
   } finally { try { flushSync(() => root.unmount()); } catch { /* already unmounted */ } host.remove(); window.fetch = originalFetch; window.confirm = originalConfirm; }
+}
+
+async function compositeDraftPreservation() {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host), originalFetch = window.fetch;
+  const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+  const until = async (check: () => boolean, message: string) => {
+    for (let i = 0; i < 100 && !check(); i++) await tick();
+    if (!check()) throw new Error(message);
+  };
+  const t = PROJECT_KNOWLEDGE_COPY.en, c = POST_EVENT_COPY.en, d = PROJECT_DIGEST_COPY.en;
+  let stale = false, removed = false, listingReads = 0;
+  const record = (id: string) => ({ digest_id:id, status:"completed", language:"en", provider:"ollama", model:"fixture",
+    prompt_version:"fixture", input_sha256:"a".repeat(64), created_at:"2026-11-03T12:00:00Z", stale, error:null, review:null,
+    content:`Original ${id} [p0001.s000001 at 1s]`, evidence_available:true,
+    snapshot:{ source:"[p0001.s000001 at 1s] {} Original speech", sessions:[{session_id:"s",title:"Source",started_at:"2026-11-03T12:00:00Z",transcript_id:null}],
+      citations:[{alias:"p0001.s000001",marker:"[p0001.s000001 at 1s]",session_id:"s",segment_id:"original",start_ms:1000,transcript_id:null}] } });
+  window.fetch = async (input, init) => {
+    const path=String(input);
+    if (path.endsWith("/knowledge") || path.includes("/knowledge/")) {
+      if (init?.method === "DELETE") { removed=true; return new Response(null,{status:204}); }
+      if (init?.method === "PUT") { stale=true; return Response.json({}); }
+      return Response.json([{project_id:"A",knowledge_id:"owned",kind:"brief",title:"Owned context",text:"Operator text",done:false,revision:1,content_sha256:"a".repeat(64)}]);
+    }
+    if (path.endsWith("/digests")) { listingReads++; return Response.json({versions:removed?[]:[record("new"),record("selected-old")], input:{input_sha256:"b".repeat(64),session_count:1,excluded_running_count:0,interrupted_count:0},input_error:null,summary_external_providers:["openai-compatible"]}); }
+    if (path.includes("/digests/")) return Response.json(record(path.split("/").at(-1)!));
+    return Response.json({project:{project_id:"A",title:"Owned"},pagination:{limit:25,offset:0,total_sessions_at_query:0,has_more:false},sessions:[]});
+  };
+  const panel = () => host.querySelector('[data-testid="project-digest"]')!;
+  const materialButton = (label:string) => Array.from(host.querySelectorAll('[data-testid="project-knowledge"] button')).find(b=>b.textContent===label) as HTMLButtonElement;
+  const control = (label:string) => Array.from(panel().querySelectorAll("label")).find(el=>el.textContent?.startsWith(label))!;
+  const change = (element:HTMLInputElement|HTMLTextAreaElement|HTMLSelectElement,value:string) => {
+    const proto=element instanceof HTMLSelectElement?HTMLSelectElement.prototype:element instanceof HTMLTextAreaElement?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto,"value")!.set!.call(element,value);
+    element.dispatchEvent(new Event(element instanceof HTMLSelectElement?"change":"input",{bubbles:true}));
+  };
+  try {
+    flushSync(()=>root.render(<ProjectArchiveIndex apiUrl="http://fixture" projectId="A" locale="en" onOpenSession={()=>{}} />));
+    await until(()=>!!panel().querySelector("textarea"),"composite digest did not load");
+    change(control(d.versions).querySelector("select")!,"selected-old");
+    await until(()=>panel().querySelector("textarea")?.value.startsWith("Original selected-old")??false,"old version not selected");
+    change(panel().querySelector("textarea")!,"UNSAVED operator review [p0001.s000001 at 1s]");
+    change(control(c.summaryProvider).querySelector("select")!,"openai-compatible");
+    change(control(c.modelId).querySelector("input")!,"owned-custom-model"); await tick();
+    const before=listingReads; materialButton(t.refresh).click();
+    await until(()=>listingReads>before && !control(d.versions).querySelector("select")!.disabled,"composite materials refresh incomplete");
+    if (panel().querySelector("textarea")?.value!=="UNSAVED operator review [p0001.s000001 at 1s]") throw new Error("material reload destroyed unsaved project review");
+    if (control(d.versions).querySelector("select")!.value!=="selected-old" || control(c.summaryProvider).querySelector("select")!.value!=="openai-compatible" || control(c.modelId).querySelector("input")!.value!=="owned-custom-model") throw new Error("material reload reset version/provider/model selection");
+    materialButton(t.edit).click(); await until(()=>!!host.querySelector('[data-testid="project-knowledge"] textarea'),"material editor absent");
+    materialButton(t.save).click();
+    await until(()=>panel().textContent?.includes(d.stale)??false,"material change did not refresh stale state");
+    const save = Array.from(panel().querySelectorAll("button")).find(b=>b.textContent===c.saveReview) as HTMLButtonElement;
+    if (!save.disabled || panel().querySelector("textarea")?.value!=="UNSAVED operator review [p0001.s000001 at 1s]") throw new Error("stale material edit lost draft or permitted review");
+    await until(()=>!materialButton(t.remove).disabled,"material save still busy");
+    materialButton(t.remove).click();
+    await until(()=>!panel().querySelector("textarea"),"material deletion retained erased digest version");
+  } finally { flushSync(()=>root.unmount()); host.remove(); window.fetch=originalFetch; }
 }

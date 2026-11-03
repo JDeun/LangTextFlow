@@ -172,7 +172,7 @@ export function ProjectArchiveIndex({ apiUrl, projectId, locale, onOpenSession }
         </>
       )}
       <ProjectKnowledgePanel apiUrl={apiUrl} projectId={projectId} locale={locale} onChanged={() => setKnowledgeRevision(v => v + 1)} />
-      <ProjectDigestPanel key={knowledgeRevision} apiUrl={apiUrl} projectId={projectId} locale={locale} onOpenSession={onOpenSession} />
+      <ProjectDigestPanel refreshRevision={knowledgeRevision} apiUrl={apiUrl} projectId={projectId} locale={locale} onOpenSession={onOpenSession} />
     </section>
   );
 }
