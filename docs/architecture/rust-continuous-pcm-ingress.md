@@ -39,7 +39,7 @@ model identity. These timestamps remain estimates, not independent word alignmen
 The current worker accepts PCM16 WAV, whereas the live Python adapter accepts
 float32 directly. Rust therefore uses the existing recording conversion: clip
 to [-1,1], multiply by 32767, round ties to even, encode little-endian signed16.
-This changes amplitudes; it is **not byte-identical native float-input parity**.
+This can change amplitudes; it is **not general byte-identical native float-input parity**.
 Clipped-sample counts are exposed separately. Do not compare recognition scores
 against a differently quantized input as if their PCM bytes were identical.
 

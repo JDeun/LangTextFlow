@@ -158,7 +158,7 @@ impl PcmInput {
 pub struct PcmIngress {
     input: PcmInput,
     task: Option<JoinHandle<Result<(), &'static str>>>,
-    slot: Arc<Semaphore>,
+    reaped: Arc<AtomicBool>,
     root: PathBuf,
 }
 
@@ -174,9 +174,10 @@ impl PcmIngress {
         let generation = session.bind_audio_generation(source)?;
         // Acquire native ownership before creating a spool. Replacement owners
         // must share this slot and cannot accumulate files while reap is pending.
-        let worker = SupervisedWorker::spawn(program, args, slot.clone())
+        let worker = SupervisedWorker::spawn(program, args, slot)
             .map_err(|_| "audio_worker_unavailable")?;
-        let spool = Spool::new(temporary_parent, worker.reaped_signal())?;
+        let reaped = worker.reaped_signal();
+        let spool = Spool::new(temporary_parent, reaped.clone())?;
         let root = spool.root.clone();
         let (sender, receiver) = mpsc::channel(QUEUE_FRAMES);
         let state = Arc::new(Mutex::new(InputState::default()));
@@ -192,7 +193,7 @@ impl PcmIngress {
         Ok(Self {
             input,
             task: Some(task),
-            slot,
+            reaped,
             root,
         })
     }
@@ -248,12 +249,12 @@ impl PcmIngress {
 
     async fn confirm_cleanup(&self) -> Result<(), &'static str> {
         let deadline = Instant::now() + CLEANUP_BUDGET;
-        while (self.slot.available_permits() == 0 || self.root.exists())
+        while (!self.reaped.load(Ordering::Acquire) || self.root.exists())
             && Instant::now() < deadline
         {
             tokio::time::sleep(POLL).await;
         }
-        if self.slot.available_permits() == 0 || self.root.exists() {
+        if !self.reaped.load(Ordering::Acquire) || self.root.exists() {
             return Err("audio_cleanup_unconfirmed");
         }
         Ok(())

@@ -469,6 +469,37 @@ fn external_finish_timeout_consumes_owner_reaps_child_and_removes_its_open_windo
 }
 
 #[test]
+fn old_cancel_confirms_its_own_exit_even_when_replacement_immediately_holds_shared_capacity() {
+    runtime().block_on(async {
+        let fixture = Fixture::new();
+        let slot = worker_slot();
+        let session = AsrSession::default();
+        session.start("own-reap").unwrap();
+        let owner = fixture.start(session, "hang", slot.clone());
+        let input = owner.input();
+        input.feed(&pcm(0.5, WINDOW_SAMPLES)).await.unwrap();
+        wait_inference(&fixture).await;
+        let next_slot = slot.clone();
+        let (release, hold) = tokio::sync::oneshot::channel::<()>();
+        let replacement = tokio::spawn(async move {
+            let _new_owner = next_slot.acquire_owned().await.unwrap();
+            let _ = hold.await;
+        });
+        tokio::task::yield_now().await; // Queue the replacement before the old native lease is released.
+        let result = owner.cancel().await;
+        assert_eq!(slot.available_permits(), 0);
+        release.send(()).unwrap();
+        replacement.await.unwrap();
+        assert!(
+            result.is_ok(),
+            "old cleanup incorrectly followed replacement capacity: {result:?}"
+        );
+        assert!(fixture.roots().is_empty());
+        assert_eq!(slot.available_permits(), 1);
+    });
+}
+
+#[test]
 fn drain_timeout_is_failed_and_still_confirms_child_and_spool_cleanup() {
     runtime().block_on(async {
         let fixture = Fixture::new();
