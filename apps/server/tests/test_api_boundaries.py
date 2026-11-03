@@ -265,6 +265,39 @@ def test_audio_websocket_rejects_frame_above_configured_limit(
         assert exc_info.value.code == 1009
 
 
+@pytest.mark.parametrize("expected_session_id", ["original-session", ""])
+def test_audio_websocket_rejects_stale_handshake_without_claiming_audio_source(
+    monkeypatch: pytest.MonkeyPatch, expected_session_id: str,
+) -> None:
+    def unexpected_claim(_websocket: object) -> bool:
+        raise AssertionError("stale microphone claimed the replacement session")
+
+    monkeypatch.setattr(main_module, "_claim_audio_socket", unexpected_claim)
+    monkeypatch.setattr(main_module.runtime.state, "session_id", "replacement-session")
+    with pytest.raises(WebSocketDisconnect) as exc_info, _local_client().websocket_connect(
+        f"/ws/audio?expected_session_id={expected_session_id}",
+        headers={"origin": "http://localhost:5173"},
+    ):
+        pass
+    assert exc_info.value.code == 4409
+
+
+def test_audio_websocket_accepts_matching_session_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        main_module.runtime, "audio_info",
+        lambda: AudioStreamInfo(engine="test", required=True, sample_rate=16000),
+    )
+    monkeypatch.setattr(main_module.runtime.state, "running", True)
+    monkeypatch.setattr(main_module.runtime.state, "session_id", "acknowledged-session")
+    with _local_client().websocket_connect(
+        "/ws/audio?expected_session_id=acknowledged-session",
+        headers={"origin": "http://localhost:5173"},
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "audio_config"
+
+
 def test_audio_websocket_rejects_frames_after_session_replacement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
