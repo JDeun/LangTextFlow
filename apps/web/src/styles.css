@@ -192,8 +192,8 @@ body {
 .preview-toolbar { background: rgba(12,15,20,.72); }
 .stage-screen { min-height: 390px; background: radial-gradient(circle at 50% 120%, #1b2836 0, #0a0e13 45%, #07090d 100%); }
 .start-button { position: sticky; bottom: 0; z-index: 4; box-shadow: 0 -12px 24px rgba(9,11,15,.85); }
-.history-anchor { scroll-margin-top: 92px; }
-#setup-workspace, #live-workspace { scroll-margin-top: 92px; }
+.history-anchor { scroll-margin-top: var(--ltf-operator-header-offset, 20px); }
+#setup-workspace, #live-workspace { scroll-margin-top: var(--ltf-operator-header-offset, 20px); }
 .audience-shell { max-width: 920px; padding: 28px clamp(18px, 4vw, 38px); }
 .audience-header { position: sticky; top: 0; z-index: 5; padding: 14px 0; backdrop-filter: blur(14px); background: rgba(9,11,15,.78); }
 .audience-caption-card { min-height: 360px; border-color: var(--line-strong); box-shadow: 0 28px 80px rgba(0,0,0,.28); }

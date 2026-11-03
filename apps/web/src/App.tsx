@@ -18,6 +18,7 @@ import { captionLanguages, LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { LiveCaption } from "./LiveCaption";
 import { OnboardingWizard } from "./OnboardingWizard";
 import { OPERATOR_COPY } from "./operatorCopy";
+import { observeOperatorHeader } from "./operatorHeaderLayout";
 import { RECORDING_COPY } from "./recordingCopy";
 import { AUDIENCE_METRICS_COPY } from "./audienceMetricsCopy";
 import { PreflightPanel } from "./PreflightPanel";
@@ -259,7 +260,7 @@ function OperatorApp() {
   if (workspacePage === "glossary") {
     return (
       <main className="app-shell glossary-workspace-page" data-testid="glossary-workspace">
-        <header className="topbar">
+        <header className="topbar" ref={observeOperatorHeader}>
           <div>
             <div className="brand">LangTextFlow</div>
             <div className="subtitle">{glossaryCopy.pageTitle}</div>
@@ -328,7 +329,7 @@ function OperatorApp() {
         onClose={() => setOnboardingOpen(false)}
       />
 
-      <header className="topbar">
+      <header className="topbar" ref={observeOperatorHeader}>
         <div>
           <div className="brand">LangTextFlow</div>
           <div className="subtitle">{t("app.tagline")}</div>

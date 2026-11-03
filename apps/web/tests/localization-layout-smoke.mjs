@@ -51,6 +51,19 @@ async function evaluate(expression) {
   return result.result?.value;
 }
 
+async function reloadDocument() {
+  await evaluate("window.__ltfLocaleReloadProbe = true");
+  await cdp("Page.reload", { ignoreCache: true });
+  await waitFor(async () => {
+    try {
+      return await evaluate("window.__ltfLocaleReloadProbe !== true");
+    } catch {
+      return false;
+    }
+  }, "fresh document after reload");
+  await waitFor(() => evaluate(`!!document.querySelector('[data-testid="locale-select"]')`), "operator mount after reload");
+}
+
 async function setLocale(locale) {
   // Drive the real React language switcher instead of mutating storage behind
   // LocaleProvider's back. Direct writes were overwritten by its state effect
@@ -96,21 +109,14 @@ async function setLocale(locale) {
   await assertLocale("UI change");
   // Check persistence across reload only after React has written the new
   // locale. Page.reload is issued through CDP, not Runtime.evaluate.
-  await evaluate("window.__ltfLocaleReloadProbe = true");
-  await cdp("Page.reload", { ignoreCache: true });
-  await waitFor(async () => {
-    try {
-      return await evaluate("window.__ltfLocaleReloadProbe !== true");
-    } catch {
-      return false;
-    }
-  }, "fresh document after locale reload");
+  await reloadDocument();
   await assertLocale("reload persistence");
 }
 
 // CDP target creation can finish while its first page navigation or React
 // bootstrap is still in flight. Do not change locale before the operator UI
 // and its locale selector are mounted on the intended origin.
+await cdp("Page.enable");
 await waitFor(async () => {
   try {
     return await evaluate(`location.origin === "http://127.0.0.1:5173"
@@ -152,31 +158,97 @@ for (const [locale, stress] of Object.entries(stressSamples)) {
 // Check the painted caption surface too: document overflow alone misses a
 // wide aspect-ratio child clipped by its preview panel. Native consent inputs
 // must also retain a square target when their adjacent copy wraps or grows.
-for (const [width, textScale] of [[320, 100], [390, 100], [720, 100], [1440, 200]]) {
-  await cdp("Emulation.setDeviceMetricsOverride", {
-    width, height: 1000, deviceScaleFactor: 1, mobile: width < 500,
-  });
-  await evaluate(`document.documentElement.style.fontSize = "${textScale}%"`);
-  const geometry = await evaluate(`(() => {
-    const preview = document.querySelector('.preview').getBoundingClientRect();
-    const stage = document.querySelector('.stage-screen').getBoundingClientRect();
-    const brand = document.querySelector('.brand');
-    const inputs = [...document.querySelectorAll('input[type="checkbox"]')]
-      .filter(input => input.getClientRects().length);
-    return {
-      fits: document.documentElement.scrollWidth <= innerWidth + 1
-        && stage.left >= preview.left && stage.right <= preview.right + 1,
-      brandFits: brand.getBoundingClientRect().height
-        <= parseFloat(getComputedStyle(brand).lineHeight) + 1,
-      squareInputs: inputs.length > 0 && inputs.every(input => {
-        const { width, height } = input.getBoundingClientRect();
-        return width >= 16 && Math.abs(width - height) <= 1;
-      }),
-    };
-  })()`);
-  if (!geometry.fits || !geometry.squareInputs || !geometry.brandFits) {
-    throw new Error(`Caption/consent layout failed at ${width}px / ${textScale}% text: ${JSON.stringify(geometry)}`);
+for (const locale of Object.keys(stressSamples)) {
+  await setLocale(locale);
+  for (const [width, textScale] of [[320, 100], [390, 100], [720, 100], [861, 100], [1024, 100], [1440, 100], [1440, 200]]) {
+    await cdp("Emulation.setDeviceMetricsOverride", {
+      width, height: 1000, deviceScaleFactor: 1, mobile: width < 500,
+    });
+    await evaluate(`document.documentElement.style.fontSize = "${textScale}%"`);
+    await waitFor(() => evaluate(`Math.abs(parseFloat(document.querySelector('.app-shell').style.getPropertyValue('--ltf-operator-header-height'))
+      - document.querySelector('.topbar').getBoundingClientRect().height) < 1`), "header resize observation");
+    await evaluate(`document.querySelector('.control-panel').scrollTop = 0;
+      window.scrollTo(0, 300); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    const geometry = await evaluate(`(() => {
+      const preview = document.querySelector('.preview').getBoundingClientRect();
+      const stage = document.querySelector('.stage-screen').getBoundingClientRect();
+      const brand = document.querySelector('.brand');
+      const panel = document.querySelector('.control-panel');
+      const heading = panel.querySelector('.section-heading');
+      const box = heading.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+      const inputs = [...document.querySelectorAll('input[type="checkbox"]')]
+        .filter(input => input.getClientRects().length);
+      return {
+        fits: document.documentElement.scrollWidth <= innerWidth + 1
+          && stage.left >= preview.left && stage.right <= preview.right + 1,
+        brandFits: brand.getBoundingClientRect().height
+          <= parseFloat(getComputedStyle(brand).lineHeight) + 1,
+        controlsClear: getComputedStyle(panel).position !== 'sticky'
+          || (panel.getBoundingClientRect().top >= document.querySelector('.topbar').getBoundingClientRect().bottom
+            && heading.contains(hit)),
+        scroll: { y: scrollY, inner: panel.scrollTop, panel: panel.getBoundingClientRect().top,
+          header: document.querySelector('.topbar').getBoundingClientRect().bottom, heading: box.top, hit: hit?.className },
+        squareInputs: inputs.length > 0 && inputs.every(input => {
+          const { width, height } = input.getBoundingClientRect();
+          return width >= 16 && Math.abs(width - height) <= 1;
+        }),
+      };
+    })()`);
+    if (!geometry.fits || !geometry.squareInputs || !geometry.brandFits || !geometry.controlsClear) {
+      throw new Error(`Caption/consent layout failed at ${width}px / ${textScale}% text: ${JSON.stringify(geometry)}`);
+    }
+    if (width >= 861) {
+      await evaluate(`document.querySelector('.preflight-close')?.click()`);
+      for (const [index, selector] of [[2, '.history > .section-heading'], [1, '.control-panel > .section-heading']]) {
+        await evaluate(`document.querySelectorAll('.product-nav button')[${index}].click()`);
+        let lastY;
+        let stable = 0;
+        await waitFor(async () => {
+          const y = await evaluate("scrollY");
+          stable = y === lastY ? stable + 1 : 0;
+          lastY = y;
+          return stable >= 2;
+        }, "navigation scroll settled");
+        const clear = await evaluate(`(() => {
+          const heading = document.querySelector(${JSON.stringify(selector)});
+          const r = heading.getBoundingClientRect();
+          return r.top >= document.querySelector('.topbar').getBoundingClientRect().bottom
+            && heading.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+        })()`);
+        if (!clear) throw new Error(`Navigation hid ${selector} at ${width}px / ${textScale}% text`);
+      }
+    }
   }
+}
+
+// Without measurement support the header stays in document flow, so an
+// independently sticky sidebar still cannot disappear behind it.
+const fallback = await cdp("Page.addScriptToEvaluateOnNewDocument", { source: "window.ResizeObserver = undefined;" });
+try {
+  await reloadDocument();
+  if (await evaluate("typeof ResizeObserver") !== "undefined") throw new Error("ResizeObserver fallback fixture was not installed");
+  for (const [width, textScale] of [[861, 100], [1024, 100], [1440, 200]]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: false });
+    await evaluate(`document.documentElement.style.fontSize = "${textScale}%";
+      document.querySelector('.control-panel').scrollTop = 0;
+      window.scrollTo(0, 300); new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))`);
+    const clear = await evaluate(`(() => {
+      const header = document.querySelector('.topbar');
+      const heading = document.querySelector('.control-panel .section-heading');
+      const r = heading.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      return {
+        clear: getComputedStyle(header).position !== 'sticky' && heading.contains(hit),
+        headerPosition: getComputedStyle(header).position,
+        headingTop: r.top, hit: hit?.className, observer: typeof ResizeObserver, scrollY,
+      };
+    })()`);
+    if (!clear.clear) throw new Error(`Unmeasured header hid controls at ${width}px / ${textScale}% text: ${JSON.stringify(clear)}`);
+  }
+} finally {
+  await cdp("Page.removeScriptToEvaluateOnNewDocument", { identifier: fallback.identifier });
+  await reloadDocument();
 }
 await evaluate(`document.documentElement.style.fontSize = ""`);
 const consentBefore = await evaluate(`(() => {

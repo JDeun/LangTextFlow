@@ -46,13 +46,15 @@ body {
 }
 
 .app-shell {
+  --ltf-operator-header-offset: calc(var(--ltf-operator-header-height, 0px) + 20px);
+  --ltf-shell-bottom-space: 52px;
   max-width: 1540px;
-  padding: 20px 28px 52px;
+  padding: 20px 28px var(--ltf-shell-bottom-space);
 }
 
 .topbar {
   flex-wrap: wrap;
-  position: sticky;
+  position: relative;
   top: 0;
   z-index: 30;
   min-height: 70px;
@@ -64,6 +66,7 @@ body {
 }
 
 .topbar > div:first-child { flex-basis: 18rem; min-width: min(100%, 18rem); }
+.app-shell[data-header-measured] > .topbar { position: sticky; }
 
 .brand {
   color: var(--ltf-ink);
@@ -144,8 +147,8 @@ body {
 
 .control-panel {
   position: sticky;
-  top: 92px;
-  max-height: calc(100vh - 112px);
+  top: var(--ltf-operator-header-offset);
+  max-height: calc(100vh - var(--ltf-operator-header-offset) - var(--ltf-shell-bottom-space));
   padding: 20px;
   overflow: auto;
   scrollbar-width: thin;
@@ -318,6 +321,7 @@ button:active:not(:disabled) { transform: translateY(1px); }
 }
 
 .settings-group {
+  scroll-margin-top: var(--ltf-operator-header-offset, 20px);
   margin: 12px 0;
   border: 1px solid var(--ltf-line);
   border-radius: 12px;
@@ -503,7 +507,7 @@ textarea:focus-visible {
 }
 
 @media (max-width: 860px) {
-  .app-shell { padding: 14px 14px 36px; }
+  .app-shell { --ltf-shell-bottom-space: 36px; padding: 14px 14px var(--ltf-shell-bottom-space); }
   .topbar { align-items: flex-start; flex-wrap: wrap; margin-bottom: 14px; }
   .workspace { grid-template-columns: minmax(0, 1fr); }
   .control-panel {
@@ -526,10 +530,9 @@ textarea:focus-visible {
     padding-inline: 4px;
   }
   .topbar > div:first-child { grid-column: 1; grid-row: 1; min-width: 0; }
-  .topbar-actions { grid-column: 2; grid-row: 1; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .topbar-actions { grid-column: 2; grid-row: 1; flex-direction: column; align-items: flex-end; gap: 6px; max-width: 7.5rem; }
   .product-nav { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; width: 100%; margin-left: 0; }
   .product-nav button { flex: 1; padding-inline: 6px; }
-  .history-detail, .history-post-event, .settings-group { scroll-margin-top: 13rem; }
   .brand { font-size: var(--ltf-type-title); }
   .connection { font-size: var(--ltf-type-meta); }
   .locale-switcher.compact select { min-width: 90px; }

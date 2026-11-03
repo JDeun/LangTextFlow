@@ -41,7 +41,7 @@
 .history-actions .history-open { border: 1px solid #3d5268; color: #d6e3ee; }
 
 .history-detail {
-  scroll-margin-top: 7rem;
+  scroll-margin-top: var(--ltf-operator-header-offset, 20px);
   margin-top: 18px;
   padding-top: 18px;
   border-top: 1px solid #29313a;
@@ -91,7 +91,7 @@
 
 /* Post-event archive is part of session detail; recording and summaries remain operator-only. */
 .history-post-event {
-  scroll-margin-top: 7rem;
+  scroll-margin-top: var(--ltf-operator-header-offset, 20px);
   margin-block: 1.2rem;
   padding: 1rem;
   border: 1px solid var(--border, #d1d5db);
