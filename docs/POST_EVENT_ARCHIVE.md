@@ -29,6 +29,11 @@ Foreign keys cascade with session deletion. WAV bytes live in `<database-directo
 7. Use the source citation buttons to clear transcript filtering, select the original language and focus the referenced committed segment. Only exact IDs/timecodes in the loaded session can be linked. These controls navigate the transcript; they do not claim sample-accurate audio alignment.
 8. Under **Post-event transcript**, select a recording, cached model and speech language to create a separate local draft. Inspect the original decoder output/provenance, edit text and explicitly approve it. Approval locks that version and marks earlier summaries stale. The summary source still defaults to live ASR; select the approved post-event version explicitly to summarize it. Source-reference navigation opens that summary's exact transcript version. Each version exports its original draft and complete review history as JSON.
 
+Offline segments also offer **Seek source recording (estimated time)**. This uses that
+version's own managed recording and decoder start time, waits for media metadata,
+positions and focuses the player without starting playback. Live captions are not
+automatically aligned to imported WAVs; this control does not claim word alignment.
+
 ## Automatic recording (stacked implementation)
 
 Live audio recording is available as an explicit **per-session opt-in** before starting a real ASR engine. The existing streaming `/ws/audio` float32 PCM is mirrored to a **bounded, asynchronous PCM16 WAV writer**; filesystem backpressure does not block live ASR. A complete recording is linked to `session_id` after stop and appears in the same Event archive panel. Recording defaults to off, and a demo/mock session cannot enable it.

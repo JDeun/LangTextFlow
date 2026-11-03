@@ -68,7 +68,35 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
   const [summaryTranscriptId, setSummaryTranscriptId] = useState<string | null>(null);
   const [requestedTranscript, setRequestedTranscript] = useState<{ id: string } | null>(null);
   const archiveRequest = useRef(0);
+  const audioPlayers = useRef(new Map<string, HTMLAudioElement>());
+  const [recordingSeek, setRecordingSeek] = useState<{ id: string; startMs: number } | null>(null);
   const root = `${apiUrl}/api/v1/history/${encodeURIComponent(session.session_id)}`;
+
+  useEffect(() => {
+    if (!recordingSeek) return;
+    const audio = audioPlayers.current.get(recordingSeek.id);
+    if (!audio) { setError(copy.failure); setRecordingSeek(null); return; }
+    const failed = () => { setError(copy.failure); setRecordingSeek(null); };
+    const seek = () => {
+      if (!Number.isFinite(audio.duration) || audio.duration <= 0
+        || !Number.isFinite(recordingSeek.startMs) || recordingSeek.startMs < 0) {
+        failed(); return;
+      }
+      try {
+        audio.currentTime = Math.min(recordingSeek.startMs / 1000, audio.duration);
+        audio.scrollIntoView({ block: "center" });
+        audio.focus({ preventScroll: true });
+        setRecordingSeek(null);
+      } catch { failed(); }
+    };
+    audio.addEventListener("error", failed, { once: true });
+    if (audio.readyState >= 1) seek();
+    else { audio.addEventListener("loadedmetadata", seek, { once: true }); audio.load(); }
+    return () => {
+      audio.removeEventListener("error", failed);
+      audio.removeEventListener("loadedmetadata", seek);
+    };
+  }, [recordingSeek, copy.failure]);
 
   useEffect(() => {
     if (summaryTranscriptId && summaryTranscriptId !== archive.approved_transcript_id) {
@@ -230,6 +258,10 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
         <div className="history-post-recording" key={recording.recording_id}>
           <small>{Math.round(recording.duration_seconds)}s · {(recording.size_bytes / (1024 * 1024)).toFixed(1)} MiB</small>
           <audio
+            ref={element => {
+              if (element) audioPlayers.current.set(recording.recording_id, element);
+              else audioPlayers.current.delete(recording.recording_id);
+            }}
             controls
             preload="none"
             src={`${root}/recordings/${encodeURIComponent(recording.recording_id)}/audio`}
@@ -242,6 +274,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
         </div>
       ))}
       <PostEventTranscripts root={root} locale={locale} sourceLanguage={session.source_language} recordings={archive.recordings}
+        onSeekRecording={(id, startMs) => setRecordingSeek({ id, startMs })}
         onChanged={refresh} requestedVersion={requestedTranscript} summary={archive.summary} />
       <h4>{copy.summary}</h4>
       {archive.summary_stale && (
