@@ -26,13 +26,13 @@
 
 .display-settings > summary strong {
   color: #dce4ea;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .display-settings > summary small,
 .display-settings > summary b {
   color: #778690;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   font-weight: 500;
 }
 
@@ -67,7 +67,7 @@
 
 .display-range b {
   color: #d8e1e7;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
 }
 
 .display-range input[type="range"] {
@@ -98,13 +98,13 @@
 
 .display-toggle strong {
   color: #d4dde4;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
 }
 
 .display-toggle small,
 .display-range small {
   color: #75838e;
-  font-size: 9px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 

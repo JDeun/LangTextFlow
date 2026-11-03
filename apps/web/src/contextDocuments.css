@@ -20,13 +20,13 @@
 }
 
 .context-documents-heading strong {
-  font-size: 13px;
+  font-size: var(--ltf-type-label);
 }
 
 .context-documents-heading small,
 .context-document-note {
   color: #6f7b87;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.45;
 }
 
@@ -65,14 +65,14 @@
 .context-document-list strong {
   overflow: hidden;
   color: #d9e0e7;
-  font-size: 12px;
+  font-size: var(--ltf-type-label);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .context-document-list small {
   color: #65717d;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
   line-height: 1.4;
 }
 
@@ -80,5 +80,5 @@
   flex: 0 0 auto;
   min-width: 48px;
   padding: 6px 8px;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
 }

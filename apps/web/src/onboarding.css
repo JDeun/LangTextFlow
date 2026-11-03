@@ -43,7 +43,7 @@
 
 .onboarding-header small {
   color: #778178;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
   letter-spacing: .08em;
   text-transform: uppercase;
@@ -51,7 +51,7 @@
 
 .onboarding-header strong {
   color: #18201b;
-  font-size: 20px;
+  font-size: var(--ltf-type-title);
 }
 
 .onboarding-header > button {
@@ -97,7 +97,7 @@
 .onboarding-copy h2 {
   margin: 0;
   color: #18201b;
-  font-size: 24px;
+  font-size: var(--ltf-type-page);
   line-height: 1.3;
   letter-spacing: -.02em;
 }
@@ -105,7 +105,7 @@
 .onboarding-copy p {
   margin: 0;
   color: #677169;
-  font-size: 14px;
+  font-size: var(--ltf-type-body);
   line-height: 1.7;
 }
 
@@ -116,7 +116,7 @@
   border-radius: 10px;
   background: #f3f5f2;
   color: #5f6962;
-  font-size: 12px;
+  font-size: var(--ltf-type-label);
 }
 
 .onboarding-error {
@@ -146,12 +146,12 @@
 
 .onboarding-status strong {
   color: #243028;
-  font-size: 13px;
+  font-size: var(--ltf-type-label);
 }
 
 .onboarding-status span {
   color: #748078;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-recommendation {
@@ -165,13 +165,13 @@
 
 .onboarding-recommendation small {
   color: #648171;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
   font-weight: 700;
 }
 
 .onboarding-recommendation strong {
   color: #345240;
-  font-size: 13px;
+  font-size: var(--ltf-type-label);
 }
 
 .onboarding-recommendation ul {
@@ -180,7 +180,7 @@
   margin: 0;
   padding-left: 18px;
   color: #68776d;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-recommendation button,
@@ -220,7 +220,7 @@
   border-radius: 50%;
   background: #e8ece8;
   color: #68736b;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-check-list > div.ready b {
@@ -242,12 +242,12 @@
 
 .onboarding-check-list strong {
   color: #263029;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-check-list small {
   color: #778179;
-  font-size: 10px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-grid {
@@ -261,7 +261,7 @@
   gap: 6px;
   margin: 0;
   color: #58635b;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-grid select,
@@ -314,7 +314,7 @@
 .onboarding-finish dt,
 .onboarding-finish dd {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--ltf-type-meta);
 }
 
 .onboarding-finish dt { color: #778179; }
