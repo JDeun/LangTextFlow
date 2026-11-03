@@ -14,3 +14,7 @@ export const LANGUAGE_OPTIONS = [
 export function languageLabel(code: string) {
   return LANGUAGE_OPTIONS.find(([value]) => value === code)?.[1] ?? code.toUpperCase();
 }
+
+export function captionLanguages(sourceLanguage: string, targetLanguages: string[]) {
+  return [sourceLanguage, ...targetLanguages.filter((code) => code !== sourceLanguage)];
+}
