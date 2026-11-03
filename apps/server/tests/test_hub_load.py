@@ -167,3 +167,34 @@ async def test_hub_capacity_rejection_is_distinct_from_delivery_failure() -> Non
     assert hub.clients_evicted_overflow == 0
     assert hub.clients_evicted_send_failure == 0
     await hub.close_all()
+
+
+@pytest.mark.asyncio
+async def test_hub_shutdown_when_send_completes_during_writer_cancellation() -> None:
+    hub = WebSocketHub()
+    closing = None
+
+    class CompletingSocket(LoadSocket):
+        async def send_json(self, payload):
+            nonlocal closing
+            closing = asyncio.create_task(hub.close_all())
+
+    client = CompletingSocket()
+    await hub.connect(client)
+    writer = hub._clients[client].writer
+    hub.enqueue(_event())
+    try:
+        for _ in range(100):
+            if closing is not None:
+                break
+            await asyncio.sleep(0)
+        assert closing is not None
+        await asyncio.wait_for(asyncio.shield(closing), timeout=0.5)
+        assert writer.done() and client.closed and hub.client_count == 0
+    finally:
+        if closing is not None and not closing.done():
+            closing.cancel()
+        if not writer.done():
+            writer.cancel()
+        await asyncio.gather(*(task for task in (closing, writer) if task),
+                             return_exceptions=True)
