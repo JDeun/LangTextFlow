@@ -626,6 +626,7 @@ textarea:focus-visible {
 }
 .preflight-check strong { color: var(--ltf-ink); }
 .preflight-check span { color: var(--ltf-muted); }
+.preflight-check small { color: #795520; }
 .preflight-check.ready { border-color: #c8dfd0; }
 .preflight-check.ready > i {
   background: var(--ltf-success-soft);

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import type { SessionDetail } from "./types";
+import type { SessionDetail, TranscriptEvent } from "./types";
 import type { Locale } from "./locales";
 import { POST_EVENT_COPY } from "./postEventCopy";
 import { buildSummaryRequest, type SummaryLanguage, type SummaryProvider } from "./summaryRequestPolicy";
+import { summaryCitations } from "./summaryCitations";
 
 interface Recording {
   recording_id: string;
@@ -41,9 +42,11 @@ interface Props {
   apiUrl: string;
   session: SessionDetail;
   locale: Locale;
+  segments: TranscriptEvent[];
+  onOpenSegment: (segmentId: string) => void;
 }
 
-export function PostEventPanel({ apiUrl, session, locale }: Props) {
+export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegment }: Props) {
   const copy = POST_EVENT_COPY[locale];
   const [archive, setArchive] = useState<Archive>({
     recordings: [], summary: null, summary_stale: false,
@@ -293,6 +296,15 @@ export function PostEventPanel({ apiUrl, session, locale }: Props) {
             />
           </label>
           <small>{copy.reviewHint}</small>
+          <div className="history-post-actions" aria-label={copy.sourceReferences}>
+            {summaryCitations(reviewText, segments).map(reference => (
+              <button key={reference.segmentId} type="button" className="secondary-button"
+                data-testid="summary-source-link"
+                onClick={() => onOpenSegment(reference.segmentId)}>
+                {copy.openSource} {Math.floor(reference.seconds / 60)}:{String(reference.seconds % 60).padStart(2, "0")}
+              </button>
+            ))}
+          </div>
           {!archive.summary.review?.approved && (
             <div className="history-post-actions">
               <button type="button" className="secondary-button"
