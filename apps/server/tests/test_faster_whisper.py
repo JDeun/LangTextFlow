@@ -187,6 +187,7 @@ async def test_faster_whisper_uses_integer_pcm_clock_across_many_chunks() -> Non
 
 def native_timestamp_engine(
     monkeypatch, publish, *, start=0.85, end=4.85, info=None, options_out=None,
+    responses=None, calls=None,
 ):
     # Keep the base test suite independent of the optional numpy/Whisper install.
     monkeypatch.setitem(sys.modules, "numpy", SimpleNamespace(
@@ -197,9 +198,14 @@ def native_timestamp_engine(
     def transcribe(audio, **options):
         assert audio == pcm(4)
         assert options["vad_filter"] is True
-        assert options["without_timestamps"] is True
         if options_out is not None:
             options_out.update(options)
+        index = len(calls) if calls is not None else 0
+        if calls is not None:
+            calls.append(options)
+        if responses is not None:
+            response = responses[min(index, len(responses) - 1)]
+            return iter(response), info
         return iter([SimpleNamespace(start=start, end=end, text=" source speech ")]), info
 
     engine = FasterWhisperStreamingAsrEngine(publish)
@@ -209,15 +215,16 @@ def native_timestamp_engine(
 
 
 @pytest.mark.asyncio
-async def test_faster_whisper_uses_text_only_decoding_with_pcm_vad_chunk_spans(monkeypatch):
+async def test_faster_whisper_preserves_valid_native_decode_without_text_only_retry(monkeypatch):
     published = []
     options = {}
+    calls = []
 
     async def publish(event):
         published.append(event)
 
     engine = native_timestamp_engine(
-        monkeypatch, publish, end=4.0, options_out=options,
+        monkeypatch, publish, end=4.0, options_out=options, calls=calls,
         info=SimpleNamespace(duration=4.0, duration_after_vad=3.15),
     )
     engine._request = StartSessionRequest(
@@ -226,11 +233,91 @@ async def test_faster_whisper_uses_text_only_decoding_with_pcm_vad_chunk_spans(m
     )
     await engine._process_chunk(pcm(4))
     assert engine.chunk_seconds == 4.0
-    assert options["without_timestamps"] is True
+    assert len(calls) == 1 and options["without_timestamps"] is False
     assert options["vad_filter"] is True and options["beam_size"] == 1
     assert options["condition_on_previous_text"] is False
     assert options["initial_prompt"] == "FLEURS test-set real speech evaluation"
     assert [(event.start_ms, event.end_ms) for event in published] == [(850, 4000)]
+    assert engine.timestamp_recovery_count == 0
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_retries_invalid_native_time_once_before_publishing(
+    monkeypatch, caplog,
+):
+    published = []
+    calls = []
+
+    async def publish(event):
+        published.append(event)
+
+    engine = native_timestamp_engine(
+        monkeypatch, publish, calls=calls, info=SimpleNamespace(duration=4, duration_after_vad=4),
+        responses=[
+            [SimpleNamespace(start=0, end=2, text="discard even this valid first-pass segment"),
+             SimpleNamespace(start=2, end=22.28, text="discard invalid first-pass text")],
+            [SimpleNamespace(start=0, end=4, text="recovered chunk text")],
+        ],
+    )
+    await engine._process_chunk(pcm(4))
+    assert [call["without_timestamps"] for call in calls] == [False, True]
+    assert [event.text for event in published] == ["recovered chunk text"]
+    assert engine.timestamp_recovery_count == 1
+    assert engine.timestamp_recovery_errors == [{
+        "error_type": "out_of_bounds_timestamp",
+        "error": "faster-whisper returned out-of-bounds segment timestamps: "
+                 "2.000–22.280s for 4.000s input",
+        "input_duration_seconds": 4.0, "start_sample": 0, "sample_rate": 16000,
+    }]
+    assert "estimated PCM/VAD chunk-span timing" in caplog.text
+    assert "PCM samples 0–64000" in caplog.text
+    assert "discard" not in caplog.text and "recovered chunk text" not in caplog.text
+    await engine.stop()
+    assert engine.timestamp_recovery_count == 0 and engine.timestamp_recovery_errors == []
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_invalid_recovery_fails_without_third_decode_or_publication(
+    monkeypatch,
+):
+    published = []
+    calls = []
+
+    async def publish(event):
+        published.append(event)
+
+    engine = native_timestamp_engine(
+        monkeypatch, publish, start=0, end=22.28, calls=calls,
+        info=SimpleNamespace(duration=4, duration_after_vad=4),
+    )
+    with pytest.raises(AsrEngineError, match="out-of-bounds"):
+        await engine._process_chunk(pcm(4))
+    assert [call["without_timestamps"] for call in calls] == [False, True]
+    assert not published
+
+
+@pytest.mark.asyncio
+async def test_faster_whisper_recovery_diagnostics_are_bounded_and_reset_on_start(monkeypatch):
+    async def publish(event):
+        pass
+
+    calls = []
+    engine = native_timestamp_engine(
+        monkeypatch, publish, calls=calls, info=SimpleNamespace(duration=4, duration_after_vad=4),
+        responses=[response for _ in range(10) for response in (
+            [SimpleNamespace(start=0, end=22.28, text="invalid")],
+            [SimpleNamespace(start=0, end=4, text="valid")],
+        )],
+    )
+    for _ in range(10):
+        await engine._process_chunk(pcm(4))
+    assert engine.timestamp_recovery_count == 10
+    assert len(engine.timestamp_recovery_errors) == 8
+    assert engine.timestamp_recovery_errors[0]["start_sample"] == 2 * 64000
+    engine._load_model_sync = lambda: object()
+    await engine.start(StartSessionRequest(engine="faster-whisper"))
+    assert engine.timestamp_recovery_count == 0 and engine.timestamp_recovery_errors == []
+    await engine.stop()
 
 
 @pytest.mark.asyncio
