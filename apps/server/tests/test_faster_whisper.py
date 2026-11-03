@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from array import array
 from types import SimpleNamespace
 
@@ -318,6 +319,48 @@ async def test_faster_whisper_recovery_diagnostics_are_bounded_and_reset_on_star
     await engine.start(StartSessionRequest(engine="faster-whisper"))
     assert engine.timestamp_recovery_count == 0 and engine.timestamp_recovery_errors == []
     await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_native_first_pass_cannot_retry_or_dirty_the_next_session(monkeypatch):
+    entered = threading.Event()
+    released = threading.Event()
+    old_calls = []
+    new_calls = []
+
+    async def publish(event):
+        pytest.fail("old native inference must not publish")
+
+    engine = native_timestamp_engine(monkeypatch, publish)
+
+    def slow_first_pass(audio, **options):
+        old_calls.append(options)
+        entered.set()
+        assert released.wait(5)
+        return iter([SimpleNamespace(start=0, end=22.28, text="old session")]), None
+
+    def new_transcribe(audio, **options):
+        new_calls.append(options)
+        return iter([]), None
+
+    engine._model = SimpleNamespace(transcribe=slow_first_pass)
+    pending = asyncio.create_task(asyncio.to_thread(
+        engine._transcribe_chunk_sync, pcm(4), engine._request,
+    ))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        await engine.stop()
+        engine._load_model_sync = lambda: SimpleNamespace(transcribe=new_transcribe)
+        await engine.start(StartSessionRequest(engine="faster-whisper"))
+        released.set()
+        with pytest.raises(AsrEngineError, match="recovery session ended"):
+            await pending
+        assert len(old_calls) == 1 and not new_calls
+        assert engine.timestamp_recovery_count == 0 and engine.timestamp_recovery_errors == []
+    finally:
+        released.set()
+        await asyncio.gather(pending, return_exceptions=True)
+        await engine.stop()
 
 
 @pytest.mark.asyncio

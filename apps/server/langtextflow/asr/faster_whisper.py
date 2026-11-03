@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -74,6 +75,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self._failure: str | None = None
         self.timestamp_recovery_count = 0
         self.timestamp_recovery_errors: list[dict] = []
+        self._session_generation = 0
+        self._recovery_lock = threading.Lock()
 
     @property
     def running(self) -> bool:
@@ -107,8 +110,10 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         if self.running:
             return
         self._failure = None
-        self.timestamp_recovery_count = 0
-        self.timestamp_recovery_errors = []
+        with self._recovery_lock:
+            self._session_generation += 1
+            self.timestamp_recovery_count = 0
+            self.timestamp_recovery_errors = []
         self._request = request
         try:
             self._model = await asyncio.to_thread(self._load_model_sync)
@@ -148,6 +153,10 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             self._queue.put_nowait(None)
 
     async def stop(self) -> None:
+        with self._recovery_lock:
+            self._session_generation += 1
+            self.timestamp_recovery_count = 0
+            self.timestamp_recovery_errors = []
         await self.end_audio()
         task = self._worker_task
         if task is not None:
@@ -159,8 +168,6 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self._queue = None
         self._request = None
         self._model = None
-        self.timestamp_recovery_count = 0
-        self.timestamp_recovery_errors = []
 
     def _load_model_sync(self) -> Any:
         try:
@@ -183,7 +190,11 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         pcm_f32le: bytes,
         request: StartSessionRequest,
     ) -> list[DecodedSegment]:
-        if self._model is None:
+        with self._recovery_lock:
+            model = self._model
+            generation = self._session_generation
+            start_sample = self._audio_cursor_samples
+        if model is None:
             raise AsrEngineError("faster-whisper model is not loaded")
         try:
             import numpy as np
@@ -204,7 +215,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         hotwords = ", ".join(context.asr_hotwords(source_language=request.source_language)) or None
 
         def decode(*, without_timestamps: bool) -> list[DecodedSegment]:
-            segments, info = self._model.transcribe(
+            segments, info = model.transcribe(
                 audio,
                 language=request.source_language,
                 beam_size=1,
@@ -256,18 +267,22 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         try:
             _validate_timestamps(decoded, duration)
         except AsrEngineError as exc:
-            self.timestamp_recovery_count += 1
-            self.timestamp_recovery_errors.append({
-                "error_type": "out_of_bounds_timestamp",
-                "error": str(exc), "input_duration_seconds": duration,
-                "start_sample": self._audio_cursor_samples, "sample_rate": self._sample_rate,
-            })
-            del self.timestamp_recovery_errors[:-8]
+            with self._recovery_lock:
+                # A cancelled to_thread call may finish after stop or a new session starts.
+                if generation != self._session_generation:
+                    raise AsrEngineError("faster-whisper timing recovery session ended") from exc
+                self.timestamp_recovery_count += 1
+                self.timestamp_recovery_errors.append({
+                    "error_type": "out_of_bounds_timestamp",
+                    "error": str(exc), "input_duration_seconds": duration,
+                    "start_sample": start_sample, "sample_rate": self._sample_rate,
+                })
+                del self.timestamp_recovery_errors[:-8]
             logger.warning(
                 "%s; retrying once with estimated PCM/VAD chunk-span timing "
                 "for received PCM samples %d–%d at %d Hz; this is not word alignment",
-                exc, self._audio_cursor_samples,
-                self._audio_cursor_samples + len(pcm_f32le) // 4, self._sample_rate,
+                exc, start_sample,
+                start_sample + len(pcm_f32le) // 4, self._sample_rate,
             )
             decoded = decode(without_timestamps=True)
             _validate_timestamps(decoded, duration)
