@@ -642,12 +642,26 @@ class ProjectPackageOperation:
                 }
                 or manifest["format"] != FORMAT
                 or type(manifest["version"]) is not int
-                or manifest["version"] not in (1, VERSION)
+                or manifest["version"] not in (1, 2, VERSION)
                 or manifest["graph_size_bytes"] != len(raw_graph)
                 or manifest["graph_sha256"] != hashlib.sha256(raw_graph).hexdigest()
             ):
                 raise PackageError("Private project manifest or graph hash is invalid")
             graph = parse_json(raw_graph)
+            if (
+                not isinstance(graph, dict)
+                or set(graph) != {"project_id", "tables"}
+                or not isinstance(graph["tables"], dict)
+                or any(not isinstance(rows, list) for rows in graph["tables"].values())
+            ):
+                raise PackageError("Invalid private project graph shape")
+            original_counts = {name: len(data) for name, data in graph["tables"].items()}
+            if manifest["version"] < 3:
+                # Original v1/v2 graph bytes were hash-checked above. These
+                # versions predate materials: never accept a smuggled new table.
+                if "project_knowledge" in graph["tables"]:
+                    raise PackageError("Unexpected legacy project materials")
+                graph["tables"]["project_knowledge"] = []
             if manifest["version"] == 1:
                 # Validate the original byte digest above before the only known
                 # v1→v2 migration. Immutable snapshot JSON strings stay untouched.
@@ -661,7 +675,7 @@ class ProjectPackageOperation:
             rows = graph["tables"]["session_recordings"]
             expected = {row["recording_id"]: row for row in rows}
             if (
-                manifest["counts"] != {name: len(data) for name, data in graph["tables"].items()}
+                manifest["counts"] != original_counts
                 or not isinstance(manifest["media"], list)
                 or len(manifest["media"]) != len(rows)
             ):
@@ -879,6 +893,7 @@ class ProjectPackageOperation:
 
 # Static ID-only queries never load unrelated transcripts or blobs during conflict checks.
 CONFLICT_SQL = {
+    "project_knowledge": "SELECT 1 FROM project_knowledge WHERE knowledge_id=?",
     "projects": "SELECT 1 FROM projects WHERE project_id=?",
     "sessions": "SELECT 1 FROM sessions WHERE session_id=?",
     "project_sessions": "SELECT 1 FROM project_sessions WHERE session_id=?",

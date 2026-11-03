@@ -61,6 +61,7 @@ from .post_event_api import install_post_event_routes
 from .preflight import SystemPreflight, run_preflight
 from .project_archive import build_project_archive_manifest
 from .project_glossary_repository import ProjectGlossaryRepository, ProjectGlossarySnapshot
+from .project_knowledge_api import install_project_knowledge_routes
 from .project_report import build_project_report
 from .project_repository import (
     ProjectAssignment,
@@ -158,6 +159,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         await _close_audio_socket_for_transition("server shutting down")
+        await shutdown_project_knowledge()
         await runtime.shutdown()
         await shutdown_post_event_jobs()
         await vibevoice_lifecycle.shutdown()
@@ -1371,3 +1373,6 @@ shutdown_post_event_jobs = install_post_event_routes(
 )
 
 install_recording_routes(app, runtime, _require_operator)
+shutdown_project_knowledge = install_project_knowledge_routes(
+    app, post_event_archive, _require_operator, _project_digest_transition,
+)

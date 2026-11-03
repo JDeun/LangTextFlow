@@ -1,0 +1,157 @@
+{
+  "id": "2026-11-04-native-recovery-duration",
+  "accessed": "2026-11-04",
+  "classification": "locally_reproduced_negative_recovery_duration_not_field_qualification",
+  "sources": [
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/tree/62dd1612c099c39d6f1904b535300ee191970b34",
+      "kind": "exact_runtime_source"
+    },
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/pull/419",
+      "kind": "next_caption_recovery_fix"
+    },
+    {
+      "url": "https://huggingface.co/datasets/google/fleurs/tree/fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+      "kind": "public_audio_dataset",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "source_sha": "62dd1612c099c39d6f1904b535300ee191970b34",
+  "started_at": "2026-11-03T16:56:50.120900+00:00",
+  "finished_at": "2026-11-03T17:26:59.063736+00:00",
+  "fixture_sha256": "353bd463b9f51b720bd7f557d4be03cf33ee98e2649036852843c5afab3135de",
+  "config": {
+    "requested_engine": "faster-whisper",
+    "resolved_provider": "faster-whisper",
+    "source_language": "ko",
+    "target_languages": [
+      "en",
+      "ja"
+    ],
+    "translation_provider": "m2m100-ct2",
+    "translation_model": null,
+    "preset": "general",
+    "pace": "realtime",
+    "chunk_ms": 100,
+    "duration_minutes": 30.0,
+    "hotwords": []
+  },
+  "asr_settings": {
+    "model": "small",
+    "window_seconds": 4,
+    "compute_type": "int8",
+    "threads": 2
+  },
+  "translation_settings": {
+    "compute_type": "int8",
+    "threads": 2
+  },
+  "input": {
+    "sample_rate": 16000,
+    "source_duration_ms": 12480.0,
+    "benchmark_duration_ms": 1800000.0,
+    "source_loops": 145,
+    "reference_path": null
+  },
+  "model_files_sha256": {
+    "whisper/model.bin": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+    "model/model.bin": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+    "model/config.json": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+    "model/shared_vocabulary.json": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+    "tokenizer/tokenizer_config.json": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+    "tokenizer/special_tokens_map.json": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+    "tokenizer/sentencepiece.bpe.model": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+    "tokenizer/vocab.json": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc"
+  },
+  "outcome": {
+    "status": "failed",
+    "exit_code": 1,
+    "source_captions": 442,
+    "available_target_results": 878,
+    "failed_target_results": 6,
+    "drained": true,
+    "drain_ms": 5418.4,
+    "estimated_asr_lag": {
+      "count": 432,
+      "mean_ms": 5220.7,
+      "p50_ms": 3988.0,
+      "p95_ms": 11494.7,
+      "max_ms": 19748.6
+    },
+    "queues": {
+      "asr_high_watermark": 8,
+      "postprocess_high_watermark": 2,
+      "persistence_high_watermark": 2,
+      "audio_backpressure_events": 449
+    },
+    "persistence_error": null,
+    "failover": {
+      "count": 0,
+      "last_reason": null,
+      "audio_ms": null,
+      "caption_gap_ms": null
+    }
+  },
+  "memory": {
+    "parent_peak_mib": 1278.59,
+    "sample_count": 309,
+    "errors": {},
+    "process_tree": {
+      "available": true,
+      "complete": true,
+      "scope": "parent_and_recursive_descendants",
+      "method": "psutil_sum_sampled_rss_not_pss",
+      "platform": "Darwin",
+      "unit": "MiB",
+      "rss_peak_mb": 2010.97,
+      "rss_growth_mb": 1207.19,
+      "observed_rss_peak_mb": 2010.97,
+      "complete_sample_count": 309,
+      "partial_sample_count": 0,
+      "process_limit": 64,
+      "shared_pages_counted_per_process": true,
+      "external_services_included": false
+    }
+  },
+  "baseline": {
+    "source_sha": "bc5ef326f61ceabd1772b61b283afdfeea99a871",
+    "report_sha256": "c5e616ff09df641b5a9e3e3b0a1c6237107de1fe7124d89cf1a5f6f746bf1d6d",
+    "source_captions": 438,
+    "available_target_results": 92,
+    "failed_target_results": 784,
+    "configuration_and_input_metadata_equal": true,
+    "controlled_host_load": false
+  },
+  "early_checkpoint": {
+    "source_count": 64,
+    "fully_available_sources": 63,
+    "known_failed_source": {
+      "segment_id": "fw-00000048",
+      "start_ms": 195600,
+      "text": "2010...",
+      "targets": {
+        "en": "failed",
+        "ja": "available"
+      }
+    },
+    "sha256": "5ab0436f14447a9e17e4a627ad7a4cbf3211dba107ed477204be29070eb90b1c"
+  },
+  "local_artifacts": {
+    "report": "/private/tmp/langtextflow-native-recovery-thirty-minute.json",
+    "report_sha256": "c72479baa49cc7b84853ede4e201fd0e520400b0dcfb5b8a0b7173d95c6f242e",
+    "receipt": "/private/tmp/langtextflow-native-recovery-thirty-minute-receipt.json",
+    "receipt_sha256": "572a644227eb83314137c9cb4a55117cbfde37e828cb032871c331dd854b6a75",
+    "early_checkpoint": "/private/tmp/langtextflow-recovery-first-failure-checkpoint.db"
+  },
+  "limits": [
+    "Same public source, duration, configuration and model hashes; incidental development load is not controlled.",
+    "No aligned repeated transcript or bilingual gold; CER/WER, semantic quality and model selection remain unqualified.",
+    "The final report counts six target failures; only the early numeric EN-failed/JA-available case has a retained per-caption SQLite checkpoint.",
+    "The numeric caption native rejection category is not exposed by the private IPC error; no guard is weakened.",
+    "Estimated ASR lag is sampled telemetry, not independently aligned word-to-screen delay.",
+    "Complete sampled process-tree RSS counts shared pages per process; it is not PSS, a continuous peak or physical 4GB/8GB qualification.",
+    "Real-time paced wall/audio ratio is not sustained inference throughput.",
+    "Short repeated audio and separate code snapshots cannot establish real-event or signed-installer acceptance."
+  ]
+}

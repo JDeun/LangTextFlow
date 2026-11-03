@@ -47,3 +47,14 @@
   z-index: auto;
   box-shadow: none;
 }
+
+.project-knowledge-editor { display:grid; gap:0.85rem; max-width:72ch; }
+.project-knowledge-editor label { display:grid; gap:0.35rem; min-width:0; }
+.project-knowledge-editor label:has(input[type="checkbox"]) { display:flex; align-items:center; }
+.project-knowledge-editor textarea { min-height:12rem; resize:vertical; line-height:1.6; }
+.project-knowledge-list { list-style:none; padding:0; margin:0; display:grid; gap:1.4rem; }
+.project-knowledge-list li { min-width:0; padding-top:1rem; border-top:1px solid var(--border, #d1d5db); }
+.project-knowledge-list h4 { margin:0 0 0.35rem; font-size:var(--ltf-type-label); overflow-wrap:anywhere; }
+.project-knowledge-list details { margin:0.65rem 0; }
+.project-knowledge-text { white-space:pre-wrap; overflow-wrap:anywhere; max-width:72ch; }
+.project-knowledge-hash { display:block; overflow-wrap:anywhere; }

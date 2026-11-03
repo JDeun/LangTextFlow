@@ -14,7 +14,7 @@ use std::sync::{
 
 const SAMPLE_RATE: u32 = 16_000;
 const MAX_CHUNK_SAMPLES: u64 = 120 * SAMPLE_RATE as u64;
-const MAX_SEGMENTS: usize = 128;
+pub(crate) const MAX_SOURCE_CHUNKS: usize = 2048;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -74,6 +74,11 @@ pub struct Admission {
     owner: Weak<Mutex<State>>,
     deadline: std::time::Instant,
     source_id: u64,
+}
+
+pub(crate) struct AudioBinding {
+    pub generation: u64,
+    pub deadline: std::time::Instant,
 }
 
 impl Admission {
@@ -184,6 +189,9 @@ impl MtJob {
         {
             if let Some(accepted) = state.accepted.get_mut(&pending.chunk_id) {
                 accepted.committed = true;
+                // Terminal chunks cannot be revised. Keep their identity fence,
+                // not a second session-long copy of completed source text.
+                accepted.events = Vec::new();
             }
         }
     }
@@ -436,6 +444,67 @@ impl AsrSession {
         chunk: AudioChunk,
         deadline_ms: u64,
     ) -> Result<Admission, &'static str> {
+        self.admit_bound(
+            segment_id,
+            revision,
+            source_language,
+            chunk,
+            deadline_ms,
+            None,
+        )
+    }
+
+    pub(crate) fn audio_generation(&self, source: &str) -> Result<u64, &'static str> {
+        let state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || !matches!(source, "ko" | "en" | "ja")
+            || state
+                .projection
+                .config
+                .as_ref()
+                .is_some_and(|config| config.source_language != source)
+        {
+            return Err("no_matching_audio_session");
+        }
+        Ok(state.generation)
+    }
+
+    pub(crate) fn bind_audio_generation(&self, source: &str) -> Result<u64, &'static str> {
+        let state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || !state.revisions.is_empty()
+            || state.active.is_some()
+            || !matches!(source, "ko" | "en" | "ja")
+            || state
+                .projection
+                .config
+                .as_ref()
+                .is_some_and(|config| config.source_language != source)
+        {
+            return Err("audio_requires_fresh_matching_session");
+        }
+        Ok(state.generation)
+    }
+
+    pub(crate) fn admit_window(
+        &self,
+        id: &str,
+        source: &str,
+        chunk: AudioChunk,
+        binding: &AudioBinding,
+    ) -> Result<Admission, &'static str> {
+        self.admit_bound(id, 1, source, chunk, 120_000, Some(binding))
+    }
+
+    fn admit_bound(
+        &self,
+        segment_id: &str,
+        revision: u64,
+        source_language: &str,
+        chunk: AudioChunk,
+        deadline_ms: u64,
+        binding: Option<&AudioBinding>,
+    ) -> Result<Admission, &'static str> {
         if !chunk.valid()
             || !matches!(source_language, "ko" | "en" | "ja")
             || segment_id.is_empty()
@@ -449,6 +518,11 @@ impl AsrSession {
         let mut state = self.0.lock().unwrap();
         if state.session_id.is_empty() {
             return Err("no_session");
+        }
+        if binding.is_some_and(|bound| {
+            bound.generation != state.generation || std::time::Instant::now() >= bound.deadline
+        }) {
+            return Err("stale_audio_or_deadline");
         }
         if state.active.is_some() {
             return Err("busy");
@@ -470,7 +544,7 @@ impl AsrSession {
         {
             return Err("stale_revision");
         }
-        if !state.revisions.contains_key(segment_id) && state.revisions.len() >= MAX_SEGMENTS {
+        if !state.revisions.contains_key(segment_id) && state.revisions.len() >= MAX_SOURCE_CHUNKS {
             return Err("segment_capacity");
         }
         state.serial = state.serial.checked_add(1).ok_or("request_id_exhausted")?;
@@ -478,6 +552,18 @@ impl AsrSession {
             .revisions
             .get(segment_id)
             .map_or(state.serial, |old| old.source_id);
+        // A private immutable WAV window starts at file offset zero. Caption
+        // authority keeps the original continuous PCM interval independently.
+        let file_chunk = if binding.is_some() {
+            AudioChunk {
+                wav_path: chunk.wav_path.clone(),
+                start_sample: 0,
+                end_sample: chunk.end_sample - chunk.start_sample,
+                sample_rate: chunk.sample_rate,
+            }
+        } else {
+            chunk.clone()
+        };
         let request = WorkerRequest {
             protocol_version: PROTOCOL_VERSION,
             request_id: format!("r{}", state.serial),
@@ -489,7 +575,7 @@ impl AsrSession {
             source_language: source_language.into(),
             target_language: None,
             deadline_ms,
-            payload: serde_json::to_string(&chunk).map_err(|_| "invalid_payload")?,
+            payload: serde_json::to_string(&file_chunk).map_err(|_| "invalid_payload")?,
         };
         let cancelled = Arc::new(AtomicBool::new(false));
         state.active = Some(Active {
@@ -509,7 +595,10 @@ impl AsrSession {
             cancelled,
             chunk,
             owner: Arc::downgrade(&self.0),
-            deadline: std::time::Instant::now() + std::time::Duration::from_millis(deadline_ms),
+            deadline: binding.map_or_else(
+                || std::time::Instant::now() + std::time::Duration::from_millis(deadline_ms),
+                |bound| bound.deadline,
+            ),
             source_id,
         })
     }
@@ -648,7 +737,11 @@ impl AsrSession {
         state.accepted.insert(
             admitted.request.segment_id.clone(),
             AcceptedChunk {
-                events: events.clone(),
+                events: if translation.is_none() || events.is_empty() {
+                    Vec::new()
+                } else {
+                    events.clone()
+                },
                 committed: translation.is_none() || events.is_empty(),
             },
         );
@@ -680,5 +773,81 @@ impl AsrSession {
             }
         }
         Ok(events)
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+
+    #[test]
+    fn completed_chunks_keep_bounded_terminal_tombstones_without_source_payload_copies() {
+        let session = AsrSession::default();
+        session.start("bounded").unwrap();
+        for index in 0..MAX_SOURCE_CHUNKS {
+            let admitted = session
+                .admit(
+                    &format!("chunk-{index}"),
+                    1,
+                    "ko",
+                    AudioChunk {
+                        wav_path: "synthetic.wav".into(),
+                        start_sample: index as u64 * 16000,
+                        end_sample: (index as u64 + 1) * 16000,
+                        sample_rate: 16000,
+                    },
+                    2000,
+                )
+                .unwrap();
+            let request = admitted.request();
+            let reply = WorkerReply {
+                protocol_version: 1,
+                request_id: request.request_id.clone(),
+                session_id: request.session_id.clone(),
+                session_generation: request.session_generation,
+                segment_id: request.segment_id.clone(),
+                source_revision: 1,
+                status: WorkerStatus::Ok,
+                error: None,
+                result: Some(
+                    serde_json::to_string(&AsrResult {
+                        sample_count: 16000,
+                        sample_rate: 16000,
+                        segments: vec![InferredSegment {
+                            start_seconds: 0.0,
+                            end_seconds: 1.0,
+                            text: "source ".repeat(500),
+                            estimated_timestamps: false,
+                        }],
+                    })
+                    .unwrap(),
+                ),
+            };
+            session.finish(&admitted, Some(&reply)).unwrap();
+        }
+        let state = session.0.lock().unwrap();
+        assert_eq!(state.accepted.len(), MAX_SOURCE_CHUNKS);
+        assert_eq!(state.revisions.len(), MAX_SOURCE_CHUNKS);
+        assert!(state
+            .accepted
+            .values()
+            .all(|chunk| chunk.committed && chunk.events.capacity() == 0));
+        drop(state);
+        assert_eq!(session.revise("chunk-0", 2).unwrap_err(), "accepted_chunk");
+        assert!(matches!(
+            session.admit(
+                "overflow",
+                1,
+                "ko",
+                AudioChunk {
+                    wav_path: "synthetic.wav".into(),
+                    start_sample: 0,
+                    end_sample: 16000,
+                    sample_rate: 16000,
+                },
+                2000
+            ),
+            Err("segment_capacity")
+        ));
     }
 }

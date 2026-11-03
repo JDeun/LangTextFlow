@@ -469,6 +469,43 @@ recovery, absent semantic references, fixture repetition and incidental host loa
 also limit this observation. Issues #157/#214 and the quality/device gates remain
 open; the full report and checkpoint hashes are retained in the evidence record.
 
+## 2026-11-04: recovery duration rerun retains six failed targets
+
+The [separate immutable recovery record](knowledge/raw/2026-11-04-native-recovery-duration.json)
+belongs to clean `62dd1612c099c39d6f1904b535300ee191970b34` after #419.
+It retains the preceding public WAV, 30-minute/145-loop input metadata,
+small/four-second ASR, offline M2M100 KO→EN/JA and verified model hashes.
+Both runs used the same developer host with incidental development load;
+this was a recovery observation rather than a controlled speed comparison.
+
+| Frozen run | Source commits | Available targets | Failed targets | Runner result |
+|---|---:|---:|---:|---|
+| Before recovery, `bc5ef326...` | 438 | 92 | 784 | failed / exit 1 |
+| With next-caption recovery, `62dd1612...` | 442 | 878 | 6 | failed / exit 1 |
+
+An early SQLite checkpoint retains 64 sources: 63 have both targets available;
+`fw-00000048` at the same 195600ms audio position contains `2010...`, with EN
+failed and JA available. Later captions continue translating. The exact numeric
+input's native rejection category remains unexposed, and the final report has no
+retained per-caption breakdown for the other five failures. No output guard was
+weakened. Six failed targets still make the full runner return failure, so this
+result is not a successful soak or an optimal model selection.
+
+The queues drained in 5.418 seconds with no persistence error or ASR failover.
+ASR queue high water remained eight frames, with 449 audio-backpressure events.
+Estimated ASR lag p95 was 11.495 seconds across 432 timing observations. This
+remains unsuitable as a low-latency claim; its source boundaries are estimates,
+not independent word-to-screen alignment. Paced wall/audio ratio is not inference
+throughput, and mixed sampled translation timings cannot establish a model rank.
+
+Unlike the earlier incomplete discovery, all 309 process-tree memory samples
+were complete: peak summed parent/recursive-child RSS was **2010.97MiB**, versus
+parent-only peak 1278.59MiB. RSS counts shared pages per process; neither these
+samples nor their startup-inclusive growth establish PSS, a continuous peak,
+memory-leak behavior or physical 4GB/8GB suitability. The repeated public input
+has no aligned repeated transcript or bilingual gold; CER/WER remain unscored.
+The original failure and this later recovery result remain separate evidence.
+
 ## Next phases
 
 Independent translation-quality acceptance (#77/#108) still needs reviewed,
