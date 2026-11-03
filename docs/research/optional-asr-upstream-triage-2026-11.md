@@ -73,7 +73,7 @@ unpinned KenLM master; its checked [LICENSE](https://github.com/kpu/kenlm/blob/4
 identifies LGPL-2.1-or-later plus exceptions, not rights to the LM's training text.
 
 **Next gate:** resolve dataset/LM/vector provenance and distribution obligations;
-pin every asset/dependency independently. Then separately authorize a tiny
+pin every asset/dependency independently. Then run a bounded, opt-in
 KO-only CPU probe using existing faster-whisper/Qwen/Zipformer fixtures: silence,
 noise, 1/2/4s windowing, overlap deduplication, truthful timestamp provenance and
 kill/restart behavior. Reject EN/JA routing explicitly. No new router is needed.
@@ -146,7 +146,7 @@ copied; absence of clearance is not a blanket prohibition.
 
 **Next gate:** reuse existing Qwen/Whisper/SenseVoice and glossary work rather than
 duplicating adapters. Compare against [current real-speech evidence](../REAL_SPEECH_EVALUATION.md).
-Only a concrete helper benefit justifies a separately authorized owned-process
+Only a concrete helper benefit justifies an opt-in owned-process
 probe: versioned IPC, language guards, kill/restart, generation fencing, bounded
 admission and truthful partial/stable/timestamp mapping. Test CPU and GPU backends
 separately; scheduling ideas do not require importing the whole application.
