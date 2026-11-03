@@ -469,6 +469,33 @@ wav.write("data", 36, "ascii");
 wav.writeUInt32LE(pcm.length, 40);
 pcm.copy(wav, 44);
 const archiveRoot = `http://127.0.0.1:8000/api/v1/history/${encodeURIComponent(state.session_id)}`;
+async function generateSummaryInBrowser(model, transcriptId = "") {
+  await waitFor(() => evaluate(`Array.from(document.querySelectorAll('.history-post-event > button'))
+    .some(button => button.textContent === '요약 생성 / 다시 생성' && !button.disabled)`),
+  "summary generation controls ready");
+  await evaluate(`(() => {
+    const input = document.querySelector('.history-post-event > .history-post-actions input[type="text"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(model)});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    const source = document.querySelector('[data-testid="summary-transcript-source"]');
+    source.value = ${JSON.stringify(transcriptId)};
+    source.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+  await waitFor(() => evaluate(`document.querySelector('.history-post-event > .history-post-actions input[type="text"]').value === ${JSON.stringify(model)}`), "summary model selection");
+  await evaluate(`Array.from(document.querySelectorAll('.history-post-event > button'))
+    .find(button => button.textContent === '요약 생성 / 다시 생성').click()`);
+  await waitFor(async () => {
+    const summary = (await (await fetch(`${archiveRoot}/archive`)).json()).summary;
+    if (summary?.model !== model) return false;
+    if (summary.status === "error") throw new Error(`Synthetic provider failed: ${summary.error}`);
+    return summary.status === "completed";
+  }, "actual provider summary job completes");
+  const summary = (await (await fetch(`${archiveRoot}/archive`)).json()).summary;
+  if (summary.provider !== "ollama" || summary.transcript_id !== (transcriptId || null)
+    || !summary.prompt_version.startsWith("post-event-") || !summary.transcript_sha256) {
+    throw new Error("Browser summary did not retain real job/source provenance");
+  }
+}
 const upload = await fetch(`${archiveRoot}/recordings`, {
   method: "POST",
   headers: { "Content-Type": "audio/wav" },
@@ -508,22 +535,15 @@ for (const projectId of [null, eventProject.project_id]) {
   }
 }
 
-// Seed only a deterministic model draft; review/save/approval use real HTTP and SQLite.
+// Seed only the decoder output; summaries must use the actual HTTP provider/job path.
 const offlineTranscriptId = JSON.parse(execFileSync("uv", ["run", "python", "-c", `
 import json, sys
 from langtextflow.config import get_settings
 from langtextflow.post_event_archive import PostEventArchive
-from langtextflow.post_event_summary import transcript_source
-from langtextflow.session_repository import SessionRepository
 from langtextflow.post_event_transcripts import TranscriptRequest
 sid, rid = json.load(sys.stdin)
 settings = get_settings()
-history = SessionRepository(settings.database_path)
-source, digest = transcript_source(history.segments(sid))
 archive = PostEventArchive(settings.database_path)
-record = archive.begin_summary(sid, language="ko", provider="ollama", model="synthetic-e2e",
-    transcript_sha256=digest, prompt_version="synthetic-e2e")
-archive.finish_summary(record["summary_id"], content="Synthetic summary " + source.split("]", 1)[0] + "]")
 recording = next(r for r in archive.recordings(sid) if r["recording_id"] == rid)
 version = archive.transcripts.begin(sid, recording, TranscriptRequest(recording_id=rid))
 archive.transcripts.finish(version["transcript_id"], segments=[{
@@ -559,6 +579,7 @@ await waitFor(
 );
 await screenshot("history-detail-ko");
 
+await generateSummaryInBrowser("synthetic-e2e");
 await waitFor(
   () => evaluate(`document.querySelector('.history-post-summary textarea')?.value.startsWith('Synthetic summary')`),
   "summary review editor",
@@ -612,20 +633,11 @@ if (offlineExport.version.segments[0].text !== "Synthetic offline transcript" ||
     offlineExport.reviews.length !== 2 || !offlineExport.reviews[1].approved) {
   throw new Error("offline export did not preserve original draft and append-only approvals");
 }
-// Seed an already generated cited draft; source navigation still uses real archive/detail APIs.
-execFileSync("uv", ["run", "python", "-c", `
-import json,sys
-from langtextflow.config import get_settings
-from langtextflow.post_event_archive import PostEventArchive
-from langtextflow.session_repository import SessionRepository
-sid,tid = json.load(sys.stdin)
-settings = get_settings()
-archive = PostEventArchive(settings.database_path)
-source,digest = archive.transcripts.source(sid, SessionRepository(settings.database_path).segments(sid), tid)
-summary = archive.begin_summary(sid,language="ko",provider="ollama",model="synthetic-offline-e2e",
-    transcript_sha256=digest,prompt_version="synthetic-offline-e2e",transcript_id=tid,approved_transcript_id=tid)
-archive.finish_summary(summary["summary_id"],content="Offline summary [offline-000001 at 1s]")
-`], { input: JSON.stringify([state.session_id, offlineTranscriptId]) });
+await generateSummaryInBrowser("synthetic-offline-e2e", offlineTranscriptId);
+const providerCalls = await (await fetch(`${process.env.LTF_E2E_OLLAMA_URL}/fixture/calls`)).json();
+if (!providerCalls["synthetic-e2e"] || !providerCalls["synthetic-offline-e2e"]) {
+  throw new Error("Summary flow bypassed the synthetic HTTP provider");
+}
 await navigate("http://127.0.0.1:5173/");
 await waitFor(() => evaluate(`document.querySelector('.history-open') !== null`), "history after offline summary generation");
 await evaluate(`document.querySelector('.history-open').click()`);
@@ -770,4 +782,4 @@ try {
 }
 
 socket.close();
-console.log("browser E2E smoke passed: project create/assign/move, onboarding, locale/layout, keyboard start, audience, stop, history, exports and no wrong-language fallback");
+console.log("browser E2E smoke passed: projects, onboarding, locales, keyboard, audience, history, real summary jobs with synthetic HTTP provider, review/export and language isolation");
