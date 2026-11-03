@@ -73,6 +73,8 @@ def preparation_progress(directory: Path) -> dict:
                     "checking_cache", "downloading", "native_validation",
                     "native_load_started", "native_load_returned",
                     "native_unload_started", "native_unload_returned",
+                    "native_import_ct2", "native_import_tokenizer", "native_tokenizer_load",
+                    "native_engine_load", "native_language_check",
                 }):
             return {}
         result = {"phase": value["phase"]}
@@ -167,7 +169,9 @@ def prepare(directory: Path, reserve: int, existing: tuple[Path, Path]) -> None:
     _phase(directory, "native_load_started")
     validated = M2M100CT2Translator(model_dir=str(directory / "model"),
                                     tokenizer_dir=str(directory / "tokenizer"),
-                                    cpu_threads=2)._prepare_sync()
+                                    cpu_threads=2)._prepare_sync(
+        report_phase=lambda phase: _phase(directory, phase),
+    )
     _phase(directory, "native_load_returned")
     _phase(directory, "native_unload_started")
     del validated

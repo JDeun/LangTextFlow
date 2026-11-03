@@ -102,6 +102,16 @@ error-path regression was corrected with a raw FD watchdog and quiet process exi
 it is not asserted to explain the original native stall. No field quality or
 physical-memory qualification follows from these packaging results.
 
+Run [41662638133](https://github.com/JDeun/LangTextFlow/actions/runs/41662638133),
+source `27240905461546fa5592ceb817945a9d06c45afb`, includes that exit fix and reached
+`native_load_started` but not `native_load_returned`. The 60-second diagnostic
+cancel reaped the native worker; initial cancellation also verified matching
+spawned/reported PID 7428. Failure receipt `13244425774` has ZIP SHA-256
+`23eb2d2f3682bec6379663acb411333e08c5f84b512975170f16f1b4b1b3c4c1`.
+Thus an immediate post-return tuple destructor alone does not explain this run.
+The next fixed-phase probe distinguishes CT2 import, tokenizer import/load and
+engine initialization inside the same production loader; Windows remains gated.
+
 ## Manual official-source conversion
 
 On a network-connected

@@ -282,7 +282,7 @@ def test_prepare_reuses_verified_bytes_and_repairs_only_bad_files(tmp_path, monk
         **kwargs, transport=httpx.MockTransport(handler)))
     loaded = []
     monkeypatch.setattr(mt.M2M100CT2Translator, "_prepare_sync",
-                        lambda provider: loaded.append(provider.model_dir))
+                        lambda provider, **kwargs: loaded.append(provider.model_dir))
     stage = tmp_path / "first"
     stage.mkdir()
     prepare.prepare(stage, 0, (old / "model", old / "tokenizer"))
@@ -381,7 +381,7 @@ class Client:
     def __exit__(self, *args): pass
     def stream(self, *args, **kwargs): return Response()
 worker.httpx.Client = Client
-def fail_native(self):
+def fail_native(self, **kwargs):
     raise RuntimeError('https://user:secret@host/private?token=secret')
 M2M100CT2Translator._prepare_sync = fail_native
 worker.main(sys.argv[2:])

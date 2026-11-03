@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import sys
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from threading import BoundedSemaphore, Lock
@@ -218,17 +219,30 @@ class M2M100CT2Translator(Translator):
                 "check CT2 weights, tokenizer and optional dependencies."
             ) from exc
 
-    def _prepare_sync(self) -> tuple[Any, Any]:
+    def _prepare_sync(
+        self, *, report_phase: Callable[[str], None] | None = None,
+    ) -> tuple[Any, Any]:
+        if report_phase is not None:
+            report_phase("native_import_ct2")
         import ctranslate2
+
+        if report_phase is not None:
+            report_phase("native_import_tokenizer")
         from transformers import M2M100Tokenizer
 
+        if report_phase is not None:
+            report_phase("native_tokenizer_load")
         tokenizer = M2M100Tokenizer.from_pretrained(
             str(self.tokenizer_dir), local_files_only=True
         )
+        if report_phase is not None:
+            report_phase("native_engine_load")
         engine = ctranslate2.Translator(
             str(self.model_dir), device="cpu", compute_type="int8",
             inter_threads=1, intra_threads=self.cpu_threads,
         )
+        if report_phase is not None:
+            report_phase("native_language_check")
         for language in SUPPORTED_LANGUAGES:
             if language not in tokenizer.lang_code_to_token:
                 raise ValueError("M2M100 local tokenizer lacks a required language code")
