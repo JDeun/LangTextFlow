@@ -1,6 +1,7 @@
 """Private post-event archive storage. Audio lives on disk, metadata in SQLite."""
 from __future__ import annotations
 
+import os
 import re
 import sqlite3
 import time
@@ -22,6 +23,9 @@ class PostEventArchive:
         from .post_event_transcripts import TranscriptVersions
 
         self.transcripts = TranscriptVersions(self)
+        from .recording_journal import RecordingJournal
+
+        self.recording_journal = RecordingJournal(self)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database_path, timeout=5)
@@ -72,6 +76,7 @@ class PostEventArchive:
                 "CREATE INDEX IF NOT EXISTS idx_session_recordings "
                 "ON session_recordings(session_id, created_at)"
             )
+            self.recording_journal.initialize(conn)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_session_summaries "
                 "ON session_summaries(session_id, created_at DESC)"
@@ -110,7 +115,9 @@ class PostEventArchive:
         self.transcripts.initialize()
         self.cleanup_stale_partials()
 
-    def cleanup_stale_partials(self, *, older_than_seconds: int = 24 * 3600) -> int:
+    def cleanup_stale_partials(
+        self, *, older_than_seconds: int = 24 * 3600, max_entries: int = 256,
+    ) -> int:
         """Remove abandoned private WAV partials only after a generous grace period.
 
         Does not touch complete WAV recordings or unknown files. In-progress
@@ -118,23 +125,32 @@ class PostEventArchive:
         """
         if older_than_seconds < 4 * 3600:
             raise ValueError("partial cleanup grace period must be at least four hours")
+        if not 1 <= max_entries <= 4096:
+            raise ValueError("invalid partial cleanup scan bound")
         cutoff = time.time() - older_than_seconds
         removed = 0
-        if not self.audio_root.is_dir():
+        if self.audio_root.is_symlink() or not self.audio_root.is_dir():
             return removed
-        for candidate in self.audio_root.glob("*.wav.partial"):
-            if not re.fullmatch(r"[0-9a-f]{32}\.wav\.partial", candidate.name):
-                continue
-            try:
-                if candidate.is_symlink() or not candidate.is_file():
+        with self._connect() as conn, os.scandir(self.audio_root) as entries:
+            for index, entry in enumerate(entries):
+                if index >= max_entries:
+                    break
+                if not re.fullmatch(r"[0-9a-f]{32}\.wav\.partial", entry.name):
                     continue
-                if candidate.stat().st_mtime >= cutoff:
+                if conn.execute("SELECT 1 FROM recording_journal WHERE filename=?",
+                                (entry.name.removesuffix(".partial"),)).fetchone():
+                    continue  # Durable ownership, including integrity failures.
+                candidate = Path(entry.path)
+                try:
+                    if candidate.is_symlink() or not candidate.is_file():
+                        continue
+                    if candidate.stat().st_mtime >= cutoff:
+                        continue
+                    candidate.unlink()
+                    removed += 1
+                except OSError:
+                    # A cleanup failure must not prevent archive startup.
                     continue
-                candidate.unlink()
-                removed += 1
-            except OSError:
-                # A cleanup failure must not prevent the archive from starting.
-                continue
         return removed
 
     def insert_recording(
@@ -211,11 +227,14 @@ class PostEventArchive:
             return None
         return resolved
 
-    def recording_paths_for_session(self, session_id: str) -> list[Path]:
+    def recording_paths_for_session(self, session_id: str, *, legacy_only=False) -> list[Path]:
         with self._connect() as conn:
             ids = [
                 str(row[0]) for row in conn.execute(
-                    "SELECT recording_id FROM session_recordings WHERE session_id=?",
+                    "SELECT recording_id FROM session_recordings WHERE session_id=? " + (
+                        "AND recording_id NOT IN (SELECT recording_id FROM recording_journal)"
+                        if legacy_only else ""
+                    ),
                     (session_id,),
                 )
             ]

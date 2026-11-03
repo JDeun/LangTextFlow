@@ -821,14 +821,18 @@ async def delete_history_session(request: Request, session_id: str) -> Response:
     _require_operator(request)
     if runtime.state.running and runtime.state.session_id == session_id:
         raise HTTPException(status_code=409, detail="cannot delete active session")
-    # Capture managed paths before the cascading session delete removes their rows.
-    paths = await asyncio.to_thread(post_event_archive.recording_paths_for_session, session_id)
+    # Legacy imported assets have no journal. New assets keep a tombstone
+    # across FK deletion and are removed only after ownership verification.
+    paths = await asyncio.to_thread(
+        post_event_archive.recording_paths_for_session, session_id, legacy_only=True,
+    )
     deleted = await asyncio.to_thread(runtime.history.delete_session, session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="session not found")
     for path in paths:
         with suppress(OSError):
             await asyncio.to_thread(path.unlink, missing_ok=True)
+    runtime.request_recording_recovery()
     return Response(status_code=204)
 
 
