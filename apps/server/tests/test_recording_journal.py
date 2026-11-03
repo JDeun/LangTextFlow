@@ -76,10 +76,50 @@ async def test_sql_failure_after_real_rename_is_recovered_once_with_original_ide
     rows = reopened.recordings("owner")
     assert len(rows) == 1 and rows[0]["recording_id"] == reserved["recording_id"]
     assert rows[0]["sha256"] == reserved["sha256"] and rows[0]["duration_seconds"] == .02
+    assert rows[0]["status"] == "completed"
+    assert rows[0]["finalized_at"] == reserved["created_at"]
     with wave.open(str(reopened.recording_path("owner", rows[0]["recording_id"])), "rb") as audio:
         assert audio.getnframes() == 320 and audio.readframes(320) == struct.pack("<h", 8192) * 320
     assert reopened.recording_journal.recover_batch(threading.Event()) == 0
     assert reopened.recording_journal.promote(rows[0]["recording_id"]) == rows[0]
+
+
+def test_old_recording_schema_migrates_without_inventing_finalization(stores):
+    archive, history = stores
+    filename = f"{uuid4().hex}.wav"
+    path = archive.audio_root / filename
+    with wave.open(str(path), "wb") as audio:
+        audio.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        audio.writeframes(b"\0\0" * 320)
+    original = path.read_bytes()
+    digest = hashlib.sha256(original).hexdigest()
+    created = "2020-01-02T03:04:05+00:00"
+    with archive._connect() as conn:
+        # Recreate the actual pre-migration table, preserving surrounding FK users.
+        conn.execute("DROP TABLE session_recordings")
+        conn.execute("""
+            CREATE TABLE session_recordings (
+                recording_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+                filename TEXT NOT NULL UNIQUE, media_type TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL,
+                duration_seconds REAL NOT NULL, sample_rate INTEGER NOT NULL,
+                channels INTEGER NOT NULL, created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("INSERT INTO session_recordings VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     ("legacy", "owner", filename, "audio/wav", len(original), digest,
+                      .02, 16000, 1, created))
+    archive.initialize()
+    reopened = PostEventArchive(str(archive.database_path))
+    reopened.initialize()  # The additive migration must also be idempotent.
+    [recording] = reopened.recordings("owner")
+    assert recording["status"] == "unknown" and recording["finalized_at"] is None
+    assert recording["created_at"] == created and recording["sha256"] == digest
+    assert reopened.recording_path("owner", "legacy") == path
+    assert path.read_bytes() == original
+    assert history.delete_session("owner")
+    assert reopened.recordings("owner") == []
 
 
 def test_reserved_partial_survives_stale_cleanup_and_recovers_without_guessing(stores):

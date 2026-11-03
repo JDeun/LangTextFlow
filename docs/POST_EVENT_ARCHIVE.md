@@ -6,7 +6,7 @@
 
 Existing `sessions` and `transcript_segments` are unchanged. New tables:
 
-- `session_recordings(recording_id, session_id, filename, media_type, size_bytes, sha256, duration_seconds, sample_rate, channels, created_at)`
+- `session_recordings(recording_id, session_id, filename, media_type, size_bytes, sha256, duration_seconds, sample_rate, channels, created_at, status, finalized_at)`
 - `recording_journal` retains verified file ownership before promotion and after registration;
   it preserves the original owner ID, filename, size, SHA-256 and WAV metadata.
 - `session_summaries(summary_id, session_id, language, provider, model, transcript_sha256, prompt_version, status, content, error, created_at, updated_at)`
@@ -24,6 +24,18 @@ are removed. WAV bytes live in `<database-directory>/recordings/` and **never** 
 SQLite BLOB. Managed storage uses server-generated filenames; original user filenames
 are not trusted. Legacy registered files retain best-effort deletion; old unindexed WAVs
 without a journal are never assigned to a session or deleted by guessing ownership.
+
+Recording metadata and archive/upload responses expose a persisted `status` and
+nullable `finalized_at`. New verified journal promotions are `completed`; their
+finalization time is the original prepared-WAV reservation time, observed after
+header completion, flush/fsync and metadata collection. Recovery preserves that
+time rather than substituting the later restart/registration time. Legacy rows and
+the compatibility metadata-only insertion path remain `unknown` with a null time:
+neither a file's mtime nor its old registration time proves when it was finalized.
+Unknown provenance does not make an existing recording unplayable. Failed or
+unfinished recordings still cannot become completed assets; recovery errors remain
+in the ownership journal and active recording errors remain in operator state.
+This metadata does not implement retention policy, FLAC choice or privacy signoff.
 
 ## User path
 
