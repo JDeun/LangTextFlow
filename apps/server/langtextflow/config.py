@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     backend_port: int = Field(default=8000, ge=1, le=65535)
     max_segments: int = Field(default=100, ge=1, le=10_000)
     database_path: str = "data/langtextflow.db"
+    # Explicit intermediate rollout; Python remains the rollback/default path.
+    runtime_core: Literal["python", "rust"] = "python"
+    rust_runtime_binary: str = ""
     model_cache_dir: str = "data/model-cache"
     managed_runtime_dir: str = "data/runtime"
     storage_reserve_mb: int = Field(default=1024, ge=64, le=102_400)

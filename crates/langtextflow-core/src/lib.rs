@@ -7,6 +7,7 @@ pub mod history;
 pub mod mt_slice;
 pub mod observer_ws;
 pub mod pcm_ingress;
+pub mod runtime_control;
 pub mod supervision;
 pub mod transport;
 
