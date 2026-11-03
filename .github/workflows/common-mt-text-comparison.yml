@@ -1,0 +1,405 @@
+name: Manual common 16-case KO to EN CPU comparison
+run-name: Common MT text source=${{ inputs.source_sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Reviewed immutable commit containing compare_cached_mt_text.py
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: common-mt-text-comparison-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  common-text-cpu:
+    name: Sequential OPUS-small, M2M100 and TranslateGemma on one CPU host
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      HF_HUB_DISABLE_TELEMETRY: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      CUDA_VISIBLE_DEVICES: ""
+      OMP_NUM_THREADS: "2"
+      MKL_NUM_THREADS: "2"
+      OPENBLAS_NUM_THREADS: "2"
+      OLLAMA_CONTAINER: ltf-common-mt-${{ github.run_id }}-${{ github.run_attempt }}
+      OLLAMA_MODEL_DIGEST: c49d986b0764f5881c476eb21435bb62b7abc62347aab3d4a6071e811be510a1
+    steps:
+      - name: Require an explicitly reviewed source revision
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ inputs.source_sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.11"
+      - name: Record source, fixture and actual host; retain missing candidates
+        run: |
+          set -euo pipefail
+          export SCRATCH_ROOT="$RUNNER_TEMP/ltf-common-mt-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          export HF_HOME="$SCRATCH_ROOT/hf"
+          printf 'SCRATCH_ROOT=%s\nHF_HOME=%s\n' "$SCRATCH_ROOT" "$HF_HOME" >> "$GITHUB_ENV"
+          mkdir -p artifacts/common-mt-text "$SCRATCH_ROOT"
+          python - <<'PY'
+          import hashlib, json, os, platform, subprocess
+          from pathlib import Path
+          base = Path("artifacts/common-mt-text")
+          source = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          assert source == os.environ["SOURCE_SHA"], "checkout differs from reviewed source"
+          fixture = Path("benchmarks/church_translation_quality.v1.jsonl")
+          digest = hashlib.sha256(fixture.read_bytes()).hexdigest()
+          assert digest == "1b3560e9a86590e84db4d159ac2116a72ad7536e945c5a61c8f0664cc65e9688"
+          receipt = {"source_sha": source, "workflow_sha": os.environ["GITHUB_WORKFLOW_SHA"],
+                     "fixture_sha256": digest, "python": platform.python_version(),
+                     "platform": platform.platform(), "threads": 2, "glossary": "off",
+                     "reference_status": "synthetic_unreviewed", "directed_pair": "ko->en",
+                     "process_cold_load": True, "filesystem_cache_controlled": False,
+                     "field_ready": False, "quality_certified": False}
+          (base / "run.json").write_text(json.dumps(receipt, indent=2) + "\n")
+          for candidate in ("opus-small", "m2m100", "ollama"):
+              (base / f"{candidate}.json").write_text(json.dumps({
+                  **receipt, "candidate": candidate, "status": "not_attempted",
+                  "comparison_eligible": False, "recorded_cases": 0,
+                  "unobserved_cases": 16,
+              }, indent=2) + "\n")
+          assert Path("scripts/compare_cached_mt_text.py").is_file(), "reviewed CLI missing"
+          PY
+          {
+            git rev-parse HEAD
+            uname -a
+            nproc
+            lscpu
+            free -h
+            df -h .
+          } > artifacts/common-mt-text/hardware.txt
+      - name: Install existing pinned CPU research dependencies and contract checks
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          python -m pip install "uv==0.12.13"
+          uv sync --locked --extra dev --extra benchmark
+          uv pip install --python .venv/bin/python "torch==2.15.0" \
+            --index-url https://download.pytorch.org/whl/cpu
+          uv pip install "setuptools==84.2.1" "ctranslate2==4.8.2" \
+            "transformers==5.22.1" "tokenizers==0.23.3" "huggingface-hub==2.4.0" \
+            "sentencepiece==0.2.1" "sacrebleu==2.5.1"
+          uv pip check --python .venv/bin/python
+          uv pip freeze --python .venv/bin/python > artifacts/common-mt-text/dependencies.txt
+          uv run --no-sync pip-audit --skip-editable --format json \
+            --output artifacts/common-mt-text/dependency-audit.json
+          uv run --no-sync python -m pytest -q apps/server/tests/test_cached_mt_text.py
+      - name: Provision exactly the approved checkpoints, then compare sequentially
+        timeout-minutes: 70
+        env:
+          PYTHONPATH: ${{ github.workspace }}/apps/server:${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          unset HF_TOKEN HUGGING_FACE_HUB_TOKEN
+          artifact="$GITHUB_WORKSPACE/artifacts/common-mt-text"
+          monitor_pid=""
+          cleanup() {
+            local result=$?
+            trap - EXIT INT TERM
+            if [[ -n "$monitor_pid" ]]; then
+              kill "$monitor_pid" 2>/dev/null || true
+            fi
+            timeout --kill-after=1s 3 docker logs --tail 200 "$OLLAMA_CONTAINER" \
+              > "$artifact/ollama-server.log" 2>&1 || true
+            timeout --kill-after=1s 3 docker stop --time 1 "$OLLAMA_CONTAINER" >/dev/null 2>&1 || true
+            timeout --kill-after=1s 3 docker rm -f "$OLLAMA_CONTAINER" >/dev/null 2>&1 || true
+            if [[ -n "$monitor_pid" ]]; then
+              kill -KILL "$monitor_pid" 2>/dev/null || true
+              # Reap only after it is gone; never add an unbounded shell wait.
+              for _ in $(seq 1 10); do
+                if ! kill -0 "$monitor_pid" 2>/dev/null; then
+                  wait "$monitor_pid" 2>/dev/null || true
+                  break
+                fi
+                sleep 0.1
+              done
+            fi
+            return "$result"
+          }
+          trap cleanup EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
+          phase() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >> "$artifact/phases.tsv"; }
+          evaluate() {
+            local candidate="$1"
+            shift
+            local result=0
+            # The CLI owns a process-group supervisor, deadline, TERM/KILL and reap.
+            .venv/bin/python -m scripts.compare_cached_mt_text --candidate "$candidate" \
+              --threads 2 --timeout 30 --total-timeout 600 \
+              --output "$artifact/$candidate.json" "$@" > "$artifact/$candidate.log" 2>&1 || result=$?
+            phase "$candidate" evaluation "$result"
+          }
+          cat > "$SCRATCH_ROOT/provision.py" <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          import ctranslate2
+          from huggingface_hub import HfApi, snapshot_download
+          from scripts.provision_m2m100_ct2 import provision
+          candidate = os.environ["CANDIDATE"]
+          # Original artifacts: OPUS 13208820219; M2M100 13213000349.
+          checkpoints = {
+              "opus-small": ("Helsinki-NLP/opus-mt-ko-en",
+                             "e42d1f41b66194e6d10512f8a27bebc1f4f5097e", "apache-2.0"),
+              "m2m100": ("facebook/m2m100_418M",
+                         "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636", "mit"),
+          }
+          model, revision, expected_license = checkpoints[candidate]
+          root = Path(os.environ["SCRATCH_ROOT"]) / candidate
+          root.mkdir(parents=True, exist_ok=True)
+          info = HfApi().model_info(model, revision=revision)
+          license_id = str((info.cardData or {}).get("license", "")).lower()
+          assert info.sha == revision and license_id == expected_license, "model identity/license changed"
+          if candidate == "opus-small":
+              source = Path(snapshot_download(repo_id=model, revision=revision,
+                                             local_dir=root / "tokenizer"))
+              ctranslate2.converters.TransformersConverter(str(source)).convert(
+                  str(root / "ct2"), quantization="int8")
+          else:
+              provision(model_dir=root / "ct2", tokenizer_dir=root / "tokenizer", revision=revision)
+              source = Path(snapshot_download(repo_id=model, revision=revision, local_files_only=True))
+          files = {}
+          for label, directory in (("upstream", source), ("ct2", root / "ct2"),
+                                   ("tokenizer", root / "tokenizer")):
+              for path in sorted(directory.rglob("*")):
+                  if path.is_file() and ".cache" not in path.relative_to(directory).parts:
+                      with path.open("rb") as stream:
+                          files[f"{label}/{path.relative_to(directory)}"] = hashlib.file_digest(
+                              stream, "sha256").hexdigest()
+          receipt = {"model": model, "revision": revision, "license": license_id,
+                     "license_evidence": "pinned_model_card_declared",
+                     "quantization": "int8", "file_digest_kind": "sha256_file_bytes",
+                     "files_sha256": files, "source_sha": os.environ["SOURCE_SHA"]}
+          destination = Path("artifacts/common-mt-text") / f"{candidate}-provisioning.json"
+          destination.write_text(json.dumps(receipt, indent=2) + "\n")
+          PY
+          cp "$SCRATCH_ROOT/provision.py" "$artifact/provisioning-helper.py"
+          opus_ready=0
+          if CANDIDATE=opus-small timeout --kill-after=10s 900 .venv/bin/python \
+            "$SCRATCH_ROOT/provision.py" > "$artifact/opus-small-provision.log" 2>&1; then
+            opus_ready=1
+            phase opus-small provision 0
+          else
+            phase opus-small provision "$?"
+          fi
+          if [[ "$opus_ready" == 1 ]]; then
+            evaluate opus-small --ct2-dir "$SCRATCH_ROOT/opus-small/ct2" \
+              --tokenizer-dir "$SCRATCH_ROOT/opus-small/tokenizer" \
+              --requested-revision e42d1f41b66194e6d10512f8a27bebc1f4f5097e
+          else
+            evaluate opus-small --ct2-dir "$SCRATCH_ROOT/unavailable/opus" \
+              --tokenizer-dir "$SCRATCH_ROOT/unavailable/opus" \
+              --requested-revision e42d1f41b66194e6d10512f8a27bebc1f4f5097e
+          fi
+          rm -rf -- "$SCRATCH_ROOT/opus-small"
+          m2m_ready=0
+          if CANDIDATE=m2m100 timeout --kill-after=10s 1200 .venv/bin/python \
+            "$SCRATCH_ROOT/provision.py" > "$artifact/m2m100-provision.log" 2>&1; then
+            m2m_ready=1
+            phase m2m100 provision 0
+          else
+            phase m2m100 provision "$?"
+          fi
+          if [[ "$m2m_ready" == 1 ]]; then
+            evaluate m2m100 --ct2-dir "$SCRATCH_ROOT/m2m100/ct2" \
+              --tokenizer-dir "$SCRATCH_ROOT/m2m100/tokenizer" \
+              --requested-revision 55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636
+          else
+            evaluate m2m100 --ct2-dir "$SCRATCH_ROOT/unavailable/m2m" \
+              --tokenizer-dir "$SCRATCH_ROOT/unavailable/m2m" \
+              --requested-revision 55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636
+          fi
+          # These are this job's scratch weights, never the developer's cache.
+          rm -rf -- "$SCRATCH_ROOT/m2m100" "$HF_HOME"
+          ollama_ready=0
+          if timeout --kill-after=10s 600 docker pull ollama/ollama:0.34.0 \
+            > "$artifact/ollama-image-pull.log" 2>&1; then
+            mkdir -p "$SCRATCH_ROOT/ollama"
+            docker run -d --pull=never --name "$OLLAMA_CONTAINER" --cpus 2 \
+              -p 127.0.0.1::11434 --mount "type=bind,source=$SCRATCH_ROOT/ollama,target=/models" \
+              -e OLLAMA_MODELS=/models -e OLLAMA_NUM_PARALLEL=1 \
+              -e OLLAMA_MAX_LOADED_MODELS=1 ollama/ollama:0.34.0 > "$artifact/ollama-container-id.txt"
+            port=$(docker port "$OLLAMA_CONTAINER" 11434/tcp | awk -F: '{print $NF}')
+            [[ "$port" =~ ^[0-9]+$ ]]
+            export OLLAMA_URL="http://127.0.0.1:$port"
+            docker inspect --format '{{json .Image}} {{json .Config.Image}} {{json .HostConfig.CpuQuota}}' \
+              "$OLLAMA_CONTAINER" > "$artifact/ollama-container-image.txt"
+            docker image inspect --format '{{json .RepoDigests}}' ollama/ollama:0.34.0 \
+              > "$artifact/ollama-image-digests.json"
+            for _ in $(seq 1 60); do
+              if curl --fail --silent --max-time 2 "$OLLAMA_URL/api/tags" >/dev/null; then break; fi
+              sleep 1
+            done
+            # Refuse a retagged manifest before downloading its model layers.
+            if curl --fail --silent --show-error --head --max-time 30 \
+              https://registry.ollama.ai/v2/library/translategemma/manifests/4b \
+              > "$artifact/ollama-registry-headers.txt" && \
+              .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          headers = Path("artifacts/common-mt-text/ollama-registry-headers.txt").read_text().splitlines()
+          values = [line.split(":", 1)[1].strip() for line in headers
+                    if line.lower().startswith("ollama-content-digest:")]
+          assert values == [os.environ["OLLAMA_MODEL_DIGEST"]], "approved Ollama manifest changed"
+          PY
+            then
+              if timeout --kill-after=10s 600 docker exec "$OLLAMA_CONTAINER" \
+                ollama pull translategemma:4b > "$artifact/ollama-model-pull.log" 2>&1; then
+                ollama_ready=1
+              fi
+            fi
+            docker logs "$OLLAMA_CONTAINER" > "$artifact/ollama-server.log" 2>&1 || true
+            docker exec "$OLLAMA_CONTAINER" ollama --version > "$artifact/ollama-version.txt"
+          fi
+          if [[ "$ollama_ready" == 1 ]]; then
+            # Only this disposable job's scratch volume is read with runner sudo.
+            # Capture actual downloaded blob bytes, not a guessed GGUF identity.
+            if timeout --kill-after=2s 120 sudo -n find "$SCRATCH_ROOT/ollama/blobs" \
+              -maxdepth 1 -type f -name 'sha256-*' -print0 | \
+              timeout --kill-after=2s 120 sudo -n xargs -0 -r sha256sum \
+              > "$artifact/ollama-blob-sha256.txt" && .venv/bin/python - <<'PY'
+          import hashlib, json, os, urllib.request
+          from pathlib import Path
+          base = os.environ["OLLAMA_URL"]
+          with urllib.request.urlopen(base + "/api/tags", timeout=10) as response:
+              payload = json.load(response)
+          model = next(item for item in payload["models"] if item["name"] == "translategemma:4b")
+          assert model["digest"].removeprefix("sha256:") == os.environ["OLLAMA_MODEL_DIGEST"]
+          request = urllib.request.Request(base + "/api/show", headers={"Content-Type": "application/json"},
+                                           data=json.dumps({"model": model["name"]}).encode())
+          with urllib.request.urlopen(request, timeout=10) as response:
+              info = json.load(response)
+          license_text = info.get("license", "")
+          assert license_text.strip(), "model license unavailable"
+          blobs = []
+          for line in Path("artifacts/common-mt-text/ollama-blob-sha256.txt").read_text().splitlines():
+              actual, name = line.split(maxsplit=1)
+              expected = Path(name.strip()).name.removeprefix("sha256-")
+              assert actual == expected and len(actual) == 64, "cached blob digest differs"
+              blobs.append({"blob": "sha256:" + expected, "sha256_bytes": actual})
+          assert blobs, "downloaded model blobs missing"
+          receipt = {"model": model["name"], "digest": model["digest"],
+                     "digest_kind": "ollama_manifest_tag_digest", "details": model.get("details"),
+                     "blob_digest_kind": "sha256_file_bytes", "blobs": blobs,
+                     "license_sha256": hashlib.sha256(license_text.encode()).hexdigest()}
+          Path("artifacts/common-mt-text/ollama-provisioning.json").write_text(
+              json.dumps(receipt, indent=2) + "\n")
+          PY
+            then
+              printf 'timestamp_utc\tcontainer_stats_json\n' > "$artifact/ollama-resources.tsv"
+              (
+                while :; do
+                  stats=$(timeout --kill-after=1s 2 docker stats --no-stream --format '{{json .}}' \
+                    "$OLLAMA_CONTAINER" 2>/dev/null) || stats=null
+                  printf '%s\t%s\n' "$(date -u +%FT%TZ)" "$stats" >> "$artifact/ollama-resources.tsv"
+                  sleep 1
+                done
+              ) &
+              monitor_pid=$!
+              evaluate ollama --model translategemma:4b --ollama-url "$OLLAMA_URL" \
+                --expected-digest "$OLLAMA_MODEL_DIGEST"
+              phase ollama provision 0
+            else
+              ollama_ready=0
+            fi
+          fi
+          if [[ "$ollama_ready" != 1 ]]; then
+            phase ollama provision failed
+            # Do not load a model after an identity/license failure or contact
+            # another local service when this job could not start its server.
+            .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+          path = Path("artifacts/common-mt-text/ollama.json")
+          report = json.loads(path.read_text())
+          report.update(status="unavailable", failure_phase="workflow_provision",
+                        error_type="OwnedOllamaProvisioningFailed", comparison_eligible=False)
+          path.write_text(json.dumps(report, indent=2) + "\n")
+          PY
+          fi
+      - name: Show all candidates, including failures, without promoting a model
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          base = Path("artifacts/common-mt-text")
+          corpus = Path("benchmarks/church_translation_quality.v1.jsonl")
+          fixture_sha = hashlib.sha256(corpus.read_bytes()).hexdigest()
+          cases = [json.loads(line) for line in corpus.read_text().splitlines() if line.strip()]
+          cases = [row for row in cases if (row["source_language"], row["target_language"]) == ("ko", "en")]
+          inputs = [{"id": row["id"], "sha256": hashlib.sha256(row["source_text"].encode()).hexdigest()}
+                    for row in cases]
+          lines = ["## Same 16 owned KO→EN text cases, glossary OFF",
+                   "Synthetic, unreviewed references; no ASR, six-direction or field-quality claim.",
+                   "Mean sentence chrF++ uses valid outputs only; failed cases remain in coverage/term denominators.",
+                   "Ollama container memory is separate from CLI process-tree RSS. No automatic winner/default change.",
+                   "", "| Candidate | Status | Valid/16 | Observed/16 | chrF++ | p95 ms | Eligible |",
+                   "|---|---|---:|---:|---:|---:|---|"]
+          complete = True
+          comparison = []
+          for candidate in ("opus-small", "m2m100", "ollama"):
+              try:
+                  row = json.loads((base / f"{candidate}.json").read_text())
+              except (OSError, ValueError):
+                  row = {"status": "missing_report"}
+              if not isinstance(row, dict):
+                  row = {"status": "invalid_report"}
+              eligible = (row.get("comparison_eligible") is True and row.get("status") == "measured"
+                          and row.get("recorded_cases") == row.get("valid_outputs") == 16
+                          and row.get("unobserved_cases") == 0 and row.get("inputs") == inputs
+                          and row.get("fixture_sha256") == fixture_sha
+                          and row.get("field_ready") is False)
+              try:
+                  provision = json.loads((base / f"{candidate}-provisioning.json").read_text())
+                  if not isinstance(provision, dict):
+                      raise ValueError("invalid provisioning receipt")
+                  if candidate == "ollama":
+                      eligible &= (row.get("runtime_reported_digest_kind") == "ollama_manifest_tag_digest"
+                                   and row.get("runtime_reported_digest") == "sha256:" + os.environ["OLLAMA_MODEL_DIGEST"]
+                                   and bool(provision.get("blobs")))
+                  else:
+                      fingerprints = row.get("local_files_sha256", {})
+                      eligible &= (isinstance(fingerprints, dict) and bool(fingerprints)
+                                   and "ct2/model.bin" in fingerprints
+                                   and row.get("requested_revision") == provision.get("revision")
+                                   and all(provision["files_sha256"].get(name) == digest
+                                           for name, digest in fingerprints.items()))
+              except (OSError, ValueError, KeyError, TypeError):
+                  eligible = False
+              complete &= eligible
+              comparison.append({"candidate": candidate, "status": row.get("status"), "eligible": eligible})
+              lines.append(f"| {candidate} | {row.get('status')} | {row.get('valid_outputs', '—')} | "
+                           f"{row.get('recorded_cases', 0)} | {row.get('mean_sentence_chrf_plus_plus', '—')} | "
+                           f"{row.get('latency_p95_ms', '—')} | {eligible} |")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as stream:
+              stream.write("\n".join(lines) + "\n")
+          (base / "comparison.json").write_text(json.dumps({
+              "source_sha": os.environ["SOURCE_SHA"], "fixture_sha256": fixture_sha,
+              "all_candidates_complete": complete, "candidates": comparison,
+              "field_ready": False, "quality_certified": False,
+          }, indent=2) + "\n")
+          if not complete:
+              raise SystemExit("One or more candidates failed or are missing; inspect preserved evidence")
+          PY
+      - name: Upload partial evidence even when setup or a candidate fails
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: common-mt-text-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/common-mt-text/
+          if-no-files-found: warn
+          retention-days: 14
