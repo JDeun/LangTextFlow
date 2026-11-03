@@ -128,6 +128,14 @@ try {
     audienceResult.exceptionDetails.exception?.description || audienceResult.exceptionDetails.text,
   );
   console.log(`audience mixed-target smoke passed: ${audienceResult.result.value}`);
+  const projectDigestResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/projectDigestHarness.tsx').then((test) => test.runProjectDigestChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (projectDigestResult.exceptionDetails) throw new Error(
+    projectDigestResult.exceptionDetails.exception?.description || projectDigestResult.exceptionDetails.text,
+  );
+  console.log(`project digest smoke passed: ${projectDigestResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;

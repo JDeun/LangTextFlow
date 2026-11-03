@@ -20,6 +20,7 @@ from .post_event_summary import (
     summary_external_providers,
 )
 from .post_event_transcript_api import install_transcript_routes
+from .project_digest_api import install_project_digest_routes
 from .recording_import import RecordingImport
 from .recording_journal import RecoveryStopped
 from .runtime import CaptionRuntime
@@ -79,6 +80,10 @@ def install_post_event_routes(
 
     shutdown_transcripts = install_transcript_routes(
         app, runtime, archive, settings, require_operator, finished_session,
+    )
+    shutdown_project_digests = install_project_digest_routes(
+        app, runtime, archive, settings, require_operator, summary_jobs, summary_start_lock,
+        maximum_jobs=MAX_SUMMARY_JOBS, timeout_seconds=SUMMARY_JOB_TIMEOUT_SECONDS,
     )
 
     @app.get("/api/v1/history/{session_id}/archive")
@@ -339,6 +344,7 @@ def install_post_event_routes(
         return record
 
     async def shutdown_summary_jobs() -> None:
+        await shutdown_project_digests()
         await shutdown_transcripts()
         jobs = list(summary_jobs.items())
         tasks = [task for task, _ in jobs]
