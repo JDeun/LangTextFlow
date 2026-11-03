@@ -1,7 +1,7 @@
 # Release Roadmap & Repository Hygiene
 2026-11-03 · Tracking #224 · **Milestone inventory verified through the repository API; field/release acceptance remains open.**
 
-## Current inventory (2026-11-03)
+## Initial inventory (2026-11-03, before the completion work)
 
 `GET /repos/JDeun/LangTextFlow/milestones?state=all&per_page=100` verified:
 
@@ -16,7 +16,71 @@
 
 The open inventory contains **52 issues and 16 PRs**. No issues were closed by this inventory pass. Previous claims that milestone titles or M5 could not be verified are historical connector limitations, resolved by this read-only GitHub CLI/API check. Human owners, independent bilingual review, consented event audio, physical 4/8GB devices and signing/installer acceptance remain unverified.
 
-Local baseline at `39e8635`: 774 backend tests and 73 frontend tests passed, along with frontend typecheck/build, Ruff, Markdown links, wiki structure, UI localization and CSS gates. These are code checks, not field evidence. Runtime session snapshots and operator summary review are tracked by the completion PR; only merged code and exact-head checks establish integration.
+Local baseline at `39e8635`: 774 backend tests and 73 frontend tests passed, along with frontend typecheck/build, Ruff, Markdown links, wiki structure, UI localization and CSS gates. These are code checks, not field evidence.
+
+## Completion integration checkpoint (2026-11-03)
+
+At `0859f94d761dc5720a5308861863e1b85953329d`, implementation PRs #350–#368
+are merged following their latest-head CI and CodeQL checks. The initial 16 open PRs
+were reconciled against existing or replacement implementations: #119, #202, #206,
+#264, #265, #267, #269, #270, #271, #272, #273, #304, #330, #346, #347 and #348
+are closed. This includes superseded branches; it does not mean every old branch was merged.
+New follow-up work can still open PRs.
+
+The refreshed repository API inventory has **51 open issues**, all with verified
+milestones and classification labels. #254 closed after merged audience metrics #352.
+The previously unclassified research issues #349 and #341 now belong to M2/ID 3;
+optional native-helper audit #344 belongs to M0/ID 1. These three carry P2 research
+labels; they do not become default engines or bypass their license/quality gates.
+All 51 issues remain without an assigned human owner. Issue counts include umbrella
+and field-acceptance tickets and are not counts of unimplemented features.
+
+| Stage | Open issues at this checkpoint |
+|---|---:|
+| M0 / ID 1 | 11 |
+| M1 / ID 2 | 8 |
+| M2 / ID 3 | 20 |
+| M3 / ID 4 | 5 |
+| M4 / ID 5 | 7 |
+
+Verified integration includes raw ASR preservation, review/approval locking, opt-in
+audience latency metrics, bounded summary jobs, post-event transcript versions and
+explicit summary evidence selection, citation navigation, operator lifecycle extraction,
+source-language model defaults and per-provider overrides. #365 adds summary cancellation
+and reviewed-text/Markdown/WAV downloads. #364 is a compiling, cross-platform-tested
+**experimental** Rust/Python IPC scaffold; production providers do not use it yet.
+
+Desktop verification includes actual frozen startup, synthetic captions, archive/export,
+shutdown and multiprocessing resource-tracker termination. The missing package data
+failure (#354), stdin watchdog shutdown abort (#359) and frozen helper diversion bug
+(#366) were reproduced and fixed. Full unsigned Windows/macOS packaging passed in
+[run 41583831188](https://github.com/JDeun/LangTextFlow/actions/runs/41583831188) and
+[run 41588818150](https://github.com/JDeun/LangTextFlow/actions/runs/41588818150).
+A cached small model also completed a public FLEURS clip through the actual frozen
+child process; this is not a signed-installer or field acceptance result.
+
+Research dependency remediation #367 passed standard CI/CodeQL, installed-package
+audits and actual Linux CPU model checks. The FunASR CPU-wheel mismatch was retained
+as a failure before the corrected
+[run 41589694247](https://github.com/JDeun/LangTextFlow/actions/runs/41589694247)
+succeeded. M2M100 conversion, six text directions and real KO/EN/JA speech combinations
+completed in [run 41589177929](https://github.com/JDeun/LangTextFlow/actions/runs/41589177929)
+at its recorded source; the later FunASR-only fix did not change those tested files.
+Build/import success is separate from language adequacy or hardware qualification.
+
+The ASR bounded recovery in #363 preserves already-valid small-model outputs and
+records original timestamp failures before a single retry. Some tiny/base read-speech
+CER remains high. The OPUS big checkpoint remains a negative result despite the
+audited research harness #361; no model is promoted. Exact hashes, runs and limits are
+in [real-speech evidence](REAL_SPEECH_EVALUATION.md),
+[CPU model combinations](CHURCH_CPU_MODEL_COMBINATIONS.md) and
+[church quality baseline](CHURCH_QUALITY_BASELINE.md).
+
+Operator reconnect restoration, long-source summary context and full-runtime local-MT
+benchmark coverage are the next implementation slices. Licensed field audio and
+independent reviews, physical 4/8GB tests, 30/60/90-minute native event soak, human
+accessibility acceptance, accountable release owners, signing/notarization and installer
+upgrade/rollback remain open. M0–M5 and v1.0 are **not** declared complete.
 
 ## Historical planning and audits (2026-10-22–26)
 
