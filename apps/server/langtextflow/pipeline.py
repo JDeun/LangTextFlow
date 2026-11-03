@@ -176,13 +176,21 @@ class CaptionPipeline:
         )
         if self.llm_corrector is not None:
             try:
-                await self.llm_corrector.prepare()
+                async with asyncio.timeout(self.settings.provider_prepare_timeout_seconds):
+                    await self.llm_corrector.prepare()
+            except TimeoutError:
+                self.correction_status.available = False
+                self.correction_status.error = "Correction provider preparation timed out"
             except CorrectionError as exc:
                 self.correction_status.available = False
                 self.correction_status.error = str(exc)
         if self.translator is not None:
             try:
-                await self.translator.prepare()
+                async with asyncio.timeout(self.settings.provider_prepare_timeout_seconds):
+                    await self.translator.prepare()
+            except TimeoutError:
+                self.status.available = False
+                self.status.error = "Translation provider preparation timed out"
             except TranslationError as exc:
                 self.status.available = False
                 self.status.error = str(exc)
