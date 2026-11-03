@@ -1055,8 +1055,12 @@ async def start_session(request: Request, payload: StartSessionRequest) -> Sessi
             await _close_audio_socket_for_transition("caption session restarting")
 
         try:
+            try:
+                prepared = _with_saved_glossary(payload)
+            except KeyError as exc:
+                raise HTTPException(404, "project not found") from exc
             state = await runtime.start(
-                _with_saved_glossary(payload), before_transition=close_audio,
+                prepared, before_transition=close_audio,
             )
             audience_latency_aggregate.reset()
             audience_metric_limiter.reset()

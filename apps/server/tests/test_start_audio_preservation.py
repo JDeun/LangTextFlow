@@ -11,7 +11,10 @@ from starlette.websockets import WebSocketDisconnect
 
 from langtextflow import main
 from langtextflow.config import Settings
+from langtextflow.glossary_repository import GlossaryRepository
 from langtextflow.models import CaptionStage, TranscriptEvent
+from langtextflow.project_glossary_repository import ProjectGlossaryRepository
+from langtextflow.project_repository import ProjectInput, ProjectRepository
 from langtextflow.runtime import CaptionRuntime
 
 _ORIGIN = {"origin": "http://localhost:5173"}
@@ -58,6 +61,8 @@ class AudioEngine:
 @pytest.fixture
 def live_audio_api(monkeypatch, tmp_path):
     runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "session.db")))
+    glossary = GlossaryRepository(runtime.settings.database_path)
+    project_glossary = ProjectGlossaryRepository(runtime.settings.database_path)
     engines = []
 
     def build(**kwargs):
@@ -68,6 +73,8 @@ def live_audio_api(monkeypatch, tmp_path):
     @asynccontextmanager
     async def lifespan(app):
         await runtime.initialize()
+        glossary.initialize()
+        project_glossary.initialize()
         try:
             yield
         finally:
@@ -75,7 +82,8 @@ def live_audio_api(monkeypatch, tmp_path):
 
     monkeypatch.setattr(runtime, "_faster_whisper_engine", build)
     monkeypatch.setattr(main, "runtime", runtime)
-    monkeypatch.setattr(main, "_with_saved_glossary", lambda request: request)
+    monkeypatch.setattr(main, "glossary_repository", glossary)
+    monkeypatch.setattr(main, "project_glossary_repository", project_glossary)
     monkeypatch.setattr(main, "_audio_transition_lock", asyncio.Lock())
     monkeypatch.setattr(main, "_active_audio_socket", None)
     monkeypatch.setattr(main, "_audio_socket_accepting", True)
@@ -99,7 +107,7 @@ def send_and_persist(client, websocket, runtime, engine):
 
 
 @pytest.mark.parametrize(("invalid", "status"), [
-    ({"project_id": "missing-project"}, 400),
+    ({"project_id": "missing-project"}, 404),
     ({"translation_provider": "unknown-provider"}, 400),
     ({"correction_provider": "unknown-provider"}, 400),
     ({"translation_provider": "m2m100-ct2", "source_language": "en",
@@ -111,13 +119,18 @@ def send_and_persist(client, websocket, runtime, engine):
 def test_rejected_start_preserves_audio_and_source_history(live_audio_api, invalid, status):
     client, runtime, engines, state = live_audio_api
     engine = engines[0]
+    project = ProjectRepository(runtime.settings.database_path).create(
+        ProjectInput(title="replacement project"),
+    )
     with client.websocket_connect(
         f"/ws/audio?expected_session_id={state['session_id']}", headers=_ORIGIN,
     ) as websocket:
         assert websocket.receive_json()["type"] == "audio_config"
         admitted_socket = main._active_audio_socket
         send_and_persist(client, websocket, runtime, engine)
-        response = client.post("/api/v1/session/start", json={**_START, **invalid})
+        response = client.post(
+            "/api/v1/session/start", json={**_START, "project_id": project.project_id, **invalid},
+        )
         assert response.status_code == status
         assert runtime.state.session_id == state["session_id"] and runtime.state.running
         assert runtime.engine is engine and engine.running and engine.stops == 0
@@ -134,6 +147,35 @@ def test_rejected_start_preserves_audio_and_source_history(live_audio_api, inval
         ):
             pass
         assert rejected.value.code == 4409
+
+
+def test_project_deleted_after_glossary_read_is_rejected_before_audio_transition(
+    live_audio_api, monkeypatch,
+):
+    client, runtime, engines, state = live_audio_api
+    projects = ProjectRepository(runtime.settings.database_path)
+    project = projects.create(ProjectInput(title="about to be deleted"))
+    materialize = main._with_saved_glossary
+
+    def deleted_after_read(request):
+        prepared = materialize(request)
+        assert projects.delete(project.project_id)
+        return prepared
+
+    monkeypatch.setattr(main, "_with_saved_glossary", deleted_after_read)
+    with client.websocket_connect(
+        f"/ws/audio?expected_session_id={state['session_id']}", headers=_ORIGIN,
+    ) as websocket:
+        assert websocket.receive_json()["type"] == "audio_config"
+        admitted_socket = main._active_audio_socket
+        rejected = client.post(
+            "/api/v1/session/start", json={**_START, "project_id": project.project_id},
+        )
+        assert rejected.status_code == 400
+        assert runtime.state.session_id == state["session_id"] and runtime.state.running
+        assert main._active_audio_socket is admitted_socket and engines[0].stops == 0
+        send_and_persist(client, websocket, runtime, engines[0])
+        assert runtime.history.segments(state["session_id"])[0].committed
 
 
 def test_valid_replacement_closes_old_socket_and_admits_only_new_session(live_audio_api):
