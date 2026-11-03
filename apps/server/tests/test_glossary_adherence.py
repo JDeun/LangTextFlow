@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from langtextflow.glossary_adherence import (
     measure_glossary_adherence,
     resolve_glossary,
@@ -74,13 +76,14 @@ def test_english_missionary_source_to_korean_glossary_observation() -> None:
         glossary=[
             GlossaryEntry(
                 term="grace",
+                source_language="en",
                 aliases=["the grace"],
                 translations={"ko": "은혜", "ja": "恵み"},
                 presets=[ProductPreset.CHURCH],
             )
         ],
     )
-    mappings = resolve_glossary(context, "ko")
+    mappings = resolve_glossary(context, "ko", source_language="en")
     observed = measure_glossary_adherence(
         "We are saved by grace.", "우리는 은혜로 구원받았습니다.",
         mappings, "ko",
@@ -88,8 +91,7 @@ def test_english_missionary_source_to_korean_glossary_observation() -> None:
     assert observed.relevant_terms == 1
     assert observed.matched_terms == 1
     assert observed.adherence == 1.0
-    # This only tests the lexical metric. Runtime source-language matching
-    # requires explicit source-language metadata migration in issue #130.
+    # Exact terms remain a lexical metric, not a semantic certificate.
 
 
 def test_no_relevant_term_has_no_accuracy_claim() -> None:
@@ -98,6 +100,50 @@ def test_no_relevant_term_has_no_accuracy_claim() -> None:
     assert report.relevant_terms == 0
     assert report.adherence is None
     assert report.missing == ()
+
+
+@pytest.mark.parametrize(("source", "relevant"), [
+    ("Her actions are misdeeds.", 0),
+    ("An ACT follows.", 1),
+    ("A deed follows.", 1),
+    ("An ＡＣＴ follows.", 1),
+])
+def test_source_terms_and_aliases_use_the_live_provider_word_boundary(source, relevant):
+    context = SessionContext(glossary=[GlossaryEntry(
+        source_language="en", term="act", aliases=["deed"], translations={"ja": "行為"},
+    )])
+    mappings = resolve_glossary(context, "ja", source_language="en")
+    report = measure_glossary_adherence(source, "行為", mappings, "ja")
+    assert report.relevant_terms == report.matched_terms == relevant
+    assert report.adherence == (1.0 if relevant else None)
+
+
+def test_source_scope_keeps_homographs_distinct_and_unknown_source_unresolved():
+    context = SessionContext(glossary=[
+        GlossaryEntry(source_language="ko", term="grace", translations={"ja": "誤訳"}),
+        GlossaryEntry(source_language="en", term="grace", translations={"ja": "恵み"}),
+        GlossaryEntry(source_language="ja", term="grace", translations={"ko": "별도 뜻"}),
+    ])
+    assert [mapping.target for mapping in resolve_glossary(
+        context, "ja", source_language=" EN ",
+    )] == ["恵み"]
+    assert [mapping.target for mapping in resolve_glossary(context, "ja")] == ["誤訳"]
+    for source_language in (None, "", "und", "fr"):
+        assert resolve_glossary(context, "ja", source_language=source_language) == ()
+
+
+@pytest.mark.parametrize(("language", "source", "term", "alias", "target"), [
+    ("ko", "칭이를 말합니다.", "칭의", "칭이", "justification"),
+    ("ja", "しんこうを話します。", "信仰", "しんこう", "faith"),
+])
+def test_cjk_lexical_observation_remains_available(language, source, term, alias, target):
+    context = SessionContext(glossary=[GlossaryEntry(
+        source_language=language, term=term, aliases=[alias], translations={"en": target},
+    )])
+    report = measure_glossary_adherence(source, target, resolve_glossary(
+        context, "en", source_language=language,
+    ), "en")
+    assert report.relevant_terms == report.matched_terms == 1
 
 
 def test_disabled_or_different_target_is_not_counted() -> None:
