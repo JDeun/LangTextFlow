@@ -36,6 +36,7 @@ import type {
   ProductPreset,
   RecommendedConfiguration,
   ReferenceDocument,
+  SessionState,
 } from "./types";
 
 const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lecture"];
@@ -73,10 +74,10 @@ function OperatorApp() {
   const recordingCopy = RECORDING_COPY[locale];
   const { connected, segments, terminalError } = useCaptionSocket();
   const {
-    session, running, busy, error, devices, deviceId, setDeviceId,
+    session, running, busy, error, recoveredAudio, devices, deviceId, setDeviceId,
     recordAudio, setRecordAudio, collectAudienceMetrics, setCollectAudienceMetrics,
     refreshDevices, start: startSession, stop,
-  } = useOperatorSession();
+  } = useOperatorSession(connected, restoreSessionForm);
   const [sourceLanguage, setSourceLanguage] = useState("ko");
   const [targetLanguages, setTargetLanguages] = useState<string[]>(["en"]);
   const [previewLanguage, setPreviewLanguage] = useState("en");
@@ -133,6 +134,32 @@ function OperatorApp() {
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => window.localStorage.getItem(ONBOARDING_STORAGE_KEY) !== "complete",
   );
+
+  function restoreSessionForm(next: SessionState) {
+    setSourceLanguage(next.source_language);
+    setTargetLanguages(next.target_languages);
+    setEngine(next.engine);
+    setSelectedProjectId(next.project_id || "all");
+    setResourceProfile(next.resource_profile ?? "standard");
+    const correction = next.correction_status.provider === "ollama" ? "ollama" : "none";
+    setCorrectionProvider(correction);
+    setCorrectionModel(correction === "ollama" ? next.correction_status.model || "" : "");
+    const translation = next.translation_status.provider;
+    setTranslationProvider(translation);
+    setTranslationModels(current => ({
+      ...current, [translation]: next.translation_status.model || "",
+    }));
+    if (next.context) {
+      setTitle(next.context.title);
+      setPresenter(next.context.presenter || "");
+      setPreset(next.context.preset);
+      setHotwordsByLanguage(current => ({
+        ...current, [next.source_language]: next.context!.hotwords.join(", "),
+      }));
+      setReferenceDocuments(next.context.reference_documents);
+      setDisplaySettings(next.context.display_settings);
+    }
+  }
 
   const latest = segments.at(-1);
   const recent = useMemo(() => segments.slice(-6).reverse(), [segments]);
@@ -336,7 +363,7 @@ function OperatorApp() {
 
           <label>
             {t("session.title")}
-            <input value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
+            <input data-testid="session-title-input" value={title} onChange={(event) => setTitle(event.target.value)} disabled={running} />
           </label>
           <label>
             {operatorCopy.projectLabel}
@@ -378,6 +405,7 @@ function OperatorApp() {
           <label>
             {t("session.presenter")}
             <input
+              data-testid="session-presenter-input"
               value={presenter}
               onChange={(event) => setPresenter(event.target.value)}
               disabled={running}
@@ -402,6 +430,7 @@ function OperatorApp() {
           <label>
             {t("session.preset")}
             <select
+              data-testid="session-preset-select"
               value={preset}
               onChange={(event) => setPreset(event.target.value as ProductPreset)}
               disabled={running}
@@ -414,10 +443,14 @@ function OperatorApp() {
           <label>
             {t("session.sourceLanguage")}
             <select
+              data-testid="session-source-select"
               value={sourceLanguage}
               onChange={(event) => changeSourceLanguage(event.target.value)}
               disabled={running}
             >
+              {!LANGUAGE_OPTIONS.some(([code]) => code === sourceLanguage) && (
+                <option value={sourceLanguage} disabled>{languageLabel(sourceLanguage)}</option>
+              )}
               {LANGUAGE_OPTIONS.map(([code, label]) => (
                 <option value={code} key={code}>{label}</option>
               ))}
@@ -579,6 +612,11 @@ function OperatorApp() {
           )}
           {session?.persistence_error && (
             <div className="warning-box">{t("live.persistenceWarning")}: {session.persistence_error}</div>
+          )}
+          {recoveredAudio && (
+            <div className="warning-box" role="status" data-testid="session-recovered-audio">
+              {operatorCopy.recoveredAudio}
+            </div>
           )}
           {session?.recording_enabled && (
             <div className="warning-box" role="status">
