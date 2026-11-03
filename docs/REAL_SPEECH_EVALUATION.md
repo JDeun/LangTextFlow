@@ -319,6 +319,65 @@ with `chrF: unavailable`. The RSS values cover the Python process, including its
 native model allocations, and do not qualify a complete 4GB device. Microphones,
 noise, semantic review, 4GB/8GB machines, and long-event gates remain open.
 
+### Current-source subprocess and memory checkpoint (2026-11-03)
+
+[Run 41628932696](https://github.com/JDeun/LangTextFlow/actions/runs/41628932696)
+ran the actual queued CaptionRuntime, faster-whisper-base and M2M100 INT8 child
+process at source `900d211a0165bc334103b0bf291a61436f8e8472`. The original artifact's
+`runner-hardware.txt` records that actual `git rev-parse HEAD`, matching its model
+manifest. [Artifact 13225959685](https://github.com/JDeun/LangTextFlow/actions/runs/41628932696/artifacts/13225959685)
+was independently checked from its original ZIP, SHA-256
+`4840fa3c02de0abe5c1413de80dc93a2e6d7e82a1bbea50b035125dd285cef2f`.
+It contains two JSON reports, model provenance, hardware and dependencies; no audio,
+weights or SQLite database. Model/data revisions and licenses are unchanged from
+the controlled smoke above; each direction reuses its same PCM hash and clip.
+
+| Source → target / FLEURS ID | Source CER / WER | First caption ms | Target p95 lag ms | Paced processing RTF |
+|---|---:|---:|---:|---:|
+| KO → EN / 1883 (12.48s) | 0.1607 / 0.5714 | 8470.6 | 2573.8 | 1.0684 |
+| EN → KO / 1904 (10.56s) | 0.0476 / 0.1579 | 8373.3 | 1098.1 | 1.0499 |
+
+Each report contains two stable, corrected, translated and committed events: 2/2
+available target captions, no unfinished source segments, full draining, and zero
+published timestamp violations, queue drops/expirations, persistence failures or
+hub failures/evictions. Shutdown reports ASR stopped, all queues and client counts
+zero; the in-process hub observer received both commits and closed on cleanup.
+ASR CER/WER were recalculated from the committed original source, not target text.
+KO still changes the reference year **2011 to 2021** and retains one rejected
+`0–10s` native timestamp for a `4.48s` chunk; its published recovery is explicitly
+`sample_clock_estimated`. EN reports native hints, without a word-alignment claim.
+
+| Direction | Parent RSS peak MiB | Parent + descendants RSS peak MiB | Complete / partial samples | Drain seconds |
+|---|---:|---:|---:|---:|
+| KO → EN | 2258.12 | 2906.33 | 9 / 0 | 0.796 |
+| EN → KO | 2940.38 | 3588.45 | 8 / 0 | 0.469 |
+
+Memory uses psutil 7.2.2, a two-second interval plus boundary samples, and a bounded
+64-process traversal on hosted Linux (~15GiB reported RAM). Both trees are marked
+complete with no sampler errors: samples observe parent + child, then only the
+parent after cleanup. These are **sampled sums of RSS**, with shared pages counted
+per process, not PSS, continuous peaks or total-device memory; external services
+are excluded. Parent-only figures must not be used as complete runtime memory.
+
+The preceding child-process [run 41624773060](https://github.com/JDeun/LangTextFlow/actions/runs/41624773060)
+at `ab345776a10399e0965538c7b39d7faa4bcad2f3` has matching PCM, references, ASR
+hypotheses and all ASR/MT/tokenizer file hashes in both directions (original ZIP
+SHA-256 `4b96ec216c6279bcf852e22a138dada243727930cf36dec9f254716338cbc850`).
+Its 2254.38/2664.95MiB readings covered only the parent; it has no process-tree
+measurement and cannot establish a change in total memory. Compared with the
+older `e59d2d9` smoke, the converted MT `model.bin` differs:
+`4eb7e085bd0f9fb1815ebfcbecea5f7f636a22d918d44c826ddef8f61d91dae3` then versus
+`a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b` now.
+Matching upstream revisions do not make these converted weights byte-identical
+or isolate code changes as the cause of differences in quality or latency.
+
+Translation chrF remains unavailable: no independently aligned bilingual gold was
+added. There is no top-level `field_ready` key; **`metrics.field_ready` is false**
+in both reports and field qualification remains unapproved. One clip/two segments
+per direction, paced RTF and estimated source-boundary lag do not establish
+sustained throughput, a population p95, microphone/network/browser performance,
+six-direction semantic accuracy, 4GB/8GB suitability or long-event readiness.
+
 ## Next phases
 
 Independent translation-quality acceptance (#77/#108) still needs reviewed,
