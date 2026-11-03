@@ -14,6 +14,33 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust-dependency-audit:
+    name: Rust lock security audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.11"
+      - name: Install pinned Rust and official cargo-audit
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          cargo install cargo-audit --version 0.22.2 --locked
+      - name: Snapshot current official RustSec database
+        run: git clone --depth 1 https://github.com/RustSec/advisory-db.git /tmp/rustsec-advisory-db
+      - name: Audit complete locks and evidence supported desktop graphs
+        run: python scripts/audit_rust_dependencies.py --database /tmp/rustsec-advisory-db
+      - name: Upload complete audits, target graphs and qualification
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: rust-dependency-security
+          path: artifacts/rust-audit/
+          if-no-files-found: error
+          retention-days: 14
+
   rust-worker-protocol:
     name: Experimental worker protocol (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
