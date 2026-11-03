@@ -6,7 +6,7 @@
 
 Existing `sessions` and `transcript_segments` are unchanged. New tables:
 
-- `session_recordings(recording_id, session_id, filename, media_type, size_bytes, sha256, duration_seconds, sample_rate, channels, created_at, status, finalized_at)`
+- `session_recordings(recording_id, session_id, filename, media_type, size_bytes, sha256, duration_seconds, sample_rate, channels, created_at, status, finalized_at, start_offset_ms)`
 - `recording_journal` retains verified file ownership before promotion and after registration;
   it preserves the original owner ID, filename, size, SHA-256 and WAV metadata.
 - `session_summaries(summary_id, session_id, language, provider, model, transcript_sha256, prompt_version, status, content, error, created_at, updated_at)`
@@ -37,6 +37,14 @@ unfinished recordings still cannot become completed assets; recovery errors rema
 in the ownership journal and active recording errors remain in operator state.
 This metadata does not implement retention policy, FLAC choice or privacy signoff.
 
+`start_offset_ms` is nullable. New live recordings snapshot their start on the
+session's **received-PCM sample clock**; a recording enabled from session start has
+offset zero. Imported/legacy assets have a null offset because their relation to
+the original session clock is unknown. The additive migration never infers timing
+from a filename, file date or old registration. Journal recovery preserves known
+offsets, as does private project package v2; the reader still restores v1 backups
+with null offsets after checking the original graph bytes/hash.
+
 ## User path
 
 1. Finish the session, then open **History > Details > Event archive**.
@@ -45,13 +53,70 @@ This metadata does not implement retention policy, FLAC choice or privacy signof
 4. Choose **Generate / retry summary** with the configured Ollama to create a post-event summary. It defaults to `ollama_correction_model` (currently `qwen3.5:4b`); that model must be installed and reachable. A non-loopback Ollama endpoint requires explicit transmission approval for each request. No external provider is silently selected.
 5. The summary runs in an async job. The panel polls status; failure never changes or removes the original transcript. Generation is idempotent when the same transcript hash/provider/model/language/prompt version already has a completed result.
 6. Compare the summary against the transcript, retain exact source citations, save a review draft, then explicitly approve and lock it. Concurrent edits are rejected with HTTP 409. A changed source hash blocks approval; generate a new summary from the new evidence. Text export uses the saved review when present; the original AI draft remains available in the panel. Project manifests/reports retain approval and stale status.
-7. Use the source citation buttons to clear transcript filtering, select the original language and focus the referenced committed segment. Only exact IDs/timecodes in the loaded session can be linked. These controls navigate the transcript; they do not claim sample-accurate audio alignment.
+7. Use source citation buttons to clear transcript filtering, select the original language and focus the referenced committed segment. Only exact IDs/timecodes in the loaded session can be linked. A separate audio-seek button is offered only when a known recording span contains that live source time; it subtracts that file's start offset and focuses its player without autoplay. Unrecorded gaps and unknown imported/legacy offsets do not get inferred alignment.
 8. Under **Post-event transcript**, select a recording, cached model and speech language to create a separate local draft. Inspect the original decoder output/provenance, edit text and explicitly approve it. Approval locks that version and marks earlier summaries stale. The summary source still defaults to live ASR; select the approved post-event version explicitly to summarize it. Source-reference navigation opens that summary's exact transcript version. Each version exports its original draft and complete review history as JSON.
 
 Offline segments also offer **Seek source recording (estimated time)**. This uses that
 version's own managed recording and decoder start time, waits for media metadata,
 positions and focuses the player without starting playback. Live captions are not
 automatically aligned to imported WAVs; this control does not claim word alignment.
+
+## Independent live recorder controls
+
+During an audio-input caption session, **Recording controls** offers explicit
+**Start recording only**, **Stop recording only**, status refresh and a download of
+the last successfully saved recording. Starting late or stopping/resuming creates
+independent immutable WAV assets in the same session; it never restarts the
+microphone, ends captions or changes the ASR source. Participant notice/consent
+remains required. Recording defaults to off, and the existing start-session
+`record_audio` opt-in remains compatible. Mock/demo sessions cannot record audio.
+
+| Operator-only route | Meaning |
+| --- | --- |
+| `GET /api/v1/session/recording` | Current session identity, availability, phase, active sink, offset/error and last saved asset metadata |
+| `POST /api/v1/session/recording/start` | Explicit late opt-in; requires `expected_session_id` |
+| `POST /api/v1/session/recording/stop` | Detach/finalize only the recorder; same required identity |
+| `GET /api/v1/history/{session_id}/recordings/{recording_id}/audio` | Immutable registered asset, including range/attachment download while captions continue |
+
+Wrong session identity, a stopped session, unsupported input or an overlapping
+recording control returns 409. Storage errors are separate from caption health.
+Opening a file runs outside the audio feed path; the sink attaches synchronously
+to the current integer sample count only after opening succeeds. Stop detaches it
+before awaiting file I/O. A private owner task retains opening/finalization through
+HTTP cancellation/disconnection; native descriptors and journal outcomes finish
+before a new recording or session can reuse that ownership. Caller deadlines reuse
+the existing session-start timeout: a late opening attempt is discarded, while a
+stop continues to finish its already detached recording. A lost acknowledgement
+after a start committed can still leave an active recorder; refresh reports its
+actual state instead of guessing ownership. Restart never resumes capture.
+
+Source-session stop also owns its complete engine/pipeline/persistence/WAV/history
+and socket cleanup independently of the caller. Repeated cancellation during stop
+or an implicit replacement-session stop cannot leave an unended history row or
+reuse the old pipeline before cleanup finishes.
+
+WAV duration is the stored sample count/sample rate. Sender pauses supply no
+samples, unrecorded intervals are not filled, invalid frames advance neither clock,
+and a recorder queue overflow discards its whole incomplete asset while ASR keeps
+running. The new offset is on that received-audio clock, not wall time or certified
+word timing. Offline transcript/review/summary citations continue to use their exact
+recording's **file-local** clock, so existing decoder output, raw snapshots and
+source hashes are not shifted or rewritten by this metadata.
+
+`test_independent_recording.py` exercises real runtime/SQLite/PCM/WAV bytes, late
+start/stop/resume, fractional offsets, sender pauses/rejected frames, stale IDs,
+disk errors, repeated caller cancellation/deadlines with late descriptors,
+finalization ownership through source restart, failed-promotion recovery, LAN
+rejection before body consumption and live completed-asset range download.
+The actual React fixture checks independent controls, scoped/deferred responses,
+status recovery and file-local citation seek without invented legacy timing.
+`independent-recording-smoke.mjs` uses a separate owned loopback app with a
+synthetic sample-clock ASR, real audio WebSocket, real WAVs and an owned synthetic
+summary provider: 1s late start, .5s clip, .25s gap, .75s resumed clip, uninterrupted
+caption input, hashes, operator review and an absolute 2s citation seeking .25s in
+the correct resumed asset, plus mobile/axe. No model or private audio is downloaded.
+This establishes service wiring and received-PCM alignment; physical microphone,
+native ASR word alignment and shipping privacy/retention/legal approval remain open.
 
 ## Automatic recording (stacked implementation)
 

@@ -57,6 +57,12 @@ class CaptionRuntime:
         self.history = SessionRepository(self.settings.database_path)
         self.archive = PostEventArchive(self.settings.database_path)
         self._recorder: SessionRecordingWriter | None = None
+        self._recording_control: asyncio.Task | None = None
+        self._recording_finalizer: asyncio.Task | None = None
+        self._source_stop: asyncio.Task[SessionState] | None = None
+        self._recording_phase = "idle"
+        self._recording_result: dict | None = None
+        self._audio_samples_received = 0
         self.metrics = RealtimeMetrics()
         self._vad = EnergyVad(
             threshold_dbfs=self.settings.vad_threshold_dbfs,
@@ -103,7 +109,7 @@ class CaptionRuntime:
             # Remaining candidates can advance on the next archive refresh.
             for _ in range(4):
                 self._recording_recovery_batch = asyncio.create_task(asyncio.to_thread(
-                    self.archive.recording_journal.recover_batch, stop,
+                    self._recover_archive_batch, stop,
                     attempted_before=cutoff,
                 ))
                 self._recording_recovery_batch.add_done_callback(
@@ -118,6 +124,13 @@ class CaptionRuntime:
             raise
         except Exception:
             logging.getLogger(__name__).warning("Recording recovery deferred: storage unavailable")
+
+    def _recover_archive_batch(self, stop, *, attempted_before):
+        # Private package ownership uses the same single bounded native worker.
+        self.archive.packages.recover_one(stop)
+        return self.archive.recording_journal.recover_batch(
+            stop, attempted_before=attempted_before,
+        )
 
     def _start_persistence_worker(self) -> None:
         if self._persistence_task is not None:
@@ -426,6 +439,7 @@ class CaptionRuntime:
         self, request: StartSessionRequest, *,
         before_transition: Callable[[], Awaitable[None]] | None = None,
     ) -> SessionState:
+        await self._await_source_stop()
         await self.initialize()
         # Validate before stopping a running session: an invalid project must not
         # interrupt a live event or create an unassigned session by accident.
@@ -461,6 +475,7 @@ class CaptionRuntime:
 
         if request.record_audio and not engine.accepts_audio:
             raise ValueError("recording requires a real audio-input ASR engine")
+        await self._await_recording_finalizer()
         if before_transition is not None:
             await before_transition()
         if self.state.running:
@@ -483,6 +498,9 @@ class CaptionRuntime:
             raise
 
         self.engine = engine
+        self._audio_samples_received = 0
+        self._recording_phase = "idle"
+        self._recording_result = None
         self.state = SessionState(
             session_id=str(uuid4()),
             project_id=request.project_id,
@@ -543,20 +561,7 @@ class CaptionRuntime:
                 if self.state.persistence_error is not None:
                     self.state.recording_error = "recording unavailable: session not persisted"
                 else:
-                    try:
-                        writer = SessionRecordingWriter(
-                            self.archive,
-                            session_id=self.state.session_id,
-                            sample_rate=engine.sample_rate,
-                            reserve_bytes=self.settings.storage_reserve_mb * 1024 * 1024,
-                        )
-                        await writer.start()
-                        self._recorder = writer
-                    except Exception:
-                        # Never include filesystem paths or credentials in client errors.
-                        self.state.recording_error = (
-                            "recording unavailable: storage initialization failed"
-                        )
+                    await self._open_recorder_unlocked(ThreadEvent())
             self.state.running = True
             self._refresh_queue_metrics()
         except (Exception, asyncio.CancelledError):
@@ -567,7 +572,7 @@ class CaptionRuntime:
             recorder, self._recorder = self._recorder, None
             if recorder is not None:
                 with suppress(Exception):
-                    await recorder.stop()
+                    await asyncio.shield(self._finalize_recorder(recorder, self.state))
             with suppress(Exception):
                 await engine.stop()
             with suppress(Exception):
@@ -592,18 +597,47 @@ class CaptionRuntime:
             return await self._stop_unlocked()
 
     async def _stop_unlocked(self) -> SessionState:
-        was_running = self.state.running
-        session_id = self.state.session_id
-        self.state.running = False
+        if self._source_stop is not None and not self._source_stop.done():
+            return await asyncio.shield(self._source_stop)
+        state = self.state
+        was_running = state.running
+        session_id = state.session_id
+        state.running = False
         # Revoke old ASR callbacks before awaiting engine.stop(): providers
         # can emit late callbacks while their shutdown is suspended.
         # Postprocessing drain still publishes through runtime._publish.
         self._active_generation = None
-        first_error: Exception | None = None
-
-        engine = self.engine
+        engine, self.engine = self.engine, None
         recorder, self._recorder = self._recorder, None
-        self.engine = None
+        finalizer = (
+            self._finalize_recorder(recorder, state)
+            if recorder is not None else self._recording_finalizer
+        )
+        task = asyncio.create_task(
+            self._finish_source_stop(state, was_running, session_id, engine, finalizer),
+            name="caption-source-stop-owner",
+        )
+        self._source_stop = task
+        def finished(done):
+            if self._source_stop is done:
+                self._source_stop = None
+            if not done.cancelled():
+                done.exception()
+
+        task.add_done_callback(finished)
+        return await asyncio.shield(task)
+
+    async def _await_source_stop(self):
+        if self._source_stop is not None and not self._source_stop.done():
+            await asyncio.shield(self._source_stop)
+
+    async def _finish_source_stop(
+        self, state: SessionState, was_running: bool, session_id: str | None,
+        engine: AsrEngine | None, finalizer: asyncio.Task | None,
+    ) -> SessionState:
+        # This whole source cleanup outlives HTTP cancellation, not just its WAV
+        # finalizer. Every new source transition waits before reusing the pipeline.
+        first_error: Exception | None = None
         if engine is not None:
             try:
                 await engine.stop()
@@ -621,26 +655,130 @@ class CaptionRuntime:
             if first_error is None:
                 first_error = exc
 
-        if recorder is not None:
-            try:
-                await recorder.stop()
-                if recorder.error is not None:
-                    self.state.recording_error = recorder.error
-            except Exception:
-                self.state.recording_error = "recording finalization failed"
+        if finalizer is not None:
+            await asyncio.shield(finalizer)
 
         if was_running and session_id:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception:
-                self.state.persistence_error = _PERSISTENCE_FAILURE
+                state.persistence_error = _PERSISTENCE_FAILURE
 
         await self.hub.close_all(reason="caption session stopped")
         self.metrics.voice_active = False
         self._refresh_queue_metrics()
         if first_error is not None:
             raise first_error
-        return self.state
+        return state
+
+    async def _await_recording_finalizer(self):
+        if self._recording_finalizer is not None:
+            await asyncio.shield(self._recording_finalizer)
+
+    async def _open_recorder_unlocked(self, cancelled: ThreadEvent) -> None:
+        state, engine = self.state, self.engine
+        self._recording_phase = "starting"
+        writer = SessionRecordingWriter(
+            self.archive, session_id=state.session_id, sample_rate=engine.sample_rate,
+            reserve_bytes=self.settings.storage_reserve_mb * 1024 * 1024,
+            start_cancelled=cancelled,
+        )
+        try:
+            await writer.start()
+            if cancelled.is_set():
+                await asyncio.shield(self._finalize_recorder(writer, state))
+                return
+            # No await between this PCM-clock snapshot and attachment. Opening a
+            # file never stalls feed_audio, so samples received meanwhile are skipped.
+            writer.start_offset_ms = self._audio_samples_received * 1000 / engine.sample_rate
+            self._recorder = writer
+            self._recording_phase = "recording"
+        except asyncio.CancelledError:
+            cancelled.set()
+            self._recording_phase = "idle"
+            raise
+        except Exception:
+            self._recording_phase = "error"
+            state.recording_error = "recording unavailable: storage initialization failed"
+
+    def _finalize_recorder(self, recorder, state):
+        self._recording_phase = "stopping"
+
+        async def finish():
+            try:
+                result = await recorder.stop()
+                if self.state is state:
+                    if result is not None:
+                        self._recording_result = result
+                    state.recording_error = recorder.error
+            except Exception:
+                if self.state is state:
+                    state.recording_error = "recording finalization failed"
+            finally:
+                if self.state is state:
+                    self._recording_phase = "error" if state.recording_error else "idle"
+
+        task = asyncio.create_task(finish(), name="recording-finalizer")
+        self._recording_finalizer = task
+        task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+        return task
+
+    def recording_status(self) -> dict:
+        writer, state = self._recorder, self.state
+        error = writer.error if writer is not None and writer.error else state.recording_error
+        return {
+            "session_id": state.session_id, "session_running": state.running,
+            "available": bool(state.running and self.engine is not None
+                              and self.engine.accepts_audio and state.persistence_error is None),
+            "phase": "error" if error and writer is not None else self._recording_phase,
+            "active": writer is not None, "error": error,
+            "start_offset_ms": writer.start_offset_ms if writer else None,
+            "recording": self._recording_result,
+        }
+
+    async def control_recording(
+        self, action: str, expected_session_id: str, *, cancelled: ThreadEvent | None = None,
+    ) -> dict:
+        if action not in {"start", "stop"}:
+            raise ValueError("unsupported recording action")
+        if self._recording_control is not None and not self._recording_control.done():
+            raise SessionChangedError("recording transition in progress; refresh before retrying")
+        cancelled = cancelled if cancelled is not None else ThreadEvent()
+
+        async def own():
+            async with self._lifecycle_lock:
+                state = self.state
+                if state.session_id != expected_session_id or not state.running:
+                    raise SessionChangedError("session changed; refresh before recording")
+                if action == "start":
+                    if self._recorder is not None:
+                        raise SessionChangedError("recording is already active")
+                    if not self.recording_status()["available"]:
+                        raise ValueError("recording requires a persisted audio-input session")
+                    await self._await_recording_finalizer()
+                    if cancelled.is_set():
+                        return self.recording_status()
+                    state.recording_enabled = True
+                    state.recording_error = None
+                    await self._open_recorder_unlocked(cancelled)
+                else:
+                    recorder, self._recorder = self._recorder, None
+                    if recorder is not None:
+                        await asyncio.shield(self._finalize_recorder(recorder, state))
+                    else:
+                        await self._await_recording_finalizer()
+                return self.recording_status()
+
+        task = asyncio.create_task(own(), name=f"recording-{action}-owner")
+        self._recording_control = task
+        task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+        try:
+            async with asyncio.timeout(self.settings.session_start_timeout_seconds):
+                return await asyncio.shield(task)
+        except (asyncio.CancelledError, TimeoutError):
+            if action == "start":
+                cancelled.set()
+            raise
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
         # Capture the active provider once. A concurrent stop intentionally clears
@@ -651,6 +789,7 @@ class CaptionRuntime:
             raise RuntimeError("there is no active audio ASR session")
 
         dbfs, voice_active = self._vad.analyze(pcm_f32le)
+        self._audio_samples_received += len(pcm_f32le) // 4
         self.metrics.audio_frames_received += 1
         self.metrics.audio_bytes_received += len(pcm_f32le)
         self.metrics.audio_duration_ms += round(

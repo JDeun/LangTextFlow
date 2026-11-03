@@ -1,0 +1,31 @@
+{
+  "id": "2026-11-03-rust-websocket-dependency",
+  "accessed": "2026-11-03",
+  "classification": "primary_source_inspected_and_local_build_reproduced_not_model_qualification",
+  "sources": [
+    {
+      "package": "tokio-tungstenite",
+      "version": "0.30.0",
+      "upstream_sha": "4994a078037a18a9347b8cf49291a5031d63d9e0",
+      "manifest": "https://github.com/snapview/tokio-tungstenite/blob/4994a078037a18a9347b8cf49291a5031d63d9e0/Cargo.toml",
+      "license_url": "https://github.com/snapview/tokio-tungstenite/blob/4994a078037a18a9347b8cf49291a5031d63d9e0/LICENSE",
+      "license": "MIT",
+      "declared_msrv": "1.85",
+      "downloaded_cargo_vcs_info_matches": true
+    },
+    {
+      "package": "tungstenite",
+      "version": "0.30.0",
+      "upstream_sha": "7f4aeaf0944992c5664c8fb8e0d54577c7e18020",
+      "manifest": "https://github.com/snapview/tungstenite-rs/blob/7f4aeaf0944992c5664c8fb8e0d54577c7e18020/Cargo.toml",
+      "license_url": "https://github.com/snapview/tungstenite-rs/blob/7f4aeaf0944992c5664c8fb8e0d54577c7e18020/LICENSE-MIT",
+      "license": "MIT OR Apache-2.0",
+      "notice_choice": "MIT",
+      "declared_msrv": "1.85",
+      "downloaded_cargo_vcs_info_matches": true
+    }
+  ],
+  "scope": "Rust prototype server handshake only; no TLS/client-connect defaults, no copied upstream implementation",
+  "local_toolchain": "rustc 1.90.0 aarch64-apple-darwin",
+  "limits": "Local compile/socket tests are not Linux/Windows CI proof, product cutover, model quality or device certification. Locked transitive package versions/checksums are in crates/Cargo.lock."
+}

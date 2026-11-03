@@ -40,7 +40,10 @@ New session requests accept an optional `project_id`; old clients without the pr
 
 ## Deferred project knowledge layer
 
-Cross-session full-text search, project-wide timelines, cited AI synthesis, aggregate recording packages, import/export and sharing policy are **not implemented in this initial PR**. Tracked in #86. Project CRUD and session organization are tracked in #85. Per-session recording and summarization remain separate work under #78-#81.
+The initial project CRUD slice was tracked in #85. Cross-session search, cited
+synthesis and full private package backup/restore are described below. #86 also
+tracks the remaining knowledge/retention acceptance; these features do not imply
+semantic or field approval. Per-session archive work is documented under #78–#81.
 
 ## Verification
 
@@ -113,8 +116,8 @@ existing session outputs and flags stale inputs so that later project-level
 summarization can cite verified sources. Because session moves/deletions can happen
 while fetching an index, the manifest states a total count *at query time* rather
 than a transactionally frozen archive. No completeness guarantee for concurrent
-edits is implied. Project-level backup/export with binary media and full
-cross-session synthesis remain issue #86.
+edits is implied. Use the frozen project digest and full private package features
+below when those guarantees are needed.
 
 
 ### Evidence-linked Markdown working report
@@ -209,9 +212,9 @@ past endpoint's location from current configuration. No cloud upload is implicit
 | `POST /digests/{digest_id}/reviews` | Append cited text/approval using `expected_review_id` concurrency |
 | `GET /digests/{digest_id}/export` | JSON of one version, its frozen evidence and review history |
 
-Markdown export uses the saved review when present. This **is not the full project
-media package/import/restore**: binary recordings, project handout/agenda/decision
-artifacts and complete restorable linkage remain open under #86. Citation identity
+Markdown export uses the saved review when present. This version export is
+separate from the full private package below. Project handout/agenda/decision
+artifacts and knowledge/retention acceptance remain open under #86. Citation identity
 and automated three-language/three-session tests do not certify model meaning,
 human review quality, actual multilingual speech or field/device acceptance.
 
@@ -221,6 +224,101 @@ requests. The browser runner creates two additional synthetic mock-ASR sessions,
 generates all three per-session summaries through the real loopback-only fake
 provider, then clicks the real project Generate/save/approve controls and checks
 version export, provenance, source navigation, move redaction, mobile and axe.
+
+### Full private project package backup and restore
+
+The history workspace offers **Full private project backup and restore**, separate
+from the paginated metadata index and one-version digest export. Choose a project,
+finish all of its sessions/transcription/summary jobs, prepare its complete backup,
+then use **Download private ZIP**. The browser downloads an attachment directly;
+it does not buffer the entire archive into a JavaScript Blob. Restore also works
+when history is empty: explicitly choose a local ZIP and click **Restore selected
+backup**. Both actions require the local operator server and allowed browser
+origin. The UI refuses non-loopback upload destinations. No model/provider is
+called by backup or restore.
+
+This is a **private plaintext backup** containing original speech text and WAV
+audio, translations/provenance, all transcript versions/reviews/approvals, every
+session summary/review, the project glossary and frozen project digest graph.
+App settings/authentication/rate-limit tables are excluded. This does not promise
+that arbitrary source text contains no confidential strings. Store the downloaded
+file securely and restore only material you are authorized to use. A download
+already delivered to the browser cannot be recalled by later deletion.
+
+Version 2 is a ZIP_STORED archive with exactly `manifest.json`, `graph.json` and
+the declared `media/<recording_id>.wav` entries. The graph has a fixed table and
+column allowlist; no SQL or executable instructions are read from the package,
+and package-supplied paths never determine a destination. A single SQLite read transaction collects the whole selected
+project. Limits are **25 sessions, 50,000 total rows, 64 recordings, 32 MiB graph
+JSON, 64 KiB manifest and 1 GiB total ZIP**; each recording retains the existing
+512 MiB/four-hour WAV bounds. There is no pagination/truncation fallback. Oversize
+projects must be reduced in scope. Missing/changed WAVs, ongoing work or a
+historical digest referring to a source moved outside the project fail the entire
+backup. Restore the source's original linkage before backing up that closed graph.
+
+Version 2 preserves nullable recording `start_offset_ms`. The reader still accepts
+original version 1 packages: it verifies the original graph bytes/hash first, then
+performs the one known migration by adding a null (unknown) offset to each
+recording. Raw immutable digest snapshot JSON and its input hashes are unchanged;
+legacy audio is never assigned an invented zero offset.
+
+Restore preserves stable project/session/recording/version/review IDs, the raw
+JSON strings underlying immutable snapshots and SHA-256 provenance, timestamps
+and append order. Local WAV filenames are newly generated safe managed names.
+Historical stale summaries/digests remain stale; restore does not generate a new
+approval. Any ID collision—including a not-yet-cleaned deleted recording ownership
+tombstone—returns **409** without overwriting, remapping or merging existing data.
+An empty application data profile is the recommended destination. Inactive
+historical join codes stay session metadata; restore does not start a session,
+install an audience authorization, import application credentials or reset current
+authentication/rate-limit state.
+
+The service prechecks the bounded ZIP directory before allocating its entry list,
+rejects compression, encryption, ZIP64/multidisk, expansion ratios, duplicate or
+unexpected paths and symlinks, then validates cumulative counters, closed graph
+references, hashes and PCM WAV format before destination graph mutation. It
+checks free-space reserve before writing the ZIP and staged recordings. Complete
+WAV partials are flushed and verified before durable ownership is recorded. One
+short write transaction rechecks collisions, promotes at most 64 owned files,
+inserts the fixed graph and transfers recording ownership with a committed import
+receipt. Large file hashing runs outside that transaction. POSIX directory entries
+are fsynced at preparation/promotion; Windows uses flushed file handles and native
+no-replace rename semantics. Filesystem/device failure may still require repair;
+no power-loss guarantee beyond those OS primitives is claimed.
+
+One native I/O slot, 600-second native-call deadlines, a 15-minute operation lease,
+chunk-level stop fences and independently owned cleanup prevent cancellation from
+overlapping a still-running writer. Upload disconnect/shutdown/discard and source
+project/session move/delete stop related operations; bytes already sent remain
+outside server control. Prepared exports are removed after download or expiry.
+Restart recovery reuses the single bounded recording recovery worker, processes
+one package owner per batch, and hashes at most the package's declared bounds
+with a shutdown fence. Failed precommit imports remove only verified owned files;
+committed receipts protect restored recordings after a lost HTTP acknowledgement.
+Integrity mismatch quarantines its ownership record and preserves the file for
+repair. Unknown WAVs/symlinks are never inferred as imported assets or removed.
+Unjournaled service-named partials retain the existing 24-hour grace policy;
+journal-owned partials are excluded. Recent completed restore receipts are visible
+through status refresh so a lost acknowledgement does not invite an unsafe retry.
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /api/v1/projects/{project_id}/package` | Prepare the whole bounded private ZIP; return opaque export ID, bytes and SHA-256 |
+| `GET /api/v1/project-packages/{export_id}/download` | Native attachment, single download, no-store |
+| `DELETE /api/v1/project-packages/{export_id}` | Discard the owned prepared export |
+| `POST /api/v1/project-packages/restore` | Stream an explicitly selected ZIP; validate and atomically restore |
+| `GET /api/v1/project-packages` | Prepared lease, up to 20 recent committed import receipts and up to 20 generic quarantine repair records, without file paths |
+
+`test_project_package.py` and `test_project_package_api.py` use actual SQLite,
+synthetic WAVs and ZIP streams, including three-language/multiple-recording exact
+graph roundtrip, replacement-approval stale history, collisions, hostile inputs,
+late native cancellation, disconnect and scope deletion. Actual owned subprocess
+termination before/after graph commit verifies restart rollback versus committed
+receipt recovery. The browser smoke downloads the native ZIP, checks its SHA,
+rejects a duplicate restore, removes only its synthetic fixture sources, restores
+through the real file-picker/UI/API and verifies stable IDs, original WAV hashes,
+frozen digest/review bytes, inactive runtime, mobile layout and accessibility.
+These storage/service tests do not certify semantic model quality or field use.
 The actual React harness separately covers delayed JSON/project/endpoint responses,
 unknown metadata recovery, provider approval resets, same-ID completion and cancel.
 No model weights or private speech are used by these regressions.

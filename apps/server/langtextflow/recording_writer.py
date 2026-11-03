@@ -50,6 +50,7 @@ class SessionRecordingWriter:
         sample_rate: int,
         reserve_bytes: int,
         queue_chunks: int = 64,
+        start_cancelled: threading.Event | None = None,
     ) -> None:
         if not 8_000 <= sample_rate <= 48_000:
             raise ValueError("unsupported recording sample rate")
@@ -69,10 +70,11 @@ class SessionRecordingWriter:
         self._frames = 0
         self._failure: str | None = None
         self._closing = False
-        self._open_cancelled = threading.Event()
+        self._open_cancelled = start_cancelled if start_cancelled is not None else threading.Event()
         self._open_lock = threading.Lock()
         self._owns_partial = False
         self._partial_identity: tuple[int, int] | None = None
+        self.start_offset_ms: float | None = None
 
     @property
     def error(self) -> str | None:
@@ -85,6 +87,8 @@ class SessionRecordingWriter:
     async def start(self) -> None:
         try:
             await asyncio.to_thread(self._open)
+            if self._open_cancelled.is_set():
+                raise asyncio.CancelledError
         except asyncio.CancelledError:
             self._closing = True
             self._open_cancelled.set()
@@ -263,6 +267,7 @@ class SessionRecordingWriter:
                 duration_seconds=self._frames / self.sample_rate,
                 sample_rate=self.sample_rate,
                 channels=1,
+                start_offset_ms=self.start_offset_ms,
             )
         except Exception:
             await asyncio.to_thread(self._remove_owned_partial, self._partial_identity)

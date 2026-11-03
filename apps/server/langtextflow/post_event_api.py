@@ -85,6 +85,11 @@ def install_post_event_routes(
         app, runtime, archive, settings, require_operator, summary_jobs, summary_start_lock,
         maximum_jobs=MAX_SUMMARY_JOBS, timeout_seconds=SUMMARY_JOB_TIMEOUT_SECONDS,
     )
+    from .project_package_api import install_project_package_routes
+
+    shutdown_packages = install_project_package_routes(
+        app, runtime, archive, settings, require_operator, summary_start_lock,
+    )
 
     @app.get("/api/v1/history/{session_id}/archive")
     async def event_archive_detail(request: Request, session_id: str) -> dict:
@@ -202,13 +207,15 @@ def install_post_event_routes(
         request: Request, session_id: str, recording_id: str, download: bool = False,
     ):
         require_operator(request)
-        await finished_session(session_id)
+        # Registered assets are immutable while later captions/recordings continue.
+        if await asyncio.to_thread(runtime.history.get_session, session_id) is None:
+            raise HTTPException(404, "session not found")
         path = await asyncio.to_thread(archive.recording_path, session_id, recording_id)
         if path is None:
             raise HTTPException(404, "recording not found")
         return FileResponse(
             path, media_type="audio/wav",
-            filename=f"langtextflow-{session_id}.wav",
+            filename=f"langtextflow-{session_id}-{recording_id}.wav",
             content_disposition_type="attachment" if download else "inline",
         )
 
@@ -344,6 +351,7 @@ def install_post_event_routes(
         return record
 
     async def shutdown_summary_jobs() -> None:
+        await shutdown_packages()
         await shutdown_project_digests()
         await shutdown_transcripts()
         jobs = list(summary_jobs.items())

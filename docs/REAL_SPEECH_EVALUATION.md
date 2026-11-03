@@ -428,6 +428,47 @@ per direction, paced RTF and estimated source-boundary lag do not establish
 sustained throughput, a population p95, microphone/network/browser performance,
 six-direction semantic accuracy, 4GB/8GB suitability or long-event readiness.
 
+## 2026-11-04: thirty-minute native duration smoke failed
+
+The [immutable local evidence record](knowledge/raw/2026-11-04-native-duration-negative.json)
+supersedes any inference of sustained readiness from the preceding two-caption
+smokes. Frozen main `bc5ef326f61ceabd1772b61b283afdfeea99a871` replayed the public
+12.48-second FLEURS KO 1883 WAV for 30 minutes (145 loops including the final
+partial), with cached small / four-second ASR and offline M2M100 KO→EN/JA, CPU
+INT8 / two threads per model. The developer host had incidental development load.
+This was an availability/duration observation, with no aligned repeated reference
+or bilingual gold and no model-speed ranking.
+
+The product runner returned **failed**, exit 1. All 438 source captions committed,
+but only the first 46 had both targets available: **92 successful and 784 failed
+target results**. The first failing source, `fw-00000047` at 195600ms, was
+`2010...`; the native MT child subsequently disappeared. Source captions continued,
+the queues drained in 4.662 seconds and persistence reported no error. Audio
+backpressure occurred 449 times; the ASR queue reached its eight-frame bound.
+Estimated source ASR lag p95 across 432 timing observations was 18.955 seconds,
+independently unsuitable as a
+claim of low live-caption latency. The mixed translation latency aggregate mostly
+contains immediate failures and cannot rank successful translation performance.
+
+Static review and a separate actual native three-case reproduction established
+the availability defect: a terminal native failure closed the M2M worker; the
+next valid caption stayed `not prepared` until explicit preparation. The numeric
+caption's exact native rejection category was not exposed. [PR #419](https://github.com/JDeun/LangTextFlow/pull/419)
+adds bounded next-caption recovery with verified reap, a single load owner and
+stop/cancellation fences. Its clean `d3559ff261bd9f36cf1837ea6ca76cc921159482`
+short native check retains the failing numeric result, then translates the next
+EN and JA requests on one replacement child. That is a targeted recovery proof;
+the original thirty-minute result remains failed and the fixed duration workload
+still needs a separately identified run.
+
+Parent RSS peaked at 1242.52MiB, while all 308 internal descendant-discovery
+samples were incomplete. An external 257-sample RSS trace began at 523 seconds,
+after the native MT owner was already absent. These readings cannot establish
+sustained co-resident memory or physical 4GB/8GB suitability. Estimated timestamp
+recovery, absent semantic references, fixture repetition and incidental host load
+also limit this observation. Issues #157/#214 and the quality/device gates remain
+open; the full report and checkpoint hashes are retained in the evidence record.
+
 ## Next phases
 
 Independent translation-quality acceptance (#77/#108) still needs reviewed,

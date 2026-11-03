@@ -29,6 +29,9 @@ class PostEventArchive:
         from .project_digests import ProjectDigests
 
         self.project_digests = ProjectDigests(self)
+        from .project_package import ProjectPackageStore
+
+        self.packages = ProjectPackageStore(self)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database_path, timeout=5)
@@ -55,6 +58,7 @@ class PostEventArchive:
                     status TEXT NOT NULL DEFAULT 'unknown'
                         CHECK(status IN ('unknown','completed')),
                     finalized_at TEXT,
+                    start_offset_ms REAL CHECK(start_offset_ms IS NULL OR start_offset_ms >= 0),
                     FOREIGN KEY(session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
                 )
                 """
@@ -65,6 +69,9 @@ class PostEventArchive:
                              "DEFAULT 'unknown' CHECK(status IN ('unknown','completed'))")
             if "finalized_at" not in columns:
                 conn.execute("ALTER TABLE session_recordings ADD COLUMN finalized_at TEXT")
+            if "start_offset_ms" not in columns:
+                conn.execute("ALTER TABLE session_recordings ADD COLUMN start_offset_ms REAL "
+                             "CHECK(start_offset_ms IS NULL OR start_offset_ms >= 0)")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS session_summaries (
@@ -126,6 +133,7 @@ class PostEventArchive:
                     conn.execute(f"ALTER TABLE session_summaries ADD COLUMN {column} TEXT")
         self.transcripts.initialize()
         self.project_digests.initialize()
+        self.packages.initialize()
         self.cleanup_stale_partials()
 
     def cleanup_stale_partials(
@@ -153,6 +161,11 @@ class PostEventArchive:
                 if conn.execute("SELECT 1 FROM recording_journal WHERE filename=?",
                                 (entry.name.removesuffix(".partial"),)).fetchone():
                     continue  # Durable ownership, including integrity failures.
+                if conn.execute(
+                    "SELECT 1 FROM project_package_files WHERE area='recordings' AND filename=?",
+                    (entry.name.removesuffix(".partial"),),
+                ).fetchone():
+                    continue
                 candidate = Path(entry.path)
                 try:
                     if candidate.is_symlink() or not candidate.is_file():
@@ -207,13 +220,15 @@ class PostEventArchive:
             "created_at": created_at,
             "status": "unknown",
             "finalized_at": None,
+            "start_offset_ms": None,
         }
 
     def recordings(self, session_id: str) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT recording_id, session_id, media_type, size_bytes, sha256, "
-                "duration_seconds, sample_rate, channels, created_at, status, finalized_at "
+                "duration_seconds, sample_rate, channels, created_at, status, finalized_at, "
+                "start_offset_ms "
                 "FROM session_recordings WHERE session_id=? ORDER BY created_at",
                 (session_id,),
             ).fetchall()

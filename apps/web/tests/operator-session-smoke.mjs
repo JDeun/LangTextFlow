@@ -136,6 +136,22 @@ try {
     projectDigestResult.exceptionDetails.exception?.description || projectDigestResult.exceptionDetails.text,
   );
   console.log(`project digest smoke passed: ${projectDigestResult.result.value}`);
+  const packageResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/projectPackageHarness.tsx').then((test) => test.runProjectPackageChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (packageResult.exceptionDetails) throw new Error(
+    packageResult.exceptionDetails.exception?.description || packageResult.exceptionDetails.text,
+  );
+  console.log(`private project package smoke passed: ${packageResult.result.value}`);
+  const recorderResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/liveRecordingHarness.tsx').then((test) => test.runLiveRecordingChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (recorderResult.exceptionDetails) throw new Error(
+    recorderResult.exceptionDetails.exception?.description || recorderResult.exceptionDetails.text,
+  );
+  console.log(`independent recording smoke passed: ${recorderResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;
