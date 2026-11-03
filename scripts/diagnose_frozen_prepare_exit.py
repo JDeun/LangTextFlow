@@ -68,8 +68,7 @@ def case(binary: Path, root: Path, index: int, stdin_open: bool,
          torch_zero: bool, piped: bool) -> dict:
     raw_log = root / f"case-{index}.raw"
     environment = {**os.environ, "LTF_TEST_FROZEN_DIAGNOSTIC_LOG": str(raw_log),
-                   "LANGTEXTFLOW_APP_DATA": str(root / f"case-{index}-app"),
-                   "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+                   "LANGTEXTFLOW_APP_DATA": str(root / f"case-{index}-app")}
     if torch_zero:
         environment["USE_TORCH"] = "0"
     read_fd, write_fd = os.pipe()
