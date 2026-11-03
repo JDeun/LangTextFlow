@@ -138,9 +138,22 @@ repository's Rust 1.90 toolchain. It snapshots the current official RustSec data
 and records its commit, then audits **both complete lock files** with
 `--deny warnings --json`, without advisory ignores or target filters. The
 `rust-dependency-security` artifact retains both raw reports, strict exit codes,
-three supported desktop target graphs, and `qualification.json`. Database/network/
-graph/tool failures fail the job. This fills the former Python/npm-only audit gap;
+three cross-target desktop graphs, and `qualification.json`. Existing Windows/macOS
+platform-smoke jobs additionally check and upload their actual native-host graph:
+cross-target Cargo trees alone do not include every host-conditional build edge.
+Database/network/graph/tool failures fail the job. This fills the former Python/npm-only audit gap;
 successful unsigned packaging alone does not establish dependency security.
+
+The auditor runs from a temporary directory containing an explicit configuration
+with yank checking enabled and terminal quiet mode disabled, overriding project/home
+audit configuration. Locked Cargo metadata is fetched before auditing. Raw JSON
+stderr errors fail qualification; a companion nonquiet, colorless terminal audit
+also exposes registry-open/update failures that cargo-audit 0.22.2 hides in JSON
+mode. Both lock hashes must remain unchanged before and after **every subprocess**.
+An earlier implementation's green artifact (run 41689319049) contained registry
+lookup errors and therefore proves advisory matching only, not complete yank checking.
+Its original artifact remains preserved; that result must not be reused as full
+dependency qualification.
 
 The original desktop lock had 11 vulnerability findings at RustSec database
 `6c5fedf8ff03c485ed674d8f941e0180f3f72d70`:
@@ -179,10 +192,12 @@ warnings**, so strict cargo-audit still exits 1:
 - [proc-macro-error 1.0.4 maintenance warning](https://rustsec.org/advisories/RUSTSEC-2024-0370.html)
   is in the Linux GTK/glib proc-macro build graph.
 
-The supported Windows MSVC, macOS ARM64 and macOS Intel Cargo graphs contain neither
+The Windows MSVC, macOS ARM64 and macOS Intel cross-target Cargo graphs contain neither
 package. The qualification script checks their exact package/version absence in
-**all three complete normal/build/dev graphs** before accepting these two exact
-warning IDs for those platforms. Any vulnerability, new warning, changed warning
+all three normal/build/dev graphs, and the native Windows/macOS CI host checks must
+also pass. Only the runner's actual architecture is a native-host observation;
+the other macOS architecture's tree remains a cross-target observation.
+Any vulnerability, new warning, changed warning
 package/version, missing graph, or warning present in a supported graph fails.
 This is an evidenced platform qualification, not a clean whole-lock audit.
 Linux desktop remains unqualified: Tauri 2.12/WRY's GTK 0.18 constraints cannot
