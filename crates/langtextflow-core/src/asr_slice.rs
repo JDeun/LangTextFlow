@@ -240,6 +240,29 @@ impl Default for AsrSession {
 }
 
 impl AsrSession {
+    /// Opt-in after Python history bootstrap, before the first source admission.
+    pub fn attach_history(&self, sink: crate::history::HistorySink) -> Result<(), &'static str> {
+        let mut state = self.0.lock().unwrap();
+        let config = state
+            .projection
+            .config
+            .as_ref()
+            .ok_or("history_requires_observed_session")?;
+        if !state.revisions.is_empty()
+            || state.projection.history.is_some()
+            || !sink.matches(
+                &state.session_id,
+                state.generation,
+                &config.source_language,
+                &config.targets,
+            )
+        {
+            return Err("history_scope");
+        }
+        state.projection.history = Some(sink);
+        Ok(())
+    }
+
     pub fn start(&self, session_id: &str) -> Result<(), &'static str> {
         self.start_configured(session_id, None)
     }
@@ -368,6 +391,7 @@ impl AsrSession {
             return Err("accepted_chunk");
         }
         let old = state.revisions.get(segment_id).ok_or("unknown_segment")?;
+        let old_revision = old.revision;
         if revision <= old.revision || revision > (1_u64 << 53) - 1 {
             return Err("stale_revision");
         }
@@ -383,7 +407,9 @@ impl AsrSession {
             })
             .unwrap_or_default();
         let (sid, generation) = (state.session_id.clone(), state.generation);
-        state.projection.invalidate(&sid, generation, &obsolete)?;
+        state
+            .projection
+            .invalidate(&sid, generation, &obsolete, old_revision)?;
         state.revisions.get_mut(segment_id).unwrap().revision = revision;
         state.accepted.remove(segment_id);
         state.pending_targets.retain(|_, pending| {
