@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import threading
 from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
@@ -18,6 +19,22 @@ class DecodedSegment:
     start_seconds: float
     end_seconds: float
     text: str
+
+
+def _validate_timestamps(segments: list[DecodedSegment], duration: float) -> None:
+    for segment in segments:
+        if (
+            not math.isfinite(segment.start_seconds)
+            or not math.isfinite(segment.end_seconds)
+            or segment.start_seconds < -0.25
+            or segment.end_seconds < segment.start_seconds
+            or segment.end_seconds > duration + 0.25
+        ):
+            raise AsrEngineError(
+                "faster-whisper returned out-of-bounds segment timestamps: "
+                f"{segment.start_seconds:.3f}–{segment.end_seconds:.3f}s "
+                f"for {duration:.3f}s input"
+            )
 
 
 class FasterWhisperStreamingAsrEngine(AsrEngine):
@@ -56,6 +73,10 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         self._sequence = 0
         self._audio_cursor_samples = 0
         self._failure: str | None = None
+        self.timestamp_recovery_count = 0
+        self.timestamp_recovery_errors: list[dict] = []
+        self._session_generation = 0
+        self._recovery_lock = threading.Lock()
 
     @property
     def running(self) -> bool:
@@ -89,6 +110,10 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         if self.running:
             return
         self._failure = None
+        with self._recovery_lock:
+            self._session_generation += 1
+            self.timestamp_recovery_count = 0
+            self.timestamp_recovery_errors = []
         self._request = request
         try:
             self._model = await asyncio.to_thread(self._load_model_sync)
@@ -128,6 +153,10 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             self._queue.put_nowait(None)
 
     async def stop(self) -> None:
+        with self._recovery_lock:
+            self._session_generation += 1
+            self.timestamp_recovery_count = 0
+            self.timestamp_recovery_errors = []
         await self.end_audio()
         task = self._worker_task
         if task is not None:
@@ -161,7 +190,11 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         pcm_f32le: bytes,
         request: StartSessionRequest,
     ) -> list[DecodedSegment]:
-        if self._model is None:
+        with self._recovery_lock:
+            model = self._model
+            generation = self._session_generation
+            start_sample = self._audio_cursor_samples
+        if model is None:
             raise AsrEngineError("faster-whisper model is not loaded")
         try:
             import numpy as np
@@ -181,51 +214,78 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         initial_prompt = " | ".join(part.strip() for part in prompt_parts if part.strip()) or None
         hotwords = ", ".join(context.asr_hotwords(source_language=request.source_language)) or None
 
-        segments, info = self._model.transcribe(
-            audio,
-            language=request.source_language,
-            beam_size=1,
-            condition_on_previous_text=False,
-            vad_filter=True,
-            initial_prompt=initial_prompt,
-            hotwords=hotwords,
-        )
-        duration = len(pcm_f32le) / 4 / self._sample_rate
-        reported_duration = getattr(info, "duration", duration)
-        speech_duration = getattr(info, "duration_after_vad", duration)
-        removed_silence = 0.0
-        if (
-            math.isfinite(reported_duration)
-            and math.isfinite(speech_duration)
-            and abs(reported_duration - duration) <= 1 / self._sample_rate
-            and 0 < speech_duration <= duration
-        ):
-            removed_silence = duration - speech_duration
-        decoded: list[DecodedSegment] = []
-        for segment in segments:
-            text = str(segment.text).strip()
-            if not text:
-                continue
-            start = float(segment.start)
-            end = float(segment.end)
-            # Upstream VAD restoration can add removed silence to a padded decoder tail.
-            if (
-                removed_silence > 0
-                and 0 <= start < duration < end <= duration + removed_silence + 0.25
-            ):
-                logger.warning(
-                    "Bounded VAD-restored segment end %.3fs to PCM duration %.3fs "
-                    "(VAD removed %.3fs); segment timestamps remain estimates",
-                    end, duration, removed_silence,
-                )
-                end = duration
-            decoded.append(
-                DecodedSegment(
-                    start_seconds=start,
-                    end_seconds=end,
-                    text=text,
-                )
+        def decode(*, without_timestamps: bool) -> list[DecodedSegment]:
+            segments, info = model.transcribe(
+                audio,
+                language=request.source_language,
+                beam_size=1,
+                condition_on_previous_text=False,
+                without_timestamps=without_timestamps,
+                vad_filter=True,
+                initial_prompt=initial_prompt,
+                hotwords=hotwords,
             )
+            reported_duration = getattr(info, "duration", duration)
+            speech_duration = getattr(info, "duration_after_vad", duration)
+            removed_silence = 0.0
+            if (
+                math.isfinite(reported_duration)
+                and math.isfinite(speech_duration)
+                and abs(reported_duration - duration) <= 1 / self._sample_rate
+                and 0 < speech_duration <= duration
+            ):
+                removed_silence = duration - speech_duration
+            decoded: list[DecodedSegment] = []
+            for segment in segments:
+                text = str(segment.text).strip()
+                if not text:
+                    continue
+                start = float(segment.start)
+                end = float(segment.end)
+                # VAD restoration can add removed silence to a padded decoder tail.
+                if (
+                    removed_silence > 0
+                    and 0 <= start < duration < end <= duration + removed_silence + 0.25
+                ):
+                    logger.warning(
+                        "Bounded VAD-restored segment end %.3fs to PCM duration %.3fs "
+                        "(VAD removed %.3fs); segment timestamps remain estimates",
+                        end, duration, removed_silence,
+                    )
+                    end = duration
+                decoded.append(
+                    DecodedSegment(
+                        start_seconds=start,
+                        end_seconds=end,
+                        text=text,
+                    )
+                )
+            return decoded
+
+        duration = len(pcm_f32le) / 4 / self._sample_rate
+        decoded = decode(without_timestamps=False)
+        try:
+            _validate_timestamps(decoded, duration)
+        except AsrEngineError as exc:
+            with self._recovery_lock:
+                # A cancelled to_thread call may finish after stop or a new session starts.
+                if generation != self._session_generation:
+                    raise AsrEngineError("faster-whisper timing recovery session ended") from exc
+                self.timestamp_recovery_count += 1
+                self.timestamp_recovery_errors.append({
+                    "error_type": "out_of_bounds_timestamp",
+                    "error": str(exc), "input_duration_seconds": duration,
+                    "start_sample": start_sample, "sample_rate": self._sample_rate,
+                })
+                del self.timestamp_recovery_errors[:-8]
+            logger.warning(
+                "%s; retrying once with estimated PCM/VAD chunk-span timing "
+                "for received PCM samples %d–%d at %d Hz; this is not word alignment",
+                exc, start_sample,
+                start_sample + len(pcm_f32le) // 4, self._sample_rate,
+            )
+            decoded = decode(without_timestamps=True)
+            _validate_timestamps(decoded, duration)
         return decoded
 
     async def _worker(self) -> None:
@@ -275,22 +335,11 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             self._request,
         )
         chunk_duration_seconds = duration_ms / 1000.0
+        _validate_timestamps(decoded, chunk_duration_seconds)
         for segment in decoded:
             # Decoder timestamps are relative to the 4s (or final shorter)
             # PCM chunk. FLEURS CPU pilot exposed >20s timestamps on ~4s
             # chunks; never publish evidence with an impossible source time.
-            if (
-                not math.isfinite(segment.start_seconds)
-                or not math.isfinite(segment.end_seconds)
-                or segment.start_seconds < -0.25
-                or segment.end_seconds < segment.start_seconds
-                or segment.end_seconds > chunk_duration_seconds + 0.25
-            ):
-                raise AsrEngineError(
-                    "faster-whisper returned out-of-bounds segment timestamps: "
-                    f"{segment.start_seconds:.3f}–{segment.end_seconds:.3f}s "
-                    f"for {chunk_duration_seconds:.3f}s input"
-                )
             self._sequence += 1
             start_ms = min(
                 chunk_end_ms,
