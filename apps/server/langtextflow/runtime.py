@@ -103,7 +103,7 @@ class CaptionRuntime:
             # Remaining candidates can advance on the next archive refresh.
             for _ in range(4):
                 self._recording_recovery_batch = asyncio.create_task(asyncio.to_thread(
-                    self.archive.recording_journal.recover_batch, stop,
+                    self._recover_archive_batch, stop,
                     attempted_before=cutoff,
                 ))
                 self._recording_recovery_batch.add_done_callback(
@@ -118,6 +118,13 @@ class CaptionRuntime:
             raise
         except Exception:
             logging.getLogger(__name__).warning("Recording recovery deferred: storage unavailable")
+
+    def _recover_archive_batch(self, stop, *, attempted_before):
+        # Private package ownership uses the same single bounded native worker.
+        self.archive.packages.recover_one(stop)
+        return self.archive.recording_journal.recover_batch(
+            stop, attempted_before=attempted_before,
+        )
 
     def _start_persistence_worker(self) -> None:
         if self._persistence_task is not None:
