@@ -10,6 +10,7 @@ import unicodedata
 from dataclasses import dataclass
 
 from .models import SessionContext
+from .translation.glossary_selection import _mentioned
 
 
 @dataclass(frozen=True)
@@ -41,13 +42,18 @@ class GlossaryAdherence:
 def resolve_glossary(
     context: SessionContext,
     target_language: str,
+    *, source_language: str | None = "ko",
 ) -> tuple[TerminologyMapping, ...]:
-    """Resolve enabled terms applicable to the current preset and language."""
+    """Resolve source/target scope; omitted source keeps the legacy Korean default."""
+    if source_language is None:
+        return ()
+    source = source_language.strip().casefold().replace("_", "-")
     language = target_language.strip().casefold()
     seen: set[str] = set()
     mappings: list[TerminologyMapping] = []
     for entry in context.glossary:
-        if not entry.enabled or not entry.applies_to(context.preset):
+        if (not entry.enabled or entry.source_language != source
+                or not entry.applies_to(context.preset)):
             continue
         translation = entry.translations.get(language)
         if not translation:
@@ -73,8 +79,7 @@ def _fold(text: str) -> str:
 
 
 def _source_occurs(text: str, mapping: TerminologyMapping) -> bool:
-    normalized = _fold(text)
-    return any(_fold(term) in normalized for term in (mapping.source, *mapping.aliases))
+    return any(_mentioned(text, term) for term in (mapping.source, *mapping.aliases))
 
 
 def _translation_occurs(text: str, term: str, language: str) -> bool:

@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 
 import httpx
 
+from .correction_safety import numeric_tokens
 from .models import SessionContext
 from .prompt_safety import (
     MAX_CORRECTION_RESPONSE_CHARS,
@@ -28,7 +29,6 @@ _LANGUAGE_NAMES = {
     "pt": "Portuguese",
     "ru": "Russian",
 }
-_NUMBER_PATTERN = re.compile(r"\d+(?:[.,:/-]\d+)*")
 _SPACE_PATTERN = re.compile(r"\s+")
 
 
@@ -266,8 +266,8 @@ def validate_constrained_candidate(original: str, candidate: str) -> str:
     if candidate == original:
         return candidate
 
-    original_numbers = _NUMBER_PATTERN.findall(original)
-    candidate_numbers = _NUMBER_PATTERN.findall(candidate)
+    original_numbers = numeric_tokens(original)
+    candidate_numbers = numeric_tokens(candidate)
     if candidate_numbers != original_numbers:
         raise CorrectionError("correction candidate changed numeric tokens")
 
