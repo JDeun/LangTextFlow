@@ -503,6 +503,19 @@ async def cancel_model_setup_job(request: Request, job_id: str) -> ModelSetupJob
     return job
 
 
+@app.post("/api/v1/setup/m2m100/prepare", response_model=ModelSetupJob, status_code=202)
+async def prepare_m2m100_model(request: Request) -> ModelSetupJob:
+    _require_operator(request)
+    async with _audio_transition_lock:
+        if runtime.state.running:
+            raise HTTPException(409, "stop the caption session before preparing M2M100")
+        try:
+            return await model_setup_manager.start_m2m100_prepare()
+        except (RuntimeError, OSError, ValueError) as exc:
+            raise HTTPException(409, "M2M100 preparation unavailable: check the local-mt runtime, "
+                                "managed cache configuration and free disk space") from exc
+
+
 @app.get("/api/v1/setup/runtimes", response_model=list[RuntimeStatus])
 async def runtime_statuses(request: Request) -> list[RuntimeStatus]:
     _require_operator(request)
@@ -552,14 +565,16 @@ async def model_cache_inventory(request: Request) -> CacheInventory:
 @app.delete("/api/v1/setup/cache/{area}", response_model=CacheInventory)
 async def clear_model_cache(request: Request, area: str) -> CacheInventory:
     _require_operator(request)
-    if runtime.state.running:
-        raise HTTPException(
-            status_code=409, detail="stop the active caption session before clearing model cache"
-        )
-    try:
-        return await model_cache_manager.clear(area)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    async with _audio_transition_lock:
+        if runtime.state.running or (area == "m2m100-native"
+                                     and model_setup_manager.m2m100_preparing):
+            raise HTTPException(
+                status_code=409, detail="stop caption/model preparation before clearing cache"
+            )
+        try:
+            return await model_cache_manager.clear(area)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/state", response_model=SessionState)
@@ -1102,6 +1117,8 @@ def resolve_session_glossary(
 async def start_session(request: Request, payload: StartSessionRequest) -> SessionState:
     _require_operator(request)
     async with _audio_transition_lock:
+        if model_setup_manager.m2m100_preparing:
+            raise HTTPException(409, "finish/cancel M2M100 preparation before starting a session")
         async def close_audio() -> None:
             await _close_audio_socket_for_transition("caption session restarting")
 

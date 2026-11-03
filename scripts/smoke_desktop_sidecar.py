@@ -1,6 +1,8 @@
 """Run the actual frozen backend with disposable storage and synthetic captions only."""
 from __future__ import annotations
 
+import csv
+import hashlib
 import json
 import os
 import signal
@@ -17,8 +19,146 @@ from urllib.request import Request, urlopen
 from build_desktop_sidecar import BIN_DIR, _target_triple
 
 
+def smoke_native_m2m100(request, root: Path) -> None:
+    """Manual opt-in only: real fixed weights, no external inference or speech input."""
+    from langtextflow.m2m100_prepare_worker import FILES, MODEL_REVISION
+
+    report = {
+        "status": "failed", "field_qualified": False, "quality_benchmark": False,
+        "model_revision": MODEL_REVISION, "frozen_prepare_and_repair": False,
+        "synthetic_source_actual_native_translation": False,
+        "initial_preparation_completed": False,
+        "cancelled_worker_reaped": False, "worker_pid_matches_spawn": False,
+        "source_sha": subprocess.run(["git", "rev-parse", "HEAD"],
+                                     check=True, capture_output=True, text=True).stdout.strip(),
+    }
+    output = Path(__file__).resolve().parents[1] / "artifacts/native-m2m100-setup-smoke.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    def prepared():
+        job = json.loads(request("/api/v1/setup/m2m100/prepare", {}))
+        deadline = time.monotonic() + 1230
+        last_logged = 0.0
+        native_since = None
+        while time.monotonic() < deadline:
+            job = json.loads(request(f"/api/v1/setup/jobs/{job['job_id']}"))
+            progress = job.get("details", {})
+            previous = report.get("last_progress", {})
+            if (progress.get("phase") != previous.get("phase")
+                    or progress.get("file") != previous.get("file")
+                    or time.monotonic() - last_logged > 15):
+                print(json.dumps({"native_setup_progress": progress}), flush=True)
+                last_logged = time.monotonic()
+            report["last_progress"] = progress
+            if (str(progress.get("phase", "")).startswith("native_")
+                    and job["state"] not in {"completed", "cancelled", "error"}):
+                native_since = native_since or time.monotonic()
+                if time.monotonic() - native_since > 60:
+                    # A diagnostic bound, not a model-performance or product-deadline claim.
+                    report["failure_category"] = "native_validation_diagnostic_deadline"
+                    stage = root / "models/m2m100-native" / job["job_id"]
+                    identities = {
+                        json.loads((stage / name).read_text())["pid"]
+                        for name in ("owner.json", "phase.json")
+                    }
+                    assert all(type(pid) is int and pid > 0 for pid in identities)
+                    request(f"/api/v1/setup/jobs/{job['job_id']}/cancel", {})
+                    cleanup_deadline = time.monotonic() + 10
+                    while (time.monotonic() < cleanup_deadline
+                           and any(process_alive(pid) for pid in identities)):
+                        time.sleep(.1)
+                    report["native_timeout_worker_reaped"] = not any(
+                        process_alive(pid) for pid in identities
+                    )
+                    assert report["native_timeout_worker_reaped"], "native worker orphaned"
+                    raise RuntimeError("native validation exceeded diagnostic deadline")
+            if job["state"] in {"completed", "cancelled", "error"}:
+                if job["state"] != "completed":
+                    report["failed_job_state"] = job["state"]
+                assert job["state"] == "completed", "native setup failed"
+                break
+            time.sleep(.25)
+        else:
+            raise RuntimeError("native setup deadline exceeded")
+        cache = root / "models/m2m100-native"
+        directory = cache / json.loads((cache / "current.json").read_text())
+        hashes = {}
+        for item in FILES:
+            with (directory / item.relative).open("rb") as stream:
+                hashes[item.relative] = hashlib.file_digest(stream, "sha256").hexdigest()
+            assert hashes[item.relative] == item.sha256, "prepared cache hash mismatch"
+        report["files_sha256"] = hashes
+        return directory
+
+    try:
+        cancelled = json.loads(request("/api/v1/setup/m2m100/prepare", {}))
+        stage = root / "models/m2m100-native" / cancelled["job_id"]
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            try:
+                owner = json.loads((stage / "owner.json").read_text())["pid"]
+                inner = json.loads((stage / "phase.json").read_text())["pid"]
+                if type(owner) is int and type(inner) is int and owner > 0 and inner > 0:
+                    break
+            except (OSError, ValueError, KeyError):
+                pass
+            time.sleep(.1)
+        else:
+            raise RuntimeError("native preparation did not report its owned process identity")
+        report["worker_pid_matches_spawn"] = owner == inner
+        report["ownership"] = {"spawn_pid": owner, "reported_pid": inner, "reaped": False}
+        result = json.loads(request(f"/api/v1/setup/jobs/{cancelled['job_id']}/cancel", {}))
+        assert result["state"] == "cancelled", "explicit native cancellation failed"
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and any(process_alive(pid) for pid in {owner, inner}):
+            time.sleep(.1)
+        assert not any(process_alive(pid) for pid in {owner, inner}), "native worker orphaned"
+        report["cancelled_worker_reaped"] = True
+        report["ownership"]["reaped"] = True
+        assert report["worker_pid_matches_spawn"], "native worker has an unowned onefile inner PID"
+        first = prepared()
+        report["initial_preparation_completed"] = True
+        providers = json.loads(request("/api/v1/translation/providers"))
+        assert next(item for item in providers if item["provider"] == "m2m100-ct2")["configured"]
+        state = json.loads(request("/api/v1/session/start", {
+            "engine": "mock", "source_language": "ko", "target_languages": ["en"],
+            "correction_provider": "none", "translation_provider": "m2m100-ct2",
+        }))
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            captions = json.loads(request(f"/api/v1/audience/{state['join_code']}/captions"))
+            if any(item.get("translations", {}).get("en", "").strip() for item in captions):
+                report["synthetic_source_actual_native_translation"] = True
+                break
+            time.sleep(.2)
+        else:
+            raise RuntimeError("native translation did not produce a target")
+        assert not json.loads(request("/api/v1/session/stop", {}))["running"]
+        (first / "model/config.json").write_bytes(b"damaged")
+        repaired = prepared()
+        assert repaired != first
+        report["frozen_prepare_and_repair"] = True
+        report["status"] = "passed"
+    finally:
+        output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+
+def process_alive(pid: int) -> bool:
+    if os.name == "nt":
+        result = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                                capture_output=True, text=True, check=True, timeout=5)
+        return any(len(row) > 1 and row[1] == str(pid)
+                   for row in csv.reader(result.stdout.splitlines()))
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
 def smoke_auxiliary_command(
     binary: Path, root: Path, environment: dict[str, str], arguments: list[str], expected_code: int,
+    *, timeout_seconds: int = 30,
 ) -> None:
     helper = subprocess.Popen(
         [str(binary), *arguments],
@@ -26,7 +166,7 @@ def smoke_auxiliary_command(
         cwd=root, env=environment, start_new_session=os.name == "posix",
     )
     try:
-        stdout, stderr = helper.communicate(b"", timeout=30)
+        stdout, stderr = helper.communicate(b"", timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         # A regression must not orphan a bootloader's accidentally started server.
         if os.name == "posix":
@@ -86,13 +226,36 @@ def main() -> None:
         ], 0)
         # Invalid setup arguments must exit quietly without starting a server or downloading.
         smoke_auxiliary_command(binary, root, environment, ["--m2m100-worker"], 2)
+        smoke_auxiliary_command(binary, root, {**environment, "USE_TORCH": "0"}, [
+            "--m2m100-prepare-worker", "--check-runtime",
+        ], 0)
+        smoke_auxiliary_command(binary, root, environment, ["--m2m100-prepare-worker"], 2)
+        if os.environ.get("LTF_M2M100_IMPORT_PROBE") == "1":
+            probe_path = root / "import-probe.json"
+            smoke_auxiliary_command(binary, root, {**environment, "USE_TORCH": "0"}, [
+                "--m2m100-prepare-worker", "--probe-matrix", str(probe_path),
+            ], 0, timeout_seconds=210)
+            probe = json.loads(probe_path.read_text())
+            probe["source_sha"] = subprocess.run(["git", "rev-parse", "HEAD"], check=True,
+                                                  capture_output=True, text=True).stdout.strip()
+            with binary.open("rb") as stream:
+                probe["binary_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
+            report = (Path(__file__).resolve().parents[1]
+                      / "artifacts/native-m2m100-import-probe.json")
+            report.parent.mkdir(parents=True, exist_ok=True)
+            report.write_text(json.dumps(probe, indent=2) + "\n", encoding="utf-8")
+            assert probe["weights_downloaded"] is False
+            assert len(probe["cases"]) == (9 if os.name == "nt" else 6)
+            assert all(case["reaped"] for case in probe["cases"]), "import probe orphaned"
+            assert next(case for case in probe["cases"]
+                        if case["order"] == "preload-spm" and case["watch"] == "none")["ready"]
         smoke_auxiliary_command(binary, root, environment, [
             "--faster-whisper-prefetch-worker", "invalid-model", str(root / "invalid-cache"),
         ], 1)
         with (root / "sidecar.log").open("wb") as log:
             process = subprocess.Popen(
                 [str(binary)], cwd=root, stdout=log, stderr=subprocess.STDOUT,
-                env=environment,
+                env=environment, start_new_session=os.name == "posix",
             )
             try:
                 deadline = time.monotonic() + 60
@@ -131,6 +294,8 @@ def main() -> None:
                     f"/api/v1/history/{state['session_id']}/export?format=json",
                 ))
                 assert any(item["original_text"] for item in exported["segments"])
+                if os.environ.get("LTF_M2M100_PREPARE_SMOKE") == "1":
+                    smoke_native_m2m100(request, root)
                 request("/api/v1/desktop/shutdown", {})
                 assert process.wait(timeout=15) == 0
             except BaseException:
@@ -138,12 +303,19 @@ def main() -> None:
                 raise
             finally:
                 if process.poll() is None:
-                    process.terminate()
+                    with suppress(Exception):
+                        request("/api/v1/desktop/shutdown", {})
                     try:
-                        process.wait(timeout=5)
+                        process.wait(timeout=15)
                     except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+                        if os.name == "nt":
+                            # Kill the owned tree before terminating its onefile outer parent.
+                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                                           capture_output=True, check=False, timeout=10)
+                        else:
+                            with suppress(ProcessLookupError):
+                                os.killpg(process.pid, signal.SIGKILL)
+                        process.wait(timeout=5)
     print(
         "Frozen backend smoke passed: worker dispatch, multiprocessing EOF, UI, captions, shutdown"
     )

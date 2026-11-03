@@ -57,6 +57,18 @@
   gap: 8px;
 }
 
+.native-model-setup {
+  padding: 10px;
+  border: 1px solid #5b4d2c;
+  border-radius: 10px;
+  background: #211b10;
+}
+
+.native-model-setup .model-setup-heading small,
+.native-model-setup .model-setup-meta span {
+  color: #9c8c6d;
+}
+
 .model-setup-control > button,
 .model-setup-job > button {
   min-height: 32px;

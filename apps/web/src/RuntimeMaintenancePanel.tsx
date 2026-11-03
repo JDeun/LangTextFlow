@@ -7,6 +7,8 @@ import {
   installDesktopUpdate,
 } from "./desktopUpdate";
 import { useI18n } from "./i18n";
+import { ModelSetupControl } from "./ModelSetupControl";
+import { UTILITY_COPY } from "./utilityCopy";
 
 interface RuntimeStatus {
   kind: "faster-whisper" | "ollama" | "vibevoice";
@@ -47,7 +49,10 @@ function formatBytes(value: number) {
   return `${(value / 1024 ** 3).toFixed(1)} GiB`;
 }
 
-export function RuntimeMaintenancePanel({ disabled }: { disabled: boolean }) {
+export function RuntimeMaintenancePanel({ disabled, onModelsChanged }: {
+  disabled: boolean;
+  onModelsChanged?: () => void;
+}) {
   const { locale } = useI18n();
   const copy = COMPLETION_COPY[locale];
   const [runtimes, setRuntimes] = useState<RuntimeStatus[]>([]);
@@ -114,6 +119,7 @@ export function RuntimeMaintenancePanel({ disabled }: { disabled: boolean }) {
       });
       if (!response.ok) throw new Error(await response.text());
       setCache((await response.json()) as CacheInventory);
+      if (area === "m2m100-native") onModelsChanged?.();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     }
@@ -171,6 +177,12 @@ export function RuntimeMaintenancePanel({ disabled }: { disabled: boolean }) {
           );
         })}
       </div>
+      <article className="runtime-card" data-testid="m2m100-model-setup">
+        <strong>{UTILITY_COPY[locale].model.nativeTitle}</strong>
+        <small>{UTILITY_COPY[locale].model.nativeHelp}</small>
+        <ModelSetupControl provider="m2m100-ct2" model="facebook/m2m100_418M"
+          enabled={!disabled} onCompleted={() => { onModelsChanged?.(); void refresh(); }} />
+      </article>
       {cache && (
         <div className="cache-panel">
           <div><strong>{copy.cacheTitle}</strong><small>{copy.cacheHelp}</small></div>

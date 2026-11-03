@@ -5,8 +5,8 @@ import {
   type TranslationRegistry,
 } from "./translationCapabilities";
 
-/** Fetch once for the operator session; both setup surfaces share the same registry. */
-export function useTranslationCapabilities(): TranslationRegistry {
+/** Both setup surfaces share discovery, refreshed after explicit model preparation. */
+export function useTranslationCapabilities(refreshKey = 0): TranslationRegistry {
   const [registry, setRegistry] = useState<TranslationRegistry>({
     status: "loading",
     providers: [],
@@ -31,6 +31,6 @@ export function useTranslationCapabilities(): TranslationRegistry {
         }
       });
     return () => controller.abort();
-  }, []);
+  }, [refreshKey]);
   return registry;
 }

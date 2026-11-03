@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from .config import Settings
 from .storage_guard import storage_capacity
 
-_ALLOWED_CACHE_AREAS = {"huggingface", "vibevoice"}
+_ALLOWED_CACHE_AREAS = {"huggingface", "vibevoice", "m2m100-native"}
 
 
 class CacheEntry(BaseModel):
