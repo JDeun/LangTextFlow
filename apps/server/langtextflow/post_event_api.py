@@ -2,13 +2,10 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import os
 import sqlite3
 import wave
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
@@ -23,6 +20,8 @@ from .post_event_summary import (
     summary_external_providers,
 )
 from .post_event_transcript_api import install_transcript_routes
+from .recording_import import RecordingImport
+from .recording_journal import RecoveryStopped
 from .runtime import CaptionRuntime
 from .storage_guard import StorageCapacityError, ensure_storage_capacity
 from .summary_evidence import validate_summary_citations
@@ -32,9 +31,9 @@ MAX_SUMMARY_JOBS = 2
 SUMMARY_JOB_TIMEOUT_SECONDS = 600
 
 
-def _validate_wav(path: Path) -> tuple[int, int, float]:
+def _validate_wav(source, *, stop=None) -> tuple[int, int, float]:
     """Validate a bounded PCM WAV without reading a 90-minute file into RAM."""
-    with wave.open(str(path), "rb") as wav:
+    with wave.open(str(source) if isinstance(source, Path) else source, "rb") as wav:
         channels = wav.getnchannels()
         sample_rate = wav.getframerate()
         frames = wav.getnframes()
@@ -46,6 +45,8 @@ def _validate_wav(path: Path) -> tuple[int, int, float]:
             raise HTTPException(422, "recording length must be between 0 and 4 hours")
         remaining = frames
         while remaining:
+            if stop is not None and stop.is_set():
+                raise RecoveryStopped
             batch = min(remaining, 8192)
             raw = wav.readframes(batch)
             if len(raw) != batch * channels * 2:
@@ -84,6 +85,8 @@ def install_post_event_routes(
     async def event_archive_detail(request: Request, session_id: str) -> dict:
         require_operator(request)
         session = await finished_session(session_id)
+        if recover := getattr(runtime, "request_recording_recovery", None):
+            recover()
         recordings, summary = await asyncio.gather(
             asyncio.to_thread(archive.recordings, session_id),
             asyncio.to_thread(archive.latest_summary, session_id),
@@ -167,43 +170,27 @@ def install_post_event_routes(
             )
         except StorageCapacityError as exc:
             raise HTTPException(507, "insufficient storage for recording") from exc
-        filename = f"{uuid4().hex}.wav"
-        path = archive.audio_root / filename
+        owned = RecordingImport(archive, session_id, _validate_wav)
         total = 0
-        digest = hashlib.sha256()
         try:
-            # Exclusive create/0600; no user-controlled path or filename.
-            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-            with os.fdopen(fd, "wb") as output:
-                async for part in request.stream():
-                    total += len(part)
-                    if total > MAX_RECORDING_BYTES:
-                        raise HTTPException(413, "recording exceeds upload limit")
-                    digest.update(part)
-                    await asyncio.to_thread(output.write, part)
-            # Streaming WAV validation is performed off the ASGI event loop.
-            channels, sample_rate, duration = await asyncio.to_thread(
-                _validate_wav, path,
-            )
-            return await asyncio.to_thread(
-                archive.insert_recording,
-                session_id,
-                filename=filename,
-                size_bytes=total,
-                sha256=digest.hexdigest(),
-                duration_seconds=duration,
-                sample_rate=sample_rate,
-                channels=channels,
-            )
-        except HTTPException:
-            path.unlink(missing_ok=True)
-            raise
-        except (OSError, EOFError, wave.Error, ValueError, StorageCapacityError) as exc:
-            path.unlink(missing_ok=True)
+            await asyncio.to_thread(owned.open)
+            async for part in request.stream():
+                total += len(part)
+                if total > MAX_RECORDING_BYTES:
+                    raise HTTPException(413, "recording exceeds upload limit")
+                await asyncio.to_thread(owned.write, part)
+            return await asyncio.to_thread(owned.finish)
+        except (
+            OSError, EOFError, wave.Error, ValueError, sqlite3.Error, StorageCapacityError,
+        ) as exc:
             raise HTTPException(422, "invalid or unwritable WAV recording") from exc
-        except Exception:
-            path.unlink(missing_ok=True)
-            raise
+        finally:
+            # Serializes cleanup with native I/O; cancelled native calls also
+            # close their own handles when they observe this ownership fence.
+            owned.cancelled.set()
+            cleanup = asyncio.create_task(asyncio.to_thread(owned.abort))
+            cleanup.add_done_callback(lambda done: None if done.cancelled() else done.exception())
+            await asyncio.shield(cleanup)
 
     @app.get("/api/v1/history/{session_id}/recordings/{recording_id}/audio")
     async def download_recording(

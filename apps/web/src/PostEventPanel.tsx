@@ -111,7 +111,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
 
   useEffect(() => {
     setReviewText(archive.summary?.review?.content ?? archive.summary?.content ?? "");
-  }, [archive.summary?.summary_id, archive.summary?.review?.review_id]);
+  }, [archive.summary?.summary_id, archive.summary?.content, archive.summary?.review?.review_id]);
 
   const refresh = useCallback(async () => {
     const requestId = ++archiveRequest.current;

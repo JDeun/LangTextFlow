@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import secrets
 import time
 from collections.abc import Awaitable, Callable
@@ -69,6 +70,10 @@ class CaptionRuntime:
         self._persistence_task: asyncio.Task[None] | None = None
         self._lifecycle_lock = asyncio.Lock()
         self._initialized = False
+        self._recording_recovery_stop = ThreadEvent()
+        self._recording_recovery_task: asyncio.Task[None] | None = None
+        self._recording_recovery_batch: asyncio.Task[int] | None = None
+        self._recording_recovery_closed = False
 
     async def initialize(self) -> None:
         if self._initialized:
@@ -77,6 +82,42 @@ class CaptionRuntime:
         await asyncio.to_thread(self.archive.initialize)
         await asyncio.to_thread(self.history.recover_interrupted_sessions)
         self._initialized = True
+        self.request_recording_recovery()
+
+    def request_recording_recovery(self) -> None:
+        if not self._initialized or self._recording_recovery_closed:
+            return
+        if self._recording_recovery_task is not None and not self._recording_recovery_task.done():
+            return
+        if self._recording_recovery_batch is not None and not self._recording_recovery_batch.done():
+            return
+        self._recording_recovery_stop = ThreadEvent()
+        self._recording_recovery_task = asyncio.create_task(
+            self._recover_recordings(self._recording_recovery_stop), name="recording-recovery",
+        )
+
+    async def _recover_recordings(self, stop: ThreadEvent) -> None:
+        try:
+            cutoff = datetime.now(UTC).isoformat()
+            # At most one worker and 32 journal candidates per request/startup.
+            # Remaining candidates can advance on the next archive refresh.
+            for _ in range(4):
+                self._recording_recovery_batch = asyncio.create_task(asyncio.to_thread(
+                    self.archive.recording_journal.recover_batch, stop,
+                    attempted_before=cutoff,
+                ))
+                self._recording_recovery_batch.add_done_callback(
+                    lambda done: None if done.cancelled() else done.exception(),
+                )
+                processed = await asyncio.shield(self._recording_recovery_batch)
+                if stop.is_set() or processed < 8:
+                    return
+                await asyncio.sleep(0)
+        except asyncio.CancelledError:
+            stop.set()
+            raise
+        except Exception:
+            logging.getLogger(__name__).warning("Recording recovery deferred: storage unavailable")
 
     def _start_persistence_worker(self) -> None:
         if self._persistence_task is not None:
@@ -128,7 +169,17 @@ class CaptionRuntime:
             self._refresh_queue_metrics()
 
     async def shutdown(self) -> None:
-        await self.stop()
+        self._recording_recovery_closed = True
+        self._recording_recovery_stop.set()
+        try:
+            await self.stop()
+        finally:
+            if self._recording_recovery_task is not None:
+                with suppress(asyncio.CancelledError):
+                    await self._recording_recovery_task
+            if self._recording_recovery_batch is not None:
+                with suppress(asyncio.CancelledError, Exception):
+                    await asyncio.shield(self._recording_recovery_batch)
 
     async def _publish(self, event: TranscriptEvent) -> None:
         self.store.apply(event)
