@@ -152,6 +152,14 @@ try {
     recorderResult.exceptionDetails.exception?.description || recorderResult.exceptionDetails.text,
   );
   console.log(`independent recording smoke passed: ${recorderResult.result.value}`);
+  const knowledgeResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/projectKnowledgeHarness.tsx').then((test) => test.runProjectKnowledgeChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (knowledgeResult.exceptionDetails) throw new Error(
+    knowledgeResult.exceptionDetails.exception?.description || knowledgeResult.exceptionDetails.text,
+  );
+  console.log(`project materials smoke passed: ${knowledgeResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;

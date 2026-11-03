@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Locale } from "./locales";
 import { PROJECT_DIGEST_COPY } from "./projectDigestCopy";
 import { POST_EVENT_COPY } from "./postEventCopy";
+import { PROJECT_KNOWLEDGE_COPY } from "./projectKnowledgeCopy";
 import { buildSummaryRequest, parseSummaryExternalProviders, type SummaryLanguage, type SummaryProvider } from "./summaryRequestPolicy";
 
 interface Version {
@@ -21,6 +22,7 @@ interface Detail extends Version {
     source: string;
     sessions: { session_id: string; title: string; started_at: string; transcript_id: string | null }[];
     citations: { alias: string; marker: string; session_id: string; segment_id: string; start_ms: number; transcript_id: string | null }[];
+    knowledge?: { knowledge_id: string; title: string; text: string; revision: number; content_sha256: string }[];
   } | null;
 }
 interface Props {
@@ -191,6 +193,13 @@ function ScopedProjectDigestPanel({ apiUrl, projectId, locale, onOpenSession }: 
         </div>
         <details><summary>{c.originalDraft}</summary><pre>{detail.content}</pre></details>
         <details><summary>{t.evidence}</summary><pre>{detail.snapshot?.source}</pre></details>
+        {!!detail.snapshot?.knowledge?.length && <details><summary>{PROJECT_KNOWLEDGE_COPY[locale].title} · {PROJECT_KNOWLEDGE_COPY[locale].author}</summary>
+          {detail.snapshot.knowledge.map(item => <div key={item.knowledge_id}>
+            <h4>{item.title}</h4><small>{PROJECT_KNOWLEDGE_COPY[locale].revision} {item.revision}</small>
+            <p className="project-knowledge-text">{item.text}</p>
+            <small className="project-knowledge-hash">{PROJECT_KNOWLEDGE_COPY[locale].hash}: {item.content_sha256}</small>
+          </div>)}
+        </details>}
         <ul>{detail.snapshot?.citations.filter(item => (detail.review?.content ?? detail.content).includes(item.marker)).map(item => <li key={item.alias}>
           <button type="button" className="secondary-button" onClick={() => onOpenSession(item.session_id)}>
             {t.source}: {detail.snapshot?.sessions.find(session => session.session_id === item.session_id)?.title} · {item.segment_id} · {item.start_ms / 1000}s
