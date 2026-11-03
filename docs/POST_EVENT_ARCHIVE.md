@@ -225,6 +225,17 @@ New postprocessed events preserve `original_text` separately from corrected disp
 
 ## Tests
 
+`bash scripts/run_browser_e2e.sh` starts a loopback-only deterministic Ollama
+fixture on an OS-assigned port and overrides the test backend's endpoint. It
+imports and reads back a synthetic two-minute WAV, then clicks the real summary
+controls for live and explicitly approved offline sources. Both summaries traverse
+the HTTP API, background job, provider HTTP request, SQLite, review/approval and
+citation/player navigation. Model/provider/source/prompt provenance is checked;
+summary drafts are no longer inserted directly into SQLite by the browser test.
+Only the offline decoder output is seeded. The fixture uses no model weights,
+microphone, private speech or external provider and establishes UI/service wiring,
+not model inference, semantic quality or field acceptance.
+
 `uv run pytest -q apps/server/tests/test_post_event_archive.py`
 
 This is a separate test from the prior field acceptance and new real-speech benchmark: #77.
