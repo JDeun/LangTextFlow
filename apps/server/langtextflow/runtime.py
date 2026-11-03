@@ -1,8 +1,10 @@
 import asyncio
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
+from threading import Event as ThreadEvent
 from uuid import uuid4
 
 from .asr import (
@@ -12,6 +14,7 @@ from .asr import (
     ReplayFallbackAsrEngine,
     VibeVoiceStreamingAsrEngine,
 )
+from .asr.base import AsrEngineError
 from .config import Settings, get_settings
 from .hub import WebSocketHub
 from .models import (
@@ -276,6 +279,7 @@ class CaptionRuntime:
                 ],
                 replay_seconds=self.settings.asr_replay_seconds,
                 health_check_seconds=self.settings.asr_health_check_seconds,
+                startup_timeout_seconds=self.settings.session_start_timeout_seconds,
                 on_provider_change=self._provider_changed,
             )
         raise ValueError(f"unsupported engine: {request.engine}")
@@ -357,11 +361,20 @@ class CaptionRuntime:
         self._refresh_queue_metrics()
         return self.metrics.model_copy(deep=True)
 
-    async def start(self, request: StartSessionRequest) -> SessionState:
+    async def start(
+        self, request: StartSessionRequest, *,
+        before_transition: Callable[[], Awaitable[None]] | None = None,
+    ) -> SessionState:
         async with self._lifecycle_lock:
-            return await self._start_unlocked(request)
+            try:
+                return await self._start_unlocked(request, before_transition=before_transition)
+            except TimeoutError as exc:
+                raise AsrEngineError("Session provider initialization timed out; retry") from exc
 
-    async def _start_unlocked(self, request: StartSessionRequest) -> SessionState:
+    async def _start_unlocked(
+        self, request: StartSessionRequest, *,
+        before_transition: Callable[[], Awaitable[None]] | None = None,
+    ) -> SessionState:
         await self.initialize()
         # Validate before stopping a running session: an invalid project must not
         # interrupt a live event or create an unassigned session by accident.
@@ -397,15 +410,21 @@ class CaptionRuntime:
 
         if request.record_audio and not engine.accepts_audio:
             raise ValueError("recording requires a real audio-input ASR engine")
+        if before_transition is not None:
+            await before_transition()
         if self.state.running:
             await self._stop_unlocked()
         self._active_generation = generation
         self.store.clear()
         await self.hub.close_all(reason="caption session starting")
         self._reset_metrics()
+        start_deadline = (
+            asyncio.get_running_loop().time() + self.settings.session_start_timeout_seconds
+        )
         try:
-            await self.pipeline.start(request)
-        except Exception:
+            async with asyncio.timeout_at(start_deadline):
+                await self.pipeline.start(request)
+        except (Exception, asyncio.CancelledError):
             # A failed session never authorizes its ASR callbacks to publish.
             self._active_generation = None
             with suppress(Exception):
@@ -438,13 +457,32 @@ class CaptionRuntime:
             persistence_error=None,
             started_at=datetime.now(UTC),
         )
+        state = self.state
+        creation_cancelled = ThreadEvent()
+        creation_done = ThreadEvent()
+
+        def persist_session() -> None:
+            try:
+                self.history.create_session(state, request)
+            finally:
+                creation_done.set()
+                # A cancelled waiter cannot cancel SQLite work already running in a thread.
+                if creation_cancelled.is_set() and state.session_id:
+                    self.history.mark_ended(state.session_id)
+
         try:
-            await asyncio.to_thread(self.history.create_session, self.state, request)
-        except Exception:
-            self.state.persistence_error = _PERSISTENCE_FAILURE
-        self._start_persistence_worker()
-        try:
-            await engine.start(request)
+            try:
+                await asyncio.to_thread(persist_session)
+            except Exception:
+                self.state.persistence_error = _PERSISTENCE_FAILURE
+            self._start_persistence_worker()
+            try:
+                async with asyncio.timeout_at(start_deadline):
+                    await engine.start(request)
+            except TimeoutError as exc:
+                raise AsrEngineError(
+                    "ASR initialization timed out; prepare the model and retry"
+                ) from exc
             active_provider = getattr(engine, "active_provider", None)
             if active_provider:
                 await self._provider_changed(str(active_provider))
@@ -470,8 +508,10 @@ class CaptionRuntime:
                         )
             self.state.running = True
             self._refresh_queue_metrics()
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             self.state.running = False
+            self._active_generation = None
+            creation_cancelled.set()
             self.engine = None
             recorder, self._recorder = self._recorder, None
             if recorder is not None:
@@ -484,7 +524,8 @@ class CaptionRuntime:
             self._active_generation = None
             with suppress(Exception):
                 await self._stop_persistence_worker()
-            if self.state.session_id and self.state.persistence_error is None:
+            if (creation_done.is_set() and self.state.session_id
+                    and self.state.persistence_error is None):
                 try:
                     await asyncio.to_thread(self.history.mark_ended, self.state.session_id)
                 except Exception:

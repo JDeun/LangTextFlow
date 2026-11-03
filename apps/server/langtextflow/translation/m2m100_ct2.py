@@ -12,6 +12,7 @@ from threading import BoundedSemaphore, Lock
 from typing import Any
 
 from ..models import SessionContext
+from ..native_work import run_native_work
 from .base import TranslationError, Translator
 from .glossary_selection import _mentioned, relevant_glossary
 
@@ -79,7 +80,7 @@ class M2M100CT2Translator(Translator):
                 "Use the pinned CPU model provisioning process; no cloud fallback."
             )
         try:
-            await asyncio.to_thread(self._prepare_sync)
+            self._tokenizer, self._engine = await run_native_work("m2m100-load", self._prepare_sync)
         except Exception as exc:
             # Tokenizer/native initialization failures must not disable source captions.
             raise TranslationError(
@@ -87,7 +88,7 @@ class M2M100CT2Translator(Translator):
                 "check CT2 weights, tokenizer and optional dependencies."
             ) from exc
 
-    def _prepare_sync(self) -> None:
+    def _prepare_sync(self) -> tuple[Any, Any]:
         import ctranslate2
         from transformers import M2M100Tokenizer
 
@@ -101,8 +102,7 @@ class M2M100CT2Translator(Translator):
         for language in SUPPORTED_LANGUAGES:
             if language not in tokenizer.lang_code_to_token:
                 raise ValueError("M2M100 local tokenizer lacks a required language code")
-        self._tokenizer = tokenizer
-        self._engine = engine
+        return tokenizer, engine
 
     async def translate(
         self, text: str, *, source_language: str,
