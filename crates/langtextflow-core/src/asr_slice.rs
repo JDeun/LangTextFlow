@@ -68,11 +68,15 @@ pub struct Admission {
     pub cancelled: Arc<AtomicBool>,
     chunk: AudioChunk,
     owner: Weak<Mutex<State>>,
+    deadline: std::time::Instant,
 }
 
 impl Admission {
     pub fn request(&self) -> &WorkerRequest {
         &self.request
+    }
+    pub fn deadline(&self) -> std::time::Instant {
+        self.deadline
     }
 }
 
@@ -223,6 +227,7 @@ impl AsrSession {
             cancelled,
             chunk,
             owner: Arc::downgrade(&self.0),
+            deadline: std::time::Instant::now() + std::time::Duration::from_millis(deadline_ms),
         })
     }
 
@@ -242,6 +247,9 @@ impl AsrSession {
         state.active = None;
         if admitted.cancelled.load(Ordering::Acquire) {
             return Err("cancelled");
+        }
+        if std::time::Instant::now() >= admitted.deadline {
+            return Err("deadline_expired");
         }
         let reply = reply.ok_or("worker_failed")?;
         if state.session_id != admitted.request.session_id {

@@ -76,8 +76,8 @@ impl ProcessLease {
 
 impl Drop for ProcessLease {
     fn drop(&mut self) {
-        // If the reaper is aborted/runtime closes before confirmed exit, fail
-        // closed. Never release capacity merely because an async task vanished.
+        // A failed reaper start/wait is not confirmed exit. Fail closed rather
+        // than release capacity merely because the cleanup owner vanished.
         if let Some(permit) = self.0.take() {
             permit.forget();
         }
@@ -116,8 +116,9 @@ impl SupervisedWorker {
         mut self,
         request: &WorkerRequest,
         cancelled: &AtomicBool,
+        deadline: std::time::Instant,
     ) -> Result<(Self, WorkerReply), WorkerError> {
-        let reply = self.exchange_owned(request, cancelled).await?;
+        let reply = self.exchange_owned(request, cancelled, deadline).await?;
         Ok((self, reply))
     }
 
@@ -125,6 +126,7 @@ impl SupervisedWorker {
         &mut self,
         request: &WorkerRequest,
         cancelled: &AtomicBool,
+        deadline: std::time::Instant,
     ) -> Result<WorkerReply, WorkerError> {
         if request.deadline_ms == 0 || request.deadline_ms > 120_000 {
             return Err(WorkerError::InvalidDeadline);
@@ -134,7 +136,8 @@ impl SupervisedWorker {
         if frame.len() > MAX_FRAME_BYTES {
             return Err(WorkerError::Frame);
         }
-        let deadline = Instant::now() + Duration::from_millis(request.deadline_ms);
+        let deadline = Instant::from_std(deadline)
+            .min(Instant::now() + Duration::from_millis(request.deadline_ms));
         let stdin = self.stdin.as_mut().ok_or(WorkerError::Closed)?;
         let stdout = self.stdout.as_mut().ok_or(WorkerError::Closed)?;
         // Retain the same future across polls: cancelling and recreating write_all
@@ -157,7 +160,15 @@ impl SupervisedWorker {
             )
             .await
             {
-                Ok(result) => break result,
+                Ok(result) => {
+                    if cancelled.load(Ordering::Acquire) {
+                        break Err(WorkerError::Cancelled);
+                    }
+                    if Instant::now() >= deadline {
+                        break Err(WorkerError::Deadline);
+                    }
+                    break result;
+                }
                 Err(_) => continue,
             }
         };

@@ -59,7 +59,7 @@ fn run() -> Result<(), &'static str> {
                 let reply = worker
                     .take()
                     .ok_or("worker_unavailable")?
-                    .exchange(admitted.request(), &admitted.cancelled)
+                    .exchange(admitted.request(), &admitted.cancelled, admitted.deadline())
                     .await;
                 let events = match reply {
                     Ok((next, reply)) => {

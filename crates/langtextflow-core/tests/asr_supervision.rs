@@ -132,7 +132,7 @@ fn real_hung_child_deadline_reaps_before_replacement_and_no_spawn_queue() {
         let started = Instant::now();
         assert!(matches!(
             worker
-                .exchange(admitted.request(), &admitted.cancelled)
+                .exchange(admitted.request(), &admitted.cancelled, admitted.deadline())
                 .await,
             Err(WorkerError::Deadline)
         ));
@@ -171,7 +171,7 @@ fn actual_child_cancellation_during_inference_kills_and_reaps() {
         });
         assert!(matches!(
             worker
-                .exchange(admitted.request(), &admitted.cancelled)
+                .exchange(admitted.request(), &admitted.cancelled, admitted.deadline())
                 .await,
             Err(WorkerError::Cancelled)
         ));
@@ -213,7 +213,11 @@ fn real_worker_crash_or_oversized_output_is_terminal() {
             session.start("s").unwrap();
             let admitted = session.admit("seg", 1, "ko", chunk(), 2000).unwrap();
             assert!(worker
-                .exchange(admitted.request(), &AtomicBool::new(false))
+                .exchange(
+                    admitted.request(),
+                    &AtomicBool::new(false),
+                    admitted.deadline()
+                )
                 .await
                 .is_err());
             assert_eq!(slot.available_permits(), 1);
@@ -233,7 +237,11 @@ fn actual_jsonl_worker_result_requires_current_rust_fence() {
         );
         let worker = SupervisedWorker::spawn(&python(), &["-c", &code], worker_slot()).unwrap();
         let (mut worker, reply) = worker
-            .exchange(admitted.request(), &AtomicBool::new(false))
+            .exchange(
+                admitted.request(),
+                &AtomicBool::new(false),
+                admitted.deadline(),
+            )
             .await
             .unwrap();
         session.revise("seg", 2).unwrap();
@@ -258,7 +266,9 @@ fn deadline_also_bounds_a_control_write_to_nonreading_child() {
         )
         .unwrap();
         assert!(matches!(
-            worker.exchange(&request, &AtomicBool::new(false)).await,
+            worker
+                .exchange(&request, &AtomicBool::new(false), admitted.deadline())
+                .await,
             Err(WorkerError::Deadline)
         ));
         assert_eq!(slot.available_permits(), 1);
@@ -282,7 +292,7 @@ fn aborted_owner_cannot_leak_logical_admission_or_process_slot() {
             )
             .unwrap();
             let reply = worker
-                .exchange(admitted.request(), &admitted.cancelled)
+                .exchange(admitted.request(), &admitted.cancelled, admitted.deadline())
                 .await;
             match reply {
                 Ok((mut worker, reply)) => {
@@ -324,7 +334,7 @@ fn external_timeout_consumes_worker_and_reaps_before_retry() {
         let admitted = session.admit("seg", 1, "ko", chunk(), 10_000).unwrap();
         assert!(tokio::time::timeout(
             Duration::from_millis(10),
-            worker.exchange(admitted.request(), &admitted.cancelled)
+            worker.exchange(admitted.request(), &admitted.cancelled, admitted.deadline())
         )
         .await
         .is_err());
@@ -371,4 +381,17 @@ fn drop_outside_or_after_tokio_runtime_still_reaps_before_release() {
         }
         assert_eq!(slot.available_permits(), 1);
     }
+}
+
+#[test]
+fn result_that_arrived_before_deadline_cannot_be_accepted_after_it() {
+    let session = AsrSession::default();
+    session.start("s").unwrap();
+    let admitted = session.admit("seg", 1, "ko", chunk(), 10).unwrap();
+    let reply = reply(&admitted);
+    std::thread::sleep(Duration::from_millis(20));
+    assert!(matches!(
+        session.finish(&admitted, Some(&reply)),
+        Err("deadline_expired")
+    ));
 }

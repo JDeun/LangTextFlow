@@ -24,7 +24,9 @@ leased independently until the old child has been reaped.
 `supervision::SupervisedWorker` launches the explicitly configured local Python
 interpreter, sets offline model environment flags, and enforces a Rust monotonic
 1–120,000ms request deadline over both control writes and reply reads, including
-lazy model load. A cancellation flag is polled at up to 5ms intervals. Failed IO,
+lazy model load. The deadline is captured at Rust admission and checked again
+under the acceptance lock; a reply received earlier cannot be accepted after
+expiry. A cancellation flag is polled at up to 5ms intervals. Failed IO,
 framing, cancellation or deadline kills the child and awaits exit with a 1s
 cleanup budget. The public `exchange(self, ...)` moves ownership into the future
 and returns the worker only on success. An external timeout/aborted caller thus
