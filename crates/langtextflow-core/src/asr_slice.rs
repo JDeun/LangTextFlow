@@ -1,5 +1,8 @@
 //! First ASR vertical slice: Rust admission and immutable inference-result acceptance.
 //! It is opt-in and does not replace the production Python caption runtime.
+use crate::caption_events::{
+    CaptionProjection, ObservedConfig, ObserverCredential, ObserverMetrics, ObserverReceiver,
+};
 use crate::{validate_reply, TaskKind, WorkerReply, WorkerRequest, WorkerStatus, PROTOCOL_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -69,6 +72,7 @@ pub struct Admission {
     chunk: AudioChunk,
     owner: Weak<Mutex<State>>,
     deadline: std::time::Instant,
+    source_id: u64,
 }
 
 impl Admission {
@@ -105,9 +109,32 @@ struct State {
     session_id: String,
     generation: u64,
     serial: u64,
-    revisions: HashMap<String, u64>,
+    revisions: HashMap<String, SegmentVersion>,
     active: Option<Active>,
     accepted: HashMap<String, Vec<SourceEvent>>,
+    projection: CaptionProjection,
+}
+
+struct SegmentVersion {
+    revision: u64,
+    source_id: u64,
+}
+
+pub(crate) struct AsrObserver {
+    pub(crate) receiver: ObserverReceiver,
+    owner: Weak<Mutex<State>>,
+}
+
+impl Drop for AsrObserver {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.upgrade() {
+            owner
+                .lock()
+                .unwrap()
+                .projection
+                .remove(self.receiver.id, false);
+        }
+    }
 }
 
 /// Clones refer to the same Rust-owned authority; workers never receive it.
@@ -123,28 +150,92 @@ impl Default for AsrSession {
             revisions: HashMap::new(),
             active: None,
             accepted: HashMap::new(),
+            projection: CaptionProjection::default(),
         })))
     }
 }
 
 impl AsrSession {
     pub fn start(&self, session_id: &str) -> Result<(), &'static str> {
+        self.start_configured(session_id, None)
+    }
+
+    pub fn start_observed(
+        &self,
+        session_id: &str,
+        source: &str,
+        targets: &[String],
+    ) -> Result<ObserverCredential, &'static str> {
+        let (config, token) = ObservedConfig::new(source, targets)?;
+        self.start_configured(session_id, Some(config))?;
+        Ok(token)
+    }
+
+    fn start_configured(
+        &self,
+        session_id: &str,
+        config: Option<ObservedConfig>,
+    ) -> Result<(), &'static str> {
         if session_id.is_empty() || session_id.len() > 128 {
             return Err("invalid_session");
         }
         let mut state = self.0.lock().unwrap();
+        let next_generation = state
+            .generation
+            .checked_add(1)
+            .filter(|value| *value < (1_u64 << 53))
+            .ok_or("generation_exhausted")?;
         if let Some(active) = &state.active {
             active.cancelled.store(true, Ordering::Release);
         }
-        state.generation = state
-            .generation
-            .checked_add(1)
-            .ok_or("generation_exhausted")?;
+        state.generation = next_generation;
         state.session_id = session_id.into();
         state.revisions.clear();
         state.accepted.clear();
+        state.projection.reset(config);
         // Admission is retained until the previous request is finished/reaped.
         Ok(())
+    }
+
+    pub fn stop(&self) {
+        let mut state = self.0.lock().unwrap();
+        if let Some(active) = &state.active {
+            active.cancelled.store(true, Ordering::Release);
+        }
+        state.session_id.clear();
+        state.revisions.clear();
+        state.accepted.clear();
+        state.projection.reset(None);
+    }
+
+    pub fn observer_metrics(&self) -> ObserverMetrics {
+        self.0.lock().unwrap().projection.metrics.clone()
+    }
+
+    pub(crate) fn authorize_observer(&self, token: &str) -> bool {
+        self.0.lock().unwrap().projection.authorized(token)
+    }
+
+    pub(crate) fn subscribe_observer(&self, token: &str) -> Result<AsrObserver, &'static str> {
+        let mut state = self.0.lock().unwrap();
+        let (sid, generation) = (state.session_id.clone(), state.generation);
+        let receiver = state.projection.subscribe(&sid, generation, token)?;
+        Ok(AsrObserver {
+            receiver,
+            owner: Arc::downgrade(&self.0),
+        })
+    }
+
+    pub(crate) fn observer_send_timeout(&self, id: u64) {
+        self.0.lock().unwrap().projection.remove(id, true);
+    }
+    pub(crate) fn observer_capacity_rejected(&self) {
+        self.0
+            .lock()
+            .unwrap()
+            .projection
+            .metrics
+            .capacity_rejections += 1;
     }
 
     pub fn revise(&self, segment_id: &str, revision: u64) -> Result<(), &'static str> {
@@ -152,11 +243,14 @@ impl AsrSession {
         if state.accepted.contains_key(segment_id) {
             return Err("accepted_chunk");
         }
-        let old = state.revisions.get(segment_id).ok_or("unknown_segment")?;
-        if revision <= *old {
+        let old = state
+            .revisions
+            .get_mut(segment_id)
+            .ok_or("unknown_segment")?;
+        if revision <= old.revision || revision > (1_u64 << 53) - 1 {
             return Err("stale_revision");
         }
-        state.revisions.insert(segment_id.into(), revision);
+        old.revision = revision;
         if let Some(active) = &state.active {
             if active.segment_id == segment_id {
                 active.cancelled.store(true, Ordering::Release);
@@ -190,10 +284,19 @@ impl AsrSession {
         if state.active.is_some() {
             return Err("busy");
         }
+        if revision > (1_u64 << 53) - 1
+            || state
+                .projection
+                .config
+                .as_ref()
+                .is_some_and(|config| config.source_language != source_language)
+        {
+            return Err("invalid_request");
+        }
         if state
             .revisions
             .get(segment_id)
-            .is_some_and(|old| revision < *old)
+            .is_some_and(|old| revision < old.revision)
             || state.accepted.contains_key(segment_id)
         {
             return Err("stale_revision");
@@ -202,6 +305,10 @@ impl AsrSession {
             return Err("segment_capacity");
         }
         state.serial = state.serial.checked_add(1).ok_or("request_id_exhausted")?;
+        let source_id = state
+            .revisions
+            .get(segment_id)
+            .map_or(state.serial, |old| old.source_id);
         let request = WorkerRequest {
             protocol_version: PROTOCOL_VERSION,
             request_id: format!("r{}", state.serial),
@@ -221,13 +328,20 @@ impl AsrSession {
             segment_id: segment_id.into(),
             cancelled: cancelled.clone(),
         });
-        state.revisions.insert(segment_id.into(), revision);
+        state.revisions.insert(
+            segment_id.into(),
+            SegmentVersion {
+                revision,
+                source_id,
+            },
+        );
         Ok(Admission {
             request,
             cancelled,
             chunk,
             owner: Arc::downgrade(&self.0),
             deadline: std::time::Instant::now() + std::time::Duration::from_millis(deadline_ms),
+            source_id,
         })
     }
 
@@ -258,8 +372,9 @@ impl AsrSession {
         let revision = state
             .revisions
             .get(&admitted.request.segment_id)
-            .ok_or("stale_segment")?;
-        validate_reply(&admitted.request, reply, state.generation, *revision)
+            .ok_or("stale_segment")?
+            .revision;
+        validate_reply(&admitted.request, reply, state.generation, revision)
             .map_err(|_| "stale_or_invalid_reply")?;
         if reply.status != WorkerStatus::Ok {
             return Err("worker_failed");
@@ -294,8 +409,8 @@ impl AsrSession {
             events.push(SourceEvent {
                 session_id: state.session_id.clone(),
                 session_generation: state.generation,
-                segment_id: format!("{}/{}", admitted.request.segment_id, index),
-                source_revision: *revision,
+                segment_id: format!("rs-{}-{index}", admitted.source_id),
+                source_revision: revision,
                 source_language: admitted.request.source_language.clone(),
                 stage: "stable",
                 text: segment.text,
@@ -311,6 +426,12 @@ impl AsrSession {
                 },
             });
         }
+        let prepared = state.projection.prepare(
+            &state.session_id,
+            state.generation,
+            &admitted.chunk,
+            &events,
+        )?;
         // Parsing/projection may itself consume the remaining budget. This is
         // the linearization point; no result is stored after cancel/expiry.
         if admitted.cancelled.load(Ordering::Acquire) {
@@ -322,6 +443,7 @@ impl AsrSession {
         state
             .accepted
             .insert(admitted.request.segment_id.clone(), events.clone());
+        state.projection.apply(prepared);
         Ok(events)
     }
 }
