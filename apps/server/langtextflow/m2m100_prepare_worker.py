@@ -190,7 +190,7 @@ def main(args: list[str] | None = None) -> None:
         os.dup2(silent.fileno(), sys.stderr.fileno())
 
     def parent_closed() -> None:
-        sys.stdin.buffer.read(1)
+        os.read(0, 1)
         os._exit(0)  # EOF stops downloads/native validation even if the parent crashes.
 
     threading.Thread(target=parent_closed, daemon=True).start()
@@ -199,7 +199,7 @@ def main(args: list[str] | None = None) -> None:
         print('{"ready": true}', file=output, flush=True)
         threading.Event().wait()  # Parent retains the lease until publication and child reap.
     except Exception:
-        raise SystemExit(1) from None
+        os._exit(1)  # Do not finalize native state while the parent-pipe watchdog is blocked.
 
 
 if __name__ == "__main__":

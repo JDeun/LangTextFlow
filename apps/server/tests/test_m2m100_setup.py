@@ -351,3 +351,54 @@ def test_progress_exposes_only_fixed_phase_key_and_bounded_file_bytes(tmp_path):
     assert prepare.preparation_progress(tmp_path) == {
         "phase": "downloading", "file": "model/config.json", "file_bytes": 8,
     }
+
+
+@pytest.mark.parametrize("failure", ["invalid-directory", "hash", "native-load"])
+async def test_actual_prepare_failure_exits_quietly_with_parent_pipe_open(tmp_path, failure):
+    stage = tmp_path / "stage"
+    stage.mkdir()
+    if failure == "invalid-directory":
+        (stage / "not-owned").touch()
+    shim = tmp_path / "failure.py"
+    shim.write_text('''
+import hashlib, sys
+from dataclasses import replace
+from langtextflow import m2m100_prepare_worker as worker
+from langtextflow.translation.m2m100_ct2 import M2M100CT2Translator
+mode = sys.argv[1]
+worker.FILES = tuple(replace(item, sha256=hashlib.sha256(b'fixture').hexdigest(),
+                             maximum_bytes=32) for item in worker.FILES)
+class Response:
+    is_redirect = False
+    headers = {}
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def raise_for_status(self): pass
+    def iter_raw(self, size): yield b'wrong' if mode == 'hash' else b'fixture'
+class Client:
+    def __init__(self, **kwargs): pass
+    def __enter__(self): return self
+    def __exit__(self, *args): pass
+    def stream(self, *args, **kwargs): return Response()
+worker.httpx.Client = Client
+def fail_native(self):
+    raise RuntimeError('https://user:secret@host/private?token=secret')
+M2M100CT2Translator._prepare_sync = fail_native
+worker.main(sys.argv[2:])
+''')
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, str(shim), failure, str(stage), "0", str(tmp_path / "absent-model"),
+        str(tmp_path / "absent-tokenizer"), stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1])},
+    )
+    try:
+        # communicate() would close stdin and conceal the buffered-lock/finalization regression.
+        await asyncio.wait_for(process.wait(), 4)
+        assert process.returncode == 1
+        assert await process.stdout.read() == b"" and await process.stderr.read() == b""
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+        process.stdin.close()
