@@ -10,6 +10,7 @@ import json
 import os
 import struct
 import sys
+import sysconfig
 import tempfile
 from contextlib import suppress
 from pathlib import Path
@@ -25,6 +26,20 @@ _ERROR = "Rust runtime unavailable; stop the session and check local runtime set
 _ORIGIN = "http://127.0.0.1"
 _MAX_FRAME = 1024 * 1024
 _CONTROL_BUDGET = 15.0
+
+
+def _python_worker(module: str, args: list[str]) -> dict:
+    if sys.platform == "win32" and sys.prefix != sys.base_prefix:
+        # Windows venv python.exe redirects to a second PID. Own the base
+        # interpreter directly while loading the same trusted venv site files.
+        bootstrap = (
+            "import runpy,site,sys;site.addsitedir(sys.argv.pop(1));"
+            "name=sys.argv.pop(1);runpy.run_module(name,run_name='__main__')"
+        )
+        return {"program": sys._base_executable, "args": [
+            "-S", "-c", bootstrap, sysconfig.get_path("purelib"), module, *args,
+        ]}
+    return {"program": sys.executable, "args": ["-m", module, *args]}
 
 
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
@@ -93,10 +108,10 @@ class RustRuntimeBridge(AsrEngine):
         cache = str(managed_whisper_cache(self.settings.model_cache_dir))
         # Resolve before starting a process; this shared lookup is local-only.
         model_path = str(resolve_whisper_model(model, cache))
-        asr = {"program": sys.executable, "args": [
-            "-m", "langtextflow.inference_worker", model_path, cache,
+        asr = _python_worker("langtextflow.inference_worker", [
+            model_path, cache,
             str(self.settings.low_resource_cpu_threads),
-        ]}
+        ])
         mt = None
         if request.translation_provider == "m2m100-ct2":
             from .local_mt_preflight import local_m2m100_check
@@ -106,11 +121,11 @@ class RustRuntimeBridge(AsrEngine):
             if local_m2m100_check(self.settings).status is not CheckStatus.READY:
                 raise AsrEngineError(_ERROR)
             model_dir, tokenizer_dir = m2m100_cache_paths(self.settings)
-            mt = {"program": sys.executable, "args": [
-                "-m", "langtextflow.translation.m2m100_worker", "--rust-protocol",
+            mt = _python_worker("langtextflow.translation.m2m100_worker", [
+                "--rust-protocol",
                 str(model_dir), str(tokenizer_dir),
                 str(self.settings.local_m2m100_cpu_threads),
-            ]}
+            ])
         return asr, mt
 
     async def start(self, request: StartSessionRequest) -> None:

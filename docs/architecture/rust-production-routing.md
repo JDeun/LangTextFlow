@@ -68,6 +68,12 @@ retains the existing session semantics; it does not automatically start another
 source or backend. Loss of the private observer fails the source and closes the
 parent pipe rather than continuing with an incomplete mirror.
 
+On Windows source virtualenvs, inference uses the base Python executable with a
+fixed trusted venv-site bootstrap. Rust therefore owns the actual interpreter
+PID instead of only the virtualenv redirector. `-S` prevents base/global site
+packages from taking precedence over the trusted virtualenv's package versions.
+No user transcript or remote code becomes executable code.
+
 One Rust process lease spans startup, capture and owned stop. New starts wait for
 prior source cleanup. Parent EOF interrupts blocked feed/drain, revokes authority,
 cancels/reaps ASR/MT, removes its owned private spool and ends the history writer.
@@ -122,7 +128,8 @@ model inference, and do not certify microphone hardware or real model quality.
 
 ## Required remaining work
 
-Correction/context/hotword and AUTO/failover parity, independent recording parity,
+Correction/context/hotword and AUTO/failover parity, complete Rust queue/latency
+telemetry in the existing metrics API, independent recording parity,
 desktop/frozen binary bundling and lifecycle, native app capture validation and
 reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.

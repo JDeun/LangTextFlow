@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import struct
+import subprocess
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -22,7 +23,7 @@ from langtextflow.glossary_repository import GlossaryRepository
 from langtextflow.models import StartSessionRequest, TranscriptEvent
 from langtextflow.project_glossary_repository import ProjectGlossaryRepository
 from langtextflow.runtime import CaptionRuntime
-from langtextflow.rust_runtime import RustRuntimeBridge, validate_rust_request
+from langtextflow.rust_runtime import RustRuntimeBridge, _python_worker, validate_rust_request
 
 _ORIGIN = {"origin": "http://localhost:5173"}
 _REQUEST = {
@@ -88,6 +89,37 @@ def test_configured_identity_is_not_a_verified_checkpoint_or_a_local_path(tmp_pa
     for private in ["private/checkpoint", str(tmp_path), "https://user:secret@host/model?q=token"]:
         bridge.settings.faster_whisper_model = private
         assert bridge._configured_model(request) is None
+
+
+def test_windows_venv_worker_bootstrap_owns_actual_python_pid_and_keeps_site(tmp_path, monkeypatch):
+    import importlib.metadata
+    import sysconfig
+
+    from langtextflow import rust_runtime
+
+    site_directory = sysconfig.get_path("purelib")
+    module = tmp_path / "owned_runtime_test_worker.py"
+    module.write_text(
+        "import importlib.metadata,json,os,sys\n"
+        "print(json.dumps({'pid':os.getpid(),'pytest':importlib.metadata.version('pytest'),"
+        "'args':sys.argv[1:],'no_site':sys.flags.no_site}),flush=True)\n", encoding="utf-8",
+    )
+    monkeypatch.setenv("PYTHONPATH", str(tmp_path))
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / "venv-marker"))
+    monkeypatch.setattr(rust_runtime.sysconfig, "get_path", lambda name: site_directory)
+    command = _python_worker("owned_runtime_test_worker", ["한글", "日本語"])
+    with subprocess.Popen(
+        [command["program"], *command["args"]],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    ) as child:
+        output, error = child.communicate(timeout=5)
+        assert child.returncode == 0, error
+        observed = json.loads(output)
+        assert observed["pid"] == child.pid
+        assert observed["no_site"] == 1
+        assert observed["pytest"] == importlib.metadata.version("pytest")
+        assert observed["args"] == ["한글", "日本語"]
 
 
 @pytest.fixture
