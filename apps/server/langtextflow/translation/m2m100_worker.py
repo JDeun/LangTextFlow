@@ -8,6 +8,7 @@ import sys
 import threading
 
 from ..models import MAX_TRANSCRIPT_TEXT_CHARS
+from ..parent_pipe import read_parent_pipe
 from .m2m100_ct2 import IPC_LIMIT, SUPPORTED_LANGUAGES, M2M100CT2Translator
 
 
@@ -23,22 +24,31 @@ def main(args: list[str] | None = None) -> None:
     incoming: queue.Queue[dict] = queue.Queue(maxsize=4)
 
     def read_requests() -> None:
+        pending = bytearray()
         try:
             while True:
-                line = sys.stdin.buffer.readline(IPC_LIMIT)
-                if not line or not line.endswith(b"\n") or len(line) >= IPC_LIMIT:
+                data = read_parent_pipe(4096)
+                if not data:
                     os._exit(1)
-                request = json.loads(line)
-                if (not isinstance(request, dict)
-                        or set(request) != {"id", "text", "source", "target"}
-                        or type(request["id"]) is not int or request["id"] < 1
-                        or not isinstance(request["text"], str)
-                        or not 1 <= len(request["text"].strip()) <= MAX_TRANSCRIPT_TEXT_CHARS
-                        or request["source"] not in SUPPORTED_LANGUAGES
-                        or request["target"] not in SUPPORTED_LANGUAGES
-                        or request["source"] == request["target"]):
+                pending.extend(data)
+                while b"\n" in pending:
+                    line, _, rest = pending.partition(b"\n")
+                    if len(line) + 1 >= IPC_LIMIT:
+                        os._exit(1)
+                    request = json.loads(line)
+                    if (not isinstance(request, dict)
+                            or set(request) != {"id", "text", "source", "target"}
+                            or type(request["id"]) is not int or request["id"] < 1
+                            or not isinstance(request["text"], str)
+                            or not 1 <= len(request["text"].strip()) <= MAX_TRANSCRIPT_TEXT_CHARS
+                            or request["source"] not in SUPPORTED_LANGUAGES
+                            or request["target"] not in SUPPORTED_LANGUAGES
+                            or request["source"] == request["target"]):
+                        os._exit(1)
+                    incoming.put_nowait(request)
+                    pending = bytearray(rest)
+                if len(pending) >= IPC_LIMIT - 1:
                     os._exit(1)
-                incoming.put_nowait(request)
         except Exception:
             os._exit(1)
 
