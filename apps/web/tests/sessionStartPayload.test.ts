@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildSessionStartPayload, translationProviderUsesModel,
+  buildSessionStartPayload, translationProviderUsesModel, preflightTranslationModel,
   type SessionStartInputs,
 } from "../src/sessionStartPayload.ts";
 
@@ -83,4 +83,21 @@ test("translation model IDs attach only to explicitly model-backed providers", (
       ...base, translationProvider: provider,
     }).translation_model, null);
   }
+});
+
+test("empty model overrides preserve backend defaults and explicit IDs are trimmed", () => {
+  const payload = buildSessionStartPayload({ ...base, correctionProvider: "ollama",
+    correctionModel: "  ", translationProvider: "openai-compatible", translationModel: " " });
+  assert.equal(payload.correction_model, null);
+  assert.equal(payload.translation_model, null);
+  assert.equal(buildSessionStartPayload({ ...base, translationProvider: "ollama",
+    translationModel: " custom-local " }).translation_model, "custom-local");
+});
+
+test("model setup uses the matching preflight default without leaking another provider's model", () => {
+  const report = { translation_provider: "ollama", translation_model: "configured-local" };
+  assert.equal(preflightTranslationModel(report, "ollama", ""), "configured-local");
+  assert.equal(preflightTranslationModel(report, "openai-compatible", ""), "");
+  assert.equal(preflightTranslationModel(report, "ollama", " explicit "), "explicit");
+  assert.equal(preflightTranslationModel(null, "ollama", ""), "");
 });

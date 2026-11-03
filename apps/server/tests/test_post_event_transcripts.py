@@ -388,9 +388,12 @@ def test_frozen_worker_dispatch_does_not_start_web_server(monkeypatch):
     )
     assert command[1] == "--post-event-transcript-worker"
     monkeypatch.setattr(sys, "argv", command)
+    monkeypatch.setattr(
+        desktop_server.multiprocessing, "freeze_support", lambda: seen.append("freeze"),
+    )
     monkeypatch.setattr(post_event_transcript_worker, "main", seen.append)
     desktop_server.main()
-    assert seen == [command[2:]]
+    assert seen == ["freeze", command[2:]]
 
 
 @pytest.mark.parametrize("minutes", [30, 60, 90])

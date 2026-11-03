@@ -515,6 +515,8 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
             "last_failover_reason": engine.last_failover_reason,
             "queue_high_watermark": queue_high_watermark,
             "queue_capacity": queue_capacity,
+            "timestamp_recovery_count": getattr(engine, "timestamp_recovery_count", 0),
+            "timestamp_recovery_errors": list(getattr(engine, "timestamp_recovery_errors", [])),
         }
     finally:
         await engine.stop()
@@ -606,6 +608,8 @@ async def run_benchmark(options: BenchmarkOptions) -> dict[str, Any]:
             "last_failover_reason": provider_snapshot["last_failover_reason"],
             "queue_high_watermark": provider_snapshot["queue_high_watermark"],
             "queue_capacity": provider_snapshot["queue_capacity"],
+            "timestamp_recovery_count": provider_snapshot["timestamp_recovery_count"],
+            "timestamp_recovery_errors": provider_snapshot["timestamp_recovery_errors"],
         },
         "timing": timing,
         "handoff": handoff_metrics(collector.segments),

@@ -3,6 +3,7 @@ import type { Locale } from "./locales";
 export const OPERATOR_COPY: Record<Locale, {
   rulesOnly: string;
   correctionDefaultHelp: string;
+  configuredDefaultModel: string;
   noTranslation: string;
   translationRecommended: string;
   exactModelId: string;
@@ -25,9 +26,10 @@ export const OPERATOR_COPY: Record<Locale, {
 }> = {
   en: {
     rulesOnly: "Rule-based correction only",
-    correctionDefaultHelp: "Default: qwen3.5:4b · replace with another local instruction model if needed.",
+    correctionDefaultHelp: "Leave blank to use the configured correction model, or enter a local instruction model.",
+    configuredDefaultModel: "Configured default model",
     noTranslation: "No translation",
-    translationRecommended: "Recommended starting point: translategemma:4b",
+    translationRecommended: "Leave blank to use this provider's configured model. Verify its languages and quality before use.",
     exactModelId: "Enter the exact model id returned by /v1/models.",
     correctionStatus: "Correction",
     translationStatus: "Translation",
@@ -46,9 +48,10 @@ export const OPERATOR_COPY: Record<Locale, {
   },
   ko: {
     rulesOnly: "규칙 기반 보정만",
-    correctionDefaultHelp: "기본값: qwen3.5:4b · 다른 로컬 instruction model로 교체 가능합니다.",
+    correctionDefaultHelp: "비워두면 설정된 보정 모델을 사용합니다. 다른 로컬 instruction model을 직접 입력할 수 있습니다.",
+    configuredDefaultModel: "서버에 설정된 기본 모델",
     noTranslation: "번역 사용 안 함",
-    translationRecommended: "권장 시작점: translategemma:4b",
+    translationRecommended: "비워두면 이 번역 엔진에 설정된 모델을 사용합니다. 사용 전 언어 지원과 품질을 확인하세요.",
     exactModelId: "서버의 /v1/models가 반환하는 정확한 model id를 입력하세요.",
     correctionStatus: "보정",
     translationStatus: "번역",
@@ -67,9 +70,10 @@ export const OPERATOR_COPY: Record<Locale, {
   },
   ja: {
     rulesOnly: "ルールベース補正のみ",
-    correctionDefaultHelp: "既定値: qwen3.5:4b · 必要に応じて別のローカル instruction model に変更できます。",
+    correctionDefaultHelp: "空欄なら設定済みの補正モデルを使用します。別のローカル instruction model も入力できます。",
+    configuredDefaultModel: "サーバーに設定済みのモデル",
     noTranslation: "翻訳しない",
-    translationRecommended: "推奨開始モデル: translategemma:4b",
+    translationRecommended: "空欄ならプロバイダーの設定済みモデルを使用します。使用前に対応言語と品質を確認してください。",
     exactModelId: "サーバーの /v1/models が返す正確な model id を入力してください。",
     correctionStatus: "補正",
     translationStatus: "翻訳",

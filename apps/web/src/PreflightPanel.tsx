@@ -3,6 +3,7 @@ import { API_URL } from "./api";
 import { useI18n } from "./i18n";
 import { ModelSetupControl } from "./ModelSetupControl";
 import { PREFLIGHT_COPY } from "./preflightCopy";
+import { preflightTranslationModel, translationProviderUsesModel as providerUsesModel } from "./sessionStartPayload";
 import type {
   PreflightCheck,
   RecommendedConfiguration,
@@ -26,10 +27,6 @@ function checkSymbol(check: PreflightCheck) {
   if (check.status === "warning") return "!";
   if (check.status === "info") return "i";
   return "×";
-}
-
-function providerUsesModel(provider: string) {
-  return provider === "ollama" || provider === "openai-compatible";
 }
 
 export function PreflightPanel({
@@ -129,26 +126,28 @@ export function PreflightPanel({
         ? copy.configReady
         : copy.needsCheck;
 
+  const effectiveTranslationModel = preflightTranslationModel(report, translationProvider, translationModel);
   const recommendationDiffers = useMemo(() => {
     const recommendation = report?.recommended;
     if (!recommendation?.engine) return false;
     if (recommendation.engine !== engine) return true;
     if (recommendation.translation_provider !== translationProvider) return true;
     if (providerUsesModel(recommendation.translation_provider)) {
-      return recommendation.translation_model !== translationModel.trim();
+      return recommendation.translation_model !== effectiveTranslationModel;
     }
     return false;
-  }, [engine, report, translationModel, translationProvider]);
+  }, [engine, report, effectiveTranslationModel, translationProvider]);
 
   const ollamaReady = report?.checks.some(
     (check) => check.id === "ollama" && check.status === "ready",
   ) ?? false;
-  const translationModelMissing = report?.checks.some(
+  const translationModelMissing = report?.translation_provider === translationProvider
+    && report.translation_model === effectiveTranslationModel && report.checks.some(
     (check) => check.id === "translation-model" && check.status === "missing",
-  ) ?? false;
+  );
   const canPrepareTranslationModel =
     translationProvider === "ollama"
-    && Boolean(translationModel.trim())
+    && Boolean(effectiveTranslationModel)
     && ollamaReady
     && translationModelMissing;
 
@@ -253,7 +252,7 @@ export function PreflightPanel({
               </div>
               <ModelSetupControl
                 provider="ollama"
-                model={translationModel}
+                model={effectiveTranslationModel}
                 enabled
                 onCompleted={handleRepairCompleted}
               />

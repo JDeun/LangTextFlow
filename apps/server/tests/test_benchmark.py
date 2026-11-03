@@ -51,6 +51,37 @@ def test_wav_reader_converts_pcm16_to_float32(tmp_path) -> None:
     assert list(second) == pytest.approx([0.5, 32767 / 32768])
 
 
+async def test_benchmark_retains_recovery_diagnostics_before_engine_stop(monkeypatch, tmp_path):
+    from test_faster_whisper import FakeFasterWhisperEngine
+
+    from langtextflow import benchmark
+
+    class RecoveryEngine(FakeFasterWhisperEngine):
+        async def start(self, request):
+            await super().start(request)
+            self.timestamp_recovery_count = 1
+            self.timestamp_recovery_errors = [{"error_type": "out_of_bounds_timestamp"}]
+
+    engine = None
+
+    def build(name, publish, settings):
+        nonlocal engine
+        engine = RecoveryEngine(publish)
+        return engine
+
+    path = tmp_path / "fixture.wav"
+    write_pcm16_wav(path)
+    monkeypatch.setattr(benchmark, "build_asr_engine", build)
+    report = await benchmark.run_benchmark(benchmark.parse_args([
+        str(path), "--engine", "faster-whisper", "--pace", "max", "--settle-seconds", "0.01",
+    ]))
+    assert report["provider"]["timestamp_recovery_count"] == 1
+    assert report["provider"]["timestamp_recovery_errors"] == [
+        {"error_type": "out_of_bounds_timestamp"},
+    ]
+    assert engine.timestamp_recovery_count == 0 and engine.timestamp_recovery_errors == []
+
+
 def test_wav_reader_rejects_stereo_fixture(tmp_path) -> None:
     path = tmp_path / "stereo.wav"
     write_pcm16_wav(path, channels=2)
