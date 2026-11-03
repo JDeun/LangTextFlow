@@ -139,6 +139,33 @@ langtextflow-runtime-benchmark fixture.wav \
 
 runtime benchmark는 로컬 임시 SQLite DB를 사용하므로 일반 사용자 세션 기록을 오염시키지 않습니다.
 
+### 로컬 M2M100 두 대상 언어 평가
+
+[고정 revision 모델 준비 절차](local-m2m100-provisioning.md)로 준비한 CT2/tokenizer
+캐시와 기존 제품 설정을 그대로 사용합니다. runtime은 모델을 다운로드하지 않습니다.
+
+```bash
+export LANGTEXTFLOW_LOCAL_M2M100_CT2_DIR=/path/to/prepared/m2m100-ct2
+export LANGTEXTFLOW_LOCAL_M2M100_TOKENIZER_DIR=/path/to/prepared/m2m100-tokenizer
+export LANGTEXTFLOW_LOCAL_M2M100_CPU_THREADS=2
+langtextflow-runtime-benchmark fixture.wav \
+  --engine faster-whisper --source-language ko \
+  --target-language en --target-language ja \
+  --translation-provider m2m100-ct2 --preset church \
+  --pace realtime --duration-minutes 30 \
+  --output benchmark-results/runtime-m2m100-ko-en-ja-30m.json
+```
+
+ASR도 준비된 로컬 캐시를 사용해야 합니다. `--translation-model`은 기존 LLM provider의
+모델 선택 옵션이며 M2M100 캐시 경로를 바꾸지 않습니다. `resource_profile=low`이면
+제품과 동일하게 `LANGTEXTFLOW_LOW_RESOURCE_CPU_THREADS`가 M2M100 스레드 수를 결정합니다.
+
+`translation`에는 provider 준비 상태와 `failed_target_count`(committed caption × 대상 언어 중
+available이 아닌 건수)를 기록합니다. 선택한 MT가 준비되지 않았거나 대상 번역이 실패하면
+`status="failed"`, 종료 코드 1입니다. drain timeout도 종료 코드 1, 실행 예외는 2입니다.
+원문만 보존된 실행을 번역 성공으로 해석하지 않습니다. 준비 상태/성공 출력은 번역 정확도나
+실기기 승인과 별개이며, 이 명령 예시는 실제 30분 실행 결과가 아닙니다.
+
 # 3. Pace
 
 ## `--pace realtime`

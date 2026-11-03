@@ -1,6 +1,10 @@
 # Release Roadmap & Repository Hygiene
 2026-11-03 · Tracking #224 · **Milestone inventory verified through the repository API; field/release acceptance remains open.**
 
+The latest implementation checkpoint below supersedes the earlier dated inventories.
+Open issue totals include research, umbrella and qualification work; they are not
+counts of missing user-facing features.
+
 ## Initial inventory (2026-11-03, before the completion work)
 
 `GET /repos/JDeun/LangTextFlow/milestones?state=all&per_page=100` verified:
@@ -77,10 +81,243 @@ in [real-speech evidence](REAL_SPEECH_EVALUATION.md),
 [church quality baseline](CHURCH_QUALITY_BASELINE.md).
 
 Operator reconnect restoration, long-source summary context and full-runtime local-MT
-benchmark coverage are the next implementation slices. Licensed field audio and
+benchmark coverage were the next implementation slices at this snapshot; the
+subsequent checkpoint below records their integration. Licensed field audio and
 independent reviews, physical 4/8GB tests, 30/60/90-minute native event soak, human
 accessibility acceptance, accountable release owners, signing/notarization and installer
 upgrade/rollback remain open. M0–M5 and v1.0 are **not** declared complete.
+
+## Runtime and archive follow-up checkpoint (2026-11-03)
+
+At `33b9b2c4fe67cf5951124216bd89822105cd1dad`, #369 and #371–#377 are
+also merged after their latest-head CI/CodeQL checks. Reconnect restoration now
+hydrates the real operator state without acquiring a microphone or restoring
+recording/metrics consent. Delayed stop requests and audio WebSocket handshakes
+are bound to their acknowledged session IDs. #372 connects approved offline
+transcript citations to their matched managed recording without inferring live
+timestamp alignment or starting playback automatically.
+
+Long-source summary chunks preserve IDs, timestamps, speakers and metadata (#369).
+Unknown transcript-selector fields are rejected, interrupted-session warnings
+survive generation and remote Ollama requires explicit transmission approval
+before a job/provider call (#375). Missing or invalid endpoint-policy metadata
+disables generation until refresh succeeds. #80 is closed for service
+implementation acceptance; semantic entailment and field/dual-pass acceptance
+remain under #78 and #104. The integrated local suite passed 955 backend and
+86 frontend tests plus build, Ruff, CSS/i18n and link checks. Final summary head
+`d56086c7d8ca8283827197491e9c04ceb309929f` passed
+[CI41602141666](https://github.com/JDeun/LangTextFlow/actions/runs/41602141666)
+and [CodeQL41602141349](https://github.com/JDeun/LangTextFlow/actions/runs/41602141349).
+
+The bounded opt-in runtime benchmark (#374) completed actual KO→EN and EN→KO
+ASR/M2M100 inference with serialized audience-hub delivery in
+[run41596721553](https://github.com/JDeun/LangTextFlow/actions/runs/41596721553).
+Both directions drained and delivered 2/2 translated committed captions; one KO
+timestamp required recovery and remains recorded. Measurement source and final
+report-rule validation are distinguished in [real-speech evidence](REAL_SPEECH_EVALUATION.md).
+These are in-process hub observations, not microphone/network/browser timing.
+Independent target references are unavailable, so chrF remains null and #100
+stays open for its remaining quality scope.
+
+Pinned Notesoop/LFM3/Hex source/license triage (#373) is now documented in the
+[optional ASR report](research/optional-asr-upstream-triage-2026-11.md). No candidate
+weights, adapter, catalog admission or default was added; these optional research
+tracks do not block shipping the existing provider stack.
+
+Model preparation, preflight, live ASR and offline transcription now share the
+same local Whisper cache lookup (#376), including existing legacy snapshots
+without the optional preprocessor configuration. Frozen preparation has a
+dedicated worker rather than starting a server through Python `-c` arguments.
+Cached small-model reuse passed source and frozen offline checks without new
+weights; unsigned Windows/macOS packaging passed at earlier head `ac8451a` in
+[run41598509422](https://github.com/JDeun/LangTextFlow/actions/runs/41598509422).
+Final integration head `b707aeff2d0b1fd9cbc6282578e00cfa5964e5f6` passed
+[CI41602484443](https://github.com/JDeun/LangTextFlow/actions/runs/41602484443)
+and [CodeQL41602484447](https://github.com/JDeun/LangTextFlow/actions/runs/41602484447).
+An earlier browser mock-start timeout remains unexplained; the unchanged strict
+suite and 500 HTTP/WebSocket lifecycle cycles subsequently passed. Browser smoke
+cleanup now bounds server termination and preserves the original failure/logs;
+this does not claim a confirmed fix for that intermittent timeout.
+
+The later checkpoint below supersedes this intermediate issue count. Field
+audio/independent reviews, physical 4/8GB devices, native
+30/60/90-minute event soak, human accessibility acceptance, accountable owners,
+production signing/notarization and installer upgrade/rollback remain open.
+This checkpoint does not declare M0–M5 or v1.0 complete.
+
+## Operator, privacy and media integration checkpoint (2026-11-03)
+
+At `64e04b0fc44452f112106c0c275d5c735021e964`, #378–#388 are merged
+after latest-head CI/CodeQL checks. Delayed history edits cannot reopen or mutate
+another selected session (#378); incomplete M2M100 caches fail preflight and
+native initialization degrades safely (#379). Provider JSON responses and model
+pull progress use bounded streaming reads, reject unexpected compression and
+redirects, and redact transport errors (#380/#384). A truncated model-pull stream
+cannot report completion. Provider initialization has bounded async deadlines;
+cancelled native work retains its capacity lease until the native call finishes
+(#383). This bounds retries, but cannot forcibly interrupt an in-process native
+call. Invalid session restarts preserve the current audio connection (#385).
+Configured Ollama correction is labelled accurately for local or remote endpoints
+in all three UI languages (#386).
+
+The Impeccable-guided UI changes (#381/#382) align typography, control sizes,
+spacing, contrast, mobile navigation and section hierarchy. A measured header
+height keeps sticky sidebars and navigation targets visible at narrow desktop
+widths and 200% text size. EN/KO/JA checks at 320/390/861/1024/1440 pixels,
+keyboard navigation, browser accessibility checks and 87 frontend policy tests
+passed. These automated checks do not replace human screen-reader acceptance.
+
+Real runtime/SQLite/WAV regressions (#387) verify sample-clock behavior across
+uneven PCM buffers, sender pauses, invalid frames, recording overflow and ASR
+rejection. Captured audio can include an ASR-rejected tail; native word timing
+and real microphone alignment remain unqualified. The browser acceptance suite
+now creates live and approved-offline summaries through the actual UI, API,
+background job, bounded provider HTTP and SQLite flow (#388), then reviews,
+approves, exports and seeks their citations. Its synthetic local provider is a
+deterministic service fixture, not a model-quality measurement. #81 is closed
+for this automated UI/service scope; semantic and field acceptance remain open.
+
+#130 is closed for glossary data/UI/routing implementation, including explicit
+source languages, conservative legacy migration, exports, session snapshots and
+provider scoping. Six-direction semantic quality, native bias and code-switching
+acceptance remain separate gates. At this checkpoint the issue API has **48 open
+issues**, all classified and assigned to verified milestones, with no human
+assignees: M0 11, M1 8, M2 19, M3 5, M4 5. Signing, release ownership,
+physical-device and field gates above remain open; v1.0 is not declared complete.
+
+The follow-up browser run caught a real generation-to-review race: a running
+summary that completed with the same ID left its editor empty. #390 refreshes
+the editor when persisted content arrives while preserving unsaved edits on an
+unchanged archive refresh. An actual React negative control failed before the
+fix and passed afterward; all 87 policy tests, build, final CI41619705079 and
+CodeQL41619705080 passed.
+
+At `ff6937d121879278361771327687e072e0a97313`, #389 is also merged after
+[CI41620013552](https://github.com/JDeun/LangTextFlow/actions/runs/41620013552)
+and [CodeQL41620013631](https://github.com/JDeun/LangTextFlow/actions/runs/41620013631)
+on final head `e74b911e66ad3816bd04ffede581f0fff3ad851d`. A durable
+recording journal preserves ownership between completed private WAV flush,
+rename and SQLite registration, including imported files and cancellation.
+Bounded recovery verifies known files before linking or removing them;
+unknown, changed or ambiguous files are preserved. The full backend suite
+passed 1,101 tests, and independent review ran 33 related cases successfully.
+An additional local Mac mini M4/16GB offline native smoke at source `2d67efb` reused cached
+faster-whisper small and public FLEURS KO clip 1883 (12.48 seconds): three
+committed captions, sample-exact recorded PCM, verified file hash/journal
+linkage, and unchanged assets after runtime reinitialization (6.805 seconds
+total). No new weights or external speech transmission were used. This does
+not qualify word timing, physical microphone capture, secure erasure or
+universal power-loss recovery. #79 stays open for its shipping privacy/retention
+review; production real-media and legal/privacy acceptance remain under #78.
+
+#391 subsequently closes a microphone lifecycle race: stop/unmount or a newer
+start fences delayed permission, socket configuration, worklet loading, context
+resume and device recovery. Late streams are stopped and stale callbacks cannot
+send into or shut down a newer capture. Fifteen browser cases exercise the real
+controller with platform API fixtures and resource-cleanup assertions, including
+a pre-fix negative control. Final head `55822f3` passed
+[CI41620230654](https://github.com/JDeun/LangTextFlow/actions/runs/41620230654)
+and [CodeQL41620230839](https://github.com/JDeun/LangTextFlow/actions/runs/41620230839)
+before merge `0039077518445c1ffee8b397ec2acdcaad84c32a`. Physical microphone
+and OS permission-dialog acceptance remain separate.
+
+## Latest implementation checkpoint (2026-11-03)
+
+#393 consolidates original ZIP evidence for five real ASR candidates, OPUS,
+TranslateGemma, M2M100 and FunASR in the [model issue audit](research/model-issue-evidence-coverage-2026-11.md).
+Failures, missing hotword-bearing references, actual versus declared checkout
+SHA, and rights-blocked candidates remain explicit. Three public speech clips
+and unlike MT corpora cannot establish an optimal deployment combination.
+
+#394 fixes a deterministically reproduced Python 3.11 socket-send/cancellation
+race that could leave session shutdown awaiting its caption writer. The same
+production-hub probe failed before and passed after the fix; final
+[CI41622809313](https://github.com/JDeun/LangTextFlow/actions/runs/41622809313)
+and [CodeQL41622809298](https://github.com/JDeun/LangTextFlow/actions/runs/41622809298)
+passed. Earlier intermittent browser-start failures lack coroutine stacks, so
+they are retained rather than all attributed to this race. The unchanged strict
+browser suite subsequently passed for #392 and the later integrations.
+
+#392/#395/#396 complete the missing #123 implementation: project scope cannot
+silently add global recommendations; global < matching preset < project < session
+overrides resolve deterministically; disabled entries suppress inherited values;
+scope-aware imports preserve IDs and roll back overlaps. The operator can review
+the resolved snapshot before starting. Its optional canonical digest rejects a
+changed glossary before touching current audio, and the final union is validated
+against the 500-entry session limit. #399 verifies all four tiers and inherited
+reverts through real SQLite and the resolve/start API boundary. Issue #123 is
+closed for this implementation scope, not model adherence or terminology quality.
+
+At `31dbced46dd741df3cbc889c8ed10eb6783995a4`, #397 also replaces the
+non-preemptible M2M100 native thread with one bounded, killable child process.
+Timeout/cancel/stop retain ownership until termination/reaping; offline cache,
+six-pair and glossary-failure contracts remain intact. Independent review
+reproduced and corrected error-exit and late-spawn cleanup races. Final head
+`e9eb7c4` passed [CI41625752762](https://github.com/JDeun/LangTextFlow/actions/runs/41625752762)
+and [CodeQL41625752563](https://github.com/JDeun/LangTextFlow/actions/runs/41625752563),
+including actual Windows/macOS child-process regressions.
+[Run41624773060](https://github.com/JDeun/LangTextFlow/actions/runs/41624773060)
+also performed real public KO→EN/EN→KO ASR+MT at production source `ab345776`:
+2/2 translated committed captions per direction, queue drain and shutdown passed.
+Aligned translation gold remains unavailable; parent-only RSS excludes the new
+child and must not be compared as total model memory. The recorded converted
+model binary differs from the older experiment, precluding a pure code-speed A/B.
+
+#398 executes the owned Operator/Glossary REA observation using isolated local
+synthetic data and publishes [sanitized evidence](research/evidence/rea-owned-ui-2026-11.json).
+It closes the first-party-tool execution checkbox in #137, not Cuckoo parity,
+model quality, native audio or human accessibility acceptance.
+
+Through #400/#402/#403 at `900d211a0165bc334103b0bf291a61436f8e8472`,
+mixed-target/reconnect browser acceptance closes #161; event/provider/timestamp
+provenance persists through SQLite, export and reconnect; benchmark memory now
+separately reports sampled child-inclusive RSS with partial/error accounting.
+The integrated local core checkpoint passed **1176 backend / 91 frontend tests**
+and build/lint gates. OS-process access required running the real-child RSS test
+outside the sandbox; that test was not weakened or skipped.
+
+Current-source [native run41628932696](https://github.com/JDeun/LangTextFlow/actions/runs/41628932696)
+completed actual base ASR + M2M100 KO→EN/EN→KO with 2/2 translated committed
+captions per direction, drained queues and child cleanup. Its eight-second decode
+window produced first captions around 8.4 seconds; sampled process-tree RSS peaked
+at 2906.33 / 3588.45 MiB. One KO timestamp was recovered and a wrong year remains.
+These are short in-process-hub observations, not audience-paint latency, physical
+4GB qualification, semantic acceptance or a long soak. See the
+[original-artifact checkpoint](REAL_SPEECH_EVALUATION.md#current-source-subprocess-and-memory-checkpoint-2026-11-03).
+Unsigned Windows/macOS packaging and frozen-process smoke passed at the same source
+in [run41628928751](https://github.com/JDeun/LangTextFlow/actions/runs/41628928751).
+Signing, notarization and actual installer upgrade/rollback remain unverified.
+
+At main `e60365c35adfffe7dd76009de0e89b32f21808bc`, the full API inventory
+contained **65 issues: initially 46 open / 19 closed**, excluding PRs. After
+original-scope acceptance checks, #101/#128 closed completed and #159 reopened
+for its unfulfilled explicit acceptance. The resulting inventory is **45 open /
+20 closed**: M0 11, M1 8, M2 17, M3 4, M4 5; all 45 open issues have
+labels/milestones and no assignee.
+The [full issue audit](M0_ISSUE_AUDIT.md) distinguishes unfinished implementation,
+research, quality evidence and external acceptance. **Completion is not reduced
+to model selection.** In particular #86's project AI digest/review and restorable
+archive are missing; the
+[recorded user-approved Rust-core target](https://github.com/JDeun/LangTextFlow/issues/344#issuecomment-6536557339)
+in #344 remains an implementation obligation. The echo-only scaffold does not
+meet real-worker, cancellation/restart, authoritative ownership or cutover gates.
+Earlier descriptions of all #344 work as optional research were incorrect;
+optional adoption of Hex code/models is a separate decision.
+
+#405/#406 add and run one same-host, same-16-case KO→EN CPU text comparison;
+[inspected results](CACHED_MT_TEXT_COMPARISON.md#first-common-corpus-result-2026-11-03)
+favor OPUS-small's speed/quality tradeoff in that limited scope. The matched
+[eight-clip ASR results](REAL_SPEECH_EVALUATION.md#eight-clip-four-second-basesmall-comparison-2026-11-03)
+retain substantial recognition errors and outliers. No optimal deployed model,
+six-direction quality acceptance or v1.0 release is approved.
+
+Subsequent fixes #407/#408 are merged after exact-head CI/CodeQL and independent
+focused tests: existing native MT is accessible to the long-run CLI and failed MT
+cannot report source-only success; deterministic aliases preserve protected
+numeric/negation tokens, and lexical adherence uses source-aware word boundaries.
+These fix concrete wiring/safety defects, not the unexecuted long-run or semantic
+qualification. Project digests, native setup UX and supervised real-model Rust
+worker slices are now separate active implementation tracks.
 
 ## Historical planning and audits (2026-10-22–26)
 

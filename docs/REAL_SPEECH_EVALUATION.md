@@ -231,6 +231,56 @@ remain substantial. Thirty-second research results are separate measurements, no
 live default. Real microphone/noise, independent broader references, sustained real-time
 load and long-event quality gates remain open.
 
+### Eight-clip four-second base/small comparison (2026-11-03)
+
+At source `900d211a0165bc334103b0bf291a61436f8e8472`, the existing manual
+FLEURS workflow measured CPU INT8 base and small on eight Korean test clips:
+
+| Model | Run | Mean CER | Mean WER | Mean throughput RTF |
+|---|---|---:|---:|---:|
+| base | [41632630503](https://github.com/JDeun/LangTextFlow/actions/runs/41632630503) | 0.326925 | 0.529950 | 0.224675 |
+| small | [41632630199](https://github.com/JDeun/LangTextFlow/actions/runs/41632630199) | 0.395200 | 0.548625 | 0.566475 |
+
+Original artifacts `13227939099` (base) and `13229750211` (small) were downloaded
+and all reports inspected. Their ZIP SHA256 values are respectively
+`9e8517835178852b30885c2b76ca9115d0d35aa7824bcefde9ee5a8ed6d075ad`
+and `1cab2b14b0f0a4ddc061e0443f593a9a1f094875ab5a9d6ce7e97af4e9f33702`.
+All eight ordered IDs, PCM hashes, durations, reference character counts and the
+pinned dataset revision match. Reference text bytes and exact downloaded model
+weight revisions are not retained by this workflow, limiting identity verification.
+This is `pace=max`, 100 ms input frames and a four-second decode window; throughput
+RTF and first-stable times are accelerated file replay, not live audience latency.
+
+Base has better aggregate CER and throughput here, but the result is driven by
+outliers: clip 1929 has CER 1.0000/0.9524 (base/small), and clip 2000 has
+0.1731/1.3654. Small has lower CER on the other seven clips. These eight clips do
+not establish general model superiority or acceptable recognition. A matched
+context-window control and broader independent references remain necessary;
+no live default or model recommendation changes, and `field_ready=false`.
+
+A subsequent **30-second context control** at `e60365c35adfffe7dd76009de0e89b32f21808bc`
+used the same eight ordered IDs/PCM/durations/reference lengths/dataset revision.
+Git comparison confirms no ASR, workflow, evaluator or app dependency changes from
+`900d211` to that source. These are separate standard CI hosts, without retained
+exact CPU or downloaded-weight identity; they are not a hardware-controlled A/B.
+
+| Model, 30s decode | Run | Mean CER | Mean WER | Mean throughput RTF |
+|---|---|---:|---:|---:|
+| base | [41639909697](https://github.com/JDeun/LangTextFlow/actions/runs/41639909697) | 0.2086875 | 0.4207875 | 0.0736625 |
+| small | [41639934689](https://github.com/JDeun/LangTextFlow/actions/runs/41639934689) | 0.0793250 | 0.3674000 | 0.2603500 |
+
+Downloaded original ZIPs: base artifact `13233205048`, SHA256
+`0c7366553c51d1a87f24be917e1a8d6defe9d52f90852affafcc5fe9b4a6d5f5`;
+small artifact `13232875752`, SHA256
+`8834aac7a46b5b5eda9f4e144b373fe92a769e4867e01c54488a305c4f44a704`.
+Small's clip-2000 CER changes from 1.3654 at 4s to 0.0385 at 30s; base's
+clip-1929 changes from 1.0000 to 0.1429. Base clip-1701 instead worsens
+0.3235→0.6765. This supports context sensitivity and reverses the aggregate
+base/small accuracy ranking, rather than establishing a universal model winner.
+The 30s setting covers each entire short clip here; it does not establish usable
+live caption delay, post-event full-worker qualification or long-sermon quality.
+Keep the four-second live default and field gates unchanged pending qualification.
+
 ## Data handling
 
 - Avoid downloading arbitrary YouTube content. This benchmark uses an explicitly attributed dataset instead.

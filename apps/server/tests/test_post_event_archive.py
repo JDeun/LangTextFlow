@@ -325,6 +325,10 @@ def test_archive_http_wav_upload_and_security(tmp_path) -> None:
         assert response.status_code == 201, response.text
         recording_id = response.json()["recording_id"]
         assert response.json()["duration_seconds"] == 1.0
+        assert response.json()["status"] == "completed"
+        assert datetime.fromisoformat(response.json()["finalized_at"]).tzinfo is not None
+        [saved] = client.get("/api/v1/history/s-1/archive").json()["recordings"]
+        assert saved == response.json()
         downloaded = client.get(
             f"/api/v1/history/s-1/recordings/{recording_id}/audio",
         )

@@ -1,6 +1,7 @@
 import re
 import unicodedata
 
+from .correction_safety import preserves_alias_tokens, protected_tokens
 from .models import ProductPreset, SessionContext
 
 _CHURCH_ALIASES = {
@@ -48,16 +49,21 @@ class DeterministicCorrector:
             key=lambda item: len(item[0]),
             reverse=True,
         )
+        protected = protected_tokens(value, language)
         for alias, canonical in ordered_aliases:
+            if not preserves_alias_tokens(alias, canonical, language):
+                continue
             if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9\s.'-]*", alias):
                 # Never rewrite 'cross' inside 'crossing' or 'act' inside 'action'.
                 pattern = r"(?<![a-zA-Z0-9])" + re.escape(alias) + r"(?![a-zA-Z0-9])"
-                value = re.sub(
+                candidate = re.sub(
                     pattern,
                     lambda _, replacement=canonical: replacement,
                     value,
                     flags=re.IGNORECASE,
                 )
             else:
-                value = value.replace(alias, canonical)
+                candidate = value.replace(alias, canonical)
+            if candidate != value and protected_tokens(candidate, language) == protected:
+                value = candidate
         return value
