@@ -27,6 +27,7 @@ interface Detail extends Version {
 }
 interface Props {
   apiUrl: string; projectId: string; locale: Locale;
+  refreshRevision?: number;
   onOpenSession: (sessionId: string) => void;
 }
 
@@ -35,7 +36,7 @@ export function ProjectDigestPanel(props: Props) {
   return <ScopedProjectDigestPanel key={`${props.apiUrl}\n${props.projectId}`} {...props} />;
 }
 
-function ScopedProjectDigestPanel({ apiUrl, projectId, locale, onOpenSession }: Props) {
+function ScopedProjectDigestPanel({ apiUrl, projectId, locale, onOpenSession, refreshRevision = 0 }: Props) {
   const t = PROJECT_DIGEST_COPY[locale];
   const c = POST_EVENT_COPY[locale];
   const root = `${apiUrl}/api/v1/projects/${encodeURIComponent(projectId)}/digests`;
@@ -100,7 +101,7 @@ function ScopedProjectDigestPanel({ apiUrl, projectId, locale, onOpenSession }: 
     alive.current = true;
     void refresh();
     return () => { alive.current = false; epoch.current++; };
-  }, [refresh]);
+  }, [refresh, refreshRevision]);
   useEffect(() => {
     if (!running) return;
     const timer = window.setInterval(() => { void refresh(); }, 2500);
