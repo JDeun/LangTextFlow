@@ -5,7 +5,6 @@ import asyncio
 import hashlib
 import io
 import json
-import os
 import sys
 import time
 import wave
@@ -310,9 +309,18 @@ def test_session_deletion_cascades_transcripts_reviews_and_approval(tmp_path):
         assert conn.execute("SELECT COUNT(*) FROM transcript_reviews").fetchone()[0] == 0
 
 
-async def test_cancel_reaps_real_process_before_returning():
+async def test_cancel_reaps_real_process_before_returning(monkeypatch):
     started = asyncio.Event()
     pid = None
+    spawned = []
+    create_process = asyncio.create_subprocess_exec
+
+    async def capture_process(*args, **kwargs):
+        process = await create_process(*args, **kwargs)
+        spawned.append(process)
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", capture_process)
 
     async def progress(value):
         nonlocal pid
@@ -320,7 +328,8 @@ async def test_cancel_reaps_real_process_before_returning():
         started.set()
 
     task = asyncio.create_task(run_decoder([
-        sys.executable, "-c",
+        # Windows venv python.exe can redirect to a different process; own the sleeper directly.
+        getattr(sys, "_base_executable", None) or sys.executable, "-c",
         "import json,os,time; print(json.dumps({'progress':os.getpid()}),flush=True); "
         "time.sleep(99)",
     ], 1, progress))
@@ -328,8 +337,11 @@ async def test_cancel_reaps_real_process_before_returning():
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    with pytest.raises(ProcessLookupError):
-        os.kill(pid, 0)
+    assert len(spawned) == 1 and spawned[0].pid == pid
+    # asyncio's owned process handle observes exit on POSIX and Windows. A PID
+    # signal probe is neither portable nor safe against a reused Windows PID.
+    assert spawned[0].returncode is not None
+    assert await asyncio.wait_for(spawned[0].wait(), 1) == spawned[0].returncode
 
 
 async def test_worker_parent_pipe_closure_stops_orphaned_native_work(monkeypatch):
@@ -345,7 +357,7 @@ async def test_worker_parent_pipe_closure_stops_orphaned_native_work(monkeypatch
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
     )
     assert process.stdin is not None and process.stdout is not None
-    assert await asyncio.wait_for(process.stdout.readline(), 10) == b"loaded\n"
+    assert (await asyncio.wait_for(process.stdout.readline(), 10)).strip() == b"loaded"
     process.stdin.close()
     try:
         assert await asyncio.wait_for(process.wait(), 10) == 1
@@ -376,6 +388,64 @@ async def test_worker_normal_completion_exits_cleanly_with_parent_pipe_still_ope
     )
     assert segments == SEGMENTS and provenance == {"test": True}
     assert progress == [1]
+
+
+@pytest.mark.parametrize("text", ["성령 / Holy Spirit / 聖霊 / 🙏", "🙏" * 6000],
+                         ids=["multilingual", "maximum-non-bmp"])
+async def test_worker_ipc_roundtrips_unicode_through_real_cp1252_stdout(monkeypatch, text):
+    from langtextflow import post_event_transcript_worker
+
+    monkeypatch.setenv("PYTHONPATH", str(Path(post_event_transcript_worker.__file__).parents[1]))
+    segment = {**SEGMENTS[0], "text": text}
+    code = (
+        "import io,sys; "
+        "sys.stdout=io.TextIOWrapper(sys.stdout.detach(),encoding='cp1252',"
+        "errors='strict',newline='\\n',write_through=True); "
+        "from langtextflow import post_event_transcript_worker as w; "
+        f"messages=[{{'segment':{segment!r}}},"
+        "{'progress':1},{'complete':{'test':True}}]; "
+        "w.decode=lambda *args: [w._emit(item) for item in messages]; "
+        "w.main(['unused.wav','tiny','ko','sha','cache'])"
+    )
+    progress = []
+
+    async def report(value):
+        progress.append(value)
+
+    segments, provenance = await asyncio.wait_for(
+        run_decoder([sys.executable, "-c", code], 1, report), 10,
+    )
+    assert segments == [segment] and provenance == {"test": True}
+    assert progress == [1]
+
+
+async def test_worker_native_decode_can_clone_stdin_while_parent_pipe_is_open(monkeypatch):
+    from langtextflow import post_event_transcript_worker
+
+    monkeypatch.setenv("PYTHONPATH", str(Path(post_event_transcript_worker.__file__).parents[1]))
+    code = """
+import os, time
+from langtextflow import post_event_transcript_worker as worker
+def decode(*args):
+    time.sleep(.1)
+    os.close(os.dup(0))
+    print('decoded', flush=True)
+worker.decode = decode
+worker.main(['unused.wav','tiny','ko','sha','cache'])
+"""
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-c", code,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        assert (await asyncio.wait_for(process.stdout.readline(), 3)).strip() == b"decoded"
+        assert await asyncio.wait_for(process.wait(), 3) == 0
+        assert await process.stderr.read() == b""
+    finally:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
 
 
 def test_frozen_worker_dispatch_does_not_start_web_server(monkeypatch):

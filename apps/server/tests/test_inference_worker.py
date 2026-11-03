@@ -83,7 +83,14 @@ class Model:
         if mode == 'infer-hang': time.sleep(120)
         segment = types.SimpleNamespace(start=0.0, end=0.1, text='synthetic source')
         return [segment], types.SimpleNamespace(duration=0.1, duration_after_vad=0.1)
-sys.modules['faster_whisper'] = types.SimpleNamespace(WhisperModel=Model)
+class NativeModule(types.ModuleType):
+    def __getattr__(self, name):
+        if name != 'WhisperModel': raise AttributeError(name)
+        if mode == 'descriptor-clone':
+            import os
+            os.close(os.dup(0))
+        return Model
+sys.modules['faster_whisper'] = NativeModule('faster_whisper')
 from langtextflow.inference_worker import main
 main()
 ''')
@@ -96,7 +103,7 @@ main()
     return process, marker
 
 
-@pytest.mark.parametrize("mode", ["normal", "load-error"])
+@pytest.mark.parametrize("mode", ["normal", "descriptor-clone", "load-error"])
 async def test_actual_inference_worker_native_path_and_quiet_error(tmp_path, mode):
     path = tmp_path / "fixture.wav"
     wav(path)
@@ -109,7 +116,7 @@ async def test_actual_inference_worker_native_path_and_quiet_error(tmp_path, mod
         assert reply["request_id"] == "r1" and reply["source_revision"] == 1
         assert str(tmp_path) not in line.decode()
         assert "private-checkpoint-secret" not in line.decode()
-        if mode == "normal":
+        if mode != "load-error":
             result = json.loads(reply["result"])
             assert result["sample_count"] == 1600
             assert result["segments"] == [{
