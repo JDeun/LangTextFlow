@@ -147,11 +147,11 @@ class RecordingJournal:
         conn.execute("""
             INSERT INTO session_recordings
             (recording_id, session_id, filename, media_type, size_bytes, sha256,
-             duration_seconds, sample_rate, channels, created_at)
-            VALUES (?, ?, ?, 'audio/wav', ?, ?, ?, ?, ?, ?)
+             duration_seconds, sample_rate, channels, created_at, status, finalized_at)
+            VALUES (?, ?, ?, 'audio/wav', ?, ?, ?, ?, ?, ?, 'completed', ?)
         """, (row["recording_id"], row["session_id"], row["filename"], row["size_bytes"],
               row["sha256"], row["duration_seconds"], row["sample_rate"], row["channels"],
-              row["created_at"]))
+              row["created_at"], row["created_at"]))
         conn.execute("UPDATE recording_journal SET registered=1, recovery_error=NULL "
                      "WHERE recording_id=?", (row["recording_id"],))
 
@@ -159,7 +159,8 @@ class RecordingJournal:
     def _registered(conn, recording_id):
         row = conn.execute(
             "SELECT recording_id, session_id, media_type, size_bytes, sha256, "
-            "duration_seconds, sample_rate, channels, created_at FROM session_recordings "
+            "duration_seconds, sample_rate, channels, created_at, status, finalized_at "
+            "FROM session_recordings "
             "WHERE recording_id=?", (recording_id,),
         ).fetchone()
         return dict(row) if row is not None else None
