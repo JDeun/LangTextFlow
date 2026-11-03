@@ -218,6 +218,10 @@ jobs:
           apps/server/tests/test_mdns.py
           apps/server/tests/test_runtime_lifecycle.py
           apps/server/tests/test_m2m100_process.py
+          apps/server/tests/test_parent_pipe.py
+          apps/server/tests/test_native_parent_pipe.py
+          apps/server/tests/test_inference_worker.py
+          apps/server/tests/test_post_event_transcripts.py
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: "22"
