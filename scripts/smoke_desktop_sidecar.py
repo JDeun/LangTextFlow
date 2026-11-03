@@ -78,6 +78,7 @@ def main() -> None:
             "LANGTEXTFLOW_BACKEND_PORT": str(port),
             "LANGTEXTFLOW_MDNS_ENABLED": "false",
             "HF_HOME": str(root / "models" / "huggingface"),
+            "LANGTEXTFLOW_OLLAMA_URL": "http://127.0.0.1:11434",
         }
         # Match the interpreter flags checked by PyInstaller's multiprocessing hook.
         smoke_auxiliary_command(binary, root, environment, [
@@ -123,7 +124,8 @@ def main() -> None:
                 assert not json.loads(request("/api/v1/session/stop", {}))["running"]
                 archive = json.loads(request(f"/api/v1/history/{state['session_id']}/archive"))
                 assert archive == {"recordings": [], "summary": None, "summary_stale": False,
-                                   "approved_transcript_id": None}
+                                   "summary_external_providers": ["openai-compatible"],
+                                   "approved_transcript_id": None, "warnings": []}
                 exported = json.loads(request(
                     f"/api/v1/history/{state['session_id']}/export?format=json",
                 ))

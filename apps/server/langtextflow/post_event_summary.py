@@ -12,6 +12,7 @@ from .config import Settings
 from .models import TranscriptEvent
 from .prompt_safety import UNTRUSTED_DATA_POLICY, bounded_model_text
 from .summary_evidence import allowed_source_citations
+from .translation.capabilities import _loopback_endpoint
 
 PROMPT_VERSION = "post-event-v3-source-context"
 MAX_SOURCE_CHARS = 240_000
@@ -20,7 +21,21 @@ MAX_CHUNKS = 48
 SOURCE_CONTEXT_CHARS = 400
 
 
+def summary_external_providers(settings: Settings) -> list[str]:
+    """Providers requiring per-request transmission approval, without exposing URLs."""
+    providers = ["openai-compatible"]
+    try:
+        local_ollama = _loopback_endpoint(settings.ollama_url)
+    except ValueError:
+        local_ollama = False
+    if not local_ollama:
+        providers.append("ollama")
+    return providers
+
+
 class SummaryRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     language: Literal["ko", "en", "ja"] = "ko"
     provider: Literal["ollama", "openai-compatible"] = "ollama"
     model: str | None = Field(default=None, max_length=128)
@@ -156,7 +171,7 @@ async def generate_summary(
     allow_external_provider: bool,
 ) -> str:
     """Hierarchical, bounded requests, local Ollama default, no implicit cloud fallback."""
-    if provider == "openai-compatible" and not allow_external_provider:
+    if provider in summary_external_providers(settings) and not allow_external_provider:
         raise ValueError("external-provider summarization requires explicit opt-in")
     if provider not in {"ollama", "openai-compatible"}:
         raise ValueError("unsupported summarization provider")
