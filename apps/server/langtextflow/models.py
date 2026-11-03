@@ -405,6 +405,12 @@ class StartSessionRequest(BaseModel):
         return self
 
 
+class StopSessionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    expected_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class SessionState(BaseModel):
     session_id: str | None = None
     project_id: str | None = None

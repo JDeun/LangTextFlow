@@ -70,6 +70,68 @@ def test_operator_rest_accepts_native_client_without_browser_headers() -> None:
     assert response.status_code == 200
 
 
+def test_stop_identity_rejection_preserves_new_session_socket_and_legacy_bodyless_stop(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    calls = []
+    state = SessionState(session_id="replacement", running=True)
+
+    async def stop(expected_session_id=None):
+        calls.append(("stop", expected_session_id))
+        return state.model_copy(update={"running": False})
+
+    async def close(reason):
+        calls.append(("close", reason))
+
+    monkeypatch.setattr(main_module, "runtime", SimpleNamespace(state=state, stop=stop))
+    monkeypatch.setattr(main_module, "_audio_transition_lock", asyncio.Lock())
+    monkeypatch.setattr(main_module, "_close_audio_socket_for_transition", close)
+    client = _local_client()
+    stale = client.post("/api/v1/session/stop", json={"expected_session_id": "old-session"})
+    assert stale.status_code == 409 and calls == [] and state.running
+    assert client.post("/api/v1/session/stop", json={"expected_session_id": ""}).status_code == 422
+    assert calls == []
+    assert client.post(
+        "/api/v1/session/stop", json={"expected_session_id": "replacement"},
+    ).status_code == 200
+    assert calls[-1] == ("stop", "replacement")
+    assert client.post("/api/v1/session/stop").status_code == 200
+    assert calls[-1] == ("stop", None)
+
+
+@pytest.mark.asyncio
+async def test_queued_stale_http_stop_rechecks_identity_before_closing_audio(monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from langtextflow.models import StopSessionRequest
+
+    calls = []
+
+    async def close(reason):
+        calls.append(reason)
+
+    state = SessionState(session_id="old", running=True)
+    lock = asyncio.Lock()
+    monkeypatch.setattr(main_module, "runtime", SimpleNamespace(state=state))
+    monkeypatch.setattr(main_module, "_audio_transition_lock", lock)
+    monkeypatch.setattr(main_module, "_close_audio_socket_for_transition", close)
+    local = SimpleNamespace(client=SimpleNamespace(host="127.0.0.1"), headers={})
+    await lock.acquire()
+    pending = asyncio.create_task(main_module.stop_session(
+        local, StopSessionRequest(expected_session_id="old"),
+    ))
+    await asyncio.sleep(0)
+    state.session_id = "replacement"
+    lock.release()
+    with pytest.raises(HTTPException) as rejected:
+        await pending
+    assert rejected.value.status_code == 409 and not calls and state.running
+
+
 def test_operator_websocket_rejects_hostile_origin_from_loopback() -> None:
     client = _local_client()
     with pytest.raises(WebSocketDisconnect) as exc_info, client.websocket_connect(

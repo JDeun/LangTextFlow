@@ -33,6 +33,10 @@ _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _PERSISTENCE_FAILURE = "Local session storage unavailable; check disk and database health."
 
 
+class SessionChangedError(RuntimeError):
+    """A stop request belongs to a session that is no longer current."""
+
+
 class CaptionRuntime:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -487,8 +491,10 @@ class CaptionRuntime:
             raise
         return self.state
 
-    async def stop(self) -> SessionState:
+    async def stop(self, expected_session_id: str | None = None) -> SessionState:
         async with self._lifecycle_lock:
+            if expected_session_id is not None and self.state.session_id != expected_session_id:
+                raise SessionChangedError("session changed; refresh before stopping")
             return await self._stop_unlocked()
 
     async def _stop_unlocked(self) -> SessionState:

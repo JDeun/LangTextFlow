@@ -13,7 +13,7 @@ from langtextflow.models import (
     TranscriptEvent,
 )
 from langtextflow.project_repository import ProjectInput, ProjectRepository
-from langtextflow.runtime import CaptionRuntime
+from langtextflow.runtime import CaptionRuntime, SessionChangedError
 from langtextflow.session_repository import SessionRepository
 
 
@@ -44,6 +44,30 @@ async def test_operator_state_retains_project_and_effective_resource_profile(
         audience = runtime.audience_view(state.join_code).model_dump()
         assert not {"project_id", "resource_profile", "context", "hotwords"} & audience.keys()
         assert audience["source_language"] == "en" and audience["target_languages"] == ["ko", "ja"]
+    finally:
+        await runtime.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_stale_stop_checks_identity_after_waiting_for_session_transition(tmp_path):
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "stop-identity.db")))
+    request = StartSessionRequest(engine="mock", translation_provider="none")
+    original = await runtime.start(request)
+    await runtime._lifecycle_lock.acquire()
+    replacement = asyncio.create_task(runtime.start(request))
+    await asyncio.sleep(0)
+    old_stop = asyncio.create_task(runtime.stop(expected_session_id=original.session_id))
+    await asyncio.sleep(0)
+    runtime._lifecycle_lock.release()
+    try:
+        current = await replacement
+        with pytest.raises(SessionChangedError, match="session changed"):
+            await old_stop
+        assert runtime.state.running and runtime.state.session_id == current.session_id
+        assert current.session_id != original.session_id
+        await runtime.stop(expected_session_id=current.session_id)
+        assert not runtime.state.running
+        await runtime.stop()  # Legacy unconditional stop remains compatible/idempotent.
     finally:
         await runtime.shutdown()
 

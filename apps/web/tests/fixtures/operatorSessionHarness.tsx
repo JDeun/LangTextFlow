@@ -21,6 +21,8 @@ export async function runOperatorSessionChecks() {
   const originalStop = AudioCaptureController.prototype.stop;
   const requests: string[] = [];
   const captures: string[] = [];
+  const stopPayloads: unknown[] = [];
+  let lastCapture: AudioCaptureController | null = null;
   let mode: "ready" | "preflight-blocked" | "rejected" | "audio-failed" = "ready";
   let operator!: ReturnType<typeof useOperatorSession>;
   let lastPayload: Record<string, unknown> = {};
@@ -67,12 +69,19 @@ export async function runOperatorSessionChecks() {
       return Response.json(session);
     }
     if (path === "/api/v1/session/stop") {
-      serverState = { ...session, running: false };
+      const body = JSON.parse(String(init?.body || "{}"));
+      stopPayloads.push(body.expected_session_id);
+      if (!body.expected_session_id
+        || body.expected_session_id !== (serverState as SessionState)?.session_id) {
+        return new Response("session changed", { status: 409 });
+      }
+      serverState = { ...(serverState as SessionState), running: false };
       return Response.json(serverState);
     }
     throw new Error(`Unexpected regression-test HTTP request: ${path}`);
   };
-  AudioCaptureController.prototype.start = async () => {
+  AudioCaptureController.prototype.start = async function () {
+    lastCapture = this;
     captures.push("start");
     if (mode === "audio-failed") throw new Error("Microphone unavailable");
     return 16000;
@@ -84,7 +93,7 @@ export async function runOperatorSessionChecks() {
   }
   let root = createRoot(document.getElementById("root")!);
   let mounted = true;
-  const reset = () => { requests.length = 0; captures.length = 0; };
+  const reset = () => { requests.length = 0; captures.length = 0; stopPayloads.length = 0; };
   const consent = () => flushSync(() => {
     operator.setRecordAudio(true);
     operator.setCollectAudienceMetrics(true);
@@ -137,8 +146,10 @@ export async function runOperatorSessionChecks() {
     assert(requests.filter((path) => path === "/api/v1/session/stop").length === 1,
       "acknowledged start did not roll back remote session exactly once");
     assert(captures.join(",") === "start,stop", "microphone failure did not clean capture");
-    assert(!operator.session && !operator.recordAudio && !operator.collectAudienceMetrics,
+    assert(!operator.running && !operator.recordAudio && !operator.collectAudienceMetrics,
       "failed session leaked state or consent");
+    assert(stopPayloads.length === 1 && stopPayloads[0] === "owned-session",
+      "microphone rollback did not bind the acknowledged session ID");
     assert(operator.error === "Microphone unavailable" && !operator.busy, "original start error was lost");
 
     reset();
@@ -155,6 +166,7 @@ export async function runOperatorSessionChecks() {
     assert(!operator.running && !operator.recordAudio && !operator.collectAudienceMetrics,
       "stop carried consent to next session");
     assert(captures.join(",") === "start,stop", "normal stop did not close microphone");
+    assert(stopPayloads[0] === "owned-session", "manual stop omitted the known session ID");
 
     reset();
     await operator.start(settings, providers);
@@ -243,12 +255,82 @@ export async function runOperatorSessionChecks() {
       "different session reused or reopened the previous microphone");
     assert(!requests.includes("/api/v1/session/stop"), "different-session hydration stopped the server");
     await operator.stop(); await tick();
+
+    reset();
+    await operator.start(settings, providers); await tick();
+    const failedCapture = lastCapture!;
+    const regularStop = AudioCaptureController.prototype.stop;
+    let releaseFatalStop: (() => void) | undefined;
+    let fatalStopping = false;
+    AudioCaptureController.prototype.stop = async function () {
+      if (this !== failedCapture) return regularStop.call(this);
+      if (fatalStopping) return;
+      fatalStopping = true;
+      captures.push("stop");
+      await new Promise<void>(resolve => { releaseFatalStop = resolve; });
+    };
+    requests.length = 0;
+    (failedCapture as unknown as { onFatalError: (message: string) => void })
+      .onFatalError("Deferred old microphone failure");
+    await until(() => Boolean(releaseFatalStop), "fatal shutdown did not reach its deferred stop");
+    serverState = { ...session, session_id: "fatal-replacement" };
+    await reconnect();
+    await until(() => operator.session?.session_id === "fatal-replacement",
+      "fatal shutdown blocked hydration of the replacement session");
+    releaseFatalStop!(); await tick(); await tick();
+    assert(!requests.includes("/api/v1/session/stop"),
+      "late fatal callback stopped the session restored during microphone cleanup");
+    assert(operator.session?.session_id === "fatal-replacement" && operator.running,
+      "late fatal callback restored old controls");
+    AudioCaptureController.prototype.stop = regularStop;
+    await operator.stop(); await tick();
+
+    reset();
+    await operator.start(settings, providers); await tick();
+    let releaseWireStop: (() => void) | undefined;
+    window.fetch = async (input, init) => {
+      if (new URL(String(input), location.href).pathname === "/api/v1/session/stop") {
+        await new Promise<void>(resolve => { releaseWireStop = resolve; });
+      }
+      return baseFetch(input, init);
+    };
+    const stopping = operator.stop();
+    await until(() => Boolean(releaseWireStop), "manual stop did not reach deferred delivery");
+    serverState = { ...session, session_id: "wire-replacement" };
+    releaseWireStop!();
+    await stopping;
+    await until(() => operator.session?.session_id === "wire-replacement",
+      "identity-conflicted stop did not refresh the replacement session");
+    assert(operator.running && stopPayloads.length === 1 && stopPayloads[0] === "owned-session",
+      "late stop omitted identity, retried globally, or overwrote new session controls");
+    window.fetch = baseFetch;
+    await operator.stop(); await tick();
+
+    reset();
+    serverState = { ...session, session_id: "unknown-ack" };
+    window.fetch = async (input, init) => {
+      if (new URL(String(input), location.href).pathname === "/api/v1/session/start") {
+        return Response.json({ running: true });
+      }
+      return baseFetch(input, init);
+    };
+    assert(await operator.start(settings, providers) === null, "malformed start ack was trusted");
+    await until(() => operator.session?.session_id === "unknown-ack", "unknown ack did not refresh state");
+    assert(stopPayloads.length === 0 && captures.length === 0,
+      "unknown start ownership guessed a remote rollback or opened a microphone");
+    window.fetch = baseFetch;
+    await operator.stop(); await tick();
     flushSync(() => root.unmount()); mounted = false;
 
     // A user start/stop after the request wins over both deferred HTTP and JSON bodies.
     for (const boundary of ["fetch", "json"] as const) {
       for (const action of ["start", "stop", "unmount"] as const) {
         reset(); hydrated.length = 0;
+        if (action === "stop") {
+          serverState = session;
+          await mount();
+          await until(() => operator.running, "known session did not hydrate before stop race");
+        }
         let release: ((response: Response | SessionState) => void) | undefined;
         window.fetch = async (input, init) => {
           const path = new URL(String(input), location.href).pathname;
@@ -263,7 +345,11 @@ export async function runOperatorSessionChecks() {
           });
           return response;
         };
-        await mount();
+        if (action === "stop") {
+          connected = !connected; render(); await tick();
+        } else {
+          await mount();
+        }
         for (let attempts = 0; !release && attempts < 100; attempts++) await tick();
         assert(release, `hydration did not reach deferred ${boundary}`);
         if (action === "unmount") {
@@ -286,7 +372,7 @@ export async function runOperatorSessionChecks() {
         window.fetch = baseFetch;
       }
     }
-    return "start/stop ownership, consent, reload/reconnect hydration, capture cleanup, deferred state/action/unmount fences";
+    return "session identity, deferred fatal/wire stop, unknown rollback, consent, hydration, capture cleanup, action/unmount fences";
   } finally {
     if (mounted) flushSync(() => root.unmount());
     window.fetch = originalFetch;

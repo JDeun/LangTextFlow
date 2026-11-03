@@ -172,6 +172,13 @@ export function useOperatorSession(
     }
   }
 
+  function requestStop(expectedSessionId: string) {
+    return fetch(`${API_URL}/api/v1/session/stop`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expected_session_id: expectedSessionId }),
+    });
+  }
+
   async function start(settings: OperatorSessionSettings, providers: OperatorProviders) {
     if (!mountedRef.current || actionBusy.current) return null;
     const action = ++actionEpoch.current;
@@ -181,6 +188,7 @@ export function useOperatorSession(
     setBusy(true);
     setError("");
     let nextSession: SessionState | null = null;
+    let startedSessionId: string | null = null;
     let startConfirmed = false;
     try {
       await assertPreflightReady(settings, providers);
@@ -197,7 +205,7 @@ export function useOperatorSession(
       }
 
       // An HTTP validation error is not evidence this tab owns the current
-      // server session. Roll back only after an acknowledged successful start.
+      // server session. Remote rollback also requires the acknowledged session ID.
       const response = await fetch(`${API_URL}/api/v1/session/start`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -213,32 +221,43 @@ export function useOperatorSession(
       startConfirmed = true;
       nextSession = parseOperatorSessionState(await response.json());
       if (!current()) return null;
+      startedSessionId = nextSession.session_id;
       applySession(nextSession);
       ownedSessionRef.current = nextSession.session_id;
       setRecoveredAudio(false);
       if (nextSession.audio_required) {
+        const expectedSessionId = nextSession.session_id;
         const capture = new AudioCaptureController((message) => {
-          if (!current() || captureRef.current !== capture) {
+          const ownsCapture = () => current() && expectedSessionId !== null
+            && ownedSessionRef.current === expectedSessionId
+            && sessionRef.current?.session_id === expectedSessionId
+            && captureRef.current === capture;
+          const sameSession = () => current()
+            && sessionRef.current?.session_id === expectedSessionId;
+          if (!ownsCapture()) {
             void capture.stop().catch(() => undefined);
             return;
           }
           setError(message);
           void (async () => {
             await capture.stop().catch(() => undefined);
-            if (captureRef.current === capture) captureRef.current = null;
-            if (!current()) return;
-            const stopResponse = await fetch(`${API_URL}/api/v1/session/stop`, {
-              method: "POST",
-            }).catch(() => null);
+            // Hydration can replace ownership while local device shutdown is suspended.
+            if (!ownsCapture() || !expectedSessionId) return;
+            captureRef.current = null;
+            ownedSessionRef.current = null;
+            const stopResponse = await requestStop(expectedSessionId).catch(() => null);
+            if (!sameSession()) return;
             if (stopResponse?.ok) {
               const stopped = parseOperatorSessionState(await stopResponse.json());
-              if (!current()) return;
+              if (!sameSession()) return;
               applySession(stopped);
               ownedSessionRef.current = null;
               setRecordAudio(false);
               setCollectAudienceMetrics(false);
+            } else {
+              void synchronizeSession();
             }
-          })();
+          })().catch(() => undefined);
         });
         captureRef.current = capture;
         await capture.start(selectedDevice);
@@ -256,8 +275,10 @@ export function useOperatorSession(
           await capture?.stop();
         },
         stopRemote: async () => {
-          if (!current()) return;
-          await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
+          if (!current() || !startedSessionId
+            || ownedSessionRef.current !== startedSessionId
+            || sessionRef.current?.session_id !== startedSessionId) return;
+          await requestStop(startedSessionId);
         },
       });
       if (!current()) return null;
@@ -270,7 +291,7 @@ export function useOperatorSession(
       nextSession = null;
       setError(reason instanceof Error ? reason.message : t("error.startFailed"));
       // A rejected start may mean another tab already owns a live session.
-      if (!startConfirmed) pendingHydration.current = true;
+      pendingHydration.current = true;
     } finally {
       if (current()) {
         actionBusy.current = false;
@@ -289,14 +310,20 @@ export function useOperatorSession(
     const action = ++actionEpoch.current;
     actionBusy.current = true;
     const current = () => mountedRef.current && actionEpoch.current === action;
+    const expectedSessionId = sessionRef.current?.session_id;
     setBusy(true);
     setError("");
     try {
       const capture = captureRef.current;
       captureRef.current = null;
+      ownedSessionRef.current = null;
       await capture?.stop();
       if (!current()) return;
-      const response = await fetch(`${API_URL}/api/v1/session/stop`, { method: "POST" });
+      if (!expectedSessionId) {
+        pendingHydration.current = true;
+        return;
+      }
+      const response = await requestStop(expectedSessionId);
       if (!response.ok) throw new Error(await response.text());
       const stopped = parseOperatorSessionState(await response.json());
       if (!current()) return;
@@ -309,6 +336,7 @@ export function useOperatorSession(
     } catch (reason) {
       if (!current()) return;
       setError(reason instanceof Error ? reason.message : t("error.stopFailed"));
+      pendingHydration.current = true;
     } finally {
       if (current()) {
         actionBusy.current = false;
