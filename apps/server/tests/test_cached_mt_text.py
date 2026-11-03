@@ -181,6 +181,40 @@ def test_ollama_requires_exact_cached_digest_cpu_options_and_product_prompt(args
         "/api/tags", "/api/generate", "/api/chat", "/api/generate",
     ]
     assert requests[-1][2] == {"model": args.model, "keep_alive": 0}
+    assert provider.unload_acknowledged is True
+
+
+@pytest.mark.parametrize("acknowledgement", [
+    {"done": False, "error": "private unload error"},
+    {"done": True, "error": "private unload error"},
+    {"done": 1}, {"done": True, "done_reason": "stop"}, None,
+])
+def test_actual_ollama_unload_negative_ack_invalidates_completed_evaluation(
+    args, scoring_dependencies, monkeypatch, acknowledgement,
+):
+    args.candidate = "ollama"
+    provider = cli.CachedTranslateGemma(args)
+    rows, _ = cli.validate_fixtures(cli.FIXTURE)
+
+    async def request(method, route, **kwargs):
+        if route == "/api/tags":
+            return {"models": [{"name": args.model, "digest": "b" * 64}]}
+        if kwargs["json"].get("keep_alive") == 0:
+            return acknowledgement
+        return {"done": True, "done_reason": "load"}
+
+    async def translate(text, **kwargs):
+        return next(row["reference_text"] for row in rows if row["source_text"] == text)
+
+    provider._request = request
+    provider.translate = translate
+    monkeypatch.setattr(cli, "build_provider", lambda _: provider)
+    report = cli.evaluate(args)
+    assert report["valid_outputs"] == report["recorded_cases"] == 16
+    assert report["status"] == "failed" and report["cleanup"] == "failed"
+    assert report["ollama_unload_acknowledged"] is False
+    assert report["cleanup_error_type"] == "RuntimeError"
+    assert not report["comparison_eligible"] and "private" not in json.dumps(report)
 
 
 @pytest.mark.parametrize("name,digest", [

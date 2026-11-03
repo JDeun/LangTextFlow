@@ -57,6 +57,7 @@ class CachedTranslateGemma(OllamaTranslator):
         if self.expected_digest is None:
             raise ValueError("exact installed Ollama digest is required")
         self.digest = None
+        self.unload_acknowledged = None
         self.options = {"temperature": 0, "seed": 0, "num_predict": 256,
                         "num_gpu": 0, "num_thread": args.threads}
 
@@ -103,10 +104,17 @@ class CachedTranslateGemma(OllamaTranslator):
 
     async def close(self):
         if self.digest is not None:
-            # Use a dedicated, caller-owned Ollama server; release this benchmark model.
-            await self._request("POST", "/api/generate", json={
+            # This verifies the server's unload ACK, not the external service's OS lifecycle.
+            self.unload_acknowledged = False
+            acknowledgement = await self._request("POST", "/api/generate", json={
                 "model": self.model, "keep_alive": 0,
             })
+            if (not isinstance(acknowledgement, dict)
+                    or acknowledgement.get("done") is not True or "error" in acknowledgement
+                    or ("done_reason" in acknowledgement
+                        and acknowledgement["done_reason"] != "unload")):
+                raise RuntimeError("cached Ollama model unload was not acknowledged")
+            self.unload_acknowledged = True
 
 
 def build_provider(args):
@@ -260,6 +268,8 @@ def evaluate(args):
             except Exception as exc:
                 report.update(status="failed", cleanup="failed",
                               cleanup_error_type=type(exc).__name__)
+            if isinstance(provider, CachedTranslateGemma):
+                report["ollama_unload_acknowledged"] = provider.unload_acknowledged
     report["comparison_eligible"] = (
         report["status"] == "measured" and report["recorded_cases"] == 16
     )

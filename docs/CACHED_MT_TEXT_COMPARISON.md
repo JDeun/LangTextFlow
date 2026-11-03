@@ -40,6 +40,11 @@ the CLI never substitutes another installed family member. It requests CPU,
 two threads, temperature/seed zero and a 256-token output limit, then unloads
 that benchmark model. An empty bounded generation request loads it before the
 scored cases; OPUS construction and M2M100 prepare likewise load before scoring.
+Unload requires `done: true`, no `error` field, and `done_reason: "unload"` when
+that optional reason is returned. `ollama_unload_acknowledged` records only the
+server acknowledgement; it does not claim the external Ollama OS process was
+terminated/reaped. A negative/malformed acknowledgement makes cleanup fail and
+the candidate ineligible. The caller still owns the dedicated service lifecycle.
 Startup (including local file fingerprinting) is reported separately.
 The Ollama digest is a runtime-reported **manifest/tag digest**, not a GGUF blob
 hash or independently verified model revision.
