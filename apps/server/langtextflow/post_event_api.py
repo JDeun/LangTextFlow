@@ -6,6 +6,7 @@ import hashlib
 import os
 import sqlite3
 import wave
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from uuid import uuid4
 
@@ -26,6 +27,8 @@ from .storage_guard import StorageCapacityError, ensure_storage_capacity
 from .summary_evidence import validate_summary_citations
 
 MAX_RECORDING_BYTES = 512 * 1024 * 1024
+MAX_SUMMARY_JOBS = 2
+SUMMARY_JOB_TIMEOUT_SECONDS = 600
 
 
 def _validate_wav(path: Path) -> tuple[int, int, float]:
@@ -57,9 +60,10 @@ def install_post_event_routes(
     archive: PostEventArchive,
     settings: Settings,
     require_operator,
-) -> None:
+) -> Callable[[], Awaitable[None]]:
     """Register archive functionality without changing existing session API shapes."""
-    summary_jobs: set[asyncio.Task] = set()
+    summary_jobs: dict[asyncio.Task, str] = {}
+    summary_start_lock = asyncio.Lock()
 
     async def finished_session(session_id: str):
         session = await asyncio.to_thread(runtime.history.get_session, session_id)
@@ -206,6 +210,10 @@ def install_post_event_routes(
         request: Request, session_id: str, payload: SummaryRequest,
     ) -> dict:
         require_operator(request)
+        async with summary_start_lock:
+            return await start_summary(session_id, payload)
+
+    async def start_summary(session_id: str, payload: SummaryRequest) -> dict:
         await finished_session(session_id)
         if payload.provider == "openai-compatible" and not payload.allow_external_provider:
             raise HTTPException(
@@ -235,6 +243,8 @@ def install_post_event_routes(
             and previous["prompt_version"] == PROMPT_VERSION
         ):
             return previous
+        if len(summary_jobs) >= MAX_SUMMARY_JOBS:
+            raise HTTPException(429, "summary capacity reached; retry after another job finishes")
         try:
             record = await asyncio.to_thread(
                 archive.begin_summary,
@@ -256,11 +266,12 @@ def install_post_event_routes(
 
         async def worker() -> None:
             try:
-                content = await generate_summary(
-                    source, language=payload.language, provider=payload.provider,
-                    model=model, settings=settings,
-                    allow_external_provider=payload.allow_external_provider,
-                )
+                async with asyncio.timeout(SUMMARY_JOB_TIMEOUT_SECONDS):
+                    content = await generate_summary(
+                        source, language=payload.language, provider=payload.provider,
+                        model=model, settings=settings,
+                        allow_external_provider=payload.allow_external_provider,
+                    )
                 # Never persist a model-drafted summary as "completed" when
                 # its citations are missing, fabricated, or retimed. Validation
                 # concerns reference identity only, not semantic correctness.
@@ -268,6 +279,12 @@ def install_post_event_routes(
                 await asyncio.to_thread(
                     archive.finish_summary, record["summary_id"], content=content,
                 )
+            except asyncio.CancelledError:
+                await asyncio.to_thread(
+                    archive.finish_summary, record["summary_id"],
+                    error="Summary generation cancelled during application shutdown; retry later",
+                )
+                raise
             except Exception:
                 # Never return remote provider response bodies or credentials to the UI.
                 await asyncio.to_thread(
@@ -278,6 +295,22 @@ def install_post_event_routes(
         task = asyncio.create_task(
             worker(), name=f"post-event-summary-{record['summary_id']}",
         )
-        summary_jobs.add(task)
-        task.add_done_callback(summary_jobs.discard)
+        summary_jobs[task] = record["summary_id"]
+        task.add_done_callback(lambda done: summary_jobs.pop(done, None))
         return record
+
+    async def shutdown_summary_jobs() -> None:
+        jobs = list(summary_jobs.items())
+        tasks = [task for task, _ in jobs]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+        for _, summary_id in jobs:
+            # A task cancelled before its first step never enters the worker's handler.
+            await asyncio.to_thread(
+                archive.finish_summary, summary_id,
+                error="Summary generation cancelled during application shutdown; retry later",
+            )
+
+    return shutdown_summary_jobs

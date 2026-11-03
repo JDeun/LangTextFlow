@@ -87,7 +87,7 @@ New postprocessed events preserve `original_text` separately from corrected disp
 - Real device/microphone 30/60/90-minute acceptance remains separate.
 - WAV imports are **not automatically aligned** with the live transcript; imported audio may include different leading/trailing silence.
 - Incomplete/interrupted sessions can have missing committed text; verify missing portions before dissemination.
-- Current worker is in-process. A restart marks an in-flight summary attempt as failed; distributed retry queues are not implemented.
+- Summary work is in-process and limited to two active jobs across sessions. Additional admissions return 429 without creating a running record; duplicate unchanged completed requests remain idempotent. Each generation has a ten-minute overall deadline across hierarchical requests. Application shutdown cancels workers and marks unfinished attempts as failed; abrupt-process restart recovery remains available. Distributed retry queues are not implemented.
 
 ## Tests
 
