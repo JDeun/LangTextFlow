@@ -18,6 +18,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .provider_http import bounded_response_lines, provider_stream
 from .storage_guard import ensure_storage_capacity
 from .whisper_cache import managed_whisper_cache, resolve_whisper_model
 
@@ -231,23 +232,29 @@ class ModelSetupManager:
         )
         try:
             timeout = httpx.Timeout(connect=5.0, read=None, write=30.0, pool=5.0)
+            succeeded = False
             async with (
                 self._client(timeout=timeout) as client,
-                client.stream(
+                provider_stream(
+                    client,
                     "POST",
                     f"{self.settings.ollama_url.rstrip('/')}/api/pull",
                     json={"model": job.model, "stream": True},
                 ) as response,
             ):
-                response.raise_for_status()
-                async for line in response.aiter_lines():
+                async for line in bounded_response_lines(response):
                     if not line.strip():
                         continue
                     payload = _parse_progress_line(line)
                     if payload is None:
                         continue
+                    if payload.get("error"):
+                        raise ValueError("Ollama download provider reported an error")
+                    succeeded = payload.get("status") == "success"
                     await self._apply_ollama_progress(job_id, payload)
 
+            if not succeeded:
+                raise ValueError("Ollama download stream ended before success")
             await self._update_job(
                 job_id,
                 state=SetupJobState.COMPLETED,

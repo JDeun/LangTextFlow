@@ -74,8 +74,13 @@ automatic gzip/Brotli decompression is intentionally unsupported on these paths.
 Redirects are not followed, and HTTP status failures expose only the status code,
 without provider URLs, query strings, credentials, or response bodies.
 The same bound covers preflight model/configuration probes and VibeVoice HTTP
-configuration/health responses. Ollama model-download progress uses a separate
-NDJSON streaming protocol; this JSON response cap does not bound its progress lines.
+configuration/health responses. Ollama model-download progress uses the same
+identity/no-redirect/error policy with a **per-line** 665,536-byte UTF-8 bound.
+LF/CRLF and an unterminated final line are supported; small progress messages are
+delivered immediately. The total NDJSON stream length and model-download byte count
+are not subject to this per-line cap. Cancellation closes the progress stream;
+HTTP or in-stream provider errors mark the setup job failed and release its active key.
+An EOF without the final `status: success` record is a failed download, not completion.
 
 ## Availability controls
 
