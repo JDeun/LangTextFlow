@@ -26,11 +26,15 @@ impl Fixture {
             .parent()
             .unwrap()
             .to_owned();
-        let interpreter = root.join(if cfg!(windows) {
-            ".venv/Scripts/python.exe"
-        } else {
-            ".venv/bin/python"
-        });
+        let interpreter = std::env::var_os("LTF_HISTORY_PYTHON")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                root.join(if cfg!(windows) {
+                    ".venv/Scripts/python.exe"
+                } else {
+                    ".venv/bin/python"
+                })
+            });
         let result = Command::new(interpreter)
             .arg(root.join("crates/langtextflow-core/tests/history_python.py"))
             .arg(mode)

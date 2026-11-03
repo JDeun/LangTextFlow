@@ -68,7 +68,10 @@ elif mode == "verify":
     observed = json.loads((directory / "observed.json").read_text(encoding="utf-8"))
     expected = TranscriptEvent.model_validate(observed)
     events = history.segments("history-session")
-    assert len(events) == 1 and events[0] == expected
+    assert len(events) == 1
+    different = [field for field in TranscriptEvent.model_fields
+                 if getattr(events[0], field) != getattr(expected, field)]
+    assert not different, different  # Fixed field names only, no source/error text in diagnostics.
     session = history.get_session("history-session")
     assert session.segment_count == 1 and session.ended_at is not None
     assert session.started_at == datetime(2026, 1, 1, tzinfo=UTC)

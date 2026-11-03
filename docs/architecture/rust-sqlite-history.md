@@ -82,7 +82,7 @@ durability or device-latency claim follows from a degraded report.
 `cargo +1.90.0 test --locked --manifest-path crates/Cargo.toml --workspace` runs
 the existing protocols and the new actual SQLite tests. Install locked Python dev
 dependencies with `uv sync --locked --extra dev` first; the parity fixture invokes
-that virtual environment and the actual existing Python repository, HTTP history,
+that virtual environment (or the test-only `LTF_HISTORY_PYTHON` override) and the actual existing Python repository, HTTP history,
 JSON/SRT export and private project backup/restore implementations. Inference is
 synthetic, transported through real owned OS children and actual WebSockets. It is
 not a model-inference quality or benchmark result.
@@ -104,3 +104,6 @@ and [notices](../../crates/langtextflow-core/THIRD_PARTY_NOTICES.md). The initia
 audit found no vulnerability in the new dependencies and retained the separate
 pre-existing Tokio `RUSTSEC-2026-0386` unsound warning for its own security fix;
 that audit was not reported as warning-free.
+After integrating the separate [Tokio security patch](https://github.com/JDeun/LangTextFlow/pull/426)
+to exact 1.53.3, `cargo audit --file crates/Cargo.lock --deny warnings` passed.
+The original dependency record remains immutable and retains its initial audit context.
