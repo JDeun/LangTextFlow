@@ -12,6 +12,7 @@ import websockets
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
 from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+from langtextflow.provider_http import bounded_json_request
 
 logger = logging.getLogger(__name__)
 
@@ -87,9 +88,7 @@ class VibeVoiceStreamingAsrEngine(AsrEngine):
         self._request = request
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(f"{self.base_url}/v1/config")
-                response.raise_for_status()
-                config = response.json()
+                config = await bounded_json_request(client, "GET", f"{self.base_url}/v1/config")
             self._sample_rate = int(config["sample_rate"])
             self._chunk_seconds = float(config.get("chunk_seconds", 2.0))
             if self._sample_rate <= 0 or not 0.05 <= self._chunk_seconds <= 60.0:

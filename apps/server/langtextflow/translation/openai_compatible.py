@@ -6,6 +6,7 @@ import httpx
 
 from ..models import SessionContext
 from ..prompt_safety import UNTRUSTED_DATA_POLICY, bounded_model_text, untrusted_json
+from ..provider_http import bounded_json_request
 from .base import TranslationError, Translator
 from .glossary_selection import relevant_glossary
 
@@ -55,12 +56,11 @@ class OpenAICompatibleTranslator(Translator):
     async def prepare(self) -> None:
         try:
             async with httpx.AsyncClient(timeout=3.0) as client:
-                response = await client.get(
+                payload = await bounded_json_request(
+                    client, "GET",
                     f"{self.base_url}/models",
                     headers=self._headers(),
                 )
-                response.raise_for_status()
-                payload = response.json()
         except Exception as exc:
             raise TranslationError(
                 f"OpenAI-compatible endpoint is unavailable: {exc}"
@@ -96,7 +96,8 @@ class OpenAICompatibleTranslator(Translator):
         )
         try:
             async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
-                response = await client.post(
+                payload = await bounded_json_request(
+                    client, "POST",
                     f"{self.base_url}/chat/completions",
                     headers=self._headers(),
                     json={
@@ -106,8 +107,6 @@ class OpenAICompatibleTranslator(Translator):
                         "stream": False,
                     },
                 )
-                response.raise_for_status()
-                payload = response.json()
         except Exception as exc:
             raise TranslationError(
                 f"OpenAI-compatible translation failed: {exc}"

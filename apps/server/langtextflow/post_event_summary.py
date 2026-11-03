@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from .config import Settings
 from .models import TranscriptEvent
 from .prompt_safety import UNTRUSTED_DATA_POLICY, bounded_model_text
+from .provider_http import bounded_json_request
 from .summary_evidence import allowed_source_citations
 from .translation.capabilities import _loopback_endpoint
 
@@ -216,18 +217,18 @@ async def generate_summary(
                 {"role": "user", "content": body},
             ]
             if provider == "ollama":
-                response = await client.post(
+                payload = await bounded_json_request(
+                    client, "POST",
                     f"{settings.ollama_url.rstrip('/')}/api/chat",
                     json={
                         "model": model, "messages": messages,
                         "stream": False, "options": {"temperature": 0},
                     },
                 )
-                response.raise_for_status()
-                payload = response.json()
                 content = payload.get("message", {}).get("content", "")
             else:
-                response = await client.post(
+                payload = await bounded_json_request(
+                    client, "POST",
                     f"{settings.openai_compatible_url.rstrip('/')}/chat/completions",
                     headers=headers,
                     json={
@@ -235,8 +236,6 @@ async def generate_summary(
                         "stream": False, "temperature": 0,
                     },
                 )
-                response.raise_for_status()
-                payload = response.json()
                 options = payload.get("choices") or []
                 content = options[0].get("message", {}).get("content", "") if options else ""
             # Bound intermediate notes tightly so a 90-minute transcript reduces

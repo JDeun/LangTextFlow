@@ -2,58 +2,30 @@ from __future__ import annotations
 
 import json
 
+import httpx
 import pytest
 
 from langtextflow.models import GlossaryEntry, SessionContext
 from langtextflow.translation.openai_compatible import OpenAICompatibleTranslator
 
 
-class FakeResponse:
-    def __init__(self, payload: dict[str, object]) -> None:
-        self.payload = payload
-
-    def raise_for_status(self) -> None:
-        return
-
-    def json(self) -> dict[str, object]:
-        return self.payload
-
-
-class FakeClient:
-    requests: list[tuple[str, str, dict[str, object]]] = []
-
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        del args, kwargs
-
-    async def __aenter__(self) -> FakeClient:
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        del args
-
-    async def get(self, url: str, **kwargs: object) -> FakeResponse:
-        self.requests.append(("GET", url, kwargs))
-        return FakeResponse({"data": [{"id": "local-translator"}]})
-
-    async def post(self, url: str, **kwargs: object) -> FakeResponse:
-        self.requests.append(("POST", url, kwargs))
-        return FakeResponse(
-            {
-                "choices": [
-                    {"message": {"content": "Today we will read John chapter 3."}}
-                ]
-            }
-        )
-
-
 @pytest.mark.asyncio
 async def test_openai_compatible_translator_preflight_and_translate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    FakeClient.requests = []
+    requests = []
+    native_client = httpx.AsyncClient
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json=(
+            {"data": [{"id": "local-translator"}]} if request.method == "GET"
+            else {"choices": [{"message": {"content": "Today we will read John chapter 3."}}]}
+        ))
+
     monkeypatch.setattr(
         "langtextflow.translation.openai_compatible.httpx.AsyncClient",
-        FakeClient,
+        lambda **options: native_client(transport=httpx.MockTransport(respond), **options),
     )
     translator = OpenAICompatibleTranslator(
         base_url="http://127.0.0.1:1234/v1/",
@@ -79,12 +51,13 @@ async def test_openai_compatible_translator_preflight_and_translate(
     )
 
     assert translated == "Today we will read John chapter 3."
-    assert FakeClient.requests[0][1] == "http://127.0.0.1:1234/v1/models"
-    assert FakeClient.requests[1][1] == "http://127.0.0.1:1234/v1/chat/completions"
-    for _, _, kwargs in FakeClient.requests:
-        assert kwargs["headers"] == {"Authorization": "Bearer secret-token"}
+    assert str(requests[0].url) == "http://127.0.0.1:1234/v1/models"
+    assert str(requests[1].url) == "http://127.0.0.1:1234/v1/chat/completions"
+    for request in requests:
+        assert request.headers["authorization"] == "Bearer secret-token"
+        assert request.headers["accept-encoding"] == "identity"
 
-    payload = FakeClient.requests[1][2]["json"]
+    payload = json.loads(requests[1].content)
     assert isinstance(payload, dict)
     assert payload["model"] == "local-translator"
     assert payload["temperature"] == 0

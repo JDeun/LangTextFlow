@@ -57,7 +57,7 @@ async def test_ollama_approved_policy_and_no_redirect_following(monkeypatch, rem
         )
 
     if redirect:
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(ValueError, match="HTTP 307"):
             await generate()
     else:
         assert "summary" in await generate()

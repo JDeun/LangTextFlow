@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+import httpx
 import pytest
 
 from langtextflow.asr.base import AsrEngineError
@@ -31,27 +32,15 @@ def test_vibevoice_context_includes_domain_terms() -> None:
     assert "의롭다 하심" in value
 
 
-class FakeResponse:
-    def raise_for_status(self) -> None:
-        return
-
-    def json(self) -> dict[str, object]:
-        return {"sample_rate": 16000, "chunk_seconds": 2.0}
+NATIVE_HTTP_CLIENT = httpx.AsyncClient
 
 
-class FakeHttpClient:
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        del args, kwargs
+def FakeHttpClient(*args, **kwargs):
+    def respond(request):
+        assert str(request.url).endswith("/v1/config")
+        return httpx.Response(200, json={"sample_rate": 16000, "chunk_seconds": 2.0})
 
-    async def __aenter__(self) -> "FakeHttpClient":
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        del args
-
-    async def get(self, url: str) -> FakeResponse:
-        assert url.endswith("/v1/config")
-        return FakeResponse()
+    return NATIVE_HTTP_CLIENT(*args, transport=httpx.MockTransport(respond), **kwargs)
 
 
 class FakeWebSocket:

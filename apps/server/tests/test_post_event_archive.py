@@ -259,7 +259,7 @@ async def test_long_summary_http_failure_never_produces_partial_final(
     monkeypatch.setattr(post_event_summary.httpx, "AsyncClient", lambda **options: client_class(
         transport=httpx.MockTransport(respond), **options,
     ))
-    expected = httpx.ReadTimeout if failure == "timeout" else ValueError
+    expected = httpx.TimeoutException if failure == "timeout" else ValueError
     with pytest.raises(expected):
         await generate_summary(
             source, language="ko", provider=provider, model="mock-http",
@@ -274,33 +274,22 @@ async def test_ollama_summary_is_real_provider_call_and_untrusted_guard(monkeypa
 
     requests = []
 
-    class FakeClient:
-        def __init__(self, **kwargs):
-            pass
+    native_client = httpx.AsyncClient
 
-        async def __aenter__(self):
-            return self
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(200, json={"message": {"content": "근거에 따른 행사 요약"}})
 
-        async def __aexit__(self, *_):
-            return None
-
-        async def post(self, url, **kwargs):
-            requests.append((url, kwargs))
-            return httpx.Response(
-                200,
-                json={"message": {"content": "근거에 따른 행사 요약"}},
-                request=httpx.Request("POST", url),
-            )
-
-    monkeypatch.setattr(post_event_summary.httpx, "AsyncClient", FakeClient)
+    monkeypatch.setattr(post_event_summary.httpx, "AsyncClient", lambda **options:
+        native_client(transport=httpx.MockTransport(respond), **options))
     result = await generate_summary(
         "[caption-1 at 0s] {} 안전한 원문",
         language="ko", provider="ollama", model="test",
         settings=Settings(), allow_external_provider=False,
     )
     assert "행사 요약" in result
-    assert "/api/chat" in requests[0][0]
-    assert "untrusted data" in requests[0][1]["json"]["messages"][0]["content"]
+    assert "/api/chat" in str(requests[0].url)
+    assert "untrusted data" in json.loads(requests[0].content)["messages"][0]["content"]
 
 
 @pytest.mark.asyncio
