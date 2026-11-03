@@ -18,6 +18,7 @@ interface OperatorProviders {
 /** Own only the live session and its microphone/consent lifecycle, not setup panels. */
 export function useOperatorSession() {
   const { t } = useI18n();
+  const mountedRef = useRef(false);
   const captureRef = useRef<AudioCaptureController | null>(null);
   const [session, setSession] = useState<SessionState | null>(null);
   const [devices, setDevices] = useState<AudioInputDevice[]>([]);
@@ -29,10 +30,14 @@ export function useOperatorSession() {
   const [error, setError] = useState("");
   const running = session?.running ?? false;
   useEffect(() => { if (!running) setCollectAudienceMetrics(false); }, [running]);
-  useEffect(() => () => {
-    const capture = captureRef.current;
-    captureRef.current = null;
-    void capture?.stop().catch(() => undefined);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const capture = captureRef.current;
+      captureRef.current = null;
+      void capture?.stop().catch(() => undefined);
+    };
   }, []);
 
   // The recorder may fail while ASR continues; surface its health promptly.
@@ -108,6 +113,7 @@ export function useOperatorSession() {
   }
 
   async function start(settings: OperatorSessionSettings, providers: OperatorProviders) {
+    if (!mountedRef.current) return null;
     const needsAudio = settings.engine !== "mock";
     setBusy(true);
     setError("");
@@ -115,10 +121,12 @@ export function useOperatorSession() {
     let startConfirmed = false;
     try {
       await assertPreflightReady(settings, providers);
+      if (!mountedRef.current) return null;
 
       let selectedDevice = deviceId;
       if (needsAudio && !selectedDevice) {
         const result = await requestAudioInputs();
+        if (!mountedRef.current) return null;
         setDevices(result);
         selectedDevice = result[0]?.deviceId || "";
         setDeviceId(selectedDevice);
@@ -137,16 +145,23 @@ export function useOperatorSession() {
           needsAudio,
         })),
       });
+      if (!mountedRef.current) return null;
       if (!response.ok) throw new Error(await response.text());
       startConfirmed = true;
       nextSession = (await response.json()) as SessionState;
+      if (!mountedRef.current) return null;
       setSession(nextSession);
       if (nextSession.audio_required) {
         const capture = new AudioCaptureController((message) => {
+          if (!mountedRef.current) {
+            void capture.stop().catch(() => undefined);
+            return;
+          }
           setError(message);
           void (async () => {
             await capture.stop().catch(() => undefined);
             if (captureRef.current === capture) captureRef.current = null;
+            if (!mountedRef.current) return;
             const stopResponse = await fetch(`${API_URL}/api/v1/session/stop`, {
               method: "POST",
             }).catch(() => null);
@@ -159,8 +174,13 @@ export function useOperatorSession() {
         });
         captureRef.current = capture;
         await capture.start(selectedDevice);
+        if (!mountedRef.current) {
+          await capture.stop().catch(() => undefined);
+          return null;
+        }
       }
     } catch (reason) {
+      if (!mountedRef.current) return null;
       await rollbackFailedSessionStart(startConfirmed, {
         stopCapture: async () => {
           const capture = captureRef.current;

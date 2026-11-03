@@ -70,7 +70,7 @@ export async function runOperatorSessionChecks() {
     operator = useOperatorSession();
     return null;
   }
-  const root = createRoot(document.getElementById("root")!);
+  let root = createRoot(document.getElementById("root")!);
   let mounted = true;
   const reset = () => { requests.length = 0; captures.length = 0; };
   const consent = () => flushSync(() => {
@@ -133,7 +133,37 @@ export async function runOperatorSessionChecks() {
     await tick();
     assert(captures.join(",") === "start,stop", "leaving operator route leaked microphone");
     assert(!requests.includes("/api/v1/session/stop"), "unmount stopped a server session implicitly");
-    return "preflight/rejected-start ownership, microphone rollback, consent reset, unmount cleanup";
+    const baseFetch = window.fetch;
+    for (const boundary of ["preflight", "ack"] as const) {
+      reset();
+      root = createRoot(document.getElementById("root")!);
+      mounted = true;
+      flushSync(() => root.render(<LocaleProvider><Harness /></LocaleProvider>));
+      flushSync(() => operator.setDeviceId("test-microphone"));
+      let release: ((response: Response) => void) | undefined;
+      window.fetch = async (input, init) => {
+        const path = new URL(String(input), location.href).pathname;
+        if (path === (boundary === "preflight" ? "/api/v1/preflight" : "/api/v1/session/start")) {
+          requests.push(path);
+          return new Promise<Response>((resolve) => { release = resolve; });
+        }
+        return baseFetch(input, init);
+      };
+      const starting = operator.start(settings, providers);
+      for (let attempts = 0; !release && attempts < 100; attempts++) await tick();
+      assert(release, `start did not reach deferred ${boundary}`);
+      flushSync(() => root.unmount());
+      mounted = false;
+      release!(Response.json(boundary === "preflight" ? { ready: true } : session));
+      assert(await starting === null, `late ${boundary} restored an unmounted operator`);
+      await tick();
+      assert(captures.length === 0, `late ${boundary} opened a microphone after unmount`);
+      assert(!requests.includes("/api/v1/session/stop"), `unmount at ${boundary} stopped a remote session`);
+      if (boundary === "preflight") assert(!requests.includes("/api/v1/session/start"),
+        "late preflight posted a session after unmount");
+      window.fetch = baseFetch;
+    }
+    return "preflight/rejected-start ownership, microphone rollback, consent reset, deferred unmount cleanup";
   } finally {
     if (mounted) flushSync(() => root.unmount());
     window.fetch = originalFetch;
