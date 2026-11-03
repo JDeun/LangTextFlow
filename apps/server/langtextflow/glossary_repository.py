@@ -6,6 +6,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from .glossary_scope import (
+    glossary_identity,
+    glossary_scopes_conflict,
+    validate_scoped_import_entries,
+)
 from .models import GlossaryEntry, GlossaryRecord, ProductPreset
 
 
@@ -70,23 +75,18 @@ class GlossaryRepository:
     def active_for(
         self, preset: ProductPreset, source_language: str = "ko"
     ) -> list[GlossaryEntry]:
-        entries: list[GlossaryEntry] = []
-        for record in self.list():
-            if (record.enabled and record.applies_to(preset)
-                    and record.source_language == source_language):
-                entries.append(
-                    GlossaryEntry(
-                        term=record.term,
-                        source_language=record.source_language,
-                        aliases=record.aliases,
-                        translations=record.translations,
-                        category=record.category,
-                        presets=record.presets,
-                        boost=record.boost,
-                        enabled=True,
-                    )
-                )
-        return entries
+        selected: dict[str, GlossaryRecord] = {}
+        # Resolve every layer before filtering enabled: a disabled preset entry
+        # intentionally suppresses its global counterpart.
+        records = sorted(self.list(), key=lambda row: (bool(row.presets), row.id))
+        for record in records:
+            if record.source_language == source_language and record.applies_to(preset):
+                selected[record.term.casefold()] = record
+        return [
+            GlossaryEntry.model_validate(record.model_dump())
+            for record in sorted(selected.values(), key=lambda row: (row.category, row.term))
+            if record.enabled
+        ]
 
     def get(self, record_id: str) -> GlossaryRecord | None:
         with self._connect() as connection:
@@ -97,37 +97,47 @@ class GlossaryRepository:
         return self._record(row) if row is not None else None
 
     def create(self, entry: GlossaryEntry) -> GlossaryRecord:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            return self._create_record(connection, entry)
+
+    def _create_record(
+        self, connection: sqlite3.Connection, entry: GlossaryEntry,
+    ) -> GlossaryRecord:
         now = datetime.now(UTC)
         record = GlossaryRecord(
             **entry.model_dump(include=set(GlossaryEntry.model_fields)),
-            id=str(uuid4()),
-            created_at=now,
-            updated_at=now,
+            id=str(uuid4()), created_at=now, updated_at=now,
         )
-        with self._connect() as connection:
-            self._assert_source_term_free(connection, record)
-            connection.execute(
-                """
-                INSERT INTO glossary_entries (
-                    id, term, source_language, aliases_json, translations_json, category,
-                    presets_json, boost, enabled, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                self._params(record),
-            )
+        self._assert_source_term_free(connection, record)
+        self._insert_record(connection, record)
         return record
 
-    def update(self, record_id: str, entry: GlossaryEntry) -> GlossaryRecord | None:
-        current = self.get(record_id)
-        if current is None:
-            return None
-        record = GlossaryRecord(
-            **entry.model_dump(include=set(GlossaryEntry.model_fields)),
-            id=record_id,
-            created_at=current.created_at,
-            updated_at=datetime.now(UTC),
+    @staticmethod
+    def _insert_record(connection: sqlite3.Connection, record: GlossaryRecord) -> None:
+        connection.execute(
+            """
+            INSERT INTO glossary_entries (
+                id, term, source_language, aliases_json, translations_json, category,
+                presets_json, boost, enabled, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            GlossaryRepository._params(record),
         )
+
+    def update(self, record_id: str, entry: GlossaryEntry) -> GlossaryRecord | None:
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM glossary_entries WHERE id = ?", (record_id,),
+            ).fetchone()
+            if row is None:
+                return None
+            current = self._record(row)
+            record = GlossaryRecord(
+                **entry.model_dump(include=set(GlossaryEntry.model_fields)),
+                id=record_id, created_at=current.created_at, updated_at=datetime.now(UTC),
+            )
             self._assert_source_term_free(connection, record, excluded_id=record_id)
             self._update_record(connection, record)
         return record
@@ -141,14 +151,17 @@ class GlossaryRepository:
         return cursor.rowcount > 0
 
     def seed(self, entries: list[GlossaryEntry]) -> list[GlossaryRecord]:
-        existing_terms = {
-            (record.source_language, record.term.casefold()) for record in self.list()
-        }
-        for entry in entries:
-            key = (entry.source_language, entry.term.casefold())
-            if key not in existing_terms:
-                self.create(entry)
-                existing_terms.add(key)
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing_terms = {
+                (str(row["source_language"]), str(row["term"]).casefold())
+                for row in connection.execute("SELECT source_language, term FROM glossary_entries")
+            }
+            for entry in entries:
+                key = (entry.source_language, entry.term.casefold())
+                if key not in existing_terms:
+                    self._create_record(connection, entry)
+                    existing_terms.add(key)
         return self.list()
 
     def import_entries(
@@ -160,53 +173,43 @@ class GlossaryRepository:
         if conflict_policy not in {"upsert", "skip"}:
             raise ValueError("conflict_policy must be upsert or skip")
 
-        created = 0
-        updated = 0
-        skipped = 0
+        validate_scoped_import_entries(entries)
+        created = updated = skipped = 0
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             existing_rows = connection.execute("SELECT * FROM glossary_entries").fetchall()
-            existing: dict[tuple[str, str], GlossaryRecord] = {}
-            for row in existing_rows:
-                record = self._record(row)
-                existing.setdefault((record.source_language, record.term.casefold()), record)
-
+            records = [self._record(row) for row in existing_rows]
+            validate_scoped_import_entries(records)
+            existing = {glossary_identity(record): record for record in records}
+            proposed = dict(existing)
+            changes: list[tuple[bool, GlossaryRecord]] = []
             for entry in entries:
-                key = (entry.source_language, entry.term.casefold())
+                key = glossary_identity(entry)
                 current = existing.get(key)
-                now = datetime.now(UTC)
-                if current is not None:
-                    if conflict_policy == "skip":
-                        skipped += 1
-                        continue
-                    record = GlossaryRecord(
-                        **entry.model_dump(include=set(GlossaryEntry.model_fields)),
-                        id=current.id,
-                        created_at=current.created_at,
-                        updated_at=now,
-                    )
-                    self._update_record(connection, record)
-                    existing[key] = record
-                    updated += 1
+                if current is not None and conflict_policy == "skip":
+                    skipped += 1
                     continue
-
+                now = datetime.now(UTC)
                 record = GlossaryRecord(
                     **entry.model_dump(include=set(GlossaryEntry.model_fields)),
-                    id=str(uuid4()),
-                    created_at=now,
+                    id=current.id if current else str(uuid4()),
+                    created_at=current.created_at if current else now,
                     updated_at=now,
                 )
-                connection.execute(
-                    """
-                    INSERT INTO glossary_entries (
-                        id, term, source_language, aliases_json, translations_json, category,
-                        presets_json, boost, enabled, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    self._params(record),
-                )
-                existing[key] = record
-                created += 1
-
+                proposed[key] = record
+                changes.append((current is not None, record))
+                if current is None:
+                    created += 1
+                else:
+                    updated += 1
+            # Validate the final snapshot before writing anything. A different,
+            # intersecting preset scope is a conflict, never an upsert target.
+            validate_scoped_import_entries(list(proposed.values()))
+            for replacing, record in changes:
+                if replacing:
+                    self._update_record(connection, record)
+                else:
+                    self._insert_record(connection, record)
         return created, updated, skipped
 
     @staticmethod
@@ -216,11 +219,16 @@ class GlossaryRepository:
         excluded_id: str | None = None,
     ) -> None:
         rows = connection.execute(
-            "SELECT id, term FROM glossary_entries WHERE source_language = ?",
+            "SELECT id, term, presets_json FROM glossary_entries WHERE source_language = ?",
             (entry.source_language,),
         ).fetchall()
         for row in rows:
-            if row["id"] != excluded_id and str(row["term"]).casefold() == entry.term.casefold():
+            if (row["id"] != excluded_id
+                    and str(row["term"]).casefold() == entry.term.casefold()
+                    and glossary_scopes_conflict(
+                        entry.presets,
+                        [ProductPreset(value) for value in json.loads(row["presets_json"])],
+                    )):
                 raise ValueError(
                     f"duplicate glossary term for {entry.source_language}: {entry.term}"
                 )
