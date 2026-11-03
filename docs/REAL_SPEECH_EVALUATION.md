@@ -1,5 +1,7 @@
 # Real speech ASR pilot (FLEURS, manual)
 
+For issue-by-issue real inference versus mock/not-run/rights-blocked coverage, exact source limitations and seven directly inspected Actions ZIPs, see the [2026-11-03 model evidence audit](research/model-issue-evidence-coverage-2026-11.md). Execution completion is separate from field, terminology and hardware acceptance.
+
 This workflow supplements — it does **not replace** — field acceptance with real microphones, mixed speaker acoustics, full 90-minute events or target GPU deployment.
 
 The workflow also performs a **minimal Korean, 3-clip, tiny-model real-speech pilot on PRs that change this benchmark implementation**. Full language/model/sample sweeps remain explicit manual runs; these PR checks execute only after an available GitHub runner starts them.
