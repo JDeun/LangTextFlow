@@ -10,6 +10,7 @@ from typing import Any
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
 from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+from langtextflow.whisper_cache import prepare_whisper_model, resolve_whisper_model
 
 logger = logging.getLogger(__name__)
 
@@ -51,11 +52,15 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         chunk_seconds: float = 4.0,
         queue_chunks: int = 32,
         max_frame_bytes: int = 1024 * 1024,
+        cache_dir: str | None = None,
+        allow_download: bool = False,
     ) -> None:
         super().__init__(publish)
         if chunk_seconds <= 0:
             raise ValueError("faster-whisper chunk_seconds must be greater than zero")
         self.model_name = model
+        self.cache_dir = cache_dir
+        self.allow_download = allow_download
         self.device = device
         self.compute_type = compute_type
         if cpu_threads is not None and cpu_threads < 1:
@@ -179,11 +184,14 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
         options: dict[str, Any] = {
             "device": self.device,
             "compute_type": self.compute_type,
+            "local_files_only": True,
         }
         if self.cpu_threads is not None:
             options["cpu_threads"] = self.cpu_threads
             options["num_workers"] = 1
-        return WhisperModel(self.model_name, **options)
+        resolve = prepare_whisper_model if self.allow_download else resolve_whisper_model
+        model_path = resolve(self.model_name, self.cache_dir)
+        return WhisperModel(str(model_path), **options)
 
     def _transcribe_chunk_sync(
         self,

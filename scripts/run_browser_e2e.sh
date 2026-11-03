@@ -7,7 +7,9 @@ export LANGTEXTFLOW_MODEL_CACHE_DIR="${LANGTEXTFLOW_MODEL_CACHE_DIR:-$test_root/
 log_dir="${LTF_E2E_LOG_DIR:-$test_root}"
 mkdir -p "$log_dir"
 
-uv run python -m uvicorn langtextflow.main:app --app-dir apps/server --host 127.0.0.1 --port 8000 >"$log_dir/api.log" 2>&1 &
+# Launch the interpreter directly so cleanup owns the server PID, not a uv wrapper.
+python_bin="$(uv run python -c 'import sys; print(sys.executable)')"
+"$python_bin" -m uvicorn langtextflow.main:app --app-dir apps/server --host 127.0.0.1 --port 8000 >"$log_dir/api.log" 2>&1 &
 api_pid=$!
 (
   cd apps/web
@@ -22,11 +24,29 @@ fi
 chrome_pid=""
 chrome_profile="$(mktemp -d /tmp/ltf-e2e-chrome-XXXXXX)"
 cleanup() {
-  if [[ -n "$chrome_pid" ]]; then kill "$chrome_pid" 2>/dev/null || true; fi
-  kill "$web_pid" "$api_pid" 2>/dev/null || true
-  wait "$chrome_pid" "$web_pid" "$api_pid" 2>/dev/null || true
+  local status=$?
+  if (( status != 0 )); then
+    echo "Browser smoke failed; last server state and service logs:" >&2
+    curl --fail --silent --max-time 2 http://127.0.0.1:8000/api/v1/state >&2 || true
+    tail -n 60 "$log_dir/api.log" "$log_dir/web.log" "$log_dir/chrome.log" >&2 || true
+  fi
+  local pids=("$web_pid" "$api_pid")
+  if [[ -n "$chrome_pid" ]]; then pids+=("$chrome_pid"); fi
+  kill "${pids[@]}" 2>/dev/null || true
+  # A wedged HTTP request can prevent uvicorn's graceful shutdown indefinitely.
+  for _ in $(seq 1 50); do
+    local alive=false
+    for pid in "${pids[@]}"; do
+      if kill -0 "$pid" 2>/dev/null; then alive=true; fi
+    done
+    if [[ "$alive" == false ]]; then break; fi
+    sleep 0.1
+  done
+  kill -KILL "${pids[@]}" 2>/dev/null || true
+  wait "${pids[@]}" 2>/dev/null || true
   rm -rf -- "$chrome_profile"
   rm -rf -- "$test_root"
+  return "$status"
 }
 trap cleanup EXIT
 

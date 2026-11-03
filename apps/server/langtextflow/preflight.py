@@ -15,34 +15,7 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
-
-_FASTER_WHISPER_REPOS = {
-    "tiny.en": "Systran/faster-whisper-tiny.en",
-    "tiny": "Systran/faster-whisper-tiny",
-    "base.en": "Systran/faster-whisper-base.en",
-    "base": "Systran/faster-whisper-base",
-    "small.en": "Systran/faster-whisper-small.en",
-    "small": "Systran/faster-whisper-small",
-    "medium.en": "Systran/faster-whisper-medium.en",
-    "medium": "Systran/faster-whisper-medium",
-    "large-v1": "Systran/faster-whisper-large-v1",
-    "large-v2": "Systran/faster-whisper-large-v2",
-    "large-v3": "Systran/faster-whisper-large-v3",
-    "large": "Systran/faster-whisper-large-v3",
-    "distil-large-v2": "Systran/faster-distil-whisper-large-v2",
-    "distil-medium.en": "Systran/faster-distil-whisper-medium.en",
-    "distil-small.en": "Systran/faster-distil-whisper-small.en",
-    "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
-    "distil-large-v3.5": "distil-whisper/distil-large-v3.5-ct2",
-    "large-v3-turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
-    "turbo": "mobiuslabsgmbh/faster-whisper-large-v3-turbo",
-}
-_WHISPER_REQUIRED_FILES = {
-    "config.json",
-    "model.bin",
-    "preprocessor_config.json",
-    "tokenizer.json",
-}
+from .whisper_cache import managed_whisper_cache, resolve_whisper_model
 
 
 class CheckStatus(StrEnum):
@@ -223,7 +196,7 @@ def _nvidia_check() -> PreflightCheck:
     )
 
 
-def _faster_whisper_checks(model: str) -> list[PreflightCheck]:
+def _faster_whisper_checks(model: str, cache_dir: str | Path | None = None) -> list[PreflightCheck]:
     installed = importlib.util.find_spec("faster_whisper") is not None
     package_check = PreflightCheck(
         id="faster-whisper",
@@ -253,66 +226,8 @@ def _faster_whisper_checks(model: str) -> list[PreflightCheck]:
             ),
         ]
 
-    local_path = Path(model).expanduser()
-    if local_path.is_dir():
-        missing = sorted(
-            filename
-            for filename in _WHISPER_REQUIRED_FILES
-            if not (local_path / filename).is_file()
-        )
-        return [
-            package_check,
-            PreflightCheck(
-                id="faster-whisper-model",
-                label="faster-whisper 모델",
-                status=CheckStatus.READY if not missing else CheckStatus.MISSING,
-                summary=(
-                    f"로컬 모델 {local_path}이 준비되어 있습니다."
-                    if not missing
-                    else f"로컬 모델에 필수 파일 {len(missing)}개가 없습니다."
-                ),
-                details={"model": model, "path": str(local_path), "missing": missing},
-            ),
-        ]
-
-    repo_id = model if "/" in model else _FASTER_WHISPER_REPOS.get(model)
-    if repo_id is None:
-        return [
-            package_check,
-            PreflightCheck(
-                id="faster-whisper-model",
-                label="faster-whisper 모델",
-                status=CheckStatus.MISSING,
-                summary=f"지원되는 faster-whisper model 이름이 아닙니다: {model}",
-                details={"model": model},
-            ),
-        ]
-
     try:
-        from huggingface_hub import snapshot_download
-
-        cached_path = Path(
-            snapshot_download(
-                repo_id,
-                local_files_only=True,
-                allow_patterns=[
-                    "config.json",
-                    "preprocessor_config.json",
-                    "model.bin",
-                    "tokenizer.json",
-                    "vocabulary.*",
-                ],
-            )
-        )
-        missing = sorted(
-            filename
-            for filename in _WHISPER_REQUIRED_FILES
-            if not (cached_path / filename).is_file()
-        )
-        if missing:
-            raise FileNotFoundError(
-                "cached snapshot is incomplete: " + ", ".join(missing)
-            )
+        cached_path = resolve_whisper_model(model, cache_dir)
     except Exception as exc:
         return [
             package_check,
@@ -321,7 +236,7 @@ def _faster_whisper_checks(model: str) -> list[PreflightCheck]:
                 label="faster-whisper 모델",
                 status=CheckStatus.MISSING,
                 summary=f"{model} 모델이 로컬 cache에 준비되어 있지 않습니다.",
-                details={"model": model, "repo_id": repo_id, "error": str(exc)},
+                details={"model": model, "error": str(exc)},
                 recommendation="세션 시작 전에 모델을 다운로드하세요.",
             ),
         ]
@@ -333,7 +248,7 @@ def _faster_whisper_checks(model: str) -> list[PreflightCheck]:
             label="faster-whisper 모델",
             status=CheckStatus.READY,
             summary=f"{model} 모델이 로컬 cache에 준비되어 있습니다.",
-            details={"model": model, "repo_id": repo_id, "path": str(cached_path)},
+            details={"model": model, "path": str(cached_path)},
         ),
     ]
 
@@ -691,6 +606,7 @@ async def run_preflight(
         asyncio.to_thread(
             _faster_whisper_checks,
             settings.low_resource_whisper_model if low else settings.faster_whisper_model,
+            managed_whisper_cache(settings.model_cache_dir),
         ),
         _vibevoice_check(settings),
         _ollama_checks(settings, ollama_model),

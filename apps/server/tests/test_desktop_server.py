@@ -17,6 +17,7 @@ from langtextflow.desktop_shutdown import (
 @pytest.mark.parametrize("argv", [
     ["backend"],
     ["backend", "--post-event-transcript-worker", "audio.wav"],
+    ["backend", "--faster-whisper-prefetch-worker", "small", "cache"],
     ["backend", "-B", "-S", "-I", "-c",
      "from multiprocessing.resource_tracker import main;main(0)"],
 ])

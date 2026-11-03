@@ -43,7 +43,13 @@ Ollama pull은 local Ollama HTTP API의 streaming response를 backend가 소비�
 
 ## faster-whisper
 
-기존 faster-whisper adapter는 모델 생성 시 cache가 없으면 다운로드가 발생할 수 있습니다. LangTextFlow는 이를 실제 세션 시작 전에 분리하기 위해 `faster_whisper.utils.download_model()`을 별도 subprocess에서 실행합니다.
+세션 실행과 사후 전사는 준비된 로컬 snapshot만 사용하며, 모델이나 토크나이저를 자동 다운로드하지 않습니다. 다운로드는 명시적 준비 작업의 전용 subprocess에서만 실행합니다. source 실행은 `python -m langtextflow.whisper_prefetch_worker`, frozen 실행은 전용 `--faster-whisper-prefetch-worker` 분기를 사용하며 일반 Python `-c` 코드를 실행하지 않습니다. 독립 ASR benchmark는 기존 bootstrap 동작을 보존하기 위해 다운로드 허용을 명시합니다.
+
+관리 캐시는 `<model_cache_dir>/huggingface` 바로 아래의 기존 Hugging Face 구조를 유지합니다. 준비·preflight·라이브 ASR·사후 전사는 같은 조회 함수를 사용합니다. 명시한 로컬 모델 디렉터리가 우선이며, 관리 캐시의 직접 배치와 이전 `huggingface/hub` 배치, `HF_HUB_CACHE`/`HUGGINGFACE_HUB_CACHE`/`HF_HOME`, 기존 기본 캐시도 읽을 수 있습니다. 기존 모델을 이동·삭제하거나 강제로 다시 받지 않습니다.
+
+`model.bin`, `config.json`, `tokenizer.json`이 모두 있어야 준비 완료로 판단합니다. `tokenizer.json`이 없을 때 native 라이브러리가 온라인 토크나이저로 대체하는 경로에 진입하지 않습니다. 공식 legacy 변환에는 `preprocessor_config.json`이 없는 경우가 있으므로, 이 파일은 선택적이며 없으면 native feature extractor의 로컬 기본값을 사용합니다. 이미 완성된 snapshot을 찾으면 다운로드와 다운로드 크기의 디스크 예약을 반복하지 않습니다.
+
+캐시 비우기는 설정된 관리 영역만 지웁니다. 외부 HF 캐시나 명시적 로컬 모델 경로는 삭제하지 않으므로, 관리 캐시를 비워도 외부에 준비된 모델은 계속 사용할 수 있습니다.
 
 subprocess를 사용한 이유는 다음과 같습니다.
 

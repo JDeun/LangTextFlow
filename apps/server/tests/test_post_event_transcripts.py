@@ -411,6 +411,7 @@ def test_long_pcm_uses_bounded_thirty_second_windows(monkeypatch, tmp_path, caps
     model_path = tmp_path / "cached-model"
     model_path.mkdir()
     (model_path / "model.bin").write_bytes(b"fake-licensed-test-weights")
+    monkeypatch.setattr(worker, "resolve_whisper_model", lambda *args: model_path)
     sizes = []
 
     class FakeModel:

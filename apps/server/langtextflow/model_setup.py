@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings
 from .storage_guard import ensure_storage_capacity
+from .whisper_cache import managed_whisper_cache, resolve_whisper_model
 
 _MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
 _TERMINAL_STATES = {"completed", "cancelled", "error"}
@@ -158,7 +159,12 @@ class ModelSetupManager:
     def _ensure_initial_storage(self, provider: str, model: str) -> None:
         if provider == "faster-whisper":
             required = _whisper_download_estimate(model)
-            cache_dir = Path(self.settings.model_cache_dir).expanduser().resolve() / "huggingface"
+            cache_dir = managed_whisper_cache(self.settings.model_cache_dir)
+            try:
+                resolve_whisper_model(model, cache_dir)
+                return  # Reusing an existing snapshot does not need download-sized free space.
+            except (ImportError, OSError, ValueError):
+                pass
             ensure_storage_capacity(
                 cache_dir,
                 required_bytes=required,
@@ -266,20 +272,17 @@ class ModelSetupManager:
             state=SetupJobState.RUNNING,
             status="faster-whisper 모델 파일을 준비하는 중입니다.",
         )
-        cache_dir = Path(self.settings.model_cache_dir).expanduser().resolve() / "huggingface"
+        cache_dir = managed_whisper_cache(self.settings.model_cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
-        code = (
-            "import json,sys; "
-            "from faster_whisper.utils import download_model; "
-            "path=download_model(sys.argv[1], cache_dir=sys.argv[2]); "
-            "print(json.dumps({'path': path}))"
+        command = (
+            [sys.executable, "--faster-whisper-prefetch-worker"]
+            if getattr(sys, "frozen", False)
+            else [sys.executable, "-m", "langtextflow.whisper_prefetch_worker"]
         )
         process: asyncio.subprocess.Process | None = None
         try:
             process = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-c",
-                code,
+                *command,
                 job.model,
                 str(cache_dir),
                 stdout=asyncio.subprocess.PIPE,
@@ -293,12 +296,15 @@ class ModelSetupManager:
                 message = stderr.decode("utf-8", errors="replace").strip()
                 raise RuntimeError(message or f"download process exited with {process.returncode}")
             details = _parse_last_json_line(stdout.decode("utf-8", errors="replace"))
+            if not details or not isinstance(details.get("path"), str):
+                raise ValueError("invalid Whisper preparation response")
+            prepared = resolve_whisper_model(job.model, cache_dir)
             await self._update_job(
                 job_id,
                 state=SetupJobState.COMPLETED,
                 status="faster-whisper 모델 준비가 완료되었습니다.",
                 progress_percent=100.0,
-                details=details or {},
+                details={"path": str(prepared)},
                 finished=True,
             )
         except asyncio.CancelledError:
