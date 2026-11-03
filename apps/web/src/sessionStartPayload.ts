@@ -1,5 +1,5 @@
 import type {
-  CaptionDisplaySettings, ProductPreset, ReferenceDocument, SessionContext,
+  CaptionDisplaySettings, ProductPreset, ReferenceDocument, SessionContext, SystemPreflight,
 } from "./types";
 
 /** Pure operator->backend session request contract, independent from React state. */
@@ -26,6 +26,14 @@ export interface SessionStartInputs {
 
 export function translationProviderUsesModel(provider: string): boolean {
   return provider === "ollama" || provider === "openai-compatible";
+}
+
+export function preflightTranslationModel(
+  report: Pick<SystemPreflight, "translation_provider" | "translation_model"> | null,
+  provider: string, override: string,
+): string {
+  return override.trim() || (report?.translation_provider === provider
+    ? report.translation_model?.trim() ?? "" : "");
 }
 
 export function buildSessionStartPayload(input: SessionStartInputs) {
@@ -56,10 +64,10 @@ export function buildSessionStartPayload(input: SessionStartInputs) {
     engine: input.engine,
     resource_profile: input.resourceProfile,
     correction_provider: input.correctionProvider,
-    correction_model: input.correctionProvider === "ollama" ? input.correctionModel : null,
+    correction_model: input.correctionProvider === "ollama" ? input.correctionModel.trim() || null : null,
     translation_provider: input.translationProvider,
     translation_model: translationProviderUsesModel(input.translationProvider)
-      ? input.translationModel
+      ? input.translationModel.trim() || null
       : null,
     context,
   };

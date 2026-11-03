@@ -206,6 +206,31 @@ await waitFor(
 );
 
 // Standalone operator glossary deep link: bilingual create/edit/persist and back navigation.
+await waitFor(() => evaluate(`document.querySelector('.control-panel [data-testid="translation-provider-select"] option[value="openai-compatible"]') !== null`), "provider metadata for model overrides");
+async function selectTranslationProvider(provider) {
+  await evaluate(`(() => {
+    const select = document.querySelector('.control-panel [data-testid="translation-provider-select"]');
+    select.value = ${JSON.stringify(provider)};
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  })()`);
+}
+await selectTranslationProvider("ollama");
+await waitFor(() => evaluate(`document.querySelector('[data-testid="translation-model-input"]')?.value === ''`), "configured backend model starts without a frontend override");
+await evaluate(`(() => {
+  const input = document.querySelector('[data-testid="translation-model-input"]');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'operator-local-model');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await selectTranslationProvider("openai-compatible");
+await waitFor(() => evaluate(`document.querySelector('[data-testid="translation-model-input"]')?.value === ''`), "local override cannot leak into an external provider");
+await selectTranslationProvider("ollama");
+await waitFor(() => evaluate(`document.querySelector('[data-testid="translation-model-input"]')?.value === 'operator-local-model'`), "local provider retains its own explicit override");
+await evaluate(`(() => {
+  const input = document.querySelector('[data-testid="translation-model-input"]');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, '');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+
 const glossaryCreated = await fetch("http://127.0.0.1:8000/api/v1/glossary", {
   method: "POST",
   headers: { "Content-Type": "application/json" },

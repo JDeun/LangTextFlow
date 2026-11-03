@@ -351,6 +351,17 @@ def test_translation_endpoint_location_capabilities_are_configuration_scoped() -
     assert remote["openai-compatible"].local_only is False
 
 
+def test_provider_registry_exposes_configured_defaults_without_certifying_the_model() -> None:
+    records = {entry.provider: entry for entry in translation_capabilities(Settings(
+        ollama_translation_model="custom-local-model",
+        openai_compatible_translation_model="custom-endpoint-model",
+    ))}
+    assert records["ollama"].model_id == "custom-local-model"
+    assert records["openai-compatible"].model_id == "custom-endpoint-model"
+    assert records["ollama"].configured is None
+    assert not records["ollama"].field_qualified
+
+
 def test_operator_only_asr_capability_endpoint() -> None:
     client = _local_client()
     response = client.get("/api/v1/asr/providers")

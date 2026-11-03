@@ -6,6 +6,7 @@ import { useI18n, type TranslationKey } from "./i18n";
 import { LANGUAGE_OPTIONS, languageLabel } from "./languages";
 import { PANEL_COPY } from "./panelCopy";
 import { ModelSetupControl } from "./ModelSetupControl";
+import { preflightTranslationModel, translationProviderUsesModel as providerUsesModel } from "./sessionStartPayload";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import { TranslationProviderSelect } from "./TranslationProviderSelect";
 import type { TranslationRegistry } from "./translationCapabilities";
@@ -14,10 +15,6 @@ import { VibeVoiceLifecycleControl } from "./VibeVoiceLifecycleControl";
 import "./onboarding.css";
 
 const PRESET_VALUES: ProductPreset[] = ["general", "church", "conference", "lecture"];
-
-function providerUsesModel(provider: string) {
-  return provider === "ollama" || provider === "openai-compatible";
-}
 
 interface OnboardingWizardProps {
   open: boolean;
@@ -157,12 +154,14 @@ export function OnboardingWizard({
   const ollamaReady = report?.checks.some(
     (check) => check.id === "ollama" && check.status === "ready",
   ) ?? false;
-  const translationModelMissing = report?.checks.some(
+  const effectiveTranslationModel = preflightTranslationModel(report, translationProvider, translationModel);
+  const translationModelMissing = report?.translation_provider === translationProvider
+    && report.translation_model === effectiveTranslationModel && report.checks.some(
     (check) => check.id === "translation-model" && check.status === "missing",
-  ) ?? false;
+  );
   const canPrepareTranslationModel =
     translationProvider === "ollama"
-    && Boolean(translationModel.trim())
+    && Boolean(effectiveTranslationModel)
     && ollamaReady
     && translationModelMissing;
 
@@ -271,7 +270,7 @@ export function OnboardingWizard({
                       </div>
                       <ModelSetupControl
                         provider="ollama"
-                        model={translationModel}
+                        model={effectiveTranslationModel}
                         enabled
                         onCompleted={handleRepairCompleted}
                       />
@@ -358,6 +357,7 @@ export function OnboardingWizard({
                     {copy.translationModel}
                     <input
                       value={translationModel}
+                      placeholder={effectiveTranslationModel}
                       onChange={(event) => onTranslationModelChange(event.target.value)}
                     />
                     {translationProvider === "openai-compatible" && (

@@ -65,6 +65,7 @@ def translation_capabilities(settings: Settings) -> list[TranslationCapability]:
             local_only=_loopback_endpoint(settings.ollama_url),
             requires_model=True,
             configured=None,
+            model_id=settings.ollama_translation_model or None,
             glossary_mode="prompt-hints-not-guaranteed",
             warnings=["Supported language pairs require independent model-level verification."],
         ),
@@ -74,6 +75,7 @@ def translation_capabilities(settings: Settings) -> list[TranslationCapability]:
             local_only=_loopback_endpoint(settings.openai_compatible_url),
             requires_model=True,
             configured=None,
+            model_id=settings.openai_compatible_translation_model or None,
             glossary_mode="prompt-hints-not-guaranteed",
             warnings=[
                 "An operator-configured endpoint may be remote. "
