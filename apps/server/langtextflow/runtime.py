@@ -28,6 +28,7 @@ from .recording_writer import SessionRecordingWriter
 from .session_repository import SessionRepository
 from .store import CaptionStore
 from .telemetry import EnergyVad, RealtimeMetrics, latency_ms
+from .whisper_cache import managed_whisper_cache
 
 _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 _PERSISTENCE_FAILURE = "Local session storage unavailable; check disk and database health."
@@ -234,6 +235,7 @@ class CaptionRuntime:
             queue_chunks=min(8, self.settings.audio_queue_chunks)
             if low else self.settings.audio_queue_chunks,
             max_frame_bytes=self.settings.max_audio_frame_bytes,
+            cache_dir=str(managed_whisper_cache(self.settings.model_cache_dir)),
         )
 
     async def _provider_changed(self, provider: str) -> None:

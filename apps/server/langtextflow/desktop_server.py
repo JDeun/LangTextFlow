@@ -156,6 +156,11 @@ async def _serve_desktop(app: Any, *, host: str, port: int) -> None:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    if len(sys.argv) > 1 and sys.argv[1] == "--faster-whisper-prefetch-worker":
+        from langtextflow.whisper_prefetch_worker import main as prefetch_worker
+
+        prefetch_worker(sys.argv[2:])
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "--post-event-transcript-worker":
         from langtextflow.post_event_transcript_worker import main as transcript_worker
 

@@ -371,6 +371,7 @@ def build_asr_engine(
     def faster_whisper(provider_publish: PublishEvent) -> FasterWhisperStreamingAsrEngine:
         return FasterWhisperStreamingAsrEngine(
             provider_publish,
+            allow_download=True,  # Explicit standalone benchmark bootstrap, not operator runtime.
             model=settings.faster_whisper_model,
             device=settings.faster_whisper_device,
             compute_type=settings.faster_whisper_compute_type,

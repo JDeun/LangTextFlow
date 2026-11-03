@@ -14,6 +14,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from .post_event_transcripts import DECODE_PARAMETERS, MAX_SEGMENTS, validate_segments
+from .whisper_cache import resolve_whisper_model
 
 
 def _emit(value: dict) -> None:
@@ -41,15 +42,14 @@ def decode(path: Path, model_name: str, language: str, expected_sha: str,
            cache_dir: str) -> None:
     from faster_whisper import WhisperModel
     from faster_whisper.audio import decode_audio
-    from faster_whisper.utils import download_model
 
     started = time.monotonic()
     # Never download weights in an operator job; model setup is a separate explicit action.
-    model_path = download_model(model_name, cache_dir=cache_dir, local_files_only=True)
+    model_path = resolve_whisper_model(model_name, cache_dir)
     with (Path(model_path) / "model.bin").open("rb") as weights:
         model_sha = _sha(weights)
     model = WhisperModel(
-        model_path, device="cpu", compute_type="int8", cpu_threads=2, num_workers=1,
+        str(model_path), device="cpu", compute_type="int8", cpu_threads=2, num_workers=1,
         local_files_only=True,
     )
     if path.is_symlink():
