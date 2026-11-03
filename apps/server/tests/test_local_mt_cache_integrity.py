@@ -24,9 +24,16 @@ def test_m2m100_partial_tokenizer_cache_is_not_ready(tmp_path) -> None:
                return_value=object()):
         result = local_m2m100_check(settings)
     assert result.status == CheckStatus.MISSING
-    assert "SentencePiece" in result.summary
+    assert "sentencepiece.bpe.model" in result.summary
 
     (tokenizer / "sentencepiece.bpe.model").write_bytes(b"fixture")
+    with patch("langtextflow.local_mt_preflight.importlib.util.find_spec",
+               return_value=object()):
+        result = local_m2m100_check(settings)
+    assert result.status == CheckStatus.MISSING
+    assert "vocab.json" in result.summary
+
+    (tokenizer / "vocab.json").write_text("{}")
     with patch("langtextflow.local_mt_preflight.importlib.util.find_spec",
                return_value=object()):
         result = local_m2m100_check(settings)

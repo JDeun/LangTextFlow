@@ -2,28 +2,16 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
 
 from .config import Settings
 from .preflight import CheckStatus, PreflightCheck
+from .translation.m2m100_ct2 import missing_m2m100_cache_files
 
 
 def local_m2m100_check(settings: Settings) -> PreflightCheck:
-    model = Path(settings.local_m2m100_ct2_dir)
-    tokenizer = Path(settings.local_m2m100_tokenizer_dir)
-    missing: list[str] = []
-    if not model.is_dir() or not all(
-        (model / name).is_file() for name in ("model.bin", "config.json")
-    ):
-        missing.append("CTranslate2 model.bin/config.json")
-    # tokenizer_config.json alone is insufficient: transformers may attempt
-    # network resolution or fail during prepare if the SentencePiece model
-    # is missing. Report unavailable before offering the provider in the UI.
-    if not tokenizer.is_dir() or not all(
-        (tokenizer / name).is_file()
-        for name in ("tokenizer_config.json", "sentencepiece.bpe.model")
-    ):
-        missing.append("M2M100 tokenizer config/SentencePiece vocabulary")
+    missing = missing_m2m100_cache_files(
+        settings.local_m2m100_ct2_dir, settings.local_m2m100_tokenizer_dir,
+    )
     if importlib.util.find_spec("ctranslate2") is None:
         missing.append("ctranslate2 optional Python dependency")
     if importlib.util.find_spec("transformers") is None:
