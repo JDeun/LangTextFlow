@@ -94,7 +94,7 @@ class ModelSetupManager:
         return self.settings.storage_reserve_mb * _MIB
 
     def _client(self, *, timeout: httpx.Timeout | float | None) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=timeout, transport=self._transport)
+        return httpx.AsyncClient(timeout=timeout, transport=self._transport, trust_env=False)
 
     async def list_jobs(self) -> list[ModelSetupJob]:
         async with self._lock:

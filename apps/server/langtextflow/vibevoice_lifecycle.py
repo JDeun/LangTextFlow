@@ -283,7 +283,7 @@ class VibeVoiceLifecycleManager:
             except Exception:
                 return False
         try:
-            async with httpx.AsyncClient(timeout=1.5) as client:
+            async with httpx.AsyncClient(timeout=1.5, trust_env=False) as client:
                 await bounded_json_request(
                     client, "GET", f"{self.settings.vibevoice_url.rstrip('/')}/v1/config",
                 )

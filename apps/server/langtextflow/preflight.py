@@ -281,7 +281,7 @@ def _require_model_listing(
 
 async def _vibevoice_check(settings: Settings) -> PreflightCheck:
     try:
-        async with httpx.AsyncClient(timeout=2.5) as client:
+        async with httpx.AsyncClient(timeout=2.5, trust_env=False) as client:
             payload = await bounded_json_request(
                 client, "GET", f"{settings.vibevoice_url.rstrip('/')}/v1/config",
             )
@@ -317,7 +317,7 @@ async def _vibevoice_check(settings: Settings) -> PreflightCheck:
 
 async def _ollama_checks(settings: Settings, model: str) -> list[PreflightCheck]:
     try:
-        async with httpx.AsyncClient(timeout=2.5) as client:
+        async with httpx.AsyncClient(timeout=2.5, trust_env=False) as client:
             payload = await bounded_json_request(
                 client, "GET", f"{settings.ollama_url.rstrip('/')}/api/tags",
             )
@@ -381,7 +381,7 @@ async def _openai_compatible_checks(
         else {}
     )
     try:
-        async with httpx.AsyncClient(timeout=2.5) as client:
+        async with httpx.AsyncClient(timeout=2.5, trust_env=False) as client:
             payload = await bounded_json_request(
                 client, "GET", f"{base_url}/models", headers=headers,
             )
