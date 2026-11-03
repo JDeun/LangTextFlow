@@ -52,6 +52,11 @@ VibeVoice, Ollama, LM Studio/vLLM-compatible endpoints, and future model provide
 
 A compromised model server can still return incorrect content. LangTextFlow's model-output checks reduce blast radius but are not a substitute for trusted model artifacts and hosts.
 
+Live Ollama correction sends source transcript text to the operator-configured
+`LANGTEXTFLOW_OLLAMA_URL`. An Ollama provider name does not establish that its
+endpoint is local. Verify its destination and data handling before enabling
+correction; the operator controls and their model help describe this distinction.
+
 Ollama/OpenAI-compatible translation, constrained correction, and post-event summary
 HTTP responses are streamed before JSON parsing. The entire envelope, including
 ignored fields and model-list metadata, is limited to 665,536 bytes (the largest
