@@ -73,6 +73,8 @@ class Settings(BaseSettings):
     # SQLite/disk errors must not block operator session stop indefinitely.
     persistence_drain_timeout_seconds: float = Field(default=3.0, gt=0, le=30)
     postprocess_max_parallel_segments: int = Field(default=2, ge=1, le=4)
+    provider_prepare_timeout_seconds: float = Field(default=30.0, gt=0, le=120)
+    session_start_timeout_seconds: float = Field(default=120.0, gt=0, le=600)
     # Bound target language inference even when one provider hangs or crashes.
     translation_target_timeout_seconds: float = Field(default=20.0, gt=0, le=120)
     translation_max_parallel_targets: int = Field(default=2, ge=1, le=4)

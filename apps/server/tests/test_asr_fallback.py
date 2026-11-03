@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from array import array
 
 import pytest
@@ -87,6 +88,56 @@ class FakeEngine(AsrEngine):
 
 def pcm(samples: int, value: float) -> bytes:
     return array("f", [value] * samples).tobytes()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wrapper", [StartupFallbackAsrEngine, ReplayFallbackAsrEngine])
+async def test_cancelled_candidate_start_stops_unactivated_provider(wrapper) -> None:
+    entered = asyncio.Event()
+
+    async def publish(event):
+        pytest.fail("cancelled candidate published")
+
+    class StalledEngine(FakeEngine):
+        async def start(self, request):
+            entered.set()
+            await asyncio.Event().wait()
+
+    candidate = StalledEngine(publish)
+    entry = candidate if wrapper is StartupFallbackAsrEngine else lambda callback: candidate
+    engine = wrapper(publish, [("stalled", entry)])
+    pending = asyncio.create_task(engine.start(StartSessionRequest(engine="auto")))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+        assert candidate.stopped and not engine.running
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        await engine.stop()
+
+
+@pytest.mark.asyncio
+async def test_candidate_deadline_stops_stalled_provider_and_tries_next() -> None:
+    async def publish(event):
+        pass
+
+    class StalledEngine(FakeEngine):
+        async def start(self, request):
+            await asyncio.Event().wait()
+
+    stalled, healthy = StalledEngine(publish), FakeEngine(publish)
+    engine = ReplayFallbackAsrEngine(
+        publish, [("stalled", lambda callback: stalled), ("healthy", lambda callback: healthy)],
+        startup_timeout_seconds=.01,
+    )
+    try:
+        await asyncio.wait_for(engine.start(StartSessionRequest(engine="auto")), 1)
+        assert stalled.stopped and engine.running and engine.active_provider == "healthy"
+    finally:
+        await engine.stop()
 
 
 @pytest.mark.asyncio

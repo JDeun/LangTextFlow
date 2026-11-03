@@ -89,6 +89,10 @@ class StartupFallbackAsrEngine(AsrEngine):
         for name, engine in self.candidates:
             try:
                 await engine.start(request)
+            except asyncio.CancelledError:
+                with suppress(Exception):
+                    await engine.stop()
+                raise
             except Exception as exc:
                 failures.append(f"{name}: {exc}")
                 with suppress(Exception):
@@ -135,6 +139,7 @@ class ReplayFallbackAsrEngine(AsrEngine):
         *,
         replay_seconds: float = 8.0,
         health_check_seconds: float = 0.25,
+        startup_timeout_seconds: float = 120.0,
         on_provider_change: ProviderChange | None = None,
     ) -> None:
         super().__init__(publish)
@@ -144,9 +149,12 @@ class ReplayFallbackAsrEngine(AsrEngine):
             raise ValueError("replay_seconds must be greater than zero")
         if health_check_seconds <= 0:
             raise ValueError("health_check_seconds must be greater than zero")
+        if startup_timeout_seconds <= 0:
+            raise ValueError("startup_timeout_seconds must be greater than zero")
         self.candidates = list(candidates)
         self.replay_seconds = replay_seconds
         self.health_check_seconds = health_check_seconds
+        self.startup_timeout_seconds = startup_timeout_seconds
         self.on_provider_change = on_provider_change
         self._request: StartSessionRequest | None = None
         self._active_name: str | None = None
@@ -356,10 +364,14 @@ class ReplayFallbackAsrEngine(AsrEngine):
 
         engine = factory(provider_publish)
         try:
-            await engine.start(self._request)
+            try:
+                async with asyncio.timeout(self.startup_timeout_seconds):
+                    await engine.start(self._request)
+            except TimeoutError as exc:
+                raise AsrEngineError(f"{name} initialization timed out") from exc
             if self._pending_overflowed:
                 raise AsrEngineError("ASR candidate startup event limit exceeded")
-        except Exception:
+        except (Exception, asyncio.CancelledError):
             self._pending_generation = None
             self._pending_candidate_serial = None
             self._pending_overflowed = False

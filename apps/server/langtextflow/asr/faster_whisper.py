@@ -10,6 +10,7 @@ from typing import Any
 
 from langtextflow.asr.base import AsrEngine, AsrEngineError, PublishEvent
 from langtextflow.models import CaptionStage, StartSessionRequest, TranscriptEvent
+from langtextflow.native_work import run_native_work
 from langtextflow.whisper_cache import prepare_whisper_model, resolve_whisper_model
 
 logger = logging.getLogger(__name__)
@@ -121,7 +122,7 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             self.timestamp_recovery_errors = []
         self._request = request
         try:
-            self._model = await asyncio.to_thread(self._load_model_sync)
+            self._model = await run_native_work("whisper", self._load_model_sync)
         except AsrEngineError as exc:
             self._failure = str(exc)
             raise
@@ -337,7 +338,8 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
             (self._audio_cursor_samples + chunk_samples) * 1000 / self._sample_rate
         )
         duration_ms = chunk_samples * 1000 / self._sample_rate
-        decoded = await asyncio.to_thread(
+        decoded = await run_native_work(
+            "whisper",
             self._transcribe_chunk_sync,
             pcm_f32le,
             self._request,
