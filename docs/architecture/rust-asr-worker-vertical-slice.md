@@ -17,8 +17,11 @@ production integration remain separate acceptance work.
 
 `langtextflow-core::asr_slice::AsrSession` owns prototype admission, session
 generation, source revision and the accepted source-event projection. One
-request is admitted at a time, with no waiting admission queue; at most 128
-source chunks are retained per session. A new session or an active source
+request is admitted at a time, with no waiting admission queue; at most 2,048
+source chunk identities are retained per session. Completed chunks compact to
+terminal tombstones instead of keeping duplicate source payloads. The later
+[continuous PCM slice](rust-continuous-pcm-ingress.md) owns bounded input queueing.
+A new session or an active source
 revision cancels the old admission. An accepted inference window is terminal in
 this prototype. Its event stage remains STABLE: this is not the production
 STABLE→correction/MT→COMMITTED contract or proof of #156 parity. Dropping an
@@ -41,8 +44,9 @@ OS reaper thread holding the permit, including outside/after the Tokio runtime.
 It releases capacity only after `try_wait` confirms exit. A reaper start/wait
 failure permanently retains that slot (fail closed). Await `stop()` for explicit
 cleanup; process creation itself is an OS call, not preempted by this
-request deadline. This source prototype uses Tokio 1.53.1 already pinned by the
-desktop app, with process/io/time/sync only (no new scheduling framework).
+request deadline. Tokio is pinned to 1.53.3, which includes the
+[I/O safety patch](https://rustsec.org/advisories/RUSTSEC-2026-0386.html).
+The existing process/io/net/time/sync runtime features remain unchanged.
 
 The Python `langtextflow.inference_worker` loads the existing cached
 `FasterWhisperStreamingAsrEngine` synchronously, invokes its existing decoder,
@@ -101,7 +105,8 @@ Arguments are interpreter, WAV, prepared model/alias, cache, CPU threads, source
 language and total PCM frame count. The example supplies four-second chunks and
 prints only accepted Rust source-event JSON with `field_ready=false`. It awaits
 owned-worker cleanup on success and error. Use the real WAV frame count, not the
-example number; maximum retained chunks are 128. No API/browser/desktop route
+example number; this static-WAV example caps its fixture at 128 windows. The
+continuous-ingress API has the separately documented bounded quota. No API/browser/desktop route
 selects this prototype. The worker is source-mode only; frozen dispatch is not
 claimed by this slice.
 

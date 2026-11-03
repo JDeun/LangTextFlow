@@ -43,7 +43,9 @@ spoken text. The session/generation/revision fence still binds the worker reply.
   revision or the previous session's text.
 - Projection retains up to 100 segments and at most 1MiB of serialized snapshot.
   Snapshot eviction counts disclose that this is a bounded live view, not an
-  archive. Original PCM/worker evidence is not deleted by display eviction.
+  archive. Display eviction does not rewrite in-flight sources. Completed chunks
+  compact to identity/revision tombstones; caller-retained PCM and durable
+  recording evidence are separate from the ephemeral inference spool.
 - Each observer has an 8-frame queue. Publication uses `try_send`, never awaits
   transport, and disconnects overflowed observers for snapshot resynchronization.
   This includes producer bursts exceeding the queue, not only slow networks.
@@ -101,7 +103,8 @@ ownership/shutdown. Synthetic inference is labeled separately from cached native
 speech tests. No test certifies semantic translation or independently aligned
 word timestamps.
 
-Still required: Rust continuous audio/VAD/sample-clock admission, correction and
+The [continuous PCM slice](rust-continuous-pcm-ingress.md) adds bounded Rust input
+and monitoring-VAD/sample-clock ownership. Still required: production capture routing, correction and
 MT workers/scheduling/partial-target commits, durable persistence/history, full
 operator/audience/desktop integration and rollback parity. The approved target
 architecture and model/device/field gates remain open; this observer does not
