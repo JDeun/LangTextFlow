@@ -4,14 +4,16 @@ from __future__ import annotations
 import importlib.util
 
 from .config import Settings
+from .m2m100_cache import m2m100_cache_paths
 from .preflight import CheckStatus, PreflightCheck
 from .translation.m2m100_ct2 import missing_m2m100_cache_files
 
 
 def local_m2m100_check(settings: Settings) -> PreflightCheck:
-    missing = missing_m2m100_cache_files(
-        settings.local_m2m100_ct2_dir, settings.local_m2m100_tokenizer_dir,
-    )
+    try:
+        missing = missing_m2m100_cache_files(*m2m100_cache_paths(settings))
+    except (OSError, ValueError):
+        missing = ["managed M2M100 cache requires repair"]
     if importlib.util.find_spec("ctranslate2") is None:
         missing.append("ctranslate2 optional Python dependency")
     if importlib.util.find_spec("transformers") is None:
@@ -25,8 +27,8 @@ def local_m2m100_check(settings: Settings) -> PreflightCheck:
         summary=("Local M2M100 CT2 model and tokenizer detected"
                  if not missing else "Missing: " + ", ".join(missing)),
         recommendation=(
-            "Provision the pinned M2M100 CT2 CPU INT8 model/tokenizer and "
-            "install optional dependencies locally. No network fallback."
+            "Use runtime maintenance to explicitly prepare/verify/repair the pinned CPU cache; "
+            "custom paths require manual provisioning. The local-mt extra is required."
             if missing else None
         ),
     )

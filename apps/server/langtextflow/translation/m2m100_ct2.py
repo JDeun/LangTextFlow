@@ -62,6 +62,7 @@ class _M2M100Worker:
         self.process = None
         self.ready = False
         self._released = False
+        self.released = asyncio.Event()
         self._closing: asyncio.Task | None = None
         self._late_cleanup: asyncio.Task | None = None
         self._lock = asyncio.Lock()
@@ -70,7 +71,8 @@ class _M2M100Worker:
         self._launch = asyncio.create_task(asyncio.create_subprocess_exec(
             *command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, limit=IPC_LIMIT,
-            env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"},
+            env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
+                 "USE_TORCH": "0"},
         ))
         self._launch.add_done_callback(self._schedule_late_spawn_cleanup)
 
@@ -84,8 +86,8 @@ class _M2M100Worker:
                 lambda done: None if done.cancelled() else done.exception()
             )
 
-    async def start(self) -> None:
-        async with asyncio.timeout(LOAD_TIMEOUT_SECONDS):
+    async def start(self, *, timeout: float | None = None) -> None:
+        async with asyncio.timeout(LOAD_TIMEOUT_SECONDS if timeout is None else timeout):
             self.process = await asyncio.shield(self._launch)
             if await self._read() != {"ready": True}:
                 raise TranslationError("Local M2M100 CPU worker could not initialize")
@@ -171,6 +173,7 @@ class _M2M100Worker:
         if not self._released:
             self._released = True
             _CHILD_SLOT.release()
+            self.released.set()
 
 
 class M2M100CT2Translator(Translator):

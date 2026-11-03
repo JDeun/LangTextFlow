@@ -125,7 +125,8 @@ function OperatorApp() {
   const [correctionProvider, setCorrectionProvider] = useState("none");
   const [correctionModel, setCorrectionModel] = useState("");
   const [translationProvider, setTranslationProvider] = useState("ollama");
-  const translationRegistry = useTranslationCapabilities();
+  const [translationDiscoveryRevision, setTranslationDiscoveryRevision] = useState(0);
+  const translationRegistry = useTranslationCapabilities(translationDiscoveryRevision);
   const [translationModels, setTranslationModels] = useState<Record<string, string>>({});
   const translationModel = translationModels[translationProvider] ?? "";
   function setTranslationModel(value: string) {
@@ -594,7 +595,8 @@ function OperatorApp() {
               </small>
             </label>
           )}
-          <RuntimeMaintenancePanel disabled={running} />
+          <RuntimeMaintenancePanel disabled={running}
+            onModelsChanged={() => setTranslationDiscoveryRevision(value => value + 1)} />
             </div>
           </details>
 

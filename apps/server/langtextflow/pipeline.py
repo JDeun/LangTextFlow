@@ -454,9 +454,12 @@ class CaptionPipeline:
             # Preserve standalone builder validation used by the offline
             # adapter and its tests, independent from runtime lifecycle.
             self._validate_local_translation_pairs(request)
+            from .m2m100_cache import m2m100_cache_paths
+
+            model_dir, tokenizer_dir = m2m100_cache_paths(self.settings)
             return M2M100CT2Translator(
-                model_dir=self.settings.local_m2m100_ct2_dir,
-                tokenizer_dir=self.settings.local_m2m100_tokenizer_dir,
+                model_dir=str(model_dir),
+                tokenizer_dir=str(tokenizer_dir),
                 cpu_threads=(
                     self.settings.low_resource_cpu_threads
                     if (request.resource_profile == "low"

@@ -1,6 +1,7 @@
 """Run the actual frozen backend with disposable storage and synthetic captions only."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import signal
@@ -15,6 +16,68 @@ from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 from build_desktop_sidecar import BIN_DIR, _target_triple
+
+
+def smoke_native_m2m100(request, root: Path) -> None:
+    """Manual opt-in only: real fixed weights, no external inference or speech input."""
+    from langtextflow.m2m100_prepare_worker import FILES, MODEL_REVISION
+
+    report = {
+        "status": "failed", "field_qualified": False, "quality_benchmark": False,
+        "model_revision": MODEL_REVISION, "frozen_prepare_and_repair": False,
+        "synthetic_source_actual_native_translation": False,
+        "source_sha": subprocess.run(["git", "rev-parse", "HEAD"],
+                                     check=True, capture_output=True, text=True).stdout.strip(),
+    }
+    output = Path(__file__).resolve().parents[1] / "artifacts/native-m2m100-setup-smoke.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    def prepared():
+        job = json.loads(request("/api/v1/setup/m2m100/prepare", {}))
+        deadline = time.monotonic() + 1230
+        while time.monotonic() < deadline:
+            job = json.loads(request(f"/api/v1/setup/jobs/{job['job_id']}"))
+            if job["state"] in {"completed", "cancelled", "error"}:
+                assert job["state"] == "completed", "native setup failed"
+                break
+            time.sleep(.25)
+        else:
+            raise RuntimeError("native setup deadline exceeded")
+        cache = root / "models/m2m100-native"
+        directory = cache / json.loads((cache / "current.json").read_text())
+        hashes = {}
+        for item in FILES:
+            with (directory / item.relative).open("rb") as stream:
+                hashes[item.relative] = hashlib.file_digest(stream, "sha256").hexdigest()
+            assert hashes[item.relative] == item.sha256, "prepared cache hash mismatch"
+        report["files_sha256"] = hashes
+        return directory
+
+    try:
+        first = prepared()
+        providers = json.loads(request("/api/v1/translation/providers"))
+        assert next(item for item in providers if item["provider"] == "m2m100-ct2")["configured"]
+        state = json.loads(request("/api/v1/session/start", {
+            "engine": "mock", "source_language": "ko", "target_languages": ["en"],
+            "correction_provider": "none", "translation_provider": "m2m100-ct2",
+        }))
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            captions = json.loads(request(f"/api/v1/audience/{state['join_code']}/captions"))
+            if any(item.get("translations", {}).get("en", "").strip() for item in captions):
+                report["synthetic_source_actual_native_translation"] = True
+                break
+            time.sleep(.2)
+        else:
+            raise RuntimeError("native translation did not produce a target")
+        assert not json.loads(request("/api/v1/session/stop", {}))["running"]
+        (first / "model/config.json").write_bytes(b"damaged")
+        repaired = prepared()
+        assert repaired != first
+        report["frozen_prepare_and_repair"] = True
+        report["status"] = "passed"
+    finally:
+        output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 
 def smoke_auxiliary_command(
@@ -86,6 +149,10 @@ def main() -> None:
         ], 0)
         # Invalid setup arguments must exit quietly without starting a server or downloading.
         smoke_auxiliary_command(binary, root, environment, ["--m2m100-worker"], 2)
+        smoke_auxiliary_command(binary, root, {**environment, "USE_TORCH": "0"}, [
+            "--m2m100-prepare-worker", "--check-runtime",
+        ], 0)
+        smoke_auxiliary_command(binary, root, environment, ["--m2m100-prepare-worker"], 2)
         smoke_auxiliary_command(binary, root, environment, [
             "--faster-whisper-prefetch-worker", "invalid-model", str(root / "invalid-cache"),
         ], 1)
@@ -131,6 +198,8 @@ def main() -> None:
                     f"/api/v1/history/{state['session_id']}/export?format=json",
                 ))
                 assert any(item["original_text"] for item in exported["segments"])
+                if os.environ.get("LTF_M2M100_PREPARE_SMOKE") == "1":
+                    smoke_native_m2m100(request, root)
                 request("/api/v1/desktop/shutdown", {})
                 assert process.wait(timeout=15) == 0
             except BaseException:

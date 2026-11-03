@@ -5,6 +5,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sys
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -18,6 +19,13 @@ import httpx
 from pydantic import BaseModel, Field
 
 from .config import Settings
+from .m2m100_cache import (
+    m2m100_cache_paths,
+    managed_m2m100_root,
+    publish_m2m100_cache,
+    uses_managed_m2m100,
+)
+from .m2m100_prepare_worker import DOWNLOAD_BYTES, MODEL_ID, PREPARE_TIMEOUT_SECONDS
 from .provider_http import bounded_response_lines, provider_stream
 from .storage_guard import ensure_storage_capacity
 from .whisper_cache import managed_whisper_cache, resolve_whisper_model
@@ -88,6 +96,22 @@ class ModelSetupManager:
         self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._active_keys: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
+        self._native_cleanup: set[asyncio.Task] = set()
+        self._native_started: set[str] = set()
+        self._native_committed: set[str] = set()
+
+    @property
+    def m2m100_preparing(self) -> bool:
+        return ("m2m100-ct2", MODEL_ID.casefold()) in self._active_keys
+
+    async def start_m2m100_prepare(self) -> ModelSetupJob:
+        if not uses_managed_m2m100(self.settings):
+            raise RuntimeError("Custom M2M100 paths use manual offline provisioning")
+        if any(importlib.util.find_spec(name) is None
+               for name in ("ctranslate2", "transformers", "sentencepiece")):
+            raise RuntimeError("M2M100 runtime is missing; install the local-mt application extra")
+        return await self._start_job(provider="m2m100-ct2", model=MODEL_ID,
+                                     runner=self._run_m2m100_prepare, task_prefix="m2m100-prepare")
 
     @property
     def _reserve_bytes(self) -> int:
@@ -158,6 +182,12 @@ class ModelSetupManager:
             return job.model_copy(deep=True)
 
     def _ensure_initial_storage(self, provider: str, model: str) -> None:
+        if provider == "m2m100-ct2":
+            ensure_storage_capacity(
+                managed_m2m100_root(self.settings), required_bytes=DOWNLOAD_BYTES,
+                reserve_bytes=self._reserve_bytes, operation="prepare local translation",
+            )
+            return
         if provider == "faster-whisper":
             required = _whisper_download_estimate(model)
             cache_dir = managed_whisper_cache(self.settings.model_cache_dir)
@@ -197,6 +227,8 @@ class ModelSetupManager:
                 return None
             if job.state.value in _TERMINAL_STATES:
                 return job.model_copy(deep=True)
+            if job_id in self._native_committed:
+                return job.model_copy(deep=True)  # Atomic publication has already committed.
 
             now = datetime.now(UTC)
             job.state = SetupJobState.CANCELLED
@@ -209,8 +241,79 @@ class ModelSetupManager:
         if task is not None:
             with suppress(asyncio.CancelledError):
                 await task
-        await self._release_job(job_id)
+        if job.provider != "m2m100-ct2" or job_id not in self._native_started:
+            await self._release_job(job_id)
         return await self.get_job(job_id)
+
+    async def _run_m2m100_prepare(self, job_id: str) -> None:
+        from .translation.m2m100_ct2 import _M2M100Worker
+
+        self._native_started.add(job_id)
+        root = managed_m2m100_root(self.settings)
+        stage = root / job_id
+        worker = None
+        published = False
+        try:
+            if root.is_symlink():
+                raise ValueError("invalid managed cache")
+            root.mkdir(parents=True, exist_ok=True)
+            stage.mkdir()
+            prefix = ([sys.executable, "--m2m100-prepare-worker"]
+                      if getattr(sys, "frozen", False)
+                      else [sys.executable, "-m", "langtextflow.m2m100_prepare_worker"])
+            # The same single-child lease excludes native inference during cache preparation.
+            try:
+                old_model, old_tokenizer = m2m100_cache_paths(self.settings)
+            except (OSError, ValueError):
+                old_model, old_tokenizer = stage / "absent-model", stage / "absent-tokenizer"
+            worker = _M2M100Worker([*prefix, str(stage), str(self._reserve_bytes),
+                                  str(old_model), str(old_tokenizer)])
+            await self._update_job(job_id, state=SetupJobState.RUNNING,
+                                   status="Verifying/preparing pinned M2M100 files (~0.5 GB).")
+            await worker.start(timeout=PREPARE_TIMEOUT_SECONDS)
+            async with self._lock:
+                job = self._jobs[job_id]
+                if job.state == SetupJobState.CANCELLED:
+                    raise asyncio.CancelledError
+                publish_m2m100_cache(root, job_id)
+                published = True
+                self._native_committed.add(job_id)
+                job.status = "Verified cache published; waiting for native worker cleanup."
+                job.updated_at = datetime.now(UTC)
+        except asyncio.CancelledError:
+            if not published:
+                await self._mark_cancelled(job_id)
+            raise
+        except Exception:
+            # Worker/HTTP/native exceptions can contain local paths, signed URLs or credentials.
+            await self._mark_error(job_id, "M2M100 preparation failed; previous cache retained.",
+                                   RuntimeError("Check runtime dependencies, network and disk; "
+                                                "retry preparation to repair the cache."))
+        finally:
+            if worker is not None:
+                with suppress(Exception, asyncio.CancelledError):
+                    await worker.close()
+
+            async def finish() -> None:
+                if worker is not None:
+                    await worker.released.wait()
+                if not published:
+                    await asyncio.to_thread(shutil.rmtree, stage, True)
+                else:
+                    await self._update_job(job_id, state=SetupJobState.COMPLETED,
+                                           status="Pinned M2M100 CPU cache verified and ready.",
+                                           progress_percent=100, finished=True)
+                self._native_started.discard(job_id)
+                self._native_committed.discard(job_id)
+                await self._release_job(job_id)
+
+            if worker is not None and not worker.released.is_set():
+                # Never discard a staging directory or admit another job before a late child dies.
+                cleanup = asyncio.create_task(finish(), name=f"m2m100-cleanup-{job_id}")
+                self._native_cleanup.add(cleanup)
+                cleanup.add_done_callback(self._native_cleanup.discard)
+            else:
+                await finish()
 
     async def shutdown(self) -> None:
         async with self._lock:
@@ -220,6 +323,9 @@ class ModelSetupManager:
         for task in tasks:
             with suppress(asyncio.CancelledError):
                 await task
+        for job_id, job in list(self._jobs.items()):
+            if job.provider == "m2m100-ct2" and job_id not in self._native_started:
+                await self._release_job(job_id)
 
     async def _run_ollama_pull(self, job_id: str) -> None:
         job = await self.get_job(job_id)
@@ -420,7 +526,8 @@ class ModelSetupManager:
         if len(self._jobs) <= maximum:
             return
         finished = sorted(
-            (job for job in self._jobs.values() if job.state.value in _TERMINAL_STATES),
+            (job for job in self._jobs.values() if job.state.value in _TERMINAL_STATES
+             and job.job_id not in self._tasks),
             key=lambda item: item.updated_at,
         )
         for job in finished[: max(0, len(self._jobs) - maximum)]:
