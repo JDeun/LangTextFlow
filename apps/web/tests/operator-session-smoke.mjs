@@ -120,6 +120,14 @@ try {
     snapshotResult.exceptionDetails.exception?.description || snapshotResult.exceptionDetails.text,
   );
   console.log(`glossary pre-start snapshot smoke passed: ${snapshotResult.result.value}`);
+  const audienceResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/audienceTargetsHarness.tsx').then((test) => test.runAudienceTargetChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (audienceResult.exceptionDetails) throw new Error(
+    audienceResult.exceptionDetails.exception?.description || audienceResult.exceptionDetails.text,
+  );
+  console.log(`audience mixed-target smoke passed: ${audienceResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;
