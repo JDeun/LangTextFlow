@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -21,6 +22,7 @@ from langtextflow.models import (
 )
 from langtextflow.post_event_api import install_post_event_routes
 from langtextflow.post_event_archive import PostEventArchive
+from langtextflow.provider_http import MAX_PROVIDER_RESPONSE_BYTES
 from langtextflow.session_repository import SessionRepository
 
 
@@ -68,6 +70,45 @@ def _settle(client: TestClient, archive: PostEventArchive):
             return summary
         time.sleep(0.01)
     pytest.fail("summary worker did not settle")
+
+
+@pytest.mark.parametrize("provider", ["ollama", "openai-compatible"])
+def test_oversized_summary_http_envelope_stores_safe_error_and_preserves_source(
+    monkeypatch, tmp_path, provider,
+):
+    app, archive, history = _app(tmp_path)
+    original = history.segments("source-1")
+    native_client = httpx.AsyncClient
+    received = 0
+    closed = False
+
+    class LargeBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            nonlocal received
+            for _ in range(128):
+                received += 65536
+                yield b"private-provider-body".ljust(65536, b"x")
+
+        async def aclose(self):
+            nonlocal closed
+            closed = True
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **options: native_client(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, stream=LargeBody())), **options,
+    ))
+    with TestClient(app) as client:
+        response = client.post("/api/v1/history/source-1/summary", json={
+            "provider": provider, "model": "fixture", "allow_external_provider": True,
+        })
+        assert response.status_code == 202
+        summary = _settle(client, archive)
+        assert summary["status"] == "error" and not summary["content"]
+        assert summary["error"] == (
+            "Summary model unavailable or returned invalid output; retry later"
+        )
+        assert "private-provider" not in client.get("/api/v1/history/source-1/archive").text
+    assert original == history.segments("source-1")
+    assert closed and MAX_PROVIDER_RESPONSE_BYTES < received <= MAX_PROVIDER_RESPONSE_BYTES + 65536
 
 
 @pytest.mark.parametrize("remote", [False, True])

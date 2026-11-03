@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+
+import httpx
 import pytest
 
 from langtextflow.models import GlossaryEntry, SessionContext
@@ -47,34 +50,15 @@ def test_ollama_prompt_uses_reference_only_as_disambiguation_context() -> None:
     assert prompt.endswith("\n\n\n오늘은 칭의에 대해 말하겠습니다.")
 
 
-class _BadPrepareResponse:
-    def raise_for_status(self) -> None:
-        return
-
-    def json(self) -> list[object]:
-        return []
-
-
-class _BadPrepareClient:
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        del args, kwargs
-
-    async def __aenter__(self) -> _BadPrepareClient:
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        del args
-
-    async def get(self, url: str) -> _BadPrepareResponse:
-        assert url.endswith("/api/tags")
-        return _BadPrepareResponse()
-
-
 @pytest.mark.asyncio
 async def test_ollama_prepare_rejects_non_object_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("langtextflow.translation.ollama.httpx.AsyncClient", _BadPrepareClient)
+    native_client = httpx.AsyncClient
+    monkeypatch.setattr("langtextflow.translation.ollama.httpx.AsyncClient", lambda **options:
+        native_client(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, json=[])), **options,
+        ))
     translator = OllamaTranslator(base_url="http://127.0.0.1:11434", model="test-model")
 
     with pytest.raises(TranslationError, match="JSON object"):
@@ -121,39 +105,21 @@ def test_ollama_can_accept_explicit_translation_only_json() -> None:
     ) == "The Lord is our shepherd."
 
 
-class _TranslateGemmaResponse:
-    def raise_for_status(self) -> None:
-        return
-
-    def json(self) -> dict[str, object]:
-        return {"message": {"content": "Let us read John 3:16 together."}}
-
-
-class _SpyTranslateGemmaClient:
-    calls: list[dict[str, object]] = []
-
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        del args, kwargs
-
-    async def __aenter__(self) -> _SpyTranslateGemmaClient:
-        return self
-
-    async def __aexit__(self, *args: object) -> None:
-        del args
-
-    async def post(self, url: str, *, json: dict[str, object]) -> _TranslateGemmaResponse:
-        assert url.endswith("/api/chat")
-        self.calls.append(json)
-        return _TranslateGemmaResponse()
-
-
 @pytest.mark.asyncio
 async def test_translategemma_http_uses_official_plain_text_not_json(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _SpyTranslateGemmaClient.calls = []
+    calls = []
+    native_client = httpx.AsyncClient
+
+    def respond(request):
+        assert str(request.url).endswith("/api/chat")
+        calls.append(json.loads(request.content))
+        return httpx.Response(200, json={"message": {"content": "Let us read John 3:16 together."}})
+
     monkeypatch.setattr(
-        "langtextflow.translation.ollama.httpx.AsyncClient", _SpyTranslateGemmaClient
+        "langtextflow.translation.ollama.httpx.AsyncClient",
+        lambda **options: native_client(transport=httpx.MockTransport(respond), **options),
     )
     translator = OllamaTranslator(base_url="http://127.0.0.1:11434", model="translategemma:4b")
     translated = await translator.translate(
@@ -163,7 +129,7 @@ async def test_translategemma_http_uses_official_plain_text_not_json(
         context=SessionContext(title="Test church session"),
     )
     assert translated == "Let us read John 3:16 together."
-    payload = _SpyTranslateGemmaClient.calls[0]
+    payload = calls[0]
     assert payload["model"] == "translategemma:4b"
     assert payload["stream"] is False
     messages = payload["messages"]
