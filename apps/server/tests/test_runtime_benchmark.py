@@ -9,6 +9,7 @@ from langtextflow.runtime_benchmark import (
     failover_caption_gap_ms,
     latency_summary,
     max_timeline_gap_ms,
+    parse_args,
 )
 from langtextflow.telemetry import RealtimeMetrics
 
@@ -129,3 +130,109 @@ async def test_runtime_benchmark_exposes_memory_scope_and_is_not_field_qualifica
     assert result["memory"]["scope"] == "parent_process"
     assert result["memory"]["process_tree"]["scope"] == "parent_and_recursive_descendants"
     assert result["memory"]["sample_count"] >= 3  # start, provider prepared, before shutdown
+
+
+@pytest.mark.parametrize("provider", ["none", "demo", "ollama", "m2m100-ct2"])
+def test_runtime_cli_accepts_two_target_soak_and_preserves_model_option(tmp_path, provider):
+    audio = tmp_path / "fixture.wav"
+    audio.touch()
+    options = parse_args([
+        str(audio), "--translation-provider", provider,
+        "--target-language", "en", "--target-language", "ja",
+        "--duration-minutes", "30", "--translation-model", "fixture-llm",
+    ])
+    assert options.translation_provider == provider
+    assert options.target_languages == ("en", "ja")
+    assert options.duration_minutes == 30
+    assert options.translation_model == "fixture-llm"
+
+
+@pytest.mark.parametrize("outcome", ["ready", "missing-cache", "target-failure"])
+def test_runtime_cli_uses_product_m2m_settings_and_fails_source_only_runs(
+    tmp_path, monkeypatch, outcome,
+):
+    import json
+    import wave
+
+    from test_faster_whisper import FakeFasterWhisperEngine
+
+    from langtextflow import runtime_benchmark
+    from langtextflow.config import Settings
+    from langtextflow.translation import M2M100CT2Translator, TranslationError
+
+    monkeypatch.setenv("LANGTEXTFLOW_RESOURCE_PROFILE", "standard")
+    monkeypatch.setenv("LANGTEXTFLOW_LOCAL_M2M100_CT2_DIR", str(tmp_path / "ct2"))
+    monkeypatch.setenv("LANGTEXTFLOW_LOCAL_M2M100_TOKENIZER_DIR", str(tmp_path / "tokenizer"))
+    monkeypatch.setenv("LANGTEXTFLOW_LOCAL_M2M100_CPU_THREADS", "3")
+    monkeypatch.setattr(runtime_benchmark, "get_settings", lambda: Settings(_env_file=None))
+    monkeypatch.setattr(runtime_benchmark.InstrumentedRuntime, "_build_engine", lambda runtime, _: (
+        FakeFasterWhisperEngine(runtime.pipeline.ingest, chunk_seconds=.1)
+    ))
+    prepared, translated, closed = [], [], []
+    original_prepare = M2M100CT2Translator.prepare
+
+    async def prepare(provider):
+        prepared.append((provider.model_dir, provider.tokenizer_dir, provider.cpu_threads))
+        if outcome == "missing-cache":
+            await original_prepare(provider)  # Real missing-artifact guard, before native load.
+
+    async def translate(provider, text, *, source_language, target_language, context):
+        translated.append((source_language, target_language))
+        if outcome == "target-failure" and target_language == "en":
+            raise TranslationError("synthetic target failure")
+        return f"{target_language}: synthetic translation"
+
+    async def close(provider):
+        closed.append(provider)
+
+    monkeypatch.setattr(M2M100CT2Translator, "prepare", prepare)
+    monkeypatch.setattr(M2M100CT2Translator, "translate", translate)
+    monkeypatch.setattr(M2M100CT2Translator, "close", close)
+    audio = tmp_path / "synthetic.wav"
+    with wave.open(str(audio), "wb") as wav:
+        wav.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+        wav.writeframes(b"\0\0" * 1600)
+    output = tmp_path / "report.json"
+    code = runtime_benchmark.main([
+        str(audio), "--engine", "faster-whisper", "--source-language", "ko",
+        "--translation-provider", "m2m100-ct2",
+        "--target-language", "en", "--target-language", "ja",
+        "--pace", "max", "--settle-seconds", "0", "--drain-timeout-seconds", "1",
+        "--output", str(output),
+    ])
+    report = json.loads(output.read_text())
+    assert prepared == [(tmp_path / "ct2", tmp_path / "tokenizer", 3)]
+    assert len(closed) == 1
+    assert report["config"]["target_languages"] == ["en", "ja"]
+    assert report["quality"]["committed_segment_count"] == 1
+    assert report["transcript"] == "chunk-1"  # Source preserved even when MT cannot run.
+    assert report["translation"]["provider"] == "m2m100-ct2"
+    assert code == (0 if outcome == "ready" else 1)
+    assert report["status"] == ("ok" if outcome == "ready" else "failed")
+    assert report["translation"]["failed_target_count"] == {
+        "ready": 0, "missing-cache": 2, "target-failure": 1,
+    }[outcome]
+    if outcome == "missing-cache":
+        assert not report["translation"]["available"]
+        assert "cache is missing" in report["translation"]["error"]
+        assert translated == []
+    else:
+        assert report["translation"]["available"]
+        assert sorted(translated) == [("ko", "en"), ("ko", "ja")]
+
+
+@pytest.mark.parametrize("status,exit_code", [("ok", 0), ("failed", 1), ("drain-timeout", 1)])
+def test_runtime_cli_exit_matches_saved_report(tmp_path, monkeypatch, status, exit_code):
+    import json
+
+    from langtextflow import runtime_benchmark
+
+    async def run(options):
+        return {"status": status}
+
+    monkeypatch.setattr(runtime_benchmark, "run_runtime_benchmark", run)
+    audio = tmp_path / "fixture.wav"
+    audio.touch()
+    output = tmp_path / "report.json"
+    assert runtime_benchmark.main([str(audio), "--output", str(output)]) == exit_code
+    assert json.loads(output.read_text())["status"] == status
