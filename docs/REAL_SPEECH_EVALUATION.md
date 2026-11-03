@@ -30,7 +30,46 @@ uv run --no-sync python scripts/evaluate_fleurs_asr.py \
 
 Note: CPU tests exercise **real recorded speech**, not mock ASR. Reading speech is not the same as noisy conferences. Real-time event pacing, acoustic echo/noise, simultaneous translation, long-form drift, VibeVoice GPU inference and user-perceived caption quality require separate evaluations. CPU RTF on tiny Whisper should not be interpreted as the target real-time 7B model throughput.
 
-The benchmark language-contract fix in PR #84 is required: original and target language cannot be identical even when translation is disabled. This PR is stacked on that fix and must be rebased after #84 merges.
+The original and target language must differ even when translation is disabled; the benchmark supplies a separate target to satisfy the runtime language contract.
+
+## 2026-11-03 regression evidence
+
+Source `7b6fb989037fc7a99d33e310412747a65843883b`, Korean FLEURS IDs
+1883/1929/1701, the pinned revision above, CPU INT8 and 30-second decode windows:
+
+| Model | Mean CER | Mean WER | Mean throughput RTF | Run |
+|---|---:|---:|---:|---|
+| tiny | 0.19593 | 0.64057 | 0.03267 | [41582860247](https://github.com/JDeun/LangTextFlow/actions/runs/41582860247) |
+| base | 0.31480 | 0.54850 | 0.08673 | [41582863765](https://github.com/JDeun/LangTextFlow/actions/runs/41582863765) |
+
+The third base clip has CER 0.6765; the mean alone hides this failure. Separate hosted
+runners and model aliases do not establish a controlled speed ranking or a qualified
+weight lock. These are short read-speech pilots, not live latency or field acceptance.
+PCM16 SHA-256 values, respectively:
+
+```text
+6aaa41029964099abe32008ef17ec538aa71aa480cc01568f6d64a65b25b30ab
+34d0749db9623cff365eeab9b9b4ec01f70975d930d9d423830547fdfe1075e9
+8a9b23044c204ac5f197864b802de716dcd639d798ed270767229fb9010807e5
+```
+
+Four-second runs exposed a worker failure followed by a full-queue producer deadlock.
+Merged #355 fixes the wait and records bounded failure JSON. Its reruns
+[tiny 41584271837](https://github.com/JDeun/LangTextFlow/actions/runs/41584271837) and
+[base 41584273456](https://github.com/JDeun/LangTextFlow/actions/runs/41584273456)
+fail promptly on `0.850–4.850s` for a `4.000s` PCM input.
+
+Merged #357 normalizes only a tail explained by valid VAD removal metadata, with a
+warning; it retains rejection of nonfinite, negative, inverted and unexplained timestamps.
+At implementation source `8198048f24966f2816f5d5c1beb65a9f9a96060a`,
+[tiny 41585194259](https://github.com/JDeun/LangTextFlow/actions/runs/41585194259)
+still fails a later unexplained `0–5s` segment. In
+[base 41585202031](https://github.com/JDeun/LangTextFlow/actions/runs/41585202031),
+sample 1883 completes (CER 0.1786; no duplicate/overlap counters), but sample 1929
+rejects `0–22.280s` for a `4s` window. The latter partial report is not a successful
+recognition result. Neither failed run supplies a valid three-clip aggregate.
+The default four-second CPU path remains unqualified under #101/#158; these fixes
+do not solve its recognition quality or justify a default/model promotion.
 
 ## Data handling
 
