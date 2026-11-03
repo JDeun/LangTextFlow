@@ -29,6 +29,9 @@ class PostEventArchive:
         from .project_digests import ProjectDigests
 
         self.project_digests = ProjectDigests(self)
+        from .project_package import ProjectPackageStore
+
+        self.packages = ProjectPackageStore(self)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.database_path, timeout=5)
@@ -126,6 +129,7 @@ class PostEventArchive:
                     conn.execute(f"ALTER TABLE session_summaries ADD COLUMN {column} TEXT")
         self.transcripts.initialize()
         self.project_digests.initialize()
+        self.packages.initialize()
         self.cleanup_stale_partials()
 
     def cleanup_stale_partials(
@@ -153,6 +157,11 @@ class PostEventArchive:
                 if conn.execute("SELECT 1 FROM recording_journal WHERE filename=?",
                                 (entry.name.removesuffix(".partial"),)).fetchone():
                     continue  # Durable ownership, including integrity failures.
+                if conn.execute(
+                    "SELECT 1 FROM project_package_files WHERE area='recordings' AND filename=?",
+                    (entry.name.removesuffix(".partial"),),
+                ).fetchone():
+                    continue
                 candidate = Path(entry.path)
                 try:
                     if candidate.is_symlink() or not candidate.is_file():
