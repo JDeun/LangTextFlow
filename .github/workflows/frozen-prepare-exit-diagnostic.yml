@@ -1,0 +1,40 @@
+name: Frozen prepare exit diagnostic
+on:
+  push:
+    branches: [validation/frozen-invalid-prepare-diagnostics]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+      - name: Install matching toolchains and locked packages
+        shell: bash
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal
+          rustup default 1.90.0
+          python -m pip install "uv==0.12.13"
+          uv sync --locked --extra dev --extra whisper --extra local-mt --extra benchmark
+          uv pip install "pyinstaller==6.22.2"
+          cd apps/web
+          npm ci
+          npm run build
+      - name: Instrumented test build and bounded invalid-args controls
+        run: uv run python -m scripts.diagnose_frozen_prepare_exit
+      - name: Upload bounded diagnostics even on negative results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: frozen-prepare-exit-diagnostic
+          path: artifacts/frozen-prepare-exit/
+          if-no-files-found: error
+          retention-days: 7
