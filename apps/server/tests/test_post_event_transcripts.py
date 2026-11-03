@@ -328,7 +328,8 @@ async def test_cancel_reaps_real_process_before_returning(monkeypatch):
         started.set()
 
     task = asyncio.create_task(run_decoder([
-        sys.executable, "-c",
+        # Windows venv python.exe can redirect to a different process; own the sleeper directly.
+        getattr(sys, "_base_executable", None) or sys.executable, "-c",
         "import json,os,time; print(json.dumps({'progress':os.getpid()}),flush=True); "
         "time.sleep(99)",
     ], 1, progress))
