@@ -144,8 +144,7 @@ function OperatorApp() {
     const correction = next.correction_status.provider === "ollama" ? "ollama" : "none";
     setCorrectionProvider(correction);
     setCorrectionModel(correction === "ollama" ? next.correction_status.model || "" : "");
-    const translation = ["none", "demo", "ollama", "openai-compatible", "m2m100-ct2"]
-      .includes(next.translation_status.provider) ? next.translation_status.provider : "none";
+    const translation = next.translation_status.provider;
     setTranslationProvider(translation);
     setTranslationModels(current => ({
       ...current, [translation]: next.translation_status.model || "",
@@ -449,6 +448,9 @@ function OperatorApp() {
               onChange={(event) => changeSourceLanguage(event.target.value)}
               disabled={running}
             >
+              {!LANGUAGE_OPTIONS.some(([code]) => code === sourceLanguage) && (
+                <option value={sourceLanguage} disabled>{languageLabel(sourceLanguage)}</option>
+              )}
               {LANGUAGE_OPTIONS.map(([code, label]) => (
                 <option value={code} key={code}>{label}</option>
               ))}
