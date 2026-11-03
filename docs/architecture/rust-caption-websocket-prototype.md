@@ -22,6 +22,8 @@ explicitly `unsupported`, and translations remain empty. This is a legitimate
 source-only completion, not six-way interpretation or parity with the production
 correction/MT revision pipeline. Model hints are not word alignment. Native
 Whisper remains chunked, STABLE-only, with the documented fixed prototype prompt.
+The later [explicit MT scheduling slice](rust-mt-scheduling-prototype.md) adds
+independent target completion without changing this source-only mode.
 
 Public source IDs use `rs-<Rust source slot>-<segment ordinal>`, within the shared
 128-character citation alphabet. A slot survives an uncommitted source revision;

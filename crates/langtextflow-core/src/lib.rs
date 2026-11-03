@@ -3,6 +3,7 @@
 
 pub mod asr_slice;
 pub mod caption_events;
+pub mod mt_slice;
 pub mod observer_ws;
 pub mod supervision;
 pub mod transport;

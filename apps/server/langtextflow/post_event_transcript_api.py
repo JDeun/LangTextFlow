@@ -35,7 +35,7 @@ async def run_decoder(command: list[str], duration: float, progress) -> tuple[li
     launch = asyncio.create_task(asyncio.create_subprocess_exec(
         *command, stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
-        limit=64 * 1024,
+        limit=128 * 1024,  # JSON escaping of 6000 non-BMP chars needs over 64 KiB.
     ))
     process = None
     segments: list[dict] = []
