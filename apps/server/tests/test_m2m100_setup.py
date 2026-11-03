@@ -170,7 +170,8 @@ def setup_manager(tmp_path, monkeypatch):
                   "(p/'model').mkdir(); (p/'tokenizer').mkdir(); "
                   + ("print('{\"ready\": true}',flush=True); sys.stdin.read()"
                      if mode[0] == "ready" else "time.sleep(60)"))
-        process = await original(sys.executable, "-c", script, str(stage), **kwargs)
+        executable = getattr(sys, "_base_executable", None) or sys.executable
+        process = await original(executable, "-c", script, str(stage), **kwargs)
         processes.append(process)
         return process
 
@@ -225,6 +226,77 @@ async def test_cancel_during_late_spawn_retains_lease_and_old_cache_until_reaped
     assert all(process.returncode is not None for process in processes)
     assert not (managed_m2m100_root(manager.settings) / job.job_id).exists()
     assert (await manager.get_job(job.job_id)).state == "cancelled"
+
+
+@pytest.mark.parametrize("operation", ["cancel", "shutdown"])
+@pytest.mark.parametrize("started", [True, False])
+async def test_cancelled_cleanup_owner_still_releases_reaped_or_queued_job(
+    setup_manager, monkeypatch, operation, started,
+):
+    manager, mode, processes = setup_manager
+    initial = await manager.start_m2m100_prepare()
+    await settle(manager)
+    previous = m2m100_cache_paths(manager.settings)
+    entered, release = asyncio.Event(), asyncio.Event()
+    real_release = manager._release_job
+
+    async def gated_release(job_id):
+        entered.set()
+        await release.wait()
+        await real_release(job_id)
+
+    monkeypatch.setattr(manager, "_release_job", gated_release)
+    mode[0] = "hang"
+    job = await manager.start_m2m100_prepare()
+    if started:
+        async with asyncio.timeout(4):
+            while len(processes) < 2:
+                await asyncio.sleep(.005)
+    else:
+        manager._tasks[job.job_id].cancel()  # Cancel before the runner can create any child.
+    owner = asyncio.create_task(manager.cancel_job(job.job_id) if operation == "cancel"
+                                else manager.shutdown())
+    try:
+        await asyncio.wait_for(entered.wait(), 4)
+        assert all(process.returncode is not None for process in processes)
+        owner.cancel()  # HTTP disconnect/lifespan cancellation after reap, before key release.
+        with pytest.raises(asyncio.CancelledError):
+            await owner
+        assert manager.m2m100_preparing
+        assert (await manager.start_m2m100_prepare()).job_id == job.job_id
+        release.set()
+        await settle(manager)
+        async with asyncio.timeout(4):
+            while manager._native_cleanup:
+                await asyncio.sleep(.005)
+        assert job.job_id not in manager._native_started | manager._native_committed
+        assert m2m100_cache_paths(manager.settings) == previous
+        assert previous[0].parent.name == initial.job_id
+        assert not (managed_m2m100_root(manager.settings) / job.job_id).exists()
+        mode[0] = "ready"
+        replacement = await manager.start_m2m100_prepare()
+        await settle(manager)
+        assert (await manager.get_job(replacement.job_id)).state == "completed"
+        assert all(process.returncode is not None for process in processes)
+    finally:
+        release.set()
+        await asyncio.wait_for(manager.shutdown(), 4)
+
+
+async def test_native_cleanup_observes_failure_without_retaining_task_or_private_error(
+    setup_manager, caplog,
+):
+    manager, _, _ = setup_manager
+
+    async def failed():
+        raise RuntimeError("https://user:secret@host/private?token=secret")
+
+    cleanup = manager._own_native_cleanup("fixture", failed())
+    await asyncio.wait({cleanup})
+    await asyncio.sleep(0)  # The completion callback owns exception retrieval/removal.
+    assert not manager._native_cleanup
+    assert "M2M100 preparation cleanup failed" in caplog.text
+    assert all(value not in caplog.text for value in ("secret", "https", "/private"))
 
 
 async def test_prepare_timeout_keeps_old_pointer_with_fixed_public_error(

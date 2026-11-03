@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import logging
 import os
 import re
 import shutil
 import sys
+from collections.abc import Coroutine
 from contextlib import suppress
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -39,6 +41,7 @@ _MODEL_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$")
 _TERMINAL_STATES = {"completed", "cancelled", "error"}
 _MIB = 1024 * 1024
 _GIB = 1024 * _MIB
+_LOGGER = logging.getLogger(__name__)
 _WHISPER_DOWNLOAD_ESTIMATES = {
     "tiny": 200 * _MIB,
     "base": 350 * _MIB,
@@ -249,10 +252,18 @@ class ModelSetupManager:
             if task is not None:
                 task.cancel()
 
+        queued_cleanup = None
+        if job.provider == "m2m100-ct2" and job_id not in self._native_started:
+            queued_cleanup = self._own_native_cleanup(job_id, self._release_job(job_id))
         if task is not None:
-            with suppress(asyncio.CancelledError):
-                await task
-        if job.provider != "m2m100-ct2" or job_id not in self._native_started:
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+        if queued_cleanup is not None:
+            await asyncio.shield(queued_cleanup)
+        elif job.provider != "m2m100-ct2":
             await self._release_job(job_id)
         return await self.get_job(job_id)
 
@@ -324,29 +335,49 @@ class ModelSetupManager:
                     await self._update_job(job_id, state=SetupJobState.COMPLETED,
                                            status="Pinned M2M100 CPU cache verified and ready.",
                                            progress_percent=100, finished=True)
+                await self._release_job(job_id)
                 self._native_started.discard(job_id)
                 self._native_committed.discard(job_id)
-                await self._release_job(job_id)
 
-            if worker is not None and not worker.released.is_set():
-                # Never discard a staging directory or admit another job before a late child dies.
-                cleanup = asyncio.create_task(finish(), name=f"m2m100-cleanup-{job_id}")
-                self._native_cleanup.add(cleanup)
-                cleanup.add_done_callback(self._native_cleanup.discard)
-            else:
-                await finish()
+            cleanup = self._own_native_cleanup(job_id, finish())
+            if worker is None or worker.released.is_set():
+                # HTTP/lifespan cancellation must not cancel release after native reap either.
+                await asyncio.shield(cleanup)
+            # A late child retains its staging directory and admission until finish observes reap.
+
+    def _own_native_cleanup(
+        self, job_id: str, operation: Coroutine[Any, Any, None],
+    ) -> asyncio.Task:
+        cleanup = asyncio.create_task(operation, name=f"m2m100-cleanup-{job_id}")
+        self._native_cleanup.add(cleanup)
+
+        def completed(task: asyncio.Task) -> None:
+            self._native_cleanup.discard(task)
+            if not task.cancelled() and task.exception() is not None:
+                _LOGGER.error("M2M100 preparation cleanup failed")
+
+        cleanup.add_done_callback(completed)
+        return cleanup
 
     async def shutdown(self) -> None:
         async with self._lock:
             tasks = [task for task in self._tasks.values() if not task.done()]
             for task in tasks:
                 task.cancel()
+        queued_cleanup = [
+            self._own_native_cleanup(job_id, self._release_job(job_id))
+            for job_id, job in list(self._jobs.items())
+            if job.provider == "m2m100-ct2" and job_id not in self._native_started
+            and self._active_keys.get((job.provider, job.model.casefold())) == job_id
+        ]
         for task in tasks:
-            with suppress(asyncio.CancelledError):
-                await task
-        for job_id, job in list(self._jobs.items()):
-            if job.provider == "m2m100-ct2" and job_id not in self._native_started:
-                await self._release_job(job_id)
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if asyncio.current_task().cancelling():
+                    raise
+        for cleanup in queued_cleanup:
+            await asyncio.shield(cleanup)
 
     async def _run_ollama_pull(self, job_id: str) -> None:
         job = await self.get_job(job_id)
