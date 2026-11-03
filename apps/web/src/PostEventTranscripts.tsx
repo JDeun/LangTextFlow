@@ -13,19 +13,20 @@ interface Version {
   review: { review_id: string; approved: boolean; segments?: Segment[] } | null;
 }
 interface Props {
-  root: string; locale: Locale; recordings: { recording_id: string; duration_seconds: number }[];
+  root: string; locale: Locale; sourceLanguage: string;
+  recordings: { recording_id: string; duration_seconds: number }[];
   onChanged: () => Promise<void>;
   requestedVersion: { id: string } | null;
   summary: { transcript_id?: string | null; content: string; review?: { content: string } | null } | null;
 }
 
-export function PostEventTranscripts({ root, locale, recordings, onChanged, requestedVersion, summary }: Props) {
+export function PostEventTranscripts({ root, locale, sourceLanguage, recordings, onChanged, requestedVersion, summary }: Props) {
   const copy = TRANSCRIPT_COPY[locale];
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState("");
   const [recording, setRecording] = useState("");
   const [model, setModel] = useState("small");
-  const [language, setLanguage] = useState(locale);
+  const [language, setLanguage] = useState<Locale>(() => (["ko", "en", "ja"] as const).find(value => value === sourceLanguage) ?? locale);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const requestId = useRef(0);

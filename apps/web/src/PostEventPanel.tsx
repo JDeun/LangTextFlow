@@ -224,7 +224,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
           />
         </div>
       ))}
-      <PostEventTranscripts root={root} locale={locale} recordings={archive.recordings}
+      <PostEventTranscripts root={root} locale={locale} sourceLanguage={session.source_language} recordings={archive.recordings}
         onChanged={refresh} requestedVersion={requestedTranscript} summary={archive.summary} />
       <h4>{copy.summary}</h4>
       {archive.summary_stale && (
