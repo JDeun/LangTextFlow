@@ -1,5 +1,26 @@
 # M0 GitHub issue and milestone assignment audit
 
+## Current reconciliation (2026-11-03)
+
+The repository API now verifies all six exact M0–M5 milestone records; their numbers
+and titles are listed in the [release roadmap](RELEASE_ROADMAP.md). The latest open-issue
+inventory contains 51 issues, all with milestones and labels: M0 11, M1 8, M2 20,
+M3 5, M4 7. New research #349/#341 were classified under M2 and #344 under M0,
+using existing labels and preserving their experimental/license gates. #254 closed
+after its replacement implementation and regression checks.
+
+The original 16 open PRs have been reconciled through existing code or tested replacement
+PRs #350–#368. The former #119/#264/#346 branches are closed; replacement research,
+audience metrics and IPC scaffold evidence is linked from the roadmap. Initial security
+failures remain historical evidence, not current unfixed dependency findings.
+
+Human ownership remains unassigned on all 51 issues. Field inputs, independent semantic
+review, physical hardware and signing/installer acceptance are still open. Administrative
+classification and green code checks do not close those gates or establish a milestone
+completion percentage. The dated records below preserve the prior audit snapshots.
+
+## Historical audit (2026-10-26)
+
 2026-10-26 · tracking #224 · incremental update to the individually verified 2026-10-22 baseline.
 
 ## Open-issue inventory (GitHub issue search)
