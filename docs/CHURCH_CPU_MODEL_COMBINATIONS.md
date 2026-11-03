@@ -2,6 +2,8 @@
 
 The [2026-11-03 original-artifact coverage audit](research/model-issue-evidence-coverage-2026-11.md) records newer OPUS-small/big, TranslateGemma, M2M100 and FunASR results, preserving failed outputs and source/checkout uncertainty. Historical measurements below are not a current-main rerun or model promotion.
 
+The [current-source queued-runtime checkpoint](REAL_SPEECH_EVALUATION.md#current-source-subprocess-and-memory-checkpoint-2026-11-03) separately records actual faster-whisper-base → M2M100 KO↔EN inference, complete sampled parent/child RSS, preserved errors and unapproved field qualification.
+
 Tracking: [#118](https://github.com/JDeun/LangTextFlow/issues/118),
 [#117](https://github.com/JDeun/LangTextFlow/issues/117),
 [#106](https://github.com/JDeun/LangTextFlow/issues/106),
