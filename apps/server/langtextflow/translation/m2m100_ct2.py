@@ -252,13 +252,7 @@ class M2M100CT2Translator(Translator):
             # Do not silently publish a mistranslated operator-defined term.
             # This is validation, not unsupported forced decoding: fail the
             # target explicitly while retaining the original source caption.
-            for entry, required in relevant_glossary(
-                context, text, target_language, source_language=source_language,
-            ):
-                if not _mentioned(candidate, required):
-                    raise TranslationError(
-                        f"Local M2M100 glossary term not preserved: {entry.term}"
-                    )
+            self._check_glossary(candidate, text, source_language, target_language, context)
             return candidate
         except TranslationError:
             raise
@@ -267,6 +261,17 @@ class M2M100CT2Translator(Translator):
 
         finally:
             _NATIVE_JOB_SLOTS.release()
+
+    @staticmethod
+    def _check_glossary(candidate: str, text: str, source: str, target: str,
+                        context: SessionContext) -> None:
+        for entry, required in relevant_glossary(
+            context, text, target, source_language=source,
+        ):
+            if not _mentioned(candidate, required):
+                raise TranslationError(
+                    f"Local M2M100 glossary term not preserved: {entry.term}"
+                )
 
     async def _translate_rpc(self, text: str, source: str, target: str) -> str:
         worker = self._worker
@@ -295,7 +300,8 @@ class M2M100CT2Translator(Translator):
                 raise TranslationError("Local M2M100 violated the target language prefix")
             target_ids = tokenizer.convert_tokens_to_ids(tokens[1:])
             candidate = tokenizer.decode(target_ids, skip_special_tokens=True).strip()
-            if (not candidate or candidate.casefold() == text.strip().casefold()
+            if (not candidate or len(candidate) > MAX_TRANSLATION_TEXT_CHARS
+                    or candidate.casefold() == text.strip().casefold()
                     or candidate.startswith(("{", "["))):
                 raise TranslationError("Local M2M100 returned an invalid translated caption")
             return candidate
