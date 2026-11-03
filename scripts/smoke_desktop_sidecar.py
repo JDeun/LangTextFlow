@@ -242,7 +242,8 @@ def main() -> None:
                       / "artifacts/native-m2m100-import-probe.json")
             report.parent.mkdir(parents=True, exist_ok=True)
             report.write_text(json.dumps(probe, indent=2) + "\n", encoding="utf-8")
-            assert probe["weights_downloaded"] is False and len(probe["cases"]) == 6
+            assert probe["weights_downloaded"] is False
+            assert len(probe["cases"]) == (7 if os.name == "nt" else 6)
             assert all(case["reaped"] for case in probe["cases"]), "import probe orphaned"
             assert next(case for case in probe["cases"]
                         if case["order"] == "preload-spm" and case["watch"] == "none")["ready"]

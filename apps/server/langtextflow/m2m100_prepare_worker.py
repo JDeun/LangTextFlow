@@ -64,10 +64,25 @@ def _probe_runtime(order: str, watch: str) -> None:
         os.dup2(silent.fileno(), 2)
     if watch != "none":
         descriptor = os.dup(0) if watch == "duplicate" else 0
+        if watch == "winapi":
+            import ctypes
+            import msvcrt
+            from ctypes import wintypes
+
+            handle = wintypes.HANDLE(msvcrt.get_osfhandle(0))
+            read_file = ctypes.WinDLL("kernel32", use_last_error=True).ReadFile
+            read_file.argtypes = (wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                                  ctypes.POINTER(wintypes.DWORD), wintypes.LPVOID)
+            read_file.restype = wintypes.BOOL
+            data = ctypes.create_string_buffer(1)
+            count = wintypes.DWORD()
         entered = threading.Event()
 
         def closed() -> None:
             entered.set()
+            if watch == "winapi":
+                success = read_file(handle, data, 1, ctypes.byref(count), None)
+                os._exit(0 if success or ctypes.get_last_error() == 109 else 1)
             os.read(descriptor, 1)
             os._exit(0)
 
@@ -109,43 +124,46 @@ async def _probe_runtime_matrix(output: Path) -> None:
     results = []
     prefix = ([sys.executable, "--m2m100-prepare-worker"] if getattr(sys, "frozen", False)
               else [sys.executable, "-m", "langtextflow.m2m100_prepare_worker"])
-    for order in ("direct", "preload-spm"):
-        for watch in ("none", "shared", "duplicate"):
-            result = {"order": order, "watch": watch, "ready": False, "timed_out": False}
-            worker = _M2M100Worker([*prefix, "--probe-runtime", order, watch])
-            try:
-                async with asyncio.timeout(15):
-                    worker.process = await asyncio.shield(worker._launch)
-                    result["spawn_pid"] = worker.process.pid
-                    while True:
-                        message = await worker._read()
-                        pid = message.get("pid")
-                        if type(pid) is not int or pid <= 0:
-                            raise ValueError("invalid probe identity")
-                        result["reported_pid"] = pid
-                        if message.get("ready") is True:
-                            result["ready"] = True
-                            break
-                        phase = message.get("phase")
-                        if phase not in {"native_import_ct2", "native_import_sentencepiece",
-                                         "native_import_tokenizer"}:
-                            raise ValueError("invalid probe phase")
-                        result["last_phase"] = phase
-            except TimeoutError:
-                result["timed_out"] = True
-            except Exception:
-                result["error_category"] = "import_or_protocol_failed"
-            finally:
-                if worker.process is not None:
-                    worker.process.stdin.close()
-                    try:
-                        await asyncio.wait_for(worker.process.wait(), 3)
-                        result["eof_exit_code"] = worker.process.returncode
-                    except TimeoutError:
-                        result["eof_exit_code"] = None
-                await worker.close()
-                result["reaped"] = worker.released.is_set()
-            results.append(result)
+    controls = [(order, watch) for order in ("direct", "preload-spm")
+                for watch in ("none", "shared", "duplicate")]
+    if os.name == "nt":
+        controls.append(("direct", "winapi"))
+    for order, watch in controls:
+        result = {"order": order, "watch": watch, "ready": False, "timed_out": False}
+        worker = _M2M100Worker([*prefix, "--probe-runtime", order, watch])
+        try:
+            async with asyncio.timeout(15):
+                worker.process = await asyncio.shield(worker._launch)
+                result["spawn_pid"] = worker.process.pid
+                while True:
+                    message = await worker._read()
+                    pid = message.get("pid")
+                    if type(pid) is not int or pid <= 0:
+                        raise ValueError("invalid probe identity")
+                    result["reported_pid"] = pid
+                    if message.get("ready") is True:
+                        result["ready"] = True
+                        break
+                    phase = message.get("phase")
+                    if phase not in {"native_import_ct2", "native_import_sentencepiece",
+                                     "native_import_tokenizer"}:
+                        raise ValueError("invalid probe phase")
+                    result["last_phase"] = phase
+        except TimeoutError:
+            result["timed_out"] = True
+        except Exception:
+            result["error_category"] = "import_or_protocol_failed"
+        finally:
+            if worker.process is not None:
+                worker.process.stdin.close()
+                try:
+                    await asyncio.wait_for(worker.process.wait(), 3)
+                    result["eof_exit_code"] = worker.process.returncode
+                except TimeoutError:
+                    result["eof_exit_code"] = None
+            await worker.close()
+            result["reaped"] = worker.released.is_set()
+        results.append(result)
     output.write_text(json.dumps({"weights_downloaded": False, "cases": results}, indent=2))
 
 
@@ -279,7 +297,8 @@ def main(args: list[str] | None = None) -> None:
         return
     if (len(args) == 3 and args[0] == "--probe-runtime"
             and args[1] in {"direct", "preload-spm"}
-            and args[2] in {"none", "shared", "duplicate"}):
+            and (args[2] in {"none", "shared", "duplicate"}
+                 or args[2] == "winapi" and os.name == "nt")):
         _probe_runtime(args[1], args[2])
         return
     if args == ["--check-runtime"]:
