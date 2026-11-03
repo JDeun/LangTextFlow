@@ -55,3 +55,12 @@ def test_committed_segment_stays_immutable_across_revision_epochs() -> None:
     store.apply(event(1, 1, CaptionStage.COMMITTED, committed=True))
     with pytest.raises(ValueError, match="already committed"):
         store.apply(event(2, 2, CaptionStage.STABLE))
+
+
+def test_raw_asr_evidence_cannot_change_within_one_source_revision() -> None:
+    store = CaptionStore()
+    store.apply(event(1, 1, CaptionStage.CORRECTED, original_text="raw ASR"))
+    with pytest.raises(ValueError, match="original ASR"):
+        store.apply(event(1, 2, CaptionStage.TRANSLATED, original_text="invented raw text"))
+    store.apply(event(2, 3, CaptionStage.STABLE, original_text="new ASR revision"))
+    assert store.snapshot()[0].original_text == "new ASR revision"

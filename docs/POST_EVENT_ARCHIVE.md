@@ -80,6 +80,8 @@ Explicitly selecting the OpenAI-compatible provider requires `allow_external_pro
 
 Only **committed original-language** transcript segments are evidence; translated captions, provisional text and user-supplied reference documents are not fed as speech evidence. The text includes segment IDs and source timestamps. Large transcripts are chunked and hierarchically reduced; the transcript SHA-256 distinguishes old summaries from new revisions. The system prompt treats transcripts as untrusted data. These measures reduce, but do **not eliminate**, hallucination and prompt-injection risk.
 
+New postprocessed events preserve `original_text` separately from corrected display `text`, including SQLite history and JSON exports. Summary evidence and project source excerpts prefer the saved ASR text. Existing rows migrate with a null original field: their pre-correction output cannot be recovered, so their stored display text remains the legacy evidence fallback. This migration does not invent or backfill missing ASR output. A changed source revision replaces raw evidence together with invalidating the older targets.
+
 - Time-accurate seek, participant privacy notice/consent, retention quotas and encrypted-at-rest handling remain separate acceptance work under #79.
 - Summary editing, approval locking, citation identity validation and stale-UI banners are implemented. Citation validity does not establish factual accuracy; model quality and independent human acceptance remain under #80 and #81.
 - Real device/microphone 30/60/90-minute acceptance remains separate.

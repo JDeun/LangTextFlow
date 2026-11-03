@@ -55,7 +55,7 @@ function segmentText(segment: TranscriptEvent, language: string) {
 function matchesTranscript(segment: TranscriptEvent, query: string) {
   if (!query) return true;
   const normalized = query.toLocaleLowerCase();
-  return [segment.text, segment.speaker || "", ...Object.values(segment.translations)]
+  return [segment.text, segment.original_text || "", segment.speaker || "", ...Object.values(segment.translations)]
     .join("\n")
     .toLocaleLowerCase()
     .includes(normalized);
@@ -491,6 +491,9 @@ export function SessionHistory({
                 <div className="history-transcript-copy">
                   {segment.speaker && <small className="history-speaker">{segment.speaker}</small>}
                   <div>{segmentText(segment, detailLanguage)}</div>
+                  {segment.original_text != null && segment.original_text !== segment.text && (
+                    <small className="history-source-text">ASR: {segment.original_text}</small>
+                  )}
                   {detailLanguage !== segment.source_language && segment.translations[detailLanguage] && <small className="history-source-text">{segment.text}</small>}
                 </div>
                 <div className="history-transcript-state">

@@ -220,7 +220,7 @@ class ProjectRepository:
                 SELECT
                   ps.project_id, s.session_id, s.title AS session_title,
                   t.segment_id, t.start_ms, t.end_ms, t.speaker,
-                  t.source_language, t.text, t.translations_json
+                  t.source_language, t.text, t.original_text, t.translations_json
                 FROM project_sessions AS ps
                 JOIN sessions AS s ON s.session_id = ps.session_id
                 JOIN transcript_segments AS t ON t.session_id = s.session_id
@@ -228,6 +228,7 @@ class ProjectRepository:
                   AND t.committed=1
                   AND (
                     t.text LIKE ? ESCAPE '!'
+                    OR t.original_text LIKE ? ESCAPE '!'
                     OR EXISTS (
                       SELECT 1 FROM json_each(t.translations_json) AS translated
                       WHERE CAST(translated.value AS TEXT)
@@ -237,7 +238,7 @@ class ProjectRepository:
                 ORDER BY s.started_at DESC, t.start_ms, t.segment_id
                 LIMIT ? OFFSET ?
                 """,
-                (project_id, pattern, pattern, limit, offset),
+                (project_id, pattern, pattern, pattern, limit, offset),
             ).fetchall()
         results = []
         for row in rows:
@@ -245,9 +246,13 @@ class ProjectRepository:
             language = str(row["source_language"])
             text = original
             if phrase.casefold() not in original.casefold():
+                raw_source = row["original_text"]
+                if raw_source is not None and phrase.casefold() in raw_source.casefold():
+                    text = raw_source
                 translations = json.loads(str(row["translations_json"]))
                 for translated_language, candidate in translations.items():
-                    if isinstance(candidate, str) and phrase.casefold() in candidate.casefold():
+                    if (text == original and isinstance(candidate, str)
+                            and phrase.casefold() in candidate.casefold()):
                         language = translated_language
                         text = candidate
                         break
@@ -261,7 +266,9 @@ class ProjectRepository:
                     end_ms=int(row["end_ms"]) if row["end_ms"] is not None else None,
                     speaker=str(row["speaker"]) if row["speaker"] is not None else None,
                     source_language=str(row["source_language"]),
-                    original_text=original,
+                    original_text=(
+                        row["original_text"] if row["original_text"] is not None else original
+                    ),
                     matched_language=language,
                     matched_text=text,
                 )

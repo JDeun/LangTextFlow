@@ -94,6 +94,10 @@ async def test_stable_segment_flows_through_correction_translation_and_commit() 
     assert published[2].translations["en"] == "Today we will look at John chapter 3."
     assert published[-1].correction == published[1].correction
     assert published[-1].committed is True
+    assert all(
+        event.original_text == "오늘 우리가 볼 말씀은 요한 보금 삼장입니다"
+        for event in published[1:]
+    )
 
 
 @pytest.mark.asyncio

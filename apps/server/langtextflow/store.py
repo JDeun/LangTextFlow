@@ -34,6 +34,9 @@ class CaptionStore:
                 return event
             if event.version <= current.version:
                 raise ValueError("event version must increase monotonically")
+            if (current.original_text is not None and event.original_text is not None
+                    and event.original_text != current.original_text):
+                raise ValueError("original ASR text cannot change within a source revision")
             if STAGE_ORDER[event.stage] < STAGE_ORDER[current.stage]:
                 raise ValueError("caption stage cannot move backwards")
             # Per-language events are cumulative snapshots. A later event

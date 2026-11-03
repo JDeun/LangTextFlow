@@ -292,6 +292,7 @@ class TranscriptEvent(BaseModel):
     stage: CaptionStage
     source_language: str = Field(min_length=2, max_length=16)
     text: str = Field(max_length=MAX_TRANSCRIPT_TEXT_CHARS)
+    original_text: str | None = Field(default=None, max_length=MAX_TRANSCRIPT_TEXT_CHARS)
     translations: dict[str, str] = Field(default_factory=dict, max_length=MAX_TARGET_LANGUAGES)
     # A resolved target can be displayed before other language targets finish.
     translation_states: dict[str, TranslationTargetState] = Field(
@@ -304,6 +305,11 @@ class TranscriptEvent(BaseModel):
     correction: CorrectionProvenance | None = None
     committed: bool = False
     emitted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    @property
+    def source_text(self) -> str:
+        """Use saved ASR evidence; legacy records only retain the displayed transcript."""
+        return self.original_text if self.original_text is not None else self.text
 
     @field_validator("source_language")
     @classmethod

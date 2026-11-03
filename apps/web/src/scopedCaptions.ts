@@ -25,6 +25,7 @@ export function applyScopedCaption(
   }
   const previous = state.records[payload.segment_id];
   if (previous && previous.version >= payload.version) return state;
+  if (previous && (previous.source_revision ?? 1) > (payload.source_revision ?? 1)) return state;
   return { path, records: { ...state.records, [payload.segment_id]: payload } };
 }
 
