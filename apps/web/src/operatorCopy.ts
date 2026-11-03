@@ -23,6 +23,7 @@ export const OPERATOR_COPY: Record<Locale, {
   resourceHelp: string;
   projectLabel: string;
   projectNone: string;
+  recoveredAudio: string;
 }> = {
   en: {
     rulesOnly: "Rule-based correction only",
@@ -45,6 +46,7 @@ export const OPERATOR_COPY: Record<Locale, {
     resourceLow: "Low-spec CPU (source captions)",
     resourceHelp: "Avoids auto-starting 7B ASR and 4B translation. Translated captions require a separately verified lightweight translator.",
     projectLabel: "Event project", projectNone: "No project",
+    recoveredAudio: "The running session was restored. This tab has not restarted its microphone; stop the session before starting fresh audio here.",
   },
   ko: {
     rulesOnly: "규칙 기반 보정만",
@@ -67,6 +69,7 @@ export const OPERATOR_COPY: Record<Locale, {
     resourceLow: "저사양 CPU 모드 (원문 자막)",
     resourceHelp: "7B ASR·4B 번역 모델을 자동 실행하지 않습니다. 다국어 통역은 검증된 경량 번역기를 별도로 구성해야 합니다.",
     projectLabel: "행사 프로젝트", projectNone: "프로젝트 없이 진행",
+    recoveredAudio: "실행 중인 세션을 복원했습니다. 이 탭의 마이크는 자동 재시작하지 않았습니다. 여기서 새 음성을 보내려면 먼저 세션을 중지하세요.",
   },
   ja: {
     rulesOnly: "ルールベース補正のみ",
@@ -89,5 +92,6 @@ export const OPERATOR_COPY: Record<Locale, {
     resourceLow: "低スペック CPU (原文字幕)",
     resourceHelp: "7B ASR・4B 翻訳モデルの自動起動を避けます。翻訳字幕は別途軽量翻訳モデルの設定が必要です。",
     projectLabel: "イベントプロジェクト", projectNone: "プロジェクトなし",
+    recoveredAudio: "実行中のセッションを復元しました。このタブのマイクは自動再開していません。ここから新しい音声を送るには、先にセッションを停止してください。",
   },
 };

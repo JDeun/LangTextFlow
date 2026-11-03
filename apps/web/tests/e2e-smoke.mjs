@@ -634,6 +634,12 @@ await evaluate(`document.querySelector('[data-testid="open-summary-transcript"]'
 await waitFor(() => evaluate(`document.querySelector('[data-testid="offline-source-link"]') !== null`), "offline summary exact citations");
 await evaluate(`document.querySelector('[data-testid="offline-source-link"]').click()`);
 await waitFor(() => evaluate(`document.activeElement?.dataset.testid === 'offline-transcript-text' && document.activeElement.value === 'Reviewed offline transcript'`), "offline citation focuses its reviewed evidence");
+await evaluate(`document.querySelector('[data-testid="offline-audio-seek"]').click()`);
+await waitFor(() => evaluate(`(() => {
+  const audio = Array.from(document.querySelectorAll('audio')).find(item => item.src.includes(${JSON.stringify(importedRecording.recording_id)}));
+  return audio && audio.readyState >= 1 && Math.abs(audio.currentTime - 1) < 0.05
+    && document.activeElement === audio && audio.paused;
+})()`), "offline source seeks its own recording after metadata load without autoplay");
 await evaluate(`(async () => {
   const originalFetch = window.fetch;
   let calls = 0;
@@ -660,6 +666,12 @@ const historyViolations = await evaluate(`axe.run(document, {
   runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }
 }).then(result => result.violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => ({ target: node.target, summary: node.failureSummary })) })))`);
 if (historyViolations.length) throw new Error("completed archive accessibility: " + JSON.stringify(historyViolations));
+await setViewport(390, 844, true);
+if (!await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`)) {
+  throw new Error("expanded event archive overflowed the mobile viewport");
+}
+await screenshot("history-mobile-ko");
+await setViewport(1440, 1000, false);
 
 for (const format of ["srt", "vtt", "txt", "json"]) {
   const exportResponse = await fetch(
@@ -706,6 +718,55 @@ try {
 } finally {
   const stop = await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });
   if (!stop.ok) throw new Error("missionary-language smoke cleanup failed");
+}
+
+// A fresh operator page recovers a server-owned session without posting another start.
+const hydrationProjectResponse = await fetch("http://127.0.0.1:8000/api/v1/projects", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ title: "Hydration project E2E" }),
+});
+if (!hydrationProjectResponse.ok) throw new Error("hydration project fixture failed");
+const hydrationProject = await hydrationProjectResponse.json();
+const hydrationStart = await fetch("http://127.0.0.1:8000/api/v1/session/start", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    project_id: hydrationProject.project_id, engine: "mock", resource_profile: "low",
+    source_language: "en", target_languages: ["ko", "ja"],
+    translation_provider: "none", correction_provider: "none",
+    context: { title: "Recovered live session E2E", presenter: "Recovered speaker", preset: "lecture",
+      hotwords: ["Grace-restored"] },
+  }),
+});
+if (!hydrationStart.ok) throw new Error("hydration running fixture failed");
+const hydrationSession = await hydrationStart.json();
+try {
+  await navigate("http://127.0.0.1:5173/?hydrate=running");
+  await waitFor(() => evaluate(`(() => {
+    const control = document.querySelector('[data-testid="session-toggle"]');
+    return control?.classList.contains('stop-button')
+      && document.querySelector('[data-testid="session-title-input"]')?.value === 'Recovered live session E2E'
+      && document.querySelector('[data-testid="session-presenter-input"]')?.value === 'Recovered speaker'
+      && document.querySelector('[data-testid="session-source-select"]')?.value === 'en'
+      && document.querySelector('[data-testid="session-preset-select"]')?.value === 'lecture'
+      && document.querySelector('[data-testid="resource-profile-select"]')?.value === 'low'
+      && document.querySelector('[data-testid="engine-select"]')?.value === 'mock'
+      && document.querySelector('[data-testid="session-project-select"]')?.value === ${JSON.stringify(hydrationProject.project_id)}
+      && document.querySelector('[data-testid="translation-provider-select"]')?.value === 'none'
+      && [...document.querySelectorAll('.target-language-chips button[aria-pressed="true"] b')]
+        .map(node => node.textContent).join(',') === 'KO,JA';
+  })()`), "reload restores actual session form and stop controls");
+  const liveHydrated = await fetch("http://127.0.0.1:8000/api/v1/state").then(response => response.json());
+  if (!liveHydrated.running || liveHydrated.session_id !== hydrationSession.session_id) {
+    throw new Error("operator reload changed or stopped the server-owned session");
+  }
+  const externalStop = await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });
+  if (!externalStop.ok) throw new Error("hydration external stop failed");
+  await waitFor(() => evaluate(`document.querySelector('[data-testid="session-toggle"]')?.classList.contains('start-button')
+    && !document.querySelector('[data-testid="session-title-input"]')?.disabled
+    && !document.querySelector('[data-testid="operator-metrics-consent"]')?.checked`),
+  "reconnect to ended backend clears stale running controls");
+} finally {
+  await fetch("http://127.0.0.1:8000/api/v1/session/stop", { method: "POST" });
 }
 
 socket.close();

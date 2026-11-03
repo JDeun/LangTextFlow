@@ -123,6 +123,8 @@ export interface CorrectionStatus extends ProviderStatus {}
 export interface TranslationStatus extends ProviderStatus {}
 
 export interface SessionState {
+  project_id?: string | null;
+  resource_profile?: "standard" | "low";
   collect_audience_metrics?: boolean;
   session_id: string | null;
   join_code: string | null;

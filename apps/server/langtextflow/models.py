@@ -405,13 +405,21 @@ class StartSessionRequest(BaseModel):
         return self
 
 
+class StopSessionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    expected_session_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
 class SessionState(BaseModel):
     session_id: str | None = None
+    project_id: str | None = None
     join_code: str | None = None
     running: bool = False
     source_language: str = "ko"
     target_languages: list[str] = Field(default_factory=lambda: ["en"])
     engine: str = "mock"
+    resource_profile: Literal["standard", "low"] = "standard"
     context: SessionContext | None = None
     audio_required: bool = False
     audio_sample_rate: int | None = None

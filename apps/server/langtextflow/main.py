@@ -46,6 +46,7 @@ from .models import (
     SessionRecord,
     SessionState,
     StartSessionRequest,
+    StopSessionRequest,
     TranscriptEvent,
 )
 from .network import (
@@ -66,7 +67,7 @@ from .project_repository import (
     ProjectRepository,
     ProjectTranscriptMatch,
 )
-from .runtime import CaptionRuntime
+from .runtime import CaptionRuntime, SessionChangedError
 from .runtime_install import (
     RuntimeKind,
     RuntimeProvisionJob,
@@ -699,6 +700,8 @@ async def delete_project(request: Request, project_id: str) -> Response:
     deleted = await asyncio.to_thread(project_repository.delete, project_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="project not found")
+    if runtime.state.project_id == project_id:
+        runtime.state.project_id = None
     return Response(status_code=204)
 
 
@@ -714,6 +717,8 @@ async def assign_session_project(
     result = await asyncio.to_thread(runtime.history.get_session, session_id)
     if result is None:
         raise HTTPException(status_code=404, detail="session not found")
+    if runtime.state.session_id == session_id:
+        runtime.state.project_id = result.project_id
     return result
 
 
@@ -1061,15 +1066,24 @@ async def start_session(request: Request, payload: StartSessionRequest) -> Sessi
 
 
 @app.post("/api/v1/session/stop", response_model=SessionState)
-async def stop_session(request: Request) -> SessionState:
+async def stop_session(request: Request, payload: StopSessionRequest | None = None) -> SessionState:
     _require_operator(request)
+    expected = payload.expected_session_id if payload else None
     async with _audio_transition_lock:
+        # Reject stale HTTP requests before touching another session's audio socket.
+        if expected is not None and runtime.state.session_id != expected:
+            raise HTTPException(409, "session changed; refresh before stopping")
         await _close_audio_socket_for_transition("caption session stopping")
         try:
-            state = await runtime.stop()
+            state = (
+                await runtime.stop(expected_session_id=expected)
+                if expected is not None else await runtime.stop()
+            )
             audience_latency_aggregate.reset()
             audience_metric_limiter.reset()
             return state
+        except SessionChangedError as exc:
+            raise HTTPException(409, str(exc)) from exc
         finally:
             _allow_audio_socket_acceptance()
 
