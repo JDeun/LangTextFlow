@@ -648,6 +648,13 @@ class ProjectPackageOperation:
             ):
                 raise PackageError("Private project manifest or graph hash is invalid")
             graph = parse_json(raw_graph)
+            if (
+                not isinstance(graph, dict)
+                or set(graph) != {"project_id", "tables"}
+                or not isinstance(graph["tables"], dict)
+                or any(not isinstance(rows, list) for rows in graph["tables"].values())
+            ):
+                raise PackageError("Invalid private project graph shape")
             original_counts = {name: len(data) for name, data in graph["tables"].items()}
             if manifest["version"] < 3:
                 # Original v1/v2 graph bytes were hash-checked above. These
