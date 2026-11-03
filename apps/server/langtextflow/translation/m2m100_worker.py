@@ -60,7 +60,8 @@ def main(args: list[str] | None = None) -> None:
                 raise ValueError("translation exceeds private IPC limit")
             print(response, file=output, flush=True)
     except Exception:
-        raise SystemExit(1) from None
+        # The daemon reader may own stdin's buffered lock during native failure.
+        os._exit(1)
 
 
 if __name__ == "__main__":

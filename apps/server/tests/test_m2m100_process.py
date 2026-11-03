@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 import sys
@@ -306,3 +307,89 @@ def test_worker_command_source_and_frozen(monkeypatch, tmp_path):
     ]
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     assert mt.worker_command(tmp_path, tmp_path, 2)[1] == "--m2m100-worker"
+
+
+@pytest.mark.asyncio
+async def test_launch_callback_before_cleanup_timeout_completion_still_reaps(
+    process_provider, monkeypatch,
+):
+    factory, _, _ = process_provider
+    create = asyncio.create_subprocess_exec
+    spawned, release = asyncio.Event(), asyncio.Event()
+    processes = []
+
+    async def delayed_return(*args, **kwargs):
+        process = await create(*args, **kwargs)
+        processes.append(process)
+        spawned.set()
+        await release.wait()
+        # Return the actual child after wait_for's deadline but before its task resumes.
+        time.sleep(.06)
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", delayed_return)
+    monkeypatch.setattr(mt, "REAP_TIMEOUT_SECONDS", .03)
+    provider = factory()
+    worker = mt._M2M100Worker(mt.worker_command(provider.model_dir, provider.tokenizer_dir, 2))
+    await spawned.wait()
+    stopping = asyncio.create_task(worker.close())
+    await asyncio.sleep(.001)
+    release.set()
+    try:
+        with pytest.raises(TranslationError, match="launch cleanup timed out"):
+            await stopping
+        async with asyncio.timeout(5):
+            while not worker._released:
+                await asyncio.sleep(.005)
+        assert worker._late_cleanup is not None
+        assert processes[0].returncode is not None
+        assert_reaped(worker)
+    finally:
+        release.set()
+        monkeypatch.setattr(mt, "REAP_TIMEOUT_SECONDS", 2)
+        await worker.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["load", "infer"])
+async def test_first_party_native_error_exits_quietly_with_parent_stdin_open(
+    tmp_path, monkeypatch, phase,
+):
+    (tmp_path / "transformers.py").write_text('''
+class M2M100Tokenizer:
+    lang_code_to_token = {"ko": "__ko__", "en": "__en__", "ja": "__ja__"}
+    @classmethod
+    def from_pretrained(cls, path, *, local_files_only):
+        if path.endswith("load"): raise ValueError("corrupt local tokenizer")
+        return cls()
+    def encode(self, text): return [42]
+    def convert_ids_to_tokens(self, ids): return ["source"]
+''', encoding="utf-8")
+    (tmp_path / "ctranslate2.py").write_text('''
+class Translator:
+    def __init__(self, *args, **kwargs): pass
+    def translate_batch(self, *args, **kwargs): raise ValueError("native inference failed")
+''', encoding="utf-8")
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join([
+        str(tmp_path), str(Path(__file__).parents[1]), os.environ.get("PYTHONPATH", ""),
+    ]))
+    process = await asyncio.create_subprocess_exec(
+        *mt.worker_command(tmp_path, tmp_path / phase, 2),
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        if phase == "infer":
+            ready = await asyncio.wait_for(process.stdout.readline(), 5)
+            assert json.loads(ready) == {"ready": True}
+            process.stdin.write(b'{"id":1,"text":"source","source":"en","target":"ko"}\n')
+            await process.stdin.drain()
+        # Keep stdin open: a blocked daemon buffered reader must not abort Python finalization.
+        assert await asyncio.wait_for(process.wait(), 5) == 1
+        assert await process.stdout.read() == b""
+        assert await process.stderr.read() == b""
+    finally:
+        process.stdin.close()
+        if process.returncode is None:
+            process.kill()
+        await asyncio.wait_for(process.wait(), 3)

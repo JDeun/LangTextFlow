@@ -72,11 +72,13 @@ class _M2M100Worker:
             stderr=asyncio.subprocess.DEVNULL, limit=IPC_LIMIT,
             env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"},
         ))
-        self._launch.add_done_callback(self._launched)
+        self._launch.add_done_callback(self._schedule_late_spawn_cleanup)
 
-    def _launched(self, launch: asyncio.Task) -> None:
+    def _schedule_late_spawn_cleanup(self, finished: asyncio.Task) -> None:
         # A slow OS spawn can finish after bounded cancellation cleanup returned.
-        if self._closing is not None and self._closing.done() and not self._released:
+        if (self._launch.done() and self._closing is not None and self._closing.done()
+                and self.process is None and not self._released
+                and (self._late_cleanup is None or self._late_cleanup.done())):
             self._late_cleanup = asyncio.create_task(self.close())
             self._late_cleanup.add_done_callback(
                 lambda done: None if done.cancelled() else done.exception()
@@ -128,6 +130,7 @@ class _M2M100Worker:
         self.ready = False
         if self._closing is None or self._closing.done() and self._closing.exception():
             self._closing = asyncio.create_task(self._terminate())
+            self._closing.add_done_callback(self._schedule_late_spawn_cleanup)
         # Repeated cancellation cannot release admission before the OS child is reaped.
         cancelled = False
         while not self._closing.done():
