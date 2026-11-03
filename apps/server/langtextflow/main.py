@@ -1051,9 +1051,13 @@ def seed_church_glossary(
 async def start_session(request: Request, payload: StartSessionRequest) -> SessionState:
     _require_operator(request)
     async with _audio_transition_lock:
-        await _close_audio_socket_for_transition("caption session restarting")
+        async def close_audio() -> None:
+            await _close_audio_socket_for_transition("caption session restarting")
+
         try:
-            state = await runtime.start(_with_saved_glossary(payload))
+            state = await runtime.start(
+                _with_saved_glossary(payload), before_transition=close_audio,
+            )
             audience_latency_aggregate.reset()
             audience_metric_limiter.reset()
             return state

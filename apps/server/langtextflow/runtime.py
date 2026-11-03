@@ -1,6 +1,7 @@
 import asyncio
 import secrets
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from threading import Event as ThreadEvent
@@ -360,14 +361,20 @@ class CaptionRuntime:
         self._refresh_queue_metrics()
         return self.metrics.model_copy(deep=True)
 
-    async def start(self, request: StartSessionRequest) -> SessionState:
+    async def start(
+        self, request: StartSessionRequest, *,
+        before_transition: Callable[[], Awaitable[None]] | None = None,
+    ) -> SessionState:
         async with self._lifecycle_lock:
             try:
-                return await self._start_unlocked(request)
+                return await self._start_unlocked(request, before_transition=before_transition)
             except TimeoutError as exc:
                 raise AsrEngineError("Session provider initialization timed out; retry") from exc
 
-    async def _start_unlocked(self, request: StartSessionRequest) -> SessionState:
+    async def _start_unlocked(
+        self, request: StartSessionRequest, *,
+        before_transition: Callable[[], Awaitable[None]] | None = None,
+    ) -> SessionState:
         await self.initialize()
         # Validate before stopping a running session: an invalid project must not
         # interrupt a live event or create an unassigned session by accident.
@@ -403,6 +410,8 @@ class CaptionRuntime:
 
         if request.record_audio and not engine.accepts_audio:
             raise ValueError("recording requires a real audio-input ASR engine")
+        if before_transition is not None:
+            await before_transition()
         if self.state.running:
             await self._stop_unlocked()
         self._active_generation = generation
