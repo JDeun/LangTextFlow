@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sys
 import threading
@@ -54,6 +55,34 @@ FILES = (
 DOWNLOAD_BYTES = sum(item.maximum_bytes for item in FILES)
 
 
+def _phase(directory: Path, stage: str, filename: str | None = None) -> None:
+    temporary = directory / ".phase.json"
+    temporary.write_text(json.dumps({"phase": stage, "file": filename, "pid": os.getpid()}))
+    os.replace(temporary, directory / "phase.json")
+
+
+def preparation_progress(directory: Path) -> dict:
+    """Return only fixed public enums/file keys and a bounded byte count, never raw JSON."""
+    try:
+        path = directory / "phase.json"
+        if path.is_symlink() or path.stat().st_size > 512:
+            return {}
+        value = json.loads(path.read_bytes())
+        if (not isinstance(value, dict) or not isinstance(value.get("phase"), str)
+                or value["phase"] not in {"checking_cache", "downloading", "native_validation"}):
+            return {}
+        result = {"phase": value["phase"]}
+        item = next((item for item in FILES if item.relative == value.get("file")), None)
+        if item is not None:
+            result["file"] = item.relative
+            file_path = directory / item.relative
+            if file_path.is_file() and not file_path.is_symlink():
+                result["file_bytes"] = min(item.maximum_bytes, file_path.stat().st_size)
+        return result
+    except (OSError, ValueError):
+        return {}
+
+
 def _allowed_url(url: str) -> bool:
     parsed = urlsplit(url)
     host = parsed.hostname or ""
@@ -104,7 +133,8 @@ def download_file(client: httpx.Client, item: ModelFile, output: Path, reserve: 
 
 
 def prepare(directory: Path, reserve: int, existing: tuple[Path, Path]) -> None:
-    if directory.is_symlink() or not directory.is_dir() or any(directory.iterdir()):
+    if (directory.is_symlink() or not directory.is_dir()
+            or any(item.name != "owner.json" for item in directory.iterdir())):
         raise ValueError("preparation requires an empty owned directory")
     ensure_storage_capacity(directory, required_bytes=DOWNLOAD_BYTES,
                             reserve_bytes=reserve, operation="prepare local translation")
@@ -113,6 +143,7 @@ def prepare(directory: Path, reserve: int, existing: tuple[Path, Path]) -> None:
     with httpx.Client(timeout=httpx.Timeout(30, connect=10), trust_env=False,
                       follow_redirects=False) as client:
         for item in FILES:
+            _phase(directory, "checking_cache", item.relative)
             output = directory / item.relative
             source = existing[0 if item.relative.startswith("model/") else 1] / output.name
             try:
@@ -124,10 +155,12 @@ def prepare(directory: Path, reserve: int, existing: tuple[Path, Path]) -> None:
                                     output, item, reserve)
             except (OSError, ValueError):
                 output.unlink(missing_ok=True)
+                _phase(directory, "downloading", item.relative)
                 download_file(client, item, output, reserve)
     # Native/tokenizer initialization is offline, inside this killable child only.
     from .translation.m2m100_ct2 import M2M100CT2Translator
 
+    _phase(directory, "native_validation")
     M2M100CT2Translator(model_dir=str(directory / "model"),
                         tokenizer_dir=str(directory / "tokenizer"), cpu_threads=2)._prepare_sync()
 

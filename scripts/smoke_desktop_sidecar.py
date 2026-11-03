@@ -1,6 +1,7 @@
 """Run the actual frozen backend with disposable storage and synthetic captions only."""
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import os
@@ -26,6 +27,7 @@ def smoke_native_m2m100(request, root: Path) -> None:
         "status": "failed", "field_qualified": False, "quality_benchmark": False,
         "model_revision": MODEL_REVISION, "frozen_prepare_and_repair": False,
         "synthetic_source_actual_native_translation": False,
+        "cancelled_worker_reaped": False, "worker_pid_matches_spawn": False,
         "source_sha": subprocess.run(["git", "rev-parse", "HEAD"],
                                      check=True, capture_output=True, text=True).stdout.strip(),
     }
@@ -35,9 +37,20 @@ def smoke_native_m2m100(request, root: Path) -> None:
     def prepared():
         job = json.loads(request("/api/v1/setup/m2m100/prepare", {}))
         deadline = time.monotonic() + 1230
+        last_logged = 0.0
         while time.monotonic() < deadline:
             job = json.loads(request(f"/api/v1/setup/jobs/{job['job_id']}"))
+            progress = job.get("details", {})
+            previous = report.get("last_progress", {})
+            if (progress.get("phase") != previous.get("phase")
+                    or progress.get("file") != previous.get("file")
+                    or time.monotonic() - last_logged > 15):
+                print(json.dumps({"native_setup_progress": progress}), flush=True)
+                last_logged = time.monotonic()
+            report["last_progress"] = progress
             if job["state"] in {"completed", "cancelled", "error"}:
+                if job["state"] != "completed":
+                    report["failed_job_state"] = job["state"]
                 assert job["state"] == "completed", "native setup failed"
                 break
             time.sleep(.25)
@@ -54,6 +67,31 @@ def smoke_native_m2m100(request, root: Path) -> None:
         return directory
 
     try:
+        cancelled = json.loads(request("/api/v1/setup/m2m100/prepare", {}))
+        stage = root / "models/m2m100-native" / cancelled["job_id"]
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            try:
+                owner = json.loads((stage / "owner.json").read_text())["pid"]
+                inner = json.loads((stage / "phase.json").read_text())["pid"]
+                if type(owner) is int and type(inner) is int and owner > 0 and inner > 0:
+                    break
+            except (OSError, ValueError, KeyError):
+                pass
+            time.sleep(.1)
+        else:
+            raise RuntimeError("native preparation did not report its owned process identity")
+        report["worker_pid_matches_spawn"] = owner == inner
+        report["ownership"] = {"spawn_pid": owner, "reported_pid": inner, "reaped": False}
+        result = json.loads(request(f"/api/v1/setup/jobs/{cancelled['job_id']}/cancel", {}))
+        assert result["state"] == "cancelled", "explicit native cancellation failed"
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and any(process_alive(pid) for pid in {owner, inner}):
+            time.sleep(.1)
+        assert not any(process_alive(pid) for pid in {owner, inner}), "native worker orphaned"
+        report["cancelled_worker_reaped"] = True
+        report["ownership"]["reaped"] = True
+        assert report["worker_pid_matches_spawn"], "native worker has an unowned onefile inner PID"
         first = prepared()
         providers = json.loads(request("/api/v1/translation/providers"))
         assert next(item for item in providers if item["provider"] == "m2m100-ct2")["configured"]
@@ -78,6 +116,19 @@ def smoke_native_m2m100(request, root: Path) -> None:
         report["status"] = "passed"
     finally:
         output.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+
+def process_alive(pid: int) -> bool:
+    if os.name == "nt":
+        result = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                                capture_output=True, text=True, check=True, timeout=5)
+        return any(len(row) > 1 and row[1] == str(pid)
+                   for row in csv.reader(result.stdout.splitlines()))
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
 
 
 def smoke_auxiliary_command(
@@ -159,7 +210,7 @@ def main() -> None:
         with (root / "sidecar.log").open("wb") as log:
             process = subprocess.Popen(
                 [str(binary)], cwd=root, stdout=log, stderr=subprocess.STDOUT,
-                env=environment,
+                env=environment, start_new_session=os.name == "posix",
             )
             try:
                 deadline = time.monotonic() + 60
@@ -207,12 +258,19 @@ def main() -> None:
                 raise
             finally:
                 if process.poll() is None:
-                    process.terminate()
+                    with suppress(Exception):
+                        request("/api/v1/desktop/shutdown", {})
                     try:
-                        process.wait(timeout=5)
+                        process.wait(timeout=15)
                     except subprocess.TimeoutExpired:
-                        process.kill()
-                        process.wait()
+                        if os.name == "nt":
+                            # Kill the owned tree before terminating its onefile outer parent.
+                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                                           capture_output=True, check=False, timeout=10)
+                        else:
+                            with suppress(ProcessLookupError):
+                                os.killpg(process.pid, signal.SIGKILL)
+                        process.wait(timeout=5)
     print(
         "Frozen backend smoke passed: worker dispatch, multiprocessing EOF, UI, captions, shutdown"
     )

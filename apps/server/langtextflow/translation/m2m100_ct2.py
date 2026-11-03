@@ -72,7 +72,7 @@ class _M2M100Worker:
             *command, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, limit=IPC_LIMIT,
             env={**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-                 "USE_TORCH": "0"},
+                 "USE_TORCH": "0", "PYINSTALLER_RESET_ENVIRONMENT": "0"},
         ))
         self._launch.add_done_callback(self._schedule_late_spawn_cleanup)
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import sys
 from dataclasses import replace
@@ -163,6 +164,7 @@ def setup_manager(tmp_path, monkeypatch):
 
     async def launch(*command, **kwargs):
         assert kwargs["env"]["USE_TORCH"] == "0"
+        assert kwargs["env"]["PYINSTALLER_RESET_ENVIRONMENT"] == "0"
         stage = Path(command[-4])
         script = ("import pathlib,sys,time; p=pathlib.Path(sys.argv[1]); "
                   "(p/'model').mkdir(); (p/'tokenizer').mkdir(); "
@@ -328,3 +330,24 @@ class Client:
         if process.returncode is None:
             process.kill()
             await process.wait()
+
+
+@pytest.mark.parametrize("payload", [
+    {"phase": ["downloading"], "file": "model/model.bin"},
+    {"phase": "https://user:secret@host/private?token=secret", "file": "/private/cache"},
+    {"phase": "downloading", "file": "https://user:secret@host/private", "pid": "secret"},
+])
+def test_progress_filters_untrusted_values_and_never_returns_locations(tmp_path, payload):
+    (tmp_path / "phase.json").write_text(json.dumps(payload))
+    result = prepare.preparation_progress(tmp_path)
+    assert result in ({}, {"phase": "downloading"})
+    assert not any(value in json.dumps(result) for value in ("secret", "http", "/private"))
+
+
+def test_progress_exposes_only_fixed_phase_key_and_bounded_file_bytes(tmp_path):
+    (tmp_path / "model").mkdir()
+    (tmp_path / "model/config.json").write_bytes(b"verified")
+    prepare._phase(tmp_path, "downloading", "model/config.json")
+    assert prepare.preparation_progress(tmp_path) == {
+        "phase": "downloading", "file": "model/config.json", "file_bytes": 8,
+    }

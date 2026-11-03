@@ -25,7 +25,12 @@ from .m2m100_cache import (
     publish_m2m100_cache,
     uses_managed_m2m100,
 )
-from .m2m100_prepare_worker import DOWNLOAD_BYTES, MODEL_ID, PREPARE_TIMEOUT_SECONDS
+from .m2m100_prepare_worker import (
+    DOWNLOAD_BYTES,
+    MODEL_ID,
+    PREPARE_TIMEOUT_SECONDS,
+    preparation_progress,
+)
 from .provider_http import bounded_response_lines, provider_stream
 from .storage_guard import ensure_storage_capacity
 from .whisper_cache import managed_whisper_cache, resolve_whisper_model
@@ -128,7 +133,13 @@ class ModelSetupManager:
     async def get_job(self, job_id: str) -> ModelSetupJob | None:
         async with self._lock:
             job = self._jobs.get(job_id)
-            return job.model_copy(deep=True) if job is not None else None
+            snapshot = job.model_copy(deep=True) if job is not None else None
+        if snapshot is not None and snapshot.provider == "m2m100-ct2":
+            progress = await asyncio.to_thread(
+                preparation_progress, managed_m2m100_root(self.settings) / snapshot.job_id,
+            )
+            snapshot.details.update(progress)
+        return snapshot
 
     async def start_ollama_pull(self, model: str) -> ModelSetupJob:
         return await self._start_job(
@@ -268,6 +279,12 @@ class ModelSetupManager:
                 old_model, old_tokenizer = stage / "absent-model", stage / "absent-tokenizer"
             worker = _M2M100Worker([*prefix, str(stage), str(self._reserve_bytes),
                                   str(old_model), str(old_tokenizer)])
+
+            def record_owner(launch: asyncio.Task) -> None:
+                with suppress(Exception, asyncio.CancelledError):
+                    (stage / "owner.json").write_text(json.dumps({"pid": launch.result().pid}))
+
+            worker._launch.add_done_callback(record_owner)
             await self._update_job(job_id, state=SetupJobState.RUNNING,
                                    status="Verifying/preparing pinned M2M100 files (~0.5 GB).")
             await worker.start(timeout=PREPARE_TIMEOUT_SECONDS)
@@ -284,8 +301,12 @@ class ModelSetupManager:
             if not published:
                 await self._mark_cancelled(job_id)
             raise
-        except Exception:
+        except Exception as exc:
             # Worker/HTTP/native exceptions can contain local paths, signed URLs or credentials.
+            await self._update_job(job_id, details={
+                **preparation_progress(stage),
+                "error_category": "deadline" if isinstance(exc, TimeoutError) else "prepare_failed",
+            })
             await self._mark_error(job_id, "M2M100 preparation failed; previous cache retained.",
                                    RuntimeError("Check runtime dependencies, network and disk; "
                                                 "retry preparation to repair the cache."))

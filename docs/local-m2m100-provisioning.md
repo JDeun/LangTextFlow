@@ -72,6 +72,22 @@ limits. A transport change cannot override these hashes. First-party measured
 model provenance and current preparation wiring are different evidence: see
 [REAL_SPEECH_EVALUATION.md](REAL_SPEECH_EVALUATION.md) for measured scope and limits.
 
+The explicit frozen setup run
+[41650632040](https://github.com/JDeun/LangTextFlow/actions/runs/41650632040)
+at source `6184947bca65c6e4c649df6b34769d0330fa3490` passed real prepare,
+synthetic-source native translation, damaged-config repair and unsigned packaging
+on macOS. Its small receipt artifact `13237601569` has ZIP SHA-256
+`b13da27efb5cf9041208711165a2b006671d0396f8d43b0c49239685552b374f`.
+The **Windows first preparation hit its deadline**; original failure artifact
+`13238558967` has ZIP SHA-256
+`f60c6f4411af7f0d00a30d078c31156c6728894eb394295e3fbb5e23c740951e`.
+That run did not identify whether download or native validation stalled, and does
+not qualify Windows setup. Subsequent diagnostic jobs expose only fixed phase,
+allowlisted file keys, bounded byte counts and fixed failure categories. The
+Windows-only manual gate also cancels a real frozen preparation and checks the
+actual spawned/reported worker PID and reap before reusing admission. No field
+quality or physical-memory qualification follows from either packaging result.
+
 ## Manual official-source conversion
 
 On a network-connected
