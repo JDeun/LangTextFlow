@@ -89,6 +89,7 @@ export interface TranscriptEvent {
   type: "transcript";
   segment_id: string;
   version: number;
+  source_revision?: number;
   stage: CaptionStage;
   source_language: string;
   text: string;

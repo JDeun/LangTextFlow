@@ -31,6 +31,9 @@ test("retains optional original ASR text and rejects malformed evidence", () => 
   if (parsed.type === "transcript") assert.equal(parsed.original_text, "raw ASR");
   assert.doesNotThrow(() => parseCaptionPayload(JSON.stringify({ ...transcript, original_text: null })));
   assert.throws(() => parseCaptionPayload(JSON.stringify({ ...transcript, original_text: 123 })));
+  for (const source_revision of [0, -1, 1.5, "2", null]) {
+    assert.throws(() => parseCaptionPayload(JSON.stringify({ ...transcript, source_revision })));
+  }
 });
 
 test("accepts a valid snapshot", () => {

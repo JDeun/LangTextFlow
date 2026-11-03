@@ -44,6 +44,16 @@ test("disposed old-path snapshot cannot overwrite a new session", () => {
   assert.equal(other, next);
 });
 
+test("old source evidence cannot overwrite a newer revision even with a higher event version", () => {
+  const path = "/ws/captions";
+  const revised = { ...caption("same", 4), source_revision: 2, original_text: "revised ASR" };
+  const state = applyScopedCaption(createScopedCaptions(path), path, revised);
+  const stale = { ...caption("same", 99), source_revision: 1, original_text: "stale ASR" };
+  assert.equal(applyScopedCaption(state, path, stale), state);
+  const next = { ...revised, version: 5, source_revision: 3, original_text: "new ASR" };
+  assert.equal(visibleScopedCaptions(applyScopedCaption(state, path, next), path)[0].original_text, "new ASR");
+});
+
 
 test("temporary WebSocket loss blanks stale captions until fresh snapshot arrives", () => {
   const path = "/ws/captions";

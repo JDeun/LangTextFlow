@@ -31,6 +31,9 @@ export function isTranscriptEvent(value: unknown): value is TranscriptEvent {
   if (!isRecord(value) || value.type !== "transcript") return false;
   if (typeof value.segment_id !== "string" || !value.segment_id) return false;
   if (!Number.isInteger(value.version) || (value.version as number) < 1) return false;
+  if (value.source_revision !== undefined && (
+    !Number.isInteger(value.source_revision) || (value.source_revision as number) < 1
+  )) return false;
   if (typeof value.stage !== "string" || !CAPTION_STAGES.has(value.stage as CaptionStage)) {
     return false;
   }
