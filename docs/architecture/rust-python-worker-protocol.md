@@ -1,7 +1,9 @@
 # Experimental Rust ↔ Python worker protocol scaffold
 
-Tracking: [#344](https://github.com/JDeun/LangTextFlow/issues/344). This is an optional
-research scaffold, not completion evidence for runtime issues #154/#155/#156.
+Tracking: [#344](https://github.com/JDeun/LangTextFlow/issues/344). This is an
+experimental scaffold toward the recorded
+[user-approved Rust core + Python model-worker target](https://github.com/JDeun/LangTextFlow/issues/344#issuecomment-6536557339),
+not completion evidence for that decision or runtime issues #154/#155/#156.
 
 ## Implementation boundary
 
@@ -61,5 +63,7 @@ Before any production caller is added, implement bounded supervision with monoto
 deadlines, cancellation and restart, typed model payloads, and actual provider
 invocation. Then verify stop/restart and in-flight revision arbitration through the
 real caption state/HTTP/WebSocket paths. Native multilingual E2E and CPU/RAM/latency
-qualification remain separate acceptance gates. This scaffold does not authorize a
-Rust runtime migration or close existing architecture/quality issues.
+qualification remain separate acceptance gates. The recorded target decision
+requires preserving the Python service until vertical-slice parity and rollback
+tests pass. This scaffold neither meets that cutover condition nor closes existing
+architecture/quality issues.

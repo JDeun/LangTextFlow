@@ -1,5 +1,11 @@
 # Research and implementation audit coverage matrix
 
+**Historical 2026-10-22 audit below.** The current
+[full 65-issue acceptance audit](../../M0_ISSUE_AUDIT.md) supersedes its issue states
+and implementation gaps; the original statements below retain their dated scope.
+In particular #101/#123/#128/#130/#161 are now closed for their scoped acceptance,
+while #159 was reopened. The recorded #344 Rust-core target remains unimplemented.
+
 - **Status:** issue-state audit in progress; not a field qualification
 - **Last reviewed:** 2026-10-22
 
