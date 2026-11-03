@@ -28,6 +28,7 @@ from types import SimpleNamespace
 time.sleep(.1)
 os.isatty(0)
 os.fstat(0)
+os.close(os.dup(0))
 class M2M100Tokenizer:
     @classmethod
     def from_pretrained(cls, *args, **kwargs):
