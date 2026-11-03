@@ -425,9 +425,9 @@ if (Object.keys((await (await fetch(metricsUrl)).json()).stages).length !== 0) {
   throw new Error("audience observations survived the session transition");
 }
 
-// Synthetic 1-second WAV checks the finished-session recording import/playback
+// Synthetic 2-minute WAV checks the finished-session recording import/playback
 // contract without involving a real microphone or storing external media.
-const pcm = Buffer.alloc(16000 * 2);
+const pcm = Buffer.alloc(16000 * 2 * 120);
 const wav = Buffer.alloc(44 + pcm.length);
 wav.write("RIFF", 0, "ascii");
 wav.writeUInt32LE(36 + pcm.length, 4);
@@ -452,7 +452,7 @@ const upload = await fetch(`${archiveRoot}/recordings`, {
 if (upload.status !== 201) throw new Error(`WAV archive import failed: ${upload.status} ${await upload.text()}`);
 const importedRecording = await upload.json();
 if (importedRecording.session_id !== state.session_id ||
-    Math.abs(importedRecording.duration_seconds - 1) > 0.001) {
+    Math.abs(importedRecording.duration_seconds - 120) > 0.001) {
   throw new Error("WAV duration or session metadata mismatch");
 }
 const archiveResponse = await fetch(`${archiveRoot}/archive`);
@@ -484,13 +484,14 @@ for (const projectId of [null, eventProject.project_id]) {
 }
 
 // Seed only a deterministic model draft; review/save/approval use real HTTP and SQLite.
-execFileSync("uv", ["run", "python", "-c", `
+const offlineTranscriptId = JSON.parse(execFileSync("uv", ["run", "python", "-c", `
 import json, sys
 from langtextflow.config import get_settings
 from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.post_event_summary import transcript_source
 from langtextflow.session_repository import SessionRepository
-sid = json.load(sys.stdin)
+from langtextflow.post_event_transcripts import TranscriptRequest
+sid, rid = json.load(sys.stdin)
 settings = get_settings()
 history = SessionRepository(settings.database_path)
 source, digest = transcript_source(history.segments(sid))
@@ -498,7 +499,14 @@ archive = PostEventArchive(settings.database_path)
 record = archive.begin_summary(sid, language="ko", provider="ollama", model="synthetic-e2e",
     transcript_sha256=digest, prompt_version="synthetic-e2e")
 archive.finish_summary(record["summary_id"], content="Synthetic summary " + source.split("]", 1)[0] + "]")
-`], { input: JSON.stringify(state.session_id) });
+recording = next(r for r in archive.recordings(sid) if r["recording_id"] == rid)
+version = archive.transcripts.begin(sid, recording, TranscriptRequest(recording_id=rid))
+archive.transcripts.finish(version["transcript_id"], segments=[{
+    "segment_id":"offline-000001", "start_ms":1000, "end_ms":2000,
+    "text":"Synthetic offline transcript",
+}], provenance={"synthetic_e2e": True})
+print(json.dumps(version["transcript_id"]))
+`], { input: JSON.stringify([state.session_id, importedRecording.recording_id]), encoding: "utf8" }).trim());
 
 await navigate("http://127.0.0.1:5173/");
 await waitFor(
@@ -559,6 +567,69 @@ await waitFor(
   () => evaluate(`document.activeElement?.classList.contains('history-transcript-segment') && document.querySelector('.history-detail-controls input')?.value === ''`),
   "summary citation clears the filter and focuses its original transcript segment",
 );
+await waitFor(() => evaluate(`document.querySelector('[data-testid="offline-transcript-text"]')?.value === 'Synthetic offline transcript'`), "offline decoder draft");
+await evaluate(`(() => {
+  const editor = document.querySelector('[data-testid="offline-transcript-text"]');
+  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(editor, 'Reviewed offline transcript');
+  editor.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await evaluate(`Array.from(document.querySelectorAll('[data-testid="offline-transcripts"] button')).find(b => b.textContent === '전사 검수 저장').click()`);
+const offlineRoot = `${archiveRoot}/transcripts/${encodeURIComponent(offlineTranscriptId)}`;
+await waitFor(async () => (await (await fetch(offlineRoot)).json()).review?.segments[0]?.text === "Reviewed offline transcript", "persisted offline review");
+await waitFor(() => evaluate(`Array.from(document.querySelectorAll('[data-testid="offline-transcripts"] button')).some(b => b.textContent === '전사 승인 및 잠금' && !b.disabled)`), "offline review save completed");
+await evaluate(`Array.from(document.querySelectorAll('[data-testid="offline-transcripts"] button')).find(b => b.textContent === '전사 승인 및 잠금').click()`);
+await waitFor(() => evaluate(`document.querySelector('[data-testid="offline-transcript-text"]')?.readOnly === true`), "approved offline transcript locked");
+await waitFor(async () => (await (await fetch(`${archiveRoot}/archive`)).json()).summary_stale, "old summary stale after transcript approval");
+await waitFor(() => evaluate(`document.querySelector('[data-testid="summary-transcript-source"]')?.options.length === 2`), "approved source offered explicitly");
+if (!await evaluate(`document.querySelector('[data-testid="summary-transcript-source"]').value === ''`)) throw new Error("offline approval silently selected summary source");
+const offlineExport = await (await fetch(`${offlineRoot}/export`)).json();
+if (offlineExport.version.segments[0].text !== "Synthetic offline transcript" ||
+    offlineExport.reviews.length !== 2 || !offlineExport.reviews[1].approved) {
+  throw new Error("offline export did not preserve original draft and append-only approvals");
+}
+// Seed an already generated cited draft; source navigation still uses real archive/detail APIs.
+execFileSync("uv", ["run", "python", "-c", `
+import json,sys
+from langtextflow.config import get_settings
+from langtextflow.post_event_archive import PostEventArchive
+from langtextflow.session_repository import SessionRepository
+sid,tid = json.load(sys.stdin)
+settings = get_settings()
+archive = PostEventArchive(settings.database_path)
+source,digest = archive.transcripts.source(sid, SessionRepository(settings.database_path).segments(sid), tid)
+summary = archive.begin_summary(sid,language="ko",provider="ollama",model="synthetic-offline-e2e",
+    transcript_sha256=digest,prompt_version="synthetic-offline-e2e",transcript_id=tid,approved_transcript_id=tid)
+archive.finish_summary(summary["summary_id"],content="Offline summary [offline-000001 at 1s]")
+`], { input: JSON.stringify([state.session_id, offlineTranscriptId]) });
+await navigate("http://127.0.0.1:5173/");
+await waitFor(() => evaluate(`document.querySelector('.history-open') !== null`), "history after offline summary generation");
+await evaluate(`document.querySelector('.history-open').click()`);
+await waitFor(() => evaluate(`document.querySelector('[data-testid="open-summary-transcript"]') !== null`), "summary source version navigation");
+await evaluate(`document.querySelector('[data-testid="open-summary-transcript"]').click()`);
+await waitFor(() => evaluate(`document.querySelector('[data-testid="offline-source-link"]') !== null`), "offline summary exact citations");
+await evaluate(`document.querySelector('[data-testid="offline-source-link"]').click()`);
+await waitFor(() => evaluate(`document.activeElement?.dataset.testid === 'offline-transcript-text' && document.activeElement.value === 'Reviewed offline transcript'`), "offline citation focuses its reviewed evidence");
+await evaluate(`(async () => {
+  const originalFetch = window.fetch;
+  let calls = 0;
+  window.fetch = (...args) => {
+    if (args[0] === ${JSON.stringify(`${archiveRoot}/archive`)} && ++calls === 1) {
+      return new Promise(resolve => setTimeout(() => resolve(new Response(
+        ${JSON.stringify(JSON.stringify(reviewedArchive))}, { status: 200 }
+      )), 350));
+    }
+    return originalFetch(...args);
+  };
+  try {
+    const refresh = document.querySelector('.history-post-event > .history-post-actions button');
+    refresh.click(); refresh.click();
+    await new Promise(resolve => setTimeout(resolve, 700));
+    if (calls !== 2) throw new Error('archive race did not exercise both refresh requests');
+  } finally { window.fetch = originalFetch; }
+})()`);
+if (!await evaluate(`document.querySelector('[data-testid="open-summary-transcript"]') !== null`)) {
+  throw new Error("late old archive response replaced the newer approved transcript source");
+}
 await cdp("Runtime.evaluate", { expression: await readFile("apps/web/node_modules/axe-core/axe.min.js", "utf8") });
 const historyViolations = await evaluate(`axe.run(document, {
   runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }

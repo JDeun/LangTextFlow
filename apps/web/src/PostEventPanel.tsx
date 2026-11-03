@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionDetail, TranscriptEvent } from "./types";
 import type { Locale } from "./locales";
 import { POST_EVENT_COPY } from "./postEventCopy";
 import { buildSummaryRequest, type SummaryLanguage, type SummaryProvider } from "./summaryRequestPolicy";
 import { summaryCitations } from "./summaryCitations";
+import { PostEventTranscripts } from "./PostEventTranscripts";
+import { TRANSCRIPT_COPY } from "./transcriptCopy";
 
 interface Recording {
   recording_id: string;
@@ -14,6 +16,7 @@ interface Recording {
 }
 
 interface Summary {
+  transcript_id?: string | null;
   summary_id: string;
   language: string;
   provider: string;
@@ -32,6 +35,7 @@ interface Summary {
 }
 
 interface Archive {
+  approved_transcript_id?: string | null;
   recordings: Recording[];
   summary: Summary | null;
   summary_stale: boolean;
@@ -60,30 +64,36 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [reviewText, setReviewText] = useState("");
+  const [summaryTranscriptId, setSummaryTranscriptId] = useState<string | null>(null);
+  const [requestedTranscript, setRequestedTranscript] = useState<{ id: string } | null>(null);
+  const archiveRequest = useRef(0);
   const root = `${apiUrl}/api/v1/history/${encodeURIComponent(session.session_id)}`;
+
+  useEffect(() => {
+    if (summaryTranscriptId && summaryTranscriptId !== archive.approved_transcript_id) {
+      setSummaryTranscriptId(null);
+      setAllowExternal(false);
+    }
+  }, [archive.approved_transcript_id, summaryTranscriptId]);
 
   useEffect(() => {
     setReviewText(archive.summary?.review?.content ?? archive.summary?.content ?? "");
   }, [archive.summary?.summary_id, archive.summary?.review?.review_id]);
 
   const refresh = useCallback(async () => {
+    const requestId = ++archiveRequest.current;
     const response = await fetch(`${root}/archive`);
     if (!response.ok) throw new Error(await response.text());
     const data = (await response.json()) as Archive;
-    setArchive(data);
+    if (requestId === archiveRequest.current) setArchive(data);
   }, [root]);
 
   useEffect(() => {
     let mounted = true;
-    fetch(`${root}/archive`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await response.text());
-        return response.json() as Promise<Archive>;
-      })
-      .then((data) => { if (mounted) setArchive(data); })
+    void refresh()
       .catch(() => { if (mounted) setError(copy.failure); });
-    return () => { mounted = false; };
-  }, [root, copy.failure]);
+    return () => { mounted = false; archiveRequest.current++; };
+  }, [refresh, copy.failure]);
 
   useEffect(() => {
     if (archive.summary?.status !== "running") return;
@@ -124,7 +134,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildSummaryRequest(
-          summaryLanguage, summaryProvider, summaryModel, allowExternal,
+          summaryLanguage, summaryProvider, summaryModel, allowExternal, summaryTranscriptId,
         )),
       });
       if (!response.ok) throw new Error(await response.text());
@@ -214,11 +224,23 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
           />
         </div>
       ))}
+      <PostEventTranscripts root={root} locale={locale} sourceLanguage={session.source_language} recordings={archive.recordings}
+        onChanged={refresh} requestedVersion={requestedTranscript} summary={archive.summary} />
       <h4>{copy.summary}</h4>
       {archive.summary_stale && (
         <p role="alert" className="error-box">{copy.summaryStale}</p>
       )}
       <div className="history-post-actions">
+        <label>
+          {TRANSCRIPT_COPY[locale].source}
+          <select data-testid="summary-transcript-source" value={summaryTranscriptId ?? ""} disabled={Boolean(busy) || archive.summary?.status === "running"}
+            onChange={event => { setSummaryTranscriptId(event.target.value || null); setAllowExternal(false); }}>
+            <option value="">{TRANSCRIPT_COPY[locale].live}</option>
+            {archive.approved_transcript_id && <option value={archive.approved_transcript_id}>
+              {TRANSCRIPT_COPY[locale].approvedSource}
+            </option>}
+          </select>
+        </label>
         <label>
           {copy.summaryLanguage}
           <select
@@ -296,8 +318,12 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
             />
           </label>
           <small>{copy.reviewHint}</small>
-          <div className="history-post-actions" aria-label={copy.sourceReferences}>
-            {summaryCitations(reviewText, segments).map(reference => (
+          {archive.summary.transcript_id && <button type="button" className="secondary-button" data-testid="open-summary-transcript"
+            onClick={() => setRequestedTranscript({ id: archive.summary!.transcript_id! })}>
+            {TRANSCRIPT_COPY[locale].open}
+          </button>}
+          <div className="history-post-actions" role="group" aria-label={copy.sourceReferences}>
+            {summaryCitations(archive.summary.transcript_id ? "" : reviewText, segments).map(reference => (
               <button key={reference.segmentId} type="button" className="secondary-button"
                 data-testid="summary-source-link"
                 onClick={() => onOpenSegment(reference.segmentId)}>
