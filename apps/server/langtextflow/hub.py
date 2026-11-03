@@ -85,10 +85,9 @@ class WebSocketHub:
 
     async def _send_one(self, client: WebSocket, payload: dict[str, object]) -> bool:
         try:
-            await asyncio.wait_for(
-                client.send_json(payload),
-                timeout=self.send_timeout_seconds,
-            )
+            # Python 3.11 wait_for can lose cancellation as its inner send completes.
+            async with asyncio.timeout(self.send_timeout_seconds):
+                await client.send_json(payload)
             return True
         except Exception:
             return False
@@ -172,10 +171,8 @@ class WebSocketHub:
 
     async def _close_one(self, client: WebSocket, *, code: int, reason: str) -> None:
         with suppress(Exception):
-            await asyncio.wait_for(
-                client.close(code=code, reason=reason),
-                timeout=self.send_timeout_seconds,
-            )
+            async with asyncio.timeout(self.send_timeout_seconds):
+                await client.close(code=code, reason=reason)
 
     async def close_all(
         self, *, code: int = 1012,
