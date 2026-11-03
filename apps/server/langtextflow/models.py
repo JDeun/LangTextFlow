@@ -363,6 +363,9 @@ class TranslationStatus(ProviderStatus):
 
 
 class StartSessionRequest(BaseModel):
+    glossary_snapshot_sha256: str | None = Field(
+        default=None, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$",
+    )
     project_id: str | None = Field(default=None, max_length=64)
     # Explicit per-session consent; legacy clients default to no recording.
     record_audio: bool = False

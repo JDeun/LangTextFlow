@@ -11,6 +11,8 @@ import { captionTextForLanguage as displayCaption } from "./captionLanguage";
 import { DisplaySettingsPanel } from "./DisplaySettingsPanel";
 import { loadStoredDisplaySettings } from "./displaySettings";
 import { GlossaryManager } from "./GlossaryManager";
+import { GlossarySnapshotPreview } from "./GlossarySnapshotPreview";
+import { useGlossarySnapshot } from "./useGlossarySnapshot";
 import { GLOSSARY_COPY } from "./glossaryCopy";
 import { GlossaryRecommendations } from "./GlossaryRecommendations";
 import { LanguageSwitcher, useI18n, type TranslationKey } from "./i18n";
@@ -25,7 +27,7 @@ import { PreflightPanel } from "./PreflightPanel";
 import { RuntimeMaintenancePanel } from "./RuntimeMaintenancePanel";
 import { SessionHistory } from "./SessionHistory";
 import { DEFAULT_KOREAN_HOTWORDS } from "./sessionDefaults";
-import { translationProviderUsesModel } from "./sessionStartPayload";
+import { buildSessionStartPayload, translationProviderUsesModel } from "./sessionStartPayload";
 import { TargetLanguageSelector } from "./TargetLanguageSelector";
 import { TranslationProviderSelect } from "./TranslationProviderSelect";
 import { useTranslationCapabilities } from "./useTranslationCapabilities";
@@ -246,12 +248,20 @@ function OperatorApp() {
     setOnboardingOpen(false);
   }
 
+  const startSettings = {
+    selectedProjectId, sourceLanguage, targetLanguages, engine, resourceProfile,
+    correctionProvider, correctionModel, translationProvider, translationModel,
+    title, presenter, preset, hotwords, referenceDocuments, displaySettings,
+  };
+  const glossaryPreview = useGlossarySnapshot(API_URL, buildSessionStartPayload({
+    ...startSettings, recordAudio: false, needsAudio: false,
+  }), !running);
+
   async function start() {
     const nextSession = await startSession({
-      selectedProjectId, sourceLanguage, targetLanguages, engine, resourceProfile,
-      correctionProvider, correctionModel, translationProvider, translationModel,
-      title, presenter, preset, hotwords, referenceDocuments, displaySettings,
+      ...startSettings, glossarySnapshotSha256: glossaryPreview.snapshot?.sha256,
     }, { asr: asrRegistry, translation: translationRegistry });
+    if (!nextSession) glossaryPreview.invalidate();
     if (nextSession?.context?.reference_documents) {
       setReferenceDocuments(nextSession.context.reference_documents);
     }
@@ -495,6 +505,11 @@ function OperatorApp() {
             onChange={setReferenceDocuments}
           />
 
+          {!running && <GlossarySnapshotPreview locale={locale}
+            snapshot={glossaryPreview.snapshot} loading={glossaryPreview.loading}
+            failed={glossaryPreview.failed} disabled={busy}
+            onPreview={() => void glossaryPreview.preview()} />}
+
           <button
             type="button"
             className="secondary-button glossary-page-link"
@@ -634,7 +649,7 @@ function OperatorApp() {
             className={running ? "stop-button" : "start-button"}
             data-testid="session-toggle"
             onClick={running ? stop : start}
-            disabled={busy || !connected}
+            disabled={busy || !connected || glossaryPreview.loading}
           >
             {busy ? t("session.busy") : running ? t("session.stop") : t("session.start")}
           </button>

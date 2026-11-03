@@ -24,6 +24,7 @@ from .diagnostics import build_diagnostics_bundle
 from .exports import export_json, export_srt, export_txt, export_vtt
 from .glossary_recommendations import GlossaryRecommendation, recommend_glossary_terms
 from .glossary_repository import GlossaryRepository
+from .glossary_snapshot import ResolvedGlossarySnapshot, glossary_snapshot
 from .glossary_transfer import (
     GlossaryImportRequest,
     GlossaryImportResult,
@@ -41,6 +42,7 @@ from .models import (
     GlossaryEntry,
     GlossaryRecord,
     NetworkInfo,
+    SessionContext,
     SessionDetail,
     SessionMetadataUpdate,
     SessionRecord,
@@ -305,7 +307,14 @@ def _with_saved_glossary(request: StartSessionRequest) -> StartSessionRequest:
                 merged[key] = entry
             else:
                 merged.pop(key, None)
-    context = request.context.model_copy(update={"glossary": list(merged.values())})
+    # Each tier may be valid on its own while their resolved union exceeds the
+    # session limit. Validate the materialized context, not model_copy's bypass.
+    try:
+        context = SessionContext.model_validate({
+            **request.context.model_dump(), "glossary": list(merged.values()),
+        })
+    except ValueError as exc:
+        raise ValueError("resolved glossary is invalid or exceeds 500 entries") from exc
     return request.model_copy(update={"context": context})
 
 
@@ -1051,6 +1060,19 @@ def seed_church_glossary(
     return glossary_repository.seed(church_glossary_for_source(source_language))
 
 
+@app.post("/api/v1/glossary/resolve", response_model=ResolvedGlossarySnapshot)
+def resolve_session_glossary(
+    request: Request, payload: StartSessionRequest,
+) -> ResolvedGlossarySnapshot:
+    _require_operator(request)
+    try:
+        return glossary_snapshot(_with_saved_glossary(payload))
+    except KeyError as exc:
+        raise HTTPException(404, "project not found") from exc
+    except ValueError as exc:
+        raise HTTPException(400, "resolved glossary is invalid or exceeds 500 entries") from exc
+
+
 @app.post("/api/v1/session/start", response_model=SessionState)
 async def start_session(request: Request, payload: StartSessionRequest) -> SessionState:
     _require_operator(request)
@@ -1063,6 +1085,9 @@ async def start_session(request: Request, payload: StartSessionRequest) -> Sessi
                 prepared = _with_saved_glossary(payload)
             except KeyError as exc:
                 raise HTTPException(404, "project not found") from exc
+            if (payload.glossary_snapshot_sha256 is not None
+                    and payload.glossary_snapshot_sha256 != glossary_snapshot(prepared).sha256):
+                raise HTTPException(409, "glossary snapshot changed; review terminology again")
             state = await runtime.start(
                 prepared, before_transition=close_audio,
             )
