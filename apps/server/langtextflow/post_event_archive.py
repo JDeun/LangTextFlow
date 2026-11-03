@@ -231,11 +231,10 @@ class PostEventArchive:
         with self._connect() as conn:
             ids = [
                 str(row[0]) for row in conn.execute(
-                    "SELECT recording_id FROM session_recordings WHERE session_id=? " + (
-                        "AND recording_id NOT IN (SELECT recording_id FROM recording_journal)"
-                        if legacy_only else ""
-                    ),
-                    (session_id,),
+                    "SELECT recording_id FROM session_recordings WHERE session_id=? "
+                    "AND (?=0 OR recording_id NOT IN "
+                    "(SELECT recording_id FROM recording_journal))",
+                    (session_id, int(legacy_only)),
                 )
             ]
         return [path for item in ids if (path := self.recording_path(session_id, item))]
