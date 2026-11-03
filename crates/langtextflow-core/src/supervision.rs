@@ -64,6 +64,7 @@ pub struct SupervisedWorker {
     stdin: Option<ChildStdin>,
     stdout: Option<BufReader<ChildStdout>>,
     permit: Option<ProcessLease>,
+    reaped: Arc<AtomicBool>,
 }
 
 struct ProcessLease(Option<OwnedSemaphorePermit>);
@@ -106,11 +107,16 @@ impl SupervisedWorker {
             stdin,
             stdout,
             permit: Some(ProcessLease(Some(permit))),
+            reaped: Arc::new(AtomicBool::new(false)),
         })
     }
 
     pub fn pid(&self) -> Option<u32> {
         self.child.as_ref().and_then(Child::id)
+    }
+
+    pub(crate) fn reaped_signal(&self) -> Arc<AtomicBool> {
+        self.reaped.clone()
     }
 
     pub async fn exchange(
@@ -199,6 +205,7 @@ impl SupervisedWorker {
             }
         }
         self.child.take();
+        self.reaped.store(true, Ordering::Release);
         if let Some(permit) = self.permit.as_mut() {
             permit.release();
         }
@@ -214,6 +221,7 @@ impl Drop for SupervisedWorker {
         if let Some(mut child) = self.child.take() {
             let _ = child.start_kill();
             let mut permit = self.permit.take();
+            let reaped = self.reaped.clone();
             // Cancellation of an exchange future still kills/reaps its owned
             // child. Retain admission until wait completes, even after timeout.
             let _ = std::thread::Builder::new()
@@ -221,6 +229,7 @@ impl Drop for SupervisedWorker {
                 .spawn(move || loop {
                     match child.try_wait() {
                         Ok(Some(_)) => {
+                            reaped.store(true, Ordering::Release);
                             if let Some(permit) = permit.as_mut() {
                                 permit.release();
                             }
@@ -246,5 +255,45 @@ mod tests {
             slot.clone().try_acquire_owned().unwrap(),
         )));
         assert_eq!(slot.available_permits(), 0);
+    }
+
+    #[test]
+    fn confirmed_exit_signal_is_per_child_and_cannot_be_reset_by_a_replacement_lease() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let slot = worker_slot();
+                let python =
+                    std::env::var("LTF_WORKER_PYTHON").unwrap_or_else(|_| "python3".into());
+                let worker = SupervisedWorker::spawn(
+                    &python,
+                    &["-c", "import time;time.sleep(60)"],
+                    slot.clone(),
+                )
+                .unwrap();
+                let old_exit = worker.reaped_signal();
+                drop(worker);
+                tokio::time::timeout(Duration::from_secs(3), async {
+                    while !old_exit.load(Ordering::Acquire) || slot.available_permits() == 0 {
+                        tokio::time::sleep(POLL).await;
+                    }
+                })
+                .await
+                .unwrap();
+                let mut replacement = SupervisedWorker::spawn(
+                    &python,
+                    &["-c", "import time;time.sleep(60)"],
+                    slot.clone(),
+                )
+                .unwrap();
+                assert!(old_exit.load(Ordering::Acquire));
+                assert!(!replacement.reaped_signal().load(Ordering::Acquire));
+                assert_eq!(slot.available_permits(), 0);
+                replacement.stop().await.unwrap();
+                assert!(old_exit.load(Ordering::Acquire));
+                assert!(replacement.reaped_signal().load(Ordering::Acquire));
+            });
     }
 }
