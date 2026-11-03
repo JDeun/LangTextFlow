@@ -641,12 +641,21 @@ class ProjectPackageOperation:
                     "media",
                 }
                 or manifest["format"] != FORMAT
-                or manifest["version"] != VERSION
+                or type(manifest["version"]) is not int
+                or manifest["version"] not in (1, VERSION)
                 or manifest["graph_size_bytes"] != len(raw_graph)
                 or manifest["graph_sha256"] != hashlib.sha256(raw_graph).hexdigest()
             ):
                 raise PackageError("Private project manifest or graph hash is invalid")
-            graph = validate_graph(parse_json(raw_graph))
+            graph = parse_json(raw_graph)
+            if manifest["version"] == 1:
+                # Validate the original byte digest above before the only known
+                # v1→v2 migration. Immutable snapshot JSON strings stay untouched.
+                for row in graph["tables"]["session_recordings"]:
+                    if not isinstance(row, dict) or "start_offset_ms" in row:
+                        raise PackageError("Unexpected version 1 recording columns")
+                    row["start_offset_ms"] = None
+            graph = validate_graph(graph)
             self.project_id = graph["project_id"]
             self.session_ids = {row["session_id"] for row in graph["tables"]["sessions"]}
             rows = graph["tables"]["session_recordings"]
@@ -793,8 +802,8 @@ class ProjectPackageOperation:
                 conn.execute(
                     "INSERT INTO recording_journal "
                     "(recording_id,session_id,owner_session_id,filename,size_bytes,sha256,"
-                    "duration_seconds,sample_rate,channels,created_at,registered) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,1)",
+                    "duration_seconds,sample_rate,channels,created_at,registered,start_offset_ms) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,1,?)",
                     (
                         row["recording_id"],
                         row["session_id"],
@@ -806,6 +815,7 @@ class ProjectPackageOperation:
                         row["sample_rate"],
                         row["channels"],
                         row["created_at"],
+                        row["start_offset_ms"],
                     ),
                 )
             # foreign_keys=ON checks each insertion. No full destination scan.

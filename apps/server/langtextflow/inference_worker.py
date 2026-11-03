@@ -16,6 +16,7 @@ import wave
 from .asr.faster_whisper import FasterWhisperStreamingAsrEngine
 from .benchmark import pcm16le_to_f32le
 from .models import SessionContext, StartSessionRequest
+from .parent_pipe import read_parent_pipe
 from .worker_ipc import (
     IDENTITY_KEYS,
     MAX_FRAME_BYTES,
@@ -97,7 +98,7 @@ def main(args: list[str] | None = None) -> None:
         pending = bytearray()
         try:
             while True:
-                data = os.read(0, 4096)
+                data = read_parent_pipe(4096)
                 if not data:
                     os._exit(0)  # Parent EOF also terminates blocked load/inference.
                 pending.extend(data)

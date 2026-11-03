@@ -74,7 +74,13 @@ class Native:
         prefix = kwargs["target_prefix"][0][0]
         candidate = "x" * 20001 if mode == "oversized" else "synthetic-" + prefix[2:-2]
         return [types.SimpleNamespace(hypotheses=[[prefix, candidate]])]
-sys.modules["transformers"] = types.SimpleNamespace(M2M100Tokenizer=Tokenizer)
+class NativeModule(types.ModuleType):
+    def __getattr__(self, name):
+        if name != "M2M100Tokenizer": raise AttributeError(name)
+        if mode == "descriptor-clone":
+            os.close(os.dup(0))
+        return Tokenizer
+sys.modules["transformers"] = NativeModule("transformers")
 sys.modules["ctranslate2"] = types.SimpleNamespace(Translator=Native)
 from langtextflow.translation.m2m100_worker import main
 main()
@@ -207,5 +213,23 @@ async def test_existing_python_runtime_ready_ack_and_private_protocol_are_preser
         process.stdin.close()
         assert await asyncio.wait_for(process.wait(), 2) == 1
         assert await process.stderr.read() == b""
+    finally:
+        await stop(process)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True], ids=["rust-v1", "python-runtime"])
+async def test_native_import_can_clone_stdin_while_the_parent_pipe_remains_open(tmp_path, legacy):
+    process, _ = await child(tmp_path, "descriptor-clone", legacy=legacy)
+    try:
+        if legacy:
+            assert await receive(process) == {"ready": True}
+            await send(process, {"id": 1, "text": "source", "source": "ko", "target": "en"})
+        else:
+            await send(process, request())
+        reply = await receive(process)
+        assert reply.get("text", reply.get("result")) == "synthetic-en"
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 2) == (1 if legacy else 0)
     finally:
         await stop(process)

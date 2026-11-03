@@ -133,6 +133,7 @@ fi
 
 node apps/web/tests/e2e-smoke.mjs
 node apps/web/tests/operator-session-smoke.mjs
+node apps/web/tests/independent-recording-smoke.mjs
 node apps/web/tests/focus-smoke.mjs
 node apps/web/tests/localization-layout-smoke.mjs
 node apps/web/tests/a11y-smoke.mjs

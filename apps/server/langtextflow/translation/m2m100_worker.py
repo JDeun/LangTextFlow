@@ -8,6 +8,7 @@ import sys
 import threading
 
 from ..models import MAX_TRANSCRIPT_TEXT_CHARS, SessionContext
+from ..parent_pipe import read_parent_pipe
 from ..worker_ipc import IDENTITY_KEYS, MAX_FRAME_BYTES, validate_inference_request
 from .m2m100_ct2 import (
     IPC_LIMIT,
@@ -49,7 +50,7 @@ def main(args: list[str] | None = None) -> None:
         pending = bytearray()
         try:
             while True:
-                data = os.read(0, 4096)
+                data = read_parent_pipe(4096)
                 if not data:
                     os._exit(0 if rust_protocol else 1)
                 pending.extend(data)

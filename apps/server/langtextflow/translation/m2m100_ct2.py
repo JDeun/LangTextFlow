@@ -186,28 +186,62 @@ class M2M100CT2Translator(Translator):
         self.tokenizer_dir = Path(tokenizer_dir)
         self.cpu_threads = cpu_threads
         self._worker: _M2M100Worker | None = None
+        self._prepare_lock = asyncio.Lock()
+        self._generation = 0
+        self._recovery_attempt = 0
+        self._closed = True
         # The tokenizer's src_lang is mutable and must never be shared between
         # simultaneous EN/JA/KO calls without serialization.
         self._inference_lock = Lock()
 
-    async def prepare(self) -> None:
+    def _check_cache(self) -> None:
         if missing_m2m100_cache_files(self.model_dir, self.tokenizer_dir):
             raise TranslationError(
                 "Local M2M100 model/tokenizer cache is missing. "
                 "Use the pinned CPU model provisioning process; no cloud fallback."
             )
-        if self._worker is not None:
-            await self.close()
+
+    def _check_generation(self, generation: int) -> None:
+        if self._closed or self._generation != generation:
+            raise TranslationError("Local M2M100 provider is not prepared or was stopped")
+
+    async def prepare(self) -> None:
+        self._check_cache()
+        self._generation += 1
+        generation = self._generation
+        self._closed = False
+        try:
+            async with self._prepare_lock:
+                self._check_generation(generation)
+                await self._start_worker(generation)
+        except BaseException:
+            if self._generation == generation:
+                self._closed = True
+            raise
+
+    async def _start_worker(self, generation: int) -> None:
+        self._check_generation(generation)
+        self._check_cache()
+        previous = self._worker
+        if previous is not None:
+            # A failed child's capacity is not reusable until close confirms reap.
+            await previous.close()
+            if self._worker is previous:
+                self._worker = None
+        self._check_generation(generation)
         worker = _M2M100Worker(worker_command(self.model_dir, self.tokenizer_dir, self.cpu_threads))
         self._worker = worker
         try:
             await worker.start()
+            self._check_generation(generation)
             if self._worker is not worker or not worker.ready:
                 raise TranslationError("Local M2M100 initialization was stopped")
         except BaseException as exc:
-            if self._worker is worker:
-                self._worker = None
-            await worker.close()
+            try:
+                await worker.close()
+            finally:
+                if worker._released and self._worker is worker:
+                    self._worker = None
             if isinstance(exc, asyncio.CancelledError):
                 raise
             raise TranslationError(
@@ -274,11 +308,26 @@ class M2M100CT2Translator(Translator):
                 )
 
     async def _translate_rpc(self, text: str, source: str, target: str) -> str:
+        generation = self._generation
+        self._check_generation(generation)
         worker = self._worker
         if worker is None or not worker.ready:
-            raise TranslationError("Local M2M100 provider is not prepared")
+            failed_owner = worker
+            attempt = self._recovery_attempt
+            async with self._prepare_lock:
+                self._check_generation(generation)
+                worker = self._worker
+                if worker is None or not worker.ready:
+                    if worker is not failed_owner or self._recovery_attempt != attempt:
+                        raise TranslationError("Local M2M100 recovery could not initialize")
+                    # Recover on a later call only; never retry the failed caption.
+                    self._recovery_attempt += 1
+                    await self._start_worker(generation)
+                    worker = self._worker
+        self._check_generation(generation)
         result = await worker.translate(text, source, target)
-        if self._worker is not worker or not worker.ready:
+        if (self._generation != generation or self._closed
+                or self._worker is not worker or not worker.ready):
             raise TranslationError("Local M2M100 translation was stopped")
         return result
 
@@ -307,6 +356,10 @@ class M2M100CT2Translator(Translator):
             return candidate
 
     async def close(self) -> None:
+        # Invalidate queued recovery before awaiting process cleanup. An old load
+        # cannot publish itself or spawn a replacement after operator stop.
+        self._closed = True
+        self._generation += 1
         worker = self._worker
         self._worker = None
         if worker is not None:

@@ -1,0 +1,107 @@
+{
+  "id": "2026-11-04-native-duration-negative",
+  "accessed": "2026-11-04",
+  "classification": "locally_reproduced_negative_first_party_not_field_qualification",
+  "sources": [
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/tree/bc5ef326f61ceabd1772b61b283afdfeea99a871",
+      "kind": "exact_benchmark_source"
+    },
+    {
+      "url": "https://huggingface.co/datasets/google/fleurs/tree/fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+      "kind": "public_audio_dataset",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/pull/419",
+      "kind": "subsequent_recovery_fix_pending_acceptance"
+    }
+  ],
+  "source_sha": "bc5ef326f61ceabd1772b61b283afdfeea99a871",
+  "started_at": "2026-11-03T15:50:07.326696+00:00",
+  "finished_at": "2026-11-03T16:20:18.813349+00:00",
+  "fixture": {
+    "dataset": "google/fleurs",
+    "configuration": "ko_kr",
+    "sample_id": 1883,
+    "wav_sha256": "353bd463b9f51b720bd7f557d4be03cf33ee98e2649036852843c5afab3135de",
+    "duration_seconds": 12.48,
+    "loops_including_partial": 145
+  },
+  "configuration": {
+    "source": "ko",
+    "targets": [
+      "en",
+      "ja"
+    ],
+    "asr": "faster-whisper-small",
+    "chunk_seconds": 4,
+    "cpu_threads_per_model": 2,
+    "compute_type": "int8",
+    "resource_profile": "low",
+    "translation": "m2m100-ct2",
+    "preset": "general",
+    "title": "Public repeated-audio duration smoke",
+    "recording": false,
+    "pace": "realtime"
+  },
+  "model_files_sha256": {
+    "whisper_model_bin": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+    "model/model.bin": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+    "model/config.json": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+    "model/shared_vocabulary.json": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+    "tokenizer/tokenizer_config.json": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+    "tokenizer/special_tokens_map.json": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+    "tokenizer/sentencepiece.bpe.model": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+    "tokenizer/vocab.json": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc"
+  },
+  "outcome": {
+    "status": "failed",
+    "feed_ms": 1800001.6,
+    "drain_ms": 4662,
+    "drained": true,
+    "source_captions": 438,
+    "available_target_results": 92,
+    "failed_target_results": 784,
+    "fully_translated_source_captions": 46,
+    "first_failed_source": {
+      "segment_id": "fw-00000047",
+      "start_ms": 195600,
+      "text": "2010..."
+    },
+    "estimated_asr_lag_p95_ms": 18955.1,
+    "asr_timing_observation_count": 432,
+    "queues": {
+      "asr_high_watermark": 8,
+      "postprocess_high_watermark": 1,
+      "persistence_high_watermark": 6,
+      "audio_backpressure_events": 449
+    },
+    "persistence_error": null
+  },
+  "memory": {
+    "parent_peak_mib": 1242.52,
+    "parent_process_tree_complete": false,
+    "sampler_errors": {
+      "descendant_discovery_failed": 308
+    },
+    "late_external_trace_samples": 257,
+    "late_trace_started_at_elapsed_seconds": 523.0154931545258,
+    "late_trace_processes": 2,
+    "late_trace_sha256": "45b3fd365bd89126ec10393697268f973f37a60eb0a515a31dffe544269ecde8"
+  },
+  "local_artifacts": {
+    "report": "/private/tmp/langtextflow-native-thirty-minute-soak.json",
+    "report_sha256": "c5e616ff09df641b5a9e3e3b0a1c6237107de1fe7124d89cf1a5f6f746bf1d6d",
+    "negative_sqlite_checkpoint": "/private/tmp/langtextflow-soak-negative-checkpoint.db",
+    "checkpoint_sha256": "cfbdcaffedfc1cf567da95ccaeae3e683ad3432155654a3c3efb230a2a041e09"
+  },
+  "limits": [
+    "Developer host with incidental concurrent development load; not a controlled model-speed comparison.",
+    "Repeated short public audio, no aligned repeated reference or translation gold; CER/WER and chrF not scored.",
+    "Native MT owner was absent after failure; subsequent low translation timings and memory cannot qualify sustained co-resident ASR+MT.",
+    "All internal process-tree samples are incomplete; late external trace begins after MT failure.",
+    "Model identity, semantic quality, physical 4GB/8GB, licensing/redistribution and live-microphone gates remain separate.",
+    "Subsequent short native recovery proof is not a rerun of this 30-minute test."
+  ]
+}
