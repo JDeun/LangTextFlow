@@ -96,6 +96,14 @@ try {
     summaryResult.exceptionDetails.exception?.description || summaryResult.exceptionDetails.text,
   );
   console.log(`summary transmission policy smoke passed: ${summaryResult.result.value}`);
+  const audioResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/audioCaptureHarness.ts').then((test) => test.runAudioCaptureChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (audioResult.exceptionDetails) throw new Error(
+    audioResult.exceptionDetails.exception?.description || audioResult.exceptionDetails.text,
+  );
+  console.log(`audio capture ownership smoke passed: ${audioResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;

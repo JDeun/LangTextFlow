@@ -19,6 +19,8 @@ Operator REST access is authorized from the actual socket client address; forwar
 
 Operator WebSockets use the same loopback and Origin trust boundary. Native/CLI local clients without browser `Origin`/Fetch-Metadata headers remain supported.
 
+Stopping microphone capture invalidates pending permission, device recovery and WebAudio results; late streams are stopped and stale callbacks cannot reopen a socket or clean up a newer capture. Browser regressions exercise the actual controller with platform API fakes, without requesting real microphone access.
+
 Reverse proxies must not expose operator endpoints to the LAN or public Internet without adding a separate authentication layer and intentionally redefining the trusted-origin policy.
 
 ### Audience boundary
