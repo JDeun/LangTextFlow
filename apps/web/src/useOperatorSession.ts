@@ -57,6 +57,7 @@ export function useOperatorSession(
   function applySession(next: SessionState | null) {
     sessionRef.current = next;
     setSession(next);
+    if (!next?.running) setRecoveredAudio(false);
   }
 
   async function synchronizeSession() {

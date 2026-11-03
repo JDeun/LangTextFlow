@@ -258,6 +258,26 @@ export async function runOperatorSessionChecks() {
 
     reset();
     await operator.start(settings, providers); await tick();
+    let releaseOwnedFatal: (() => void) | undefined;
+    window.fetch = async (input, init) => {
+      if (new URL(String(input), location.href).pathname === "/api/v1/session/stop") {
+        await new Promise<void>(resolve => { releaseOwnedFatal = resolve; });
+      }
+      return baseFetch(input, init);
+    };
+    (lastCapture as unknown as { onFatalError: (message: string) => void })
+      .onFatalError("Current microphone failure");
+    await until(() => Boolean(releaseOwnedFatal), "owned fatal stop did not reach delivery");
+    await reconnect();
+    await until(() => operator.recoveredAudio, "stopped microphone was not disclosed during recovery");
+    releaseOwnedFatal!();
+    await until(() => !operator.running, "owned fatal stop did not finish");
+    assert(!operator.recoveredAudio && stopPayloads.length === 1 && stopPayloads[0] === "owned-session",
+      "owned fatal stop omitted identity or retained the stale recovered-running notice");
+    window.fetch = baseFetch;
+
+    reset();
+    await operator.start(settings, providers); await tick();
     const failedCapture = lastCapture!;
     const regularStop = AudioCaptureController.prototype.stop;
     let releaseFatalStop: (() => void) | undefined;
