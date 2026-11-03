@@ -72,9 +72,17 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
   at most 256 directory entries for server-generated UUID-named partials older
   than 24 hours, excluding journal-owned files. Completed WAVs, recent partials
   and unknown names are preserved; unvisited entries wait for later maintenance.
-- Session timestamps and audio frames currently lack independently verified
-  sample-accurate seek alignment. Do not imply that clicking a caption seeks
-  to that exact recorded word until alignment verification is implemented.
+- [PCM sample clock regressions](../apps/server/tests/test_recording_pcm_clock.py) connect
+  the real runtime, SQLite and generated WAV to a synthetic ASR sample counter.
+  Variable frame lengths, PCM silence and sender pauses preserve sample order;
+  rejected NaN/misaligned frames advance neither sink. WAV duration is the stored
+  sample count divided by sample rate, with PCM16 amplitude quantization. A
+  wall-clock pause without PCM does not insert silence into the file.
+- Queue overflow discards the incomplete recording while ASR continues. Audio is
+  mirrored before ASR admission, so a provider failure can leave an untranscribed
+  tail in a valid WAV. Transcript and recording coverage need not end together.
+  These fake-ASR regressions do **not** qualify native word timestamps, exact-word
+  seeking or real-microphone/field alignment; those remain separate acceptance.
 
 ### Verified ownership recovery
 
@@ -249,6 +257,17 @@ New postprocessed events preserve `original_text` separately from corrected disp
 - Summary work is in-process and limited to two active jobs across sessions. Additional admissions return 429 without creating a running record; duplicate unchanged completed requests remain idempotent. Each generation has a ten-minute overall deadline across hierarchical requests. Application shutdown cancels workers and marks unfinished attempts as failed; abrupt-process restart recovery remains available. Distributed retry queues are not implemented.
 
 ## Tests
+
+`bash scripts/run_browser_e2e.sh` starts a loopback-only deterministic Ollama
+fixture on an OS-assigned port and overrides the test backend's endpoint. It
+imports and reads back a synthetic two-minute WAV, then clicks the real summary
+controls for live and explicitly approved offline sources. Both summaries traverse
+the HTTP API, background job, provider HTTP request, SQLite, review/approval and
+citation/player navigation. Model/provider/source/prompt provenance is checked;
+summary drafts are no longer inserted directly into SQLite by the browser test.
+Only the offline decoder output is seeded. The fixture uses no model weights,
+microphone, private speech or external provider and establishes UI/service wiring,
+not model inference, semantic quality or field acceptance.
 
 `uv run pytest -q apps/server/tests/test_post_event_archive.py`
 
