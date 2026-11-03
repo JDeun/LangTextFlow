@@ -609,6 +609,27 @@ await evaluate(`document.querySelector('[data-testid="open-summary-transcript"]'
 await waitFor(() => evaluate(`document.querySelector('[data-testid="offline-source-link"]') !== null`), "offline summary exact citations");
 await evaluate(`document.querySelector('[data-testid="offline-source-link"]').click()`);
 await waitFor(() => evaluate(`document.activeElement?.dataset.testid === 'offline-transcript-text' && document.activeElement.value === 'Reviewed offline transcript'`), "offline citation focuses its reviewed evidence");
+await evaluate(`(async () => {
+  const originalFetch = window.fetch;
+  let calls = 0;
+  window.fetch = (...args) => {
+    if (args[0] === ${JSON.stringify(`${archiveRoot}/archive`)} && ++calls === 1) {
+      return new Promise(resolve => setTimeout(() => resolve(new Response(
+        ${JSON.stringify(JSON.stringify(reviewedArchive))}, { status: 200 }
+      )), 350));
+    }
+    return originalFetch(...args);
+  };
+  try {
+    const refresh = document.querySelector('.history-post-event > .history-post-actions button');
+    refresh.click(); refresh.click();
+    await new Promise(resolve => setTimeout(resolve, 700));
+    if (calls !== 2) throw new Error('archive race did not exercise both refresh requests');
+  } finally { window.fetch = originalFetch; }
+})()`);
+if (!await evaluate(`document.querySelector('[data-testid="open-summary-transcript"]') !== null`)) {
+  throw new Error("late old archive response replaced the newer approved transcript source");
+}
 await cdp("Runtime.evaluate", { expression: await readFile("apps/web/node_modules/axe-core/axe.min.js", "utf8") });
 const historyViolations = await evaluate(`axe.run(document, {
   runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }
