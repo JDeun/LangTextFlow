@@ -260,7 +260,9 @@ class FasterWhisperStreamingAsrEngine(AsrEngine):
                 or segment.end_seconds > chunk_duration_seconds + 0.25
             ):
                 raise AsrEngineError(
-                    "faster-whisper returned out-of-bounds segment timestamps"
+                    "faster-whisper returned out-of-bounds segment timestamps: "
+                    f"{segment.start_seconds:.3f}–{segment.end_seconds:.3f}s "
+                    f"for {chunk_duration_seconds:.3f}s input"
                 )
             self._sequence += 1
             start_ms = min(
