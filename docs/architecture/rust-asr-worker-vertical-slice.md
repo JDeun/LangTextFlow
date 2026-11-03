@@ -44,8 +44,9 @@ OS reaper thread holding the permit, including outside/after the Tokio runtime.
 It releases capacity only after `try_wait` confirms exit. A reaper start/wait
 failure permanently retains that slot (fail closed). Await `stop()` for explicit
 cleanup; process creation itself is an OS call, not preempted by this
-request deadline. This source prototype uses Tokio 1.53.1 already pinned by the
-desktop app, with process/io/time/sync only (no new scheduling framework).
+request deadline. Tokio is pinned to 1.53.3, which includes the
+[I/O safety patch](https://rustsec.org/advisories/RUSTSEC-2026-0386.html).
+The existing process/io/net/time/sync runtime features remain unchanged.
 
 The Python `langtextflow.inference_worker` loads the existing cached
 `FasterWhisperStreamingAsrEngine` synchronously, invokes its existing decoder,
