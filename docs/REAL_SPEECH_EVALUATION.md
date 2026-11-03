@@ -272,6 +272,51 @@ A successful small smoke does not approve translation accuracy, 4GB/8GB hardware
 or 30/60/90-minute service operation. Runtime/serialization failures leave bounded
 machine-readable diagnostics, and the sampler/runtime cleanup runs in `finally`.
 
+### Controlled queued-runtime smoke (2026-11-03)
+
+[Run 41596721553](https://github.com/JDeun/LangTextFlow/actions/runs/41596721553)
+measured source `e59d2d9bbeb84a8b07b7e632e05c69fd8309bc1e` on hosted Linux CPU,
+using an eight-second faster-whisper-base window and the real local M2M100 INT8
+provider. ASR revision was `ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66`; MT revision
+was `55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636`. Both model cards declared MIT.
+FLEURS stayed at the pinned revision above. Each direction used one independent
+clip and produced two committed target captions with full draining and zero
+published timestamp violations, queue drops, persistence failures, or hub failures.
+
+| Source → target / FLEURS ID | Source CER | Source WER | First caption ms | Target p95 lag ms | Python peak RSS MiB |
+|---|---:|---:|---:|---:|---:|
+| EN → KO / 1904 | 0.0476 | 0.1579 | 8456.2 | 1243.3 | 3732.54 |
+| KO → EN / 1883 | 0.1429 | 0.5000 | 8518.1 | 2887.6 | 3154.32 |
+
+The Korean run recovered once after native ASR reported `0–10s` for its final
+`4.48s` input chunk. That original error remains in the bounded diagnostics; the
+invalid result was withheld. The published recovery timestamps were in range.
+Lag uses the provider's source boundaries, including coarse recovery boundaries;
+it is an adapter estimate without independently aligned word timing or browser
+paint. Two segments per direction do not establish a population tail-latency SLO.
+
+PCM16 SHA-256 values were
+`fb4989f016644d6b06da77874632bb689c6ca2337698b84583ba5a6625a0de83` (EN, 10.56s)
+and `6aaa41029964099abe32008ef17ec538aa71aa480cc01568f6d64a65b25b30ab` (KO, 12.48s).
+[Artifact 13213000349](https://github.com/JDeun/LangTextFlow/actions/runs/41596721553/artifacts/13213000349)
+contains original source/revision records, target state, model/tokenizer file hashes,
+licenses, dependencies, and hardware. Its ZIP SHA-256 is
+`b95fe1c667eb8e56811beb7a44caeb1696d09426cf8d076b450d367911b2c1e2`; it contains no
+WAV/PCM, model weights, or SQLite files.
+
+The later report-only correction separates server-original recognition scores from
+audience delivery failures. The original records were re-evaluated under those
+rules: ASR scores, requested-target coverage, and p95 values were unchanged. The
+inference/backend tree, workflow, observer, and actual runtime execution body were
+identical apart from completion bookkeeping. Both original fields were complete,
+all queues drained, and no hub delivery was lost. Startup/disconnect/failure
+boundaries are separately covered by the explicitly mocked regression tests.
+
+Target coverage was 2/2 in each direction; translation accuracy remains unscored
+with `chrF: unavailable`. The RSS values cover the Python process, including its
+native model allocations, and do not qualify a complete 4GB device. Microphones,
+noise, semantic review, 4GB/8GB machines, and long-event gates remain open.
+
 ## Next phases
 
 Independent translation-quality acceptance (#77/#108) still needs reviewed,
