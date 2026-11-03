@@ -13,6 +13,7 @@ import wave
 from importlib.metadata import version
 from pathlib import Path
 
+from .parent_pipe import read_parent_pipe
 from .post_event_transcripts import DECODE_PARAMETERS, MAX_SEGMENTS, validate_segments
 from .whisper_cache import resolve_whisper_model
 
@@ -131,8 +132,10 @@ def main(args: list[str] | None = None) -> None:
     def parent_watchdog():
         # The parent holds stdin open; a crash/restart closes it on every supported OS.
         # Raw reads avoid holding BufferedReader's lock during interpreter shutdown.
-        os.read(parent_pipe, 1)
-        os._exit(1)
+        try:
+            read_parent_pipe(1, descriptor=parent_pipe)
+        finally:
+            os._exit(1)
 
     threading.Thread(target=parent_watchdog, daemon=True).start()
     try:

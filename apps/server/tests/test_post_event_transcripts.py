@@ -345,7 +345,7 @@ async def test_worker_parent_pipe_closure_stops_orphaned_native_work(monkeypatch
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
     )
     assert process.stdin is not None and process.stdout is not None
-    assert await asyncio.wait_for(process.stdout.readline(), 10) == b"loaded\n"
+    assert (await asyncio.wait_for(process.stdout.readline(), 10)).strip() == b"loaded"
     process.stdin.close()
     try:
         assert await asyncio.wait_for(process.wait(), 10) == 1
@@ -376,6 +376,35 @@ async def test_worker_normal_completion_exits_cleanly_with_parent_pipe_still_ope
     )
     assert segments == SEGMENTS and provenance == {"test": True}
     assert progress == [1]
+
+
+async def test_worker_native_decode_can_clone_stdin_while_parent_pipe_is_open(monkeypatch):
+    from langtextflow import post_event_transcript_worker
+
+    monkeypatch.setenv("PYTHONPATH", str(Path(post_event_transcript_worker.__file__).parents[1]))
+    code = """
+import os, time
+from langtextflow import post_event_transcript_worker as worker
+def decode(*args):
+    time.sleep(.1)
+    os.close(os.dup(0))
+    print('decoded', flush=True)
+worker.decode = decode
+worker.main(['unused.wav','tiny','ko','sha','cache'])
+"""
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-c", code,
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        assert (await asyncio.wait_for(process.stdout.readline(), 3)).strip() == b"decoded"
+        assert await asyncio.wait_for(process.wait(), 3) == 0
+        assert await process.stderr.read() == b""
+    finally:
+        if process.returncode is None:
+            process.kill()
+        await process.wait()
 
 
 def test_frozen_worker_dispatch_does_not_start_web_server(monkeypatch):
