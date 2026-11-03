@@ -315,7 +315,9 @@ async def test_launch_callback_before_cleanup_timeout_completion_still_reaps(
 ):
     factory, _, _ = process_provider
     create = asyncio.create_subprocess_exec
+    wait_for = asyncio.wait_for
     spawned, release = asyncio.Event(), asyncio.Event()
+    timed_out = asyncio.Event()
     processes = []
 
     async def delayed_return(*args, **kwargs):
@@ -323,21 +325,32 @@ async def test_launch_callback_before_cleanup_timeout_completion_still_reaps(
         processes.append(process)
         spawned.set()
         await release.wait()
-        # Return the actual child after wait_for's deadline but before its task resumes.
-        time.sleep(.06)
         return process
 
+    async def complete_launch_before_propagating_timeout(awaitable, timeout):
+        try:
+            return await wait_for(awaitable, timeout)
+        except TimeoutError:
+            if not timed_out.is_set():
+                timed_out.set()
+                # Use a real timeout, then force launch's callback to run while
+                # the closing task is still propagating that timeout (3.11 and 3.12).
+                release.set()
+                await worker._launch
+                await asyncio.sleep(0)
+            raise
+
     monkeypatch.setattr(asyncio, "create_subprocess_exec", delayed_return)
+    monkeypatch.setattr(asyncio, "wait_for", complete_launch_before_propagating_timeout)
     monkeypatch.setattr(mt, "REAP_TIMEOUT_SECONDS", .03)
     provider = factory()
     worker = mt._M2M100Worker(mt.worker_command(provider.model_dir, provider.tokenizer_dir, 2))
     await spawned.wait()
     stopping = asyncio.create_task(worker.close())
-    await asyncio.sleep(.001)
-    release.set()
     try:
         with pytest.raises(TranslationError, match="launch cleanup timed out"):
             await stopping
+        assert timed_out.is_set()
         async with asyncio.timeout(5):
             while not worker._released:
                 await asyncio.sleep(.005)
