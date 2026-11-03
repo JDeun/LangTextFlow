@@ -85,8 +85,18 @@ export function SessionHistory({
   const [busyId, setBusyId] = useState("");
   const [detailBusy, setDetailBusy] = useState(false);
   const [saveBusy, setSaveBusy] = useState(false);
+  const [focusedSource, setFocusedSource] = useState<string | null>(null);
+  const sourceElements = useRef(new Map<string, HTMLElement>());
   const refreshRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
+
+  useEffect(() => {
+    if (!focusedSource) return;
+    const element = sourceElements.current.get(focusedSource);
+    element?.scrollIntoView({ block: "center" });
+    element?.focus({ preventScroll: true });
+    setFocusedSource(null);
+  }, [focusedSource]);
 
   const refresh = useCallback(async () => {
     const requestId = ++refreshRequestRef.current;
@@ -451,6 +461,12 @@ export function SessionHistory({
               apiUrl={apiUrl}
               session={selected}
               locale={locale}
+              segments={segments}
+              onOpenSegment={(segmentId) => {
+                setTranscriptQuery("");
+                setDetailLanguage(selected.source_language);
+                setFocusedSource(segmentId);
+              }}
             />
           )}
 
@@ -483,7 +499,12 @@ export function SessionHistory({
           <div className="history-transcript-list">
             {filteredSegments.length === 0 && <div className="empty">{segments.length ? copy.noCaptionMatch : copy.noCaptions}</div>}
             {filteredSegments.map((segment) => (
-              <article className="history-transcript-segment" key={segment.segment_id}>
+              <article className="history-transcript-segment" key={segment.segment_id}
+                tabIndex={-1} data-source-segment={segment.segment_id}
+                ref={(element) => {
+                  if (element) sourceElements.current.set(segment.segment_id, element);
+                  else sourceElements.current.delete(segment.segment_id);
+                }}>
                 <div className="history-transcript-time">
                   <span>{timecode(segment.start_ms)}</span>
                   {segment.end_ms !== null && <span>– {timecode(segment.end_ms)}</span>}

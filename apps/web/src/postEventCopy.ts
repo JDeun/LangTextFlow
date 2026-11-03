@@ -11,6 +11,7 @@ export const POST_EVENT_COPY: Record<Locale, {
   defaultModel: string; exportSummary: string;
   reviewText: string; reviewHint: string; saveReview: string; approveReview: string;
   approved: string; unreviewed: string; reviewSaved: string; originalDraft: string;
+  sourceReferences: string; openSource: string;
 }> = {
   en: {
     heading: "Event archive", detail: "Transcript, optional recording, and AI summary are linked to this session.",
@@ -30,6 +31,7 @@ export const POST_EVENT_COPY: Record<Locale, {
     saveReview: "Save review draft", approveReview: "Approve and lock summary",
     approved: "Operator approved · locked", unreviewed: "Unapproved draft · verify before sharing",
     reviewSaved: "Review draft saved.", originalDraft: "Original AI draft",
+    sourceReferences: "Original transcript citations", openSource: "Review source at",
   },
   ko: {
     heading: "행사 아카이브", detail: "원문 전사문·녹음·AI 요약을 동일한 세션에서 관리합니다.",
@@ -49,6 +51,7 @@ export const POST_EVENT_COPY: Record<Locale, {
     saveReview: "검수 초안 저장", approveReview: "요약 승인 및 잠금",
     approved: "운영자 승인 완료 · 잠김", unreviewed: "미승인 초안 · 공유 전 검수 필요",
     reviewSaved: "검수 초안을 저장했습니다.", originalDraft: "AI 원본 초안",
+    sourceReferences: "원문 전사문 인용", openSource: "원문 확인",
   },
   ja: {
     heading: "イベントアーカイブ", detail: "原文・録音・AI要約をセッション単位で管理します。",
@@ -68,6 +71,7 @@ export const POST_EVENT_COPY: Record<Locale, {
     saveReview: "レビュー下書きを保存", approveReview: "要約を承認してロック",
     approved: "運営者承認済み・ロック", unreviewed: "未承認の下書き・共有前に確認",
     reviewSaved: "レビュー下書きを保存しました。", originalDraft: "AIの元の下書き",
+    sourceReferences: "原文の引用", openSource: "原文を確認",
   },
 };
 

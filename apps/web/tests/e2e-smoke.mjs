@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -548,6 +548,22 @@ const reviewedArchive = await (await fetch(`${archiveRoot}/archive`)).json();
 if (!reviewedArchive.summary.review.approved || !reviewedArchive.summary.content.startsWith("Synthetic summary")) {
   throw new Error("summary approval did not preserve original model draft");
 }
+await evaluate(`(() => {
+  const input = document.querySelector('.history-detail-controls input');
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'no-matching-source');
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+})()`);
+await waitFor(() => evaluate(`document.querySelectorAll('.history-transcript-segment').length === 0`), "filtered transcript before source navigation");
+await evaluate(`document.querySelector('[data-testid="summary-source-link"]').click()`);
+await waitFor(
+  () => evaluate(`document.activeElement?.classList.contains('history-transcript-segment') && document.querySelector('.history-detail-controls input')?.value === ''`),
+  "summary citation clears the filter and focuses its original transcript segment",
+);
+await cdp("Runtime.evaluate", { expression: await readFile("apps/web/node_modules/axe-core/axe.min.js", "utf8") });
+const historyViolations = await evaluate(`axe.run(document, {
+  runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }
+}).then(result => result.violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => ({ target: node.target, summary: node.failureSummary })) })))`);
+if (historyViolations.length) throw new Error("completed archive accessibility: " + JSON.stringify(historyViolations));
 
 for (const format of ["srt", "vtt", "txt", "json"]) {
   const exportResponse = await fetch(
