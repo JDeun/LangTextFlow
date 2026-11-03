@@ -16,11 +16,12 @@ interface Props {
   root: string; locale: Locale; sourceLanguage: string;
   recordings: { recording_id: string; duration_seconds: number }[];
   onChanged: () => Promise<void>;
+  onSeekRecording: (recordingId: string, startMs: number) => void;
   requestedVersion: { id: string } | null;
   summary: { transcript_id?: string | null; content: string; review?: { content: string } | null } | null;
 }
 
-export function PostEventTranscripts({ root, locale, sourceLanguage, recordings, onChanged, requestedVersion, summary }: Props) {
+export function PostEventTranscripts({ root, locale, sourceLanguage, recordings, onChanged, onSeekRecording, requestedVersion, summary }: Props) {
   const copy = TRANSCRIPT_COPY[locale];
   const [versions, setVersions] = useState<Version[]>([]);
   const [selected, setSelected] = useState("");
@@ -101,15 +102,17 @@ export function PostEventTranscripts({ root, locale, sourceLanguage, recordings,
       </option>)}
     </select></label> : <p>{copy.none}</p>}
     {selected && <TranscriptReview key={selected} root={root} id={selected} locale={locale}
+      onSeekRecording={onSeekRecording}
       summary={summary?.transcript_id === selected ? summary : null}
       onChanged={async () => { await refresh(); await onChanged(); }} />}
     {error && <p role="alert" className="error-box">{error}</p>}
   </section>;
 }
 
-function TranscriptReview({ root, id, locale, onChanged, summary }: {
+function TranscriptReview({ root, id, locale, onChanged, onSeekRecording, summary }: {
   root: string; id: string; locale: Locale; onChanged: () => Promise<void>;
   summary: Props["summary"];
+  onSeekRecording: Props["onSeekRecording"];
 }) {
   const copy = TRANSCRIPT_COPY[locale];
   const [version, setVersion] = useState<Version | null>(null);
@@ -172,12 +175,17 @@ function TranscriptReview({ root, id, locale, onChanged, summary }: {
         ))}
       </div>
       <div className="history-transcript-list">
-        {segments.map((segment, index) => <label key={segment.segment_id}>
+        {segments.map((segment, index) => <div key={segment.segment_id}><label>
           {copy.review} · {segment.segment_id} · {(segment.start_ms / 1000).toFixed(1)}–{(segment.end_ms / 1000).toFixed(1)}s
           <textarea rows={3} value={segment.text} readOnly={locked} disabled={busy} maxLength={6000} data-testid="offline-transcript-text"
             ref={element => { if (element) elements.current.set(segment.segment_id, element); else elements.current.delete(segment.segment_id); }}
             onChange={event => setSegments(current => current.map((item, i) => i === index ? { ...item, text: event.target.value } : item))} />
-        </label>)}
+        </label>
+          <button type="button" className="secondary-button" data-testid="offline-audio-seek"
+            onClick={() => onSeekRecording(version.recording_id, segment.start_ms)}>
+            {copy.seekRecording} · {(segment.start_ms / 1000).toFixed(1)}s
+          </button>
+        </div>)}
       </div>
       {!locked && <div className="history-post-actions">
         <button type="button" className="secondary-button" disabled={busy || !segments.length} onClick={() => void mutate("reviews")}>{copy.save}</button>
