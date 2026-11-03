@@ -237,8 +237,43 @@ load and long-event quality gates remain open.
 - Full manual workflows and implementation-change PR pilots are bounded (sample count, audio length, model options and timeouts) to prevent unintentional heavy GPU/CPU costs.
 - The FLEURS dataset download and first model bootstrap may take time. If the pinned revision is withdrawn, report failure rather than silently switching to a mutable dataset release.
 
+## Actual CaptionRuntime ASR-to-MT smoke (#100)
+
+The existing `scripts/evaluate_live_fleurs_translation.py` now supports real
+`ollama` and `m2m100-ct2` providers through `CaptionRuntime`, its actual ASR audio
+queue, per-target pipeline, persistence, and serialized hub fan-out. The separate
+`compare_multilingual_m2m100_cpu.py` experiment calls ASR/MT helpers directly and
+must not be presented as evidence of the queued runtime path.
+
+Run the existing **Church live interpretation** workflow explicitly with a frozen
+`source_sha`, `translation_provider=m2m100-ct2`, and `source_languages=both` for one
+independent Korean clip and one independent English clip. Ordinary CI runs the
+mock-wiring tests; it does not download these model weights. The workflow pins
+FLEURS, faster-whisper-base, and M2M100 revisions, verifies model-card licenses,
+and records PCM/model/tokenizer SHA-256 values. It uploads JSON/text/CSV evidence,
+never temporary WAV/PCM, model weights, or the benchmark SQLite database.
+
+Reports preserve source language, original ASR text/source revision, selected target
+text/state, session scope, timestamp violations, first-caption/translation/commit
+latency, queue/drain diagnostics, and Python RSS. The observer measures actual
+`WebSocketHub.send_json` payload delivery **in process**; ASGI authorization,
+network delay, browser paint, and a real microphone remain separate checks. The
+Ollama variant also retains external-container resource samples.
+
+Source CER/WER use each source clip's independent human transcription. Different
+FLEURS language IDs are not assumed to form aligned translation references:
+`translation_quality.chrf` is `null` with status `unavailable`. No translations or
+translation gold are fabricated. Native-model experiments are labeled
+`real-inference`; unit tests that replace native weights are labeled `mock-wiring`.
+A successful small smoke does not approve translation accuracy, 4GB/8GB hardware,
+or 30/60/90-minute service operation. Runtime/serialization failures leave bounded
+machine-readable diagnostics, and the sampler/runtime cleanup runs in `finally`.
+
 ## Next phases
 
-Issue #77 also tracks a **real translation** benchmark. It needs independently aligned bilingual references and a running target translation model. A fake translator or copying original text into the target language cannot be scored as a real translation result.
+Independent translation-quality acceptance (#77/#108) still needs reviewed,
+aligned bilingual references. Running the native runtime smoke supplies coverage
+and timing evidence, not translation gold. A fake translator or copying source
+text into a target track cannot be scored as a real translation result.
 
 GPU tests with VibeVoice 7B and local translation/correction should run separately on self-hosted or paid GPU runners with logged VRAM, RTF, P95 lag and failover behavior.
