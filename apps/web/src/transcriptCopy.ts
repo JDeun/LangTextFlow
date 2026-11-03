@@ -6,6 +6,7 @@ export const TRANSCRIPT_COPY: Record<Locale, {
   original: string; save: string; approve: string; approved: string; draft: string;
   failure: string; source: string; live: string; approvedSource: string; open: string;
   running: string; completed: string; error: string; cancelled: string;
+  seekRecording: string;
 }> = {
   en: {
     heading: "Post-event transcript", detail: "Re-transcribe a managed recording locally with an already cached model. Live captions stay intact. Compare the recording before approving; approval locks this version.",
@@ -16,6 +17,7 @@ export const TRANSCRIPT_COPY: Record<Locale, {
     draft: "Unapproved draft", failure: "Transcript request failed.", source: "Summary source",
     live: "Original live ASR", approvedSource: "Approved post-event transcript", open: "Review transcript source",
     running: "Transcribing", completed: "Completed", error: "Failed", cancelled: "Cancelled",
+    seekRecording: "Seek source recording (estimated time)",
   },
   ko: {
     heading: "행사 후 정밀 전사", detail: "이미 내려받은 로컬 모델로 보관된 녹음을 다시 전사합니다. 실시간 자막은 유지됩니다. 녹음과 대조한 뒤 승인하세요. 승인한 버전은 잠깁니다.",
@@ -26,6 +28,7 @@ export const TRANSCRIPT_COPY: Record<Locale, {
     draft: "미승인 초안", failure: "전사 요청을 처리하지 못했습니다.", source: "요약 원문",
     live: "실시간 ASR 원문", approvedSource: "승인한 행사 후 전사문", open: "요약의 전사 원문 확인",
     running: "전사 중", completed: "완료", error: "실패", cancelled: "취소됨",
+    seekRecording: "원본 녹음 위치 이동 (추정 시간)",
   },
   ja: {
     heading: "イベント後の文字起こし", detail: "キャッシュ済みのローカルモデルで保存録音を再処理します。ライブ字幕は保持されます。録音と照合して承認してください。承認した版はロックされます。",
@@ -36,5 +39,6 @@ export const TRANSCRIPT_COPY: Record<Locale, {
     draft: "未承認の下書き", failure: "文字起こしの処理に失敗しました。", source: "要約の原文",
     live: "ライブASRの原文", approvedSource: "承認済みのイベント後の原文", open: "要約の原文を確認",
     running: "処理中", completed: "完了", error: "失敗", cancelled: "中止済み",
+    seekRecording: "元の録音へ移動（推定時刻）",
   },
 };

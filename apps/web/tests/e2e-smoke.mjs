@@ -634,6 +634,12 @@ await evaluate(`document.querySelector('[data-testid="open-summary-transcript"]'
 await waitFor(() => evaluate(`document.querySelector('[data-testid="offline-source-link"]') !== null`), "offline summary exact citations");
 await evaluate(`document.querySelector('[data-testid="offline-source-link"]').click()`);
 await waitFor(() => evaluate(`document.activeElement?.dataset.testid === 'offline-transcript-text' && document.activeElement.value === 'Reviewed offline transcript'`), "offline citation focuses its reviewed evidence");
+await evaluate(`document.querySelector('[data-testid="offline-audio-seek"]').click()`);
+await waitFor(() => evaluate(`(() => {
+  const audio = Array.from(document.querySelectorAll('audio')).find(item => item.src.includes(${JSON.stringify(importedRecording.recording_id)}));
+  return audio && audio.readyState >= 1 && Math.abs(audio.currentTime - 1) < 0.05
+    && document.activeElement === audio && audio.paused;
+})()`), "offline source seeks its own recording after metadata load without autoplay");
 await evaluate(`(async () => {
   const originalFetch = window.fetch;
   let calls = 0;
@@ -660,6 +666,12 @@ const historyViolations = await evaluate(`axe.run(document, {
   runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] }
 }).then(result => result.violations.map(item => ({ id: item.id, nodes: item.nodes.map(node => ({ target: node.target, summary: node.failureSummary })) })))`);
 if (historyViolations.length) throw new Error("completed archive accessibility: " + JSON.stringify(historyViolations));
+await setViewport(390, 844, true);
+if (!await evaluate(`document.documentElement.scrollWidth <= window.innerWidth + 1`)) {
+  throw new Error("expanded event archive overflowed the mobile viewport");
+}
+await screenshot("history-mobile-ko");
+await setViewport(1440, 1000, false);
 
 for (const format of ["srt", "vtt", "txt", "json"]) {
   const exportResponse = await fetch(
