@@ -17,11 +17,11 @@ from urllib.request import Request, urlopen
 from build_desktop_sidecar import BIN_DIR, _target_triple
 
 
-def smoke_multiprocessing_helper(binary: Path, root: Path, environment: dict[str, str]) -> None:
-    # Match the frozen interpreter flags required by PyInstaller's diversion hook.
+def smoke_auxiliary_command(
+    binary: Path, root: Path, environment: dict[str, str], arguments: list[str], expected_code: int,
+) -> None:
     helper = subprocess.Popen(
-        [str(binary), "-B", "-S", "-I", "-c",
-         "from multiprocessing.resource_tracker import main;main(0)"],
+        [str(binary), *arguments],
         stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         cwd=root, env=environment, start_new_session=os.name == "posix",
     )
@@ -40,11 +40,11 @@ def smoke_multiprocessing_helper(binary: Path, root: Path, environment: dict[str
         helper.kill()
         stdout, stderr = helper.communicate(timeout=5)
         raise RuntimeError(
-            f"frozen multiprocessing helper did not exit at EOF: {stderr[-2000:]!r}"
+            f"frozen auxiliary command did not exit: {arguments[0]} {stderr[-2000:]!r}"
         ) from exc
-    if helper.returncode != 0 or stdout or stderr:
+    if helper.returncode != expected_code or stdout or stderr:
         raise RuntimeError(
-            f"frozen multiprocessing helper failed ({helper.returncode}): "
+            f"frozen auxiliary command failed ({helper.returncode}): "
             f"stdout={stdout[-2000:]!r}, stderr={stderr[-2000:]!r}"
         )
 
@@ -78,8 +78,16 @@ def main() -> None:
             "LANGTEXTFLOW_BACKEND_PORT": str(port),
             "LANGTEXTFLOW_MDNS_ENABLED": "false",
             "HF_HOME": str(root / "models" / "huggingface"),
+            "LANGTEXTFLOW_OLLAMA_URL": "http://127.0.0.1:11434",
         }
-        smoke_multiprocessing_helper(binary, root, environment)
+        # Match the interpreter flags checked by PyInstaller's multiprocessing hook.
+        smoke_auxiliary_command(binary, root, environment, [
+            "-B", "-S", "-I", "-c", "from multiprocessing.resource_tracker import main;main(0)",
+        ], 0)
+        # Invalid setup arguments must exit quietly without starting a server or downloading.
+        smoke_auxiliary_command(binary, root, environment, [
+            "--faster-whisper-prefetch-worker", "invalid-model", str(root / "invalid-cache"),
+        ], 1)
         with (root / "sidecar.log").open("wb") as log:
             process = subprocess.Popen(
                 [str(binary)], cwd=root, stdout=log, stderr=subprocess.STDOUT,
@@ -116,7 +124,8 @@ def main() -> None:
                 assert not json.loads(request("/api/v1/session/stop", {}))["running"]
                 archive = json.loads(request(f"/api/v1/history/{state['session_id']}/archive"))
                 assert archive == {"recordings": [], "summary": None, "summary_stale": False,
-                                   "approved_transcript_id": None}
+                                   "summary_external_providers": ["openai-compatible"],
+                                   "approved_transcript_id": None, "warnings": []}
                 exported = json.loads(request(
                     f"/api/v1/history/{state['session_id']}/export?format=json",
                 ))
@@ -135,7 +144,7 @@ def main() -> None:
                         process.kill()
                         process.wait()
     print(
-        "Frozen backend smoke passed: multiprocessing EOF, startup, UI, captions, archive, shutdown"
+        "Frozen backend smoke passed: worker dispatch, multiprocessing EOF, UI, captions, shutdown"
     )
 
 
