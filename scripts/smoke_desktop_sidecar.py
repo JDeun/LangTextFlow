@@ -116,6 +116,7 @@ def main() -> None:
                 assert not json.loads(request("/api/v1/session/stop", {}))["running"]
                 archive = json.loads(request(f"/api/v1/history/{state['session_id']}/archive"))
                 assert archive == {"recordings": [], "summary": None, "summary_stale": False,
+                                   "summary_external_providers": ["openai-compatible"],
                                    "approved_transcript_id": None, "warnings": []}
                 exported = json.loads(request(
                     f"/api/v1/history/{state['session_id']}/export?format=json",

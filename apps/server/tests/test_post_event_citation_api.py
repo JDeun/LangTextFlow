@@ -24,7 +24,7 @@ from langtextflow.post_event_archive import PostEventArchive
 from langtextflow.session_repository import SessionRepository
 
 
-def _app(tmp_path):
+def _app(tmp_path, settings=None):
     db = str(tmp_path / "events.db")
     history = SessionRepository(db)
     history.initialize()
@@ -56,7 +56,7 @@ def _app(tmp_path):
     )
     shutdown = install_post_event_routes(
         app, runtime, archive,
-        Settings(database_path=db), lambda request: None,
+        settings or Settings(database_path=db), lambda request: None,
     )
     return app, archive, history
 
@@ -68,6 +68,37 @@ def _settle(client: TestClient, archive: PostEventArchive):
             return summary
         time.sleep(0.01)
     pytest.fail("summary worker did not settle")
+
+
+@pytest.mark.parametrize("remote", [False, True])
+def test_ollama_transmission_policy_precedes_summary_job(monkeypatch, tmp_path, remote):
+    settings = Settings(ollama_url="https://remote.example/private" if remote else "http://[::1]:11434")
+    app, archive, _ = _app(tmp_path, settings)
+    calls = []
+
+    async def generated(*args, **kwargs):
+        calls.append(kwargs["allow_external_provider"])
+        return "사랑에 관해 말씀하셨습니다. [caption-1 at 1s]"
+
+    monkeypatch.setattr(post_event_api, "generate_summary", generated)
+    with TestClient(app) as client:
+        root = "/api/v1/history/source-1"
+        metadata = client.get(root + "/archive").json()
+        assert metadata["summary_external_providers"] == (
+            ["openai-compatible", "ollama"] if remote else ["openai-compatible"]
+        )
+        assert settings.ollama_url not in str(metadata)
+        response = client.post(root + "/summary", json={"model": "test"})
+        if remote:
+            assert response.status_code == 400
+            assert archive.latest_summary("source-1") is None
+            assert calls == []
+            response = client.post(root + "/summary", json={
+                "model": "test", "allow_external_provider": True,
+            })
+        assert response.status_code == 202
+        assert _settle(client, archive)["status"] == "completed"
+        assert calls == [remote]
 
 
 def test_uncited_model_draft_is_recorded_as_error_not_completed(

@@ -20,6 +20,7 @@ from .post_event_summary import (
     SummaryRequest,
     SummaryReviewRequest,
     generate_summary,
+    summary_external_providers,
 )
 from .post_event_transcript_api import install_transcript_routes
 from .runtime import CaptionRuntime
@@ -101,6 +102,7 @@ def install_post_event_routes(
             "recordings": recordings,
             "summary": summary,
             "summary_stale": summary_stale,
+            "summary_external_providers": summary_external_providers(settings),
             "warnings": ["interrupted_session"] if session.interrupted else [],
             "approved_transcript_id": await asyncio.to_thread(
                 archive.transcripts.approved_id, session_id,
@@ -250,9 +252,12 @@ def install_post_event_routes(
 
     async def start_summary(session_id: str, payload: SummaryRequest) -> dict:
         await finished_session(session_id)
-        if payload.provider == "openai-compatible" and not payload.allow_external_provider:
+        if (
+            payload.provider in summary_external_providers(settings)
+            and not payload.allow_external_provider
+        ):
             raise HTTPException(
-                400, "external-compatible summarization requires explicit opt-in",
+                400, "external-provider summarization requires explicit opt-in",
             )
         model = payload.model or (
             settings.ollama_correction_model

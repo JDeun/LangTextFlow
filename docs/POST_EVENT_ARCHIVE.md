@@ -23,7 +23,7 @@ Foreign keys cascade with session deletion. WAV bytes live in `<database-directo
 1. Finish the session, then open **History > Details > Event archive**.
 2. Use the per-session opt-in to record live microphone audio, or import an authorized **PCM16 WAV** (mono/stereo, 8–48 kHz, up to 512 MiB and four hours).
 3. Play imported recordings from the same session panel.
-4. Choose **Generate / retry with local Ollama** to create a post-event summary. It defaults to the configured local `ollama_correction_model` (currently `qwen3.5:4b`); that model must be installed and reachable. No external provider is silently selected.
+4. Choose **Generate / retry summary** with the configured Ollama to create a post-event summary. It defaults to `ollama_correction_model` (currently `qwen3.5:4b`); that model must be installed and reachable. A non-loopback Ollama endpoint requires explicit transmission approval for each request. No external provider is silently selected.
 5. The summary runs in an async job. The panel polls status; failure never changes or removes the original transcript. Generation is idempotent when the same transcript hash/provider/model/language/prompt version already has a completed result.
 6. Compare the summary against the transcript, retain exact source citations, save a review draft, then explicitly approve and lock it. Concurrent edits are rejected with HTTP 409. A changed source hash blocks approval; generate a new summary from the new evidence. Text export uses the saved review when present; the original AI draft remains available in the panel. Project manifests/reports retain approval and stale status.
 7. Use the source citation buttons to clear transcript filtering, select the original language and focus the referenced committed segment. Only exact IDs/timecodes in the loaded session can be linked. These controls navigate the transcript; they do not claim sample-accurate audio alignment.
@@ -115,7 +115,9 @@ the archive's `warnings` retains `interrupted_session`; the panel keeps its inco
 transcript warning before and after generation. This warning is not cleared by a
 successful model response.
 
-Explicitly selecting the OpenAI-compatible provider requires `allow_external_provider:true` and a configured model. An OpenAI-compatible endpoint may be local or remote; the user must verify data handling terms before choosing an external endpoint.
+Explicitly selecting the OpenAI-compatible provider always requires `allow_external_provider:true` and a configured model. Ollama also requires this flag when its configured URL is not HTTP(S) on `localhost`, `127.0.0.1`, or `::1`. Both the API admission check and direct summary generator enforce this policy before sending transcript text; denied API requests do not create a job. Provider requests do not follow redirects.
+
+The operator archive response includes `summary_external_providers`, the provider IDs requiring approval under current settings, without exposing URLs or credentials. The panel disables generation until this metadata is verified; use **Refresh archive** to recover from missing metadata or a failed lookup. Approval resets when the provider or transcript source changes and after refreshing. Stored summaries display their recorded provider and model; endpoint location was not recorded when they were generated, so the panel does not infer their historical data destination from current settings. Verify data handling terms before approving transmission.
 
 **All routes** are protected by the existing loopback-only Operator API and browser Origin restrictions. Audience join codes do not grant access.
 

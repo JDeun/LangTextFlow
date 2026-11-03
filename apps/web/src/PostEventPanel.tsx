@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionDetail, TranscriptEvent } from "./types";
 import type { Locale } from "./locales";
 import { POST_EVENT_COPY } from "./postEventCopy";
-import { buildSummaryRequest, type SummaryLanguage, type SummaryProvider } from "./summaryRequestPolicy";
+import { buildSummaryRequest, parseSummaryExternalProviders, type SummaryLanguage, type SummaryProvider } from "./summaryRequestPolicy";
 import { summaryCitations } from "./summaryCitations";
 import { PostEventTranscripts } from "./PostEventTranscripts";
 import { TRANSCRIPT_COPY } from "./transcriptCopy";
@@ -35,6 +35,7 @@ interface Summary {
 }
 
 interface Archive {
+  summary_external_providers?: unknown;
   warnings?: string[];
   approved_transcript_id?: string | null;
   recordings: Recording[];
@@ -60,6 +61,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
   const [summaryProvider, setSummaryProvider] = useState<SummaryProvider>("ollama");
   const [summaryModel, setSummaryModel] = useState("");
   const [allowExternal, setAllowExternal] = useState(false);
+  const [summaryPolicy, setSummaryPolicy] = useState<{ root: string; providers: SummaryProvider[] | null } | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -71,6 +73,8 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
   const audioPlayers = useRef(new Map<string, HTMLAudioElement>());
   const [recordingSeek, setRecordingSeek] = useState<{ id: string; startMs: number } | null>(null);
   const root = `${apiUrl}/api/v1/history/${encodeURIComponent(session.session_id)}`;
+  const externalProviders = summaryPolicy?.root === root ? summaryPolicy.providers : null;
+  const requiresExternalConsent = externalProviders?.includes(summaryProvider) ?? false;
 
   useEffect(() => {
     if (!recordingSeek) return;
@@ -111,10 +115,17 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
 
   const refresh = useCallback(async () => {
     const requestId = ++archiveRequest.current;
+    setSummaryPolicy(null);
+    setAllowExternal(false);
     const response = await fetch(`${root}/archive`);
     if (!response.ok) throw new Error(await response.text());
     const data = (await response.json()) as Archive;
-    if (requestId === archiveRequest.current) setArchive(data);
+    if (!data || !Array.isArray(data.recordings) || typeof data.summary_stale !== "boolean"
+      || !("summary" in data)) throw new Error("Invalid archive response");
+    if (requestId === archiveRequest.current) {
+      setArchive(data);
+      setSummaryPolicy({ root, providers: parseSummaryExternalProviders(data.summary_external_providers) });
+    }
   }, [root]);
 
   useEffect(() => {
@@ -164,6 +175,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(buildSummaryRequest(
           summaryLanguage, summaryProvider, summaryModel, allowExternal, summaryTranscriptId,
+          externalProviders,
         )),
       });
       if (!response.ok) throw new Error(await response.text());
@@ -329,7 +341,8 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
           />
         </label>
       </div>
-      {summaryProvider === "openai-compatible" && (
+      {!externalProviders && <p role="status">{copy.providerPolicyUnknown}</p>}
+      {requiresExternalConsent && (
         <label>
           <input
             type="checkbox"
@@ -345,7 +358,7 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
         className="secondary-button"
         disabled={Boolean(busy)
           || archive.summary?.status === "running"
-          || (summaryProvider === "openai-compatible" && !allowExternal)}
+          || !externalProviders || (requiresExternalConsent && !allowExternal)}
         onClick={() => void summarize()}
       >
         {copy.generate}
@@ -358,7 +371,8 @@ export function PostEventPanel({ apiUrl, session, locale, segments, onOpenSegmen
       {archive.summary?.status === "error" && <p role="alert">{archive.summary.error || copy.failure}</p>}
       {archive.summary?.status === "completed" && (
         <div className="history-post-summary">
-          <small>{archive.summary.model} · {archive.summary.language.toUpperCase()}</small>
+          <small>{archive.summary.provider} · {archive.summary.model} · {archive.summary.language.toUpperCase()}</small>
+          <p>{copy.endpointUnrecorded}</p>
           <p role="status">{archive.summary.review?.approved ? copy.approved : copy.unreviewed}</p>
           <label>
             {copy.reviewText}

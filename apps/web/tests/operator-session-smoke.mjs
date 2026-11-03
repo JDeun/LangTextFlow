@@ -80,6 +80,14 @@ try {
     result.exceptionDetails.exception?.description || result.exceptionDetails.text,
   );
   console.log(`operator session smoke passed: ${result.result.value}`);
+  const summaryResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/summaryPolicyHarness.tsx').then((test) => test.runSummaryPolicyChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (summaryResult.exceptionDetails) throw new Error(
+    summaryResult.exceptionDetails.exception?.description || summaryResult.exceptionDetails.text,
+  );
+  console.log(`summary transmission policy smoke passed: ${summaryResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;
