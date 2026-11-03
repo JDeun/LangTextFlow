@@ -1,4 +1,4 @@
-//! Source-only canonical events. No MT, correction, persistence or UI cutover.
+//! Canonical source and independent-target events. No correction or production cutover.
 use crate::asr_slice::{AudioChunk, SourceEvent};
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -92,7 +92,7 @@ struct CaptionEvent {
     translations: BTreeMap<String, String>,
     translation_states: BTreeMap<String, &'static str>,
     asr_provenance: AsrProvenance,
-    translation_provenance: BTreeMap<String, String>,
+    translation_provenance: BTreeMap<String, TranslationProvenance>,
     start_ms: u64,
     end_ms: u64,
     speaker: Option<String>,
@@ -105,12 +105,22 @@ struct CaptionEvent {
     serial: u64,
 }
 
+#[derive(Clone, Serialize)]
+struct TranslationProvenance {
+    provider: &'static str,
+    requested_model: Option<String>,
+    configured_model: Option<String>,
+    verified_model: Option<String>,
+    model_revision: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct ProjectedFrame {
     pub(crate) raw: JsonFrame,
     id: String,
     serial: u64,
     start_ms: u64,
+    event: CaptionEvent,
 }
 
 pub struct ObserverReceiver {
@@ -173,6 +183,7 @@ impl CaptionProjection {
         generation: u64,
         chunk: &AudioChunk,
         sources: &[SourceEvent],
+        translating: bool,
     ) -> Result<Vec<ProjectedFrame>, &'static str> {
         let Some(config) = &self.config else {
             return Ok(Vec::new());
@@ -180,7 +191,21 @@ impl CaptionProjection {
         let mut prepared = Vec::new();
         let mut serial = self.serial;
         for source in sources {
-            for (stage, version, committed) in [("stable", 1, false), ("committed", 2, true)] {
+            let previous = self
+                .latest
+                .iter()
+                .find(|frame| frame.id == source.segment_id)
+                .map_or(0, |frame| frame.event.version);
+            let stages: &[(&str, u64, bool)] = if translating {
+                &[("stable", 1, false)]
+            } else {
+                &[("stable", 1, false), ("committed", 2, true)]
+            };
+            for &(stage, increment, committed) in stages {
+                let version = previous
+                    .checked_add(increment)
+                    .filter(|v| *v <= JS_MAX)
+                    .ok_or("version_exhausted")?;
                 serial = serial
                     .checked_add(1)
                     .filter(|n| *n <= JS_MAX)
@@ -198,7 +223,16 @@ impl CaptionProjection {
                     translation_states: config
                         .targets
                         .iter()
-                        .map(|lang| (lang.clone(), "unsupported"))
+                        .map(|lang| {
+                            (
+                                lang.clone(),
+                                if translating {
+                                    "pending"
+                                } else {
+                                    "unsupported"
+                                },
+                            )
+                        })
                         .collect(),
                     asr_provenance: AsrProvenance {
                         provider: "faster-whisper",
@@ -228,22 +262,88 @@ impl CaptionProjection {
                     session_generation: generation,
                     serial,
                 };
-                let raw = RawValue::from_string(
-                    serde_json::to_string(&event).map_err(|_| "event_encoding")?,
-                )
-                .map_err(|_| "event_encoding")?;
-                if raw.get().len() > MAX_SNAPSHOT_BYTES - SNAPSHOT_OVERHEAD {
-                    return Err("event_limit");
-                }
-                prepared.push(ProjectedFrame {
-                    raw: Arc::from(raw),
-                    id: event.segment_id,
-                    serial,
-                    start_ms: event.start_ms,
-                });
+                prepared.push(Self::frame(event)?);
             }
         }
         Ok(prepared)
+    }
+
+    fn frame(event: CaptionEvent) -> Result<ProjectedFrame, &'static str> {
+        let raw =
+            RawValue::from_string(serde_json::to_string(&event).map_err(|_| "event_encoding")?)
+                .map_err(|_| "event_encoding")?;
+        if raw.get().len() > MAX_SNAPSHOT_BYTES - SNAPSHOT_OVERHEAD {
+            return Err("event_limit");
+        }
+        Ok(ProjectedFrame {
+            raw: Arc::from(raw),
+            id: event.segment_id.clone(),
+            serial: event.serial,
+            start_ms: event.start_ms,
+            event,
+        })
+    }
+
+    pub(crate) fn target(
+        &mut self,
+        id: &str,
+        revision: u64,
+        target: &str,
+        outcome: crate::mt_slice::MtOutcome,
+    ) -> Result<(), &'static str> {
+        let Some(previous) = self.latest.iter().find(|frame| frame.id == id) else {
+            return Ok(()); // Bounded live-view eviction does not recreate history.
+        };
+        if previous.event.source_revision != revision
+            || previous.event.committed
+            || previous.event.translation_states.get(target) != Some(&"pending")
+        {
+            return Err("stale_translation");
+        }
+        let mut event = previous.event.clone();
+        event.version = event
+            .version
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("version_exhausted")?;
+        event.serial = self
+            .serial
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("serial_exhausted")?;
+        let status = match outcome {
+            crate::mt_slice::MtOutcome::Available(text) => {
+                event.translations.insert(target.into(), text);
+                event.translation_provenance.insert(
+                    target.into(),
+                    TranslationProvenance {
+                        provider: "m2m100-ct2",
+                        requested_model: None,
+                        configured_model: None,
+                        verified_model: None,
+                        model_revision: None,
+                    },
+                );
+                "available"
+            }
+            crate::mt_slice::MtOutcome::Failed => "failed",
+            crate::mt_slice::MtOutcome::TimedOut => "timed_out",
+        };
+        event.translation_states.insert(target.into(), status);
+        event.committed = event
+            .translation_states
+            .values()
+            .all(|value| *value != "pending");
+        event.stage = if event.committed {
+            "committed"
+        } else {
+            "stable"
+        };
+        event.emitted_at = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .map_err(|_| "clock_format")?;
+        self.apply(vec![Self::frame(event)?]);
+        Ok(())
     }
 
     pub(crate) fn apply(&mut self, prepared: Vec<ProjectedFrame>) {
