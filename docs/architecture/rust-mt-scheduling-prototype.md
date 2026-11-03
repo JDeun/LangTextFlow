@@ -35,8 +35,13 @@ and revision remain null: local cache paths do not attest checkpoint identity.
 
 Before any source segment in a chunk reaches COMMITTED, `revise` may advance its
 source revision. This cancels/fences all old target jobs and preserves its public
-source slot. Replacement source publication uses higher versions with the new
-revision. Once any segment is COMMITTED, replacement of that chunk is rejected.
+source slot. Rust removes that chunk's prior public IDs and publishes an
+authoritative snapshot to current observers; unrelated committed sources remain.
+This also removes obsolete segments when a revision shrinks or becomes empty.
+Replacement source publication uses higher versions with the new revision.
+Per-ID version history survives display eviction/invalidation, with a bounded
+32,768-ID session limit matching 128 admitted chunks × 256 inferred segments.
+Once any segment is COMMITTED, replacement of that chunk is rejected.
 Session restart invalidates old generation jobs and credentials. Late source or
 target results cannot populate the replacement session.
 
@@ -53,6 +58,9 @@ uses `try_reserve` without awaiting; overflow is an explicit failed target. Sour
 and glossary JSON are copied only after capacity is reserved. The existing v1
 128KiB frame limit still applies. Context carries only `preset` and `glossary`;
 the shipped worker validates their existing product schema before lazy loading.
+Context size is counted through a private limited writer, rejecting over 64KiB
+without first allocating a full serialized output buffer. A final publication
+check downgrades success if serialization consumed the remaining target budget.
 
 The single native child serializes targets. A slow target can consume a queued
 peer's deadline; that peer then times out explicitly. This is bounded isolation
@@ -98,7 +106,8 @@ Actual OS-child/WebSocket regressions cover mixed target success/failure with
 reconnect, slow MT while another source publishes, hung inference and fresh-child
 retry, saturated queues with queue time charged to the deadline, wrong reply
 identity, revision/session replacement and owner stop/drop with confirmed slot
-release. These synthetic tests establish ownership and wire behavior, not model
+release. Two-to-one/empty revisions and display eviction preserve current-view
+membership and monotonic versions. These synthetic tests establish ownership and wire behavior, not model
 quality or native word alignment. Cached native receipts are separate from these
 synthetic regressions and preserve unknown checkpoint provenance.
 

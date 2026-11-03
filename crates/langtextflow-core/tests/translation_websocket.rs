@@ -102,6 +102,9 @@ fn enable(session: &AsrSession, dispatcher: &MtDispatcher, deadline: u64) {
         .unwrap();
 }
 fn publish(session: &AsrSession, id: &str, revision: u64, source: &str, text: &str) {
+    publish_segments(session, id, revision, source, &[text]);
+}
+fn publish_segments(session: &AsrSession, id: &str, revision: u64, source: &str, texts: &[&str]) {
     let admitted = session
         .admit(
             id,
@@ -130,12 +133,16 @@ fn publish(session: &AsrSession, id: &str, revision: u64, source: &str, text: &s
             serde_json::to_string(&AsrResult {
                 sample_count: 16_000,
                 sample_rate: 16_000,
-                segments: vec![InferredSegment {
-                    start_seconds: 0.0,
-                    end_seconds: 1.0,
-                    text: text.into(),
-                    estimated_timestamps: false,
-                }],
+                segments: texts
+                    .iter()
+                    .enumerate()
+                    .map(|(index, text)| InferredSegment {
+                        start_seconds: index as f64 / texts.len() as f64,
+                        end_seconds: (index + 1) as f64 / texts.len() as f64,
+                        text: (*text).into(),
+                        estimated_timestamps: false,
+                    })
+                    .collect(),
             })
             .unwrap(),
         ),
@@ -392,6 +399,9 @@ fn precommit_revision_and_session_restart_fence_active_and_queued_results() {
         let old = receive(&mut socket).await;
         wait_inference(&fixture, "REVISION").await;
         session.revise("same", 2).unwrap();
+        let invalidated = receive(&mut socket).await;
+        assert_eq!(invalidated["type"], "snapshot");
+        assert_eq!(invalidated["segments"], json!([]));
         publish(&session, "same", 2, "ko", "NEW-REVISION");
         let revised = until_commit(&mut socket, "rs-1-0").await;
         assert!(revised.iter().all(|frame| frame["source_revision"] == 2));
@@ -505,6 +515,114 @@ fn wrong_identity_cannot_publish_and_terminal_worker_is_replaced() {
                 .count(),
             2
         );
+        dispatcher.stop().await.unwrap();
+        assert_eq!(slot.available_permits(), 1);
+        server.stop().await.unwrap();
+    });
+}
+
+async fn revised_chunk_replaces_old_source_set(replacement: &[&str]) {
+    let fixture = Fixture::new();
+    let slot = worker_slot();
+    let dispatcher = fixture.dispatcher(4, slot.clone());
+    let session = AsrSession::default();
+    let token = session
+        .start_observed("replace", "ko", &["en".into()])
+        .unwrap();
+    enable(&session, &dispatcher, 2000);
+    let server = ObserverServer::bind(session.clone(), 0, ORIGIN)
+        .await
+        .unwrap();
+    let mut socket = connect(&server, &token).await;
+    receive(&mut socket).await;
+    publish(&session, "unrelated", 1, "ko", "UNCHANGED");
+    let unaffected = until_commit(&mut socket, "rs-1-0").await.pop().unwrap();
+    publish_segments(&session, "revised", 1, "ko", &["REVISION", "REVISION"]);
+    let first = receive(&mut socket).await;
+    let removed = receive(&mut socket).await;
+    wait_inference(&fixture, "REVISION").await;
+    session.revise("revised", 2).unwrap();
+    publish_segments(&session, "revised", 2, "ko", replacement);
+    let invalidation = receive(&mut socket).await;
+    assert_eq!(invalidation["type"], "snapshot");
+    assert_eq!(invalidation["segments"], json!([unaffected]));
+    assert!(invalidation["serial"].as_u64().unwrap() > removed["serial"].as_u64().unwrap());
+    if !replacement.is_empty() {
+        let revised = until_commit(&mut socket, first["segment_id"].as_str().unwrap()).await;
+        assert!(revised.iter().all(|event| event["source_revision"] == 2));
+        assert!(revised
+            .iter()
+            .all(|event| event["version"].as_u64().unwrap() > first["version"].as_u64().unwrap()));
+    }
+    let mut reconnect = connect(&server, &token).await;
+    let snapshot = receive(&mut reconnect).await;
+    let segments = snapshot["segments"].as_array().unwrap();
+    assert_eq!(segments.len(), 1 + replacement.len());
+    assert!(segments.iter().any(|event| event == &unaffected));
+    assert!(!segments
+        .iter()
+        .any(|event| event["segment_id"] == removed["segment_id"]));
+    if replacement.is_empty() {
+        assert!(!segments
+            .iter()
+            .any(|event| event["segment_id"] == first["segment_id"]));
+    }
+    dispatcher.stop().await.unwrap();
+    assert_eq!(slot.available_permits(), 1);
+    server.stop().await.unwrap();
+}
+
+#[test]
+fn revised_chunk_two_to_one_invalidates_obsolete_sources_for_live_and_reconnect() {
+    runtime().block_on(revised_chunk_replaces_old_source_set(&["REPLACED"]));
+}
+
+#[test]
+fn revised_chunk_two_to_empty_invalidates_obsolete_sources_for_live_and_reconnect() {
+    runtime().block_on(revised_chunk_replaces_old_source_set(&[]));
+}
+
+#[test]
+fn display_eviction_cannot_reset_an_uncommitted_source_version_on_revision() {
+    runtime().block_on(async {
+        let fixture = Fixture::new();
+        let slot = worker_slot();
+        let dispatcher = fixture.dispatcher(4, slot.clone());
+        let session = AsrSession::default();
+        let token = session
+            .start_observed("eviction", "ko", &["en".into()])
+            .unwrap();
+        enable(&session, &dispatcher, 2000);
+        let server = ObserverServer::bind(session.clone(), 0, ORIGIN)
+            .await
+            .unwrap();
+        publish(&session, "same", 1, "ko", "REVISION");
+        wait_inference(&fixture, "REVISION").await;
+        // No await: the original inference completion cannot win the authority
+        // race while these bounded source publications evict its display frame.
+        for index in 0..40 {
+            publish(
+                &session,
+                &format!("bulk-{index}"),
+                1,
+                "ko",
+                &"A".repeat(20_000),
+            );
+        }
+        assert!(session.observer_metrics().snapshot_evictions > 0);
+        session.revise("same", 2).unwrap();
+        publish(&session, "same", 2, "ko", "NEW");
+        let mut socket = connect(&server, &token).await;
+        let snapshot = receive(&mut socket).await;
+        let restored = snapshot["segments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|event| event["segment_id"] == "rs-1-0")
+            .unwrap();
+        assert_eq!(restored["source_revision"], 2);
+        assert_eq!(restored["original_text"], "NEW");
+        assert!(restored["version"].as_u64().unwrap() > 1);
         dispatcher.stop().await.unwrap();
         assert_eq!(slot.available_permits(), 1);
         server.stop().await.unwrap();

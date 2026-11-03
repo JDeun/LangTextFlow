@@ -119,7 +119,7 @@ struct State {
 }
 
 struct AcceptedChunk {
-    _events: Vec<SourceEvent>,
+    events: Vec<SourceEvent>,
     committed: bool,
 }
 
@@ -174,6 +174,8 @@ impl MtJob {
             self.request.source_revision,
             self.request.target_language.as_deref().unwrap(),
             outcome,
+            self.deadline,
+            &self.cancelled,
         );
         if !state
             .pending_targets
@@ -365,14 +367,24 @@ impl AsrSession {
         {
             return Err("accepted_chunk");
         }
-        let old = state
-            .revisions
-            .get_mut(segment_id)
-            .ok_or("unknown_segment")?;
+        let old = state.revisions.get(segment_id).ok_or("unknown_segment")?;
         if revision <= old.revision || revision > (1_u64 << 53) - 1 {
             return Err("stale_revision");
         }
-        old.revision = revision;
+        let obsolete = state
+            .accepted
+            .get(segment_id)
+            .map(|chunk| {
+                chunk
+                    .events
+                    .iter()
+                    .map(|event| event.segment_id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let (sid, generation) = (state.session_id.clone(), state.generation);
+        state.projection.invalidate(&sid, generation, &obsolete)?;
+        state.revisions.get_mut(segment_id).unwrap().revision = revision;
         state.accepted.remove(segment_id);
         state.pending_targets.retain(|_, pending| {
             if pending.chunk_id == segment_id {
@@ -610,7 +622,7 @@ impl AsrSession {
         state.accepted.insert(
             admitted.request.segment_id.clone(),
             AcceptedChunk {
-                _events: events.clone(),
+                events: events.clone(),
                 committed: translation.is_none() || events.is_empty(),
             },
         );

@@ -10,6 +10,22 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, watch, Semaphore};
 use tokio::task::JoinHandle;
 
+const MAX_CONTEXT_BYTES: usize = 64 * 1024;
+struct ContextBytes(usize);
+
+impl std::io::Write for ContextBytes {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes.len() > MAX_CONTEXT_BYTES - self.0 {
+            return Err(std::io::Error::other("context_limit"));
+        }
+        self.0 += bytes.len();
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 #[derive(Clone, Serialize)]
 pub struct TranslationContext {
     pub preset: String,
@@ -23,16 +39,38 @@ impl TranslationContext {
             "general" | "church" | "conference" | "lecture"
         ) || self.glossary.len() > 500
             || self.glossary.iter().any(|entry| !entry.is_object())
-            || serde_json::to_vec(self)
-                .map_err(|_| "invalid_context")?
-                .len()
-                > 64 * 1024
         {
             return Err("invalid_context");
         }
+        serde_json::to_writer(&mut ContextBytes(0), self).map_err(|_| "invalid_context")?;
         // The shipped worker validates the existing SessionContext/GlossaryEntry
         // contract before loading native state; Rust does not duplicate that schema.
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn context_counter_accepts_near_limit_and_rejects_without_output_allocation() {
+        let near = TranslationContext {
+            preset: "general".into(),
+            glossary: vec![serde_json::json!({"term":"x".repeat(118)}); 500],
+        };
+        let mut counted = ContextBytes(0);
+        serde_json::to_writer(&mut counted, &near).unwrap();
+        assert!((MAX_CONTEXT_BYTES - 1024..=MAX_CONTEXT_BYTES).contains(&counted.0));
+        assert!(near.validate().is_ok());
+        let oversized = TranslationContext {
+            preset: "general".into(),
+            glossary: vec![serde_json::json!({"term":"한".repeat(30_000)})],
+        };
+        let mut counted = ContextBytes(0);
+        assert!(serde_json::to_writer(&mut counted, &oversized).is_err());
+        assert!(counted.0 <= MAX_CONTEXT_BYTES);
+        assert!(oversized.validate().is_err());
     }
 }
 
