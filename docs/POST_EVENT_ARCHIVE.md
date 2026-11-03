@@ -65,9 +65,17 @@ Recordings are local plaintext files with `0600` creation permissions (subject t
   reclaimed. Completed WAVs and newer/unknown files are preserved. Partial
   files are never advertised as complete; finalized-but-unindexed WAV recovery
   and broader retention governance remain tracked in #79.
-- Session timestamps and audio frames currently lack independently verified
-  sample-accurate seek alignment. Do not imply that clicking a caption seeks
-  to that exact recorded word until alignment verification is implemented.
+- [PCM sample clock regressions](../apps/server/tests/test_recording_pcm_clock.py) connect
+  the real runtime, SQLite and generated WAV to a synthetic ASR sample counter.
+  Variable frame lengths, PCM silence and sender pauses preserve sample order;
+  rejected NaN/misaligned frames advance neither sink. WAV duration is the stored
+  sample count divided by sample rate, with PCM16 amplitude quantization. A
+  wall-clock pause without PCM does not insert silence into the file.
+- Queue overflow discards the incomplete recording while ASR continues. Audio is
+  mirrored before ASR admission, so a provider failure can leave an untranscribed
+  tail in a valid WAV. Transcript and recording coverage need not end together.
+  These fake-ASR regressions do **not** qualify native word timestamps, exact-word
+  seeking or real-microphone/field alignment; those remain separate acceptance.
 
 ## Operator-only API
 
