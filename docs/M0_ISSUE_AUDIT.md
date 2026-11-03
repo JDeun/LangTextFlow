@@ -1,5 +1,30 @@
 # M0 GitHub issue and milestone assignment audit
 
+## Merged implementation checkpoint (2026-11-04)
+
+Inspected main: `bc1e82223dcd3d0d513005b85dfc31b1547ed630`. GitHub's
+issue-only searches returned **65 total / 44 open / 21 closed**, with no incomplete
+search results. PRs are excluded. This is a scoped update to the complete original
+acceptance audit below; its dated inventory and findings remain historical.
+
+| Scope | Merged progress since the original audit | Remaining original acceptance |
+|---|---|---|
+| #86 project knowledge | [#411](https://github.com/JDeun/LangTextFlow/pull/411) adds the grounded project digest/review/staleness path; [#416](https://github.com/JDeun/LangTextFlow/pull/416) adds the complete private ZIP restore graph. | Linked handouts/agenda/speakers/decisions/TODOs and user-selected retention/policy remain open. Their active implementation is not counted as merged. |
+| #79 / #78 recording | [#409](https://github.com/JDeun/LangTextFlow/pull/409) persists finalization metadata; [#420](https://github.com/JDeun/LangTextFlow/pull/420) adds independent operator start/stop/status, received-PCM offsets, gap-aware playback and original-v1 backup compatibility. | Shipping privacy/retention, physical microphone and the parent's codec/field acceptance remain separate. |
+| #157 local MT | [#419](https://github.com/JDeun/LangTextFlow/pull/419) safely recovers a terminal native child on a later caption; [#422](https://github.com/JDeun/LangTextFlow/pull/422) fixes Windows parent-pipe import deadlocks across native owners and preserves Unicode IPC. | Explicit verified preparation/repair is still unmerged [#412](https://github.com/JDeun/LangTextFlow/pull/412). Actual native Windows prepare/MT/repair and unsigned Windows bundle creation passed at its recorded `fe01e0e...` source; later cancellation cleanup and exact-head CI remain a separate acceptance step. Model/rights/device approval is absent. |
+| #344 / #154 Rust ownership | [#410](https://github.com/JDeun/LangTextFlow/pull/410), [#415](https://github.com/JDeun/LangTextFlow/pull/415), [#417](https://github.com/JDeun/LangTextFlow/pull/417) and [#418](https://github.com/JDeun/LangTextFlow/pull/418) supply real immutable ASR/MT worker boundaries, source/target revision authority, bounded deadlines/cancel/reap and actual observer WebSocket/reconnect. | Continuous audio/VAD, correction scheduling, persistence/history, operator/audience/desktop routing and tested production handoff/rollback remain required code. Python still owns the production application. |
+| #121 JA starter | The original seed/editor/snapshot/hint/lexical acceptance was independently verified and the issue closed completed. | Theological and model A/B efficacy remain under #122/#139; a seed-implementation closure does not approve semantics. |
+| #214 / #157 duration | [#407](https://github.com/JDeun/LangTextFlow/pull/407) wires native multi-target duration execution. [#421](https://github.com/JDeun/LangTextFlow/pull/421) preserves the completed negative 30-minute small/4s + M2M KO→EN/JA run: 438 sources, 92 available and 784 failed targets, exit 1. | The separately frozen recovery rerun is in progress. Neither short recovery nor estimated timing/incomplete memory establishes sustained live performance or physical 4GB/8GB fit. |
+
+Every merged item passed its recorded exact-head CI and independent review;
+individual PR descriptions and canonical reports retain the source hashes and
+validation limits. Actual-model receipts preceding later integration heads are
+identified as such. No optimal model, signing, installer execution on a physical
+machine, human semantic approval or release milestone is declared complete.
+See [real-speech evaluation](REAL_SPEECH_EVALUATION.md),
+[project architecture](architecture/rust-python-worker-protocol.md) and
+[archive contracts](POST_EVENT_ARCHIVE.md) for the corresponding evidence.
+
 ## Full issue acceptance audit (2026-11-03)
 
 Inspected main: `e60365c35adfffe7dd76009de0e89b32f21808bc`.
