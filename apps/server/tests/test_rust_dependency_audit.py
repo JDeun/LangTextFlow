@@ -8,7 +8,9 @@ from scripts.audit_rust_dependencies import TARGETS, qualify
 
 
 def report() -> dict:
-    return {"vulnerabilities": {"found": False, "count": 0, "list": []},
+    return {"settings": {"ignore": [], "target_arch": [], "target_os": [], "severity": None,
+                         "informational_warnings": ["unmaintained", "unsound", "notice"]},
+            "vulnerabilities": {"found": False, "count": 0, "list": []},
             "warnings": {"unsound": [{"advisory": {"id": "RUSTSEC-2024-0429"},
                          "package": {"name": "glib", "version": "0.18.5"}}]}}
 
@@ -37,3 +39,14 @@ def test_unknown_warning_or_vulnerability_cannot_be_excluded() -> None:
     vulnerable = report()
     vulnerable["vulnerabilities"] = {"found": True, "count": 1, "list": [{}]}
     assert not qualify(vulnerable, trees, desktop=True)["passed"]
+
+
+@pytest.mark.parametrize("setting,value", [("ignore", ["RUSTSEC-2026-0429"]),
+                                         ("target_os", ["windows"]),
+                                         ("target_arch", ["x86_64"]),
+                                         ("severity", "high"),
+                                         ("informational_warnings", [])])
+def test_ambient_audit_config_cannot_hide_findings(setting: str, value: object) -> None:
+    filtered = report()
+    filtered["settings"][setting] = value
+    assert not qualify(filtered, dict.fromkeys(TARGETS, ""), desktop=True)["passed"]

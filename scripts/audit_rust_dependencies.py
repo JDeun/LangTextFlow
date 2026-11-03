@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -19,6 +20,11 @@ def qualify(report: dict, trees: dict[str, str], *, desktop: bool) -> dict:
     """Never suppress vulnerabilities, new warnings, or a supported-target finding."""
     errors = []
     exclusions = []
+    settings = report["settings"]
+    if any(settings[key] for key in ("ignore", "target_arch", "target_os", "severity")):
+        errors.append("filtered_or_ignored_audit_configuration")
+    if set(settings["informational_warnings"]) != {"unmaintained", "unsound", "notice"}:
+        errors.append("incomplete_warning_configuration")
     vulnerabilities = report["vulnerabilities"]
     if vulnerabilities["found"] or vulnerabilities["count"] or vulnerabilities["list"]:
         errors.append("vulnerabilities_in_complete_lock")
@@ -88,6 +94,7 @@ def main() -> int:
                 trees[target] = tree.stdout
         result = qualify(report, trees, desktop=name == "desktop")
         result["strict_audit_exit_code"] = audit.returncode
+        result["lock_sha256"] = hashlib.sha256((ROOT / lock).read_bytes()).hexdigest()
         summary["locks"][name] = result
     (args.output / "qualification.json").write_text(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8")
