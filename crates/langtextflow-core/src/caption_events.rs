@@ -1,5 +1,6 @@
 //! Canonical source and independent-target events. No correction or production cutover.
 use crate::asr_slice::{AudioChunk, SourceEvent};
+use crate::history::{HistorySink, Invalidation};
 use serde::Serialize;
 use serde_json::value::RawValue;
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -146,6 +147,7 @@ pub struct ObserverMetrics {
 
 #[derive(Default)]
 pub(crate) struct CaptionProjection {
+    pub(crate) history: Option<HistorySink>,
     pub(crate) config: Option<ObservedConfig>,
     latest: VecDeque<ProjectedFrame>,
     latest_bytes: usize,
@@ -158,6 +160,9 @@ pub(crate) struct CaptionProjection {
 
 impl CaptionProjection {
     pub(crate) fn reset(&mut self, config: Option<ObservedConfig>) {
+        if let Some(history) = self.history.take() {
+            history.close();
+        }
         self.close_observers();
         self.latest.clear();
         self.latest_bytes = 0;
@@ -373,6 +378,9 @@ impl CaptionProjection {
 
     pub(crate) fn apply(&mut self, prepared: Vec<ProjectedFrame>) {
         for frame in prepared {
+            if let Some(history) = &self.history {
+                history.enqueue(frame.raw.clone());
+            }
             self.versions.insert(frame.id.clone(), frame.event.version);
             if let Some(position) = self.latest.iter().position(|old| old.id == frame.id) {
                 self.latest_bytes -= self.latest.remove(position).unwrap().raw.get().len();
@@ -408,6 +416,7 @@ impl CaptionProjection {
         sid: &str,
         generation: u64,
         ids: &[String],
+        revision: u64,
     ) -> Result<(), &'static str> {
         if ids.is_empty() || self.config.is_none() {
             return Ok(());
@@ -424,6 +433,19 @@ impl CaptionProjection {
             .filter(|v| *v <= JS_MAX)
             .ok_or("serial_exhausted")?;
         let snapshot = self.snapshot(sid, generation, &retained, serial)?;
+        if let Some(history) = &self.history {
+            history.invalidate(
+                ids.iter()
+                    .filter_map(|id| {
+                        self.versions.get(id).map(|version| Invalidation {
+                            id: id.clone(),
+                            version: *version,
+                            revision,
+                        })
+                    })
+                    .collect(),
+            );
+        }
         self.latest_bytes = retained.iter().map(|frame| frame.raw.get().len()).sum();
         self.latest = retained;
         self.serial = serial;
