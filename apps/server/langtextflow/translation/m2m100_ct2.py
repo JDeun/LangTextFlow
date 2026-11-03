@@ -188,6 +188,7 @@ class M2M100CT2Translator(Translator):
         self._worker: _M2M100Worker | None = None
         self._prepare_lock = asyncio.Lock()
         self._generation = 0
+        self._recovery_attempt = 0
         self._closed = True
         # The tokenizer's src_lang is mutable and must never be shared between
         # simultaneous EN/JA/KO calls without serialization.
@@ -307,13 +308,15 @@ class M2M100CT2Translator(Translator):
         worker = self._worker
         if worker is None or not worker.ready:
             failed_owner = worker
+            attempt = self._recovery_attempt
             async with self._prepare_lock:
                 self._check_generation(generation)
                 worker = self._worker
                 if worker is None or not worker.ready:
-                    if worker is not failed_owner:
+                    if worker is not failed_owner or self._recovery_attempt != attempt:
                         raise TranslationError("Local M2M100 recovery could not initialize")
                     # Recover on a later call only; never retry the failed caption.
+                    self._recovery_attempt += 1
                     await self._start_worker(generation)
                     worker = self._worker
         self._check_generation(generation)

@@ -210,12 +210,18 @@ async def test_concurrent_targets_share_one_failed_recovery_attempt_then_later_c
         await translate(provider, "2010...")
     (path / "load-error").touch()
     try:
-        results = await asyncio.gather(translate(provider), translate(provider, target="ja"),
-                                       return_exceptions=True)
-        assert all(isinstance(result, TranslationError) for result in results)
-        assert sum(row["stage"] == "load" for row in records(path)) == 2
+        for wave in range(2):
+            # Both calls capture the unavailable owner before the next lock
+            # handoff, including the None→failed-load→None ABA transition.
+            async with provider._prepare_lock:
+                pending = [asyncio.create_task(translate(provider)),
+                           asyncio.create_task(translate(provider, target="ja"))]
+                await asyncio.sleep(0)
+            results = await asyncio.gather(*pending, return_exceptions=True)
+            assert all(isinstance(result, TranslationError) for result in results)
+            assert sum(row["stage"] == "load" for row in records(path)) == 2 + wave
         (path / "load-error").unlink()
         assert await translate(provider, "NEXT") == "verified-en"
-        assert sum(row["stage"] == "load" for row in records(path)) == 3
+        assert sum(row["stage"] == "load" for row in records(path)) == 4
     finally:
         await provider.close()
