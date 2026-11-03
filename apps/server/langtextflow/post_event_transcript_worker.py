@@ -126,9 +126,12 @@ def main(args: list[str] | None = None) -> None:
             or args[2] not in {"ko", "en", "ja"}):
         raise SystemExit(2)
 
+    parent_pipe = sys.stdin.fileno()
+
     def parent_watchdog():
         # The parent holds stdin open; a crash/restart closes it on every supported OS.
-        sys.stdin.buffer.read(1)
+        # Raw reads avoid holding BufferedReader's lock during interpreter shutdown.
+        os.read(parent_pipe, 1)
         os._exit(1)
 
     threading.Thread(target=parent_watchdog, daemon=True).start()
