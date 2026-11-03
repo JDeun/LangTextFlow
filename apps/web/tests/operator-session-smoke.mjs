@@ -80,6 +80,14 @@ try {
     result.exceptionDetails.exception?.description || result.exceptionDetails.text,
   );
   console.log(`operator session smoke passed: ${result.result.value}`);
+  const historyResult = await cdp("Runtime.evaluate", {
+    expression: `import('/tests/fixtures/historySelectionHarness.tsx').then((test) => test.runHistorySelectionChecks())`,
+    awaitPromise: true, returnByValue: true,
+  });
+  if (historyResult.exceptionDetails) throw new Error(
+    historyResult.exceptionDetails.exception?.description || historyResult.exceptionDetails.text,
+  );
+  console.log(`history selection smoke passed: ${historyResult.result.value}`);
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;
