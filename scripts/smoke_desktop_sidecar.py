@@ -38,6 +38,7 @@ def smoke_native_m2m100(request, root: Path) -> None:
         job = json.loads(request("/api/v1/setup/m2m100/prepare", {}))
         deadline = time.monotonic() + 1230
         last_logged = 0.0
+        native_since = None
         while time.monotonic() < deadline:
             job = json.loads(request(f"/api/v1/setup/jobs/{job['job_id']}"))
             progress = job.get("details", {})
@@ -48,6 +49,27 @@ def smoke_native_m2m100(request, root: Path) -> None:
                 print(json.dumps({"native_setup_progress": progress}), flush=True)
                 last_logged = time.monotonic()
             report["last_progress"] = progress
+            if progress.get("phase") == "native_validation":
+                native_since = native_since or time.monotonic()
+                if time.monotonic() - native_since > 60:
+                    # A diagnostic bound, not a model-performance or product-deadline claim.
+                    report["failure_category"] = "native_validation_diagnostic_deadline"
+                    stage = root / "models/m2m100-native" / job["job_id"]
+                    identities = {
+                        json.loads((stage / name).read_text())["pid"]
+                        for name in ("owner.json", "phase.json")
+                    }
+                    assert all(type(pid) is int and pid > 0 for pid in identities)
+                    request(f"/api/v1/setup/jobs/{job['job_id']}/cancel", {})
+                    cleanup_deadline = time.monotonic() + 10
+                    while (time.monotonic() < cleanup_deadline
+                           and any(process_alive(pid) for pid in identities)):
+                        time.sleep(.1)
+                    report["native_timeout_worker_reaped"] = not any(
+                        process_alive(pid) for pid in identities
+                    )
+                    assert report["native_timeout_worker_reaped"], "native validation worker orphaned"
+                    raise RuntimeError("native validation exceeded diagnostic deadline")
             if job["state"] in {"completed", "cancelled", "error"}:
                 if job["state"] != "completed":
                     report["failed_job_state"] = job["state"]
