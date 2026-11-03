@@ -119,7 +119,23 @@ export async function runSummaryPolicyChecks() {
     assert(host.querySelector(".history-post-summary small")?.textContent?.includes("openai-compatible")
       && host.textContent?.includes(copy.endpointUnrecorded),
     "historical provider provenance was inferred from the current Ollama selection");
-    return "metadata fail-closed and recovery, remote approval, provider/source reset, local policy, historical provenance";
+    const generatedSummary = {
+      summary_id: "new-summary", status: "running", provider: "ollama",
+      model: "recorded-model", language: "en", content: "", review: null,
+    };
+    storedSummary = generatedSummary;
+    await refresh();
+    await until(() => !host.querySelector(".history-post-summary"), "running summary still showed a review editor");
+    storedSummary = { ...generatedSummary, status: "completed", content: "Generated draft" };
+    await refresh();
+    const editor = () => host.querySelector<HTMLTextAreaElement>(".history-post-summary textarea");
+    await until(() => editor()?.value === "Generated draft", "same-ID completion did not populate review text");
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(editor(), "Unsaved review");
+    editor()!.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    await refresh();
+    assert(editor()?.value === "Unsaved review", "unchanged archive refresh overwrote unsaved review");
+    return "metadata fail-closed and recovery, remote approval, provider/source reset, local policy, historical provenance, same-ID completion and unsaved review preservation";
   } finally {
     flushSync(() => root.unmount());
     host.remove();
