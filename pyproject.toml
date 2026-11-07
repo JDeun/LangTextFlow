@@ -30,7 +30,7 @@ benchmark = [
 local-mt = [
   "ctranslate2==4.8.2",
   "transformers==5.22.1",
-  "sentencepiece==0.2.1",
+  "sentencepiece==0.2.2",
 ]
 dev = [
   "pytest>=9.0.3,<10",
