@@ -28,7 +28,7 @@ benchmark = [
   "psutil>=6,<8",
 ]
 local-mt = [
-  "ctranslate2==4.8.2",
+  "ctranslate2==4.8.5",
   "transformers==5.22.1",
   "sentencepiece==0.2.1",
 ]
