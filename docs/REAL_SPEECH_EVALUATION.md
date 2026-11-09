@@ -660,6 +660,120 @@ no automatic model download or CI-native benchmark is added. Private original
 artifacts, including all 112 initial records and two later decision/supplement
 records, remain unchanged and are indexed by relative name and hash.
 
+## 2026-11-09: first real KO/EN/JA dual-target runtime matrix
+
+The [first-matrix record](knowledge/raw/2026-11-09-multilingual-runtime-first-matrix.json)
+and [offline analysis](knowledge/raw/2026-11-09-multilingual-runtime-offline-analysis.json)
+preserve six fresh OS arms at measured source
+`ffa226f9432ffb4a771e761cab5c11a2cec1243a`: base→KO, small→EN, base→JA,
+small→KO, base→EN, small→JA. These are **source languages**, each selecting both
+other targets in one actual `CaptionRuntime` session. This extends the earlier
+KO/EN single-target pilot; the old reports and their unavailable chrF fields are
+unchanged. It is not another synthetic six-way text smoke.
+
+The same existing, hash-verified base/small files and seven M2M100 files are used
+on one Apple M4/16GB/10-logical-CPU macOS host, with CTranslate2 **4.8.5** and
+SentencePiece **0.2.2**. Native model files are unchanged. The app's explicit
+**low** profile fixes ASR and MT to CPU2/INT8, 4s ASR windows, one postprocess
+worker and one active native MT target. Both targets are selected together, but
+their native inference is serialized; this is not a two-core host quota.
+The configured standard budgets of two workers/targets and effective low budgets
+of one are both retained. Correction-provider/glossary/rolling-hypothesis hints
+are off; the static title is `Licensed read-speech pilot` and references never
+enter the inference request. The Python runtime and isolated native M2M100
+worker are exercised, rather than the Rust scheduler.
+
+**Reference alignment was verified for this new cohort.** The pinned
+`ja_jp/test-00000-of-00001.parquet` exists under the same FLEURS revision and
+CC-BY-4.0 license. The [original paper §2.3](https://arxiv.org/html/2205.12446)
+defines cross-language sentence-index correspondence; the
+[original HF builder](https://huggingface.co/datasets/google/fleurs/blob/d74c1f182ca32a92215e33f39aa25543ae5a5647/fleurs.py)
+preserves the TSV index as `id`. Reading text columns at the pinned parquet
+revision found 249 common test IDs across KO/EN/JA and no conflicting raw text
+for repeated IDs within a language. The chosen IDs **1883, 1929, 1701** refer
+in all three languages to the same bridge/dates, Del Potro/tiebreak, and goat
+domestication passages. This is not an assumption that unrelated first rows align.
+
+The [exact public fixture manifest](knowledge/raw/2026-11-09-multilingual-fleurs-parallel-fixtures.json)
+records first-recording ordinals, raw source/target texts and WAV/PCM/reference
+hashes. Its SHA256 is `0ff532777e1a7c02b249240d908f80014f6eccd65af99ce5fc664ce5e584775a`.
+There are **3 parallel sentence IDs, 9 distinct recordings and 18 playbacks**
+across the two models. Each language's three clips are concatenated in fixed ID
+order with two 0.5s zero gaps, then fed in 100ms frames at wall-clock pace.
+There is one arm per model/source, not repeated statistical model selection.
+
+| ASR / source | Source CER / WER | Targets: offline character chrF2 | Translated / committed per target | Target end-estimate → hub p95 ms |
+|---|---:|---|---|---|
+| base / KO | .1894 / .4500 | EN 38.914; JA 18.816 | EN 8/8; JA 8/8 | EN 3851; JA 3851 |
+| small / KO | .1894 / .5750 | EN 39.886; JA 24.587 | EN 8/8; JA 8/8 | EN 5149; JA 5149 |
+| base / EN | .1557 / .3000 | KO 21.256; JA 26.788 | KO 6/6; JA 6/6 | KO 2829; JA 2829 |
+| small / EN | .1661 / .2500 | KO 20.826; JA 28.964 | **KO 6/7**; JA 7/7 | KO 8109; JA 8109 |
+| base / JA | .3268 / 3.0000† | KO 23.250; EN 31.860 | KO 9/9; EN 9/9 | KO 3018; EN 3018 |
+| small / JA | .3529 / 3.3333† | KO 27.866; EN 35.250 | KO 10/10; EN 10/10 | KO 4968; EN 5179 |
+
+† Japanese WER uses whitespace tokens without Japanese word segmentation. It is
+retained for provenance and must not be treated as a word-segmented quality or
+ranking measure. Source quality is one concatenated cohort per arm; caption
+segments are not independently aligned per-clip ASR references.
+
+There are **48 committed source segments × 2 selected targets = 96 planned
+caption-target cells: 95 available and 1 failed**. The separate corpus-track
+denominator is **12 model/source/target tracks: 11 complete and 1 incomplete**.
+The small/EN session is a retained `runtime-error`, not a successful full pass.
+Its numeric-only source `17` has KO `failed`, while JA yields `17位` and later KO
+captions are available. This is consistent with the strict source-copy guard;
+the individual worker error code, rejected candidate and native PID reuse were
+not captured, so this run does not independently prove their identity or reuse.
+No quality guard was relaxed. All six queues drained and durable SQLite sessions
+have non-null `ended_at`; databases and events remain private durable evidence.
+
+Offline scoring uses the existing pinned **SacreBLEU 2.5.1**, separately installed
+without changing the native environment. It scores the complete concatenated
+target hypothesis against the three published human target passages, including
+the incomplete output. Parameters are character order6, word order0, beta2,
+case-sensitive, whitespace excluded; the saved signature is
+`nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.5.1`.
+This character chrF2 is not the older synthetic mean-sentence chrF++ result or
+semantic/theological correctness. Public hypotheses and reference hashes allow
+independent offline recalculation without rerunning native models.
+
+All six source and twelve target ordered literal-number comparisons differ;
+the exact arrays are retained, including punctuation/spelling differences that
+do not necessarily imply a semantic numeric error. One clear attribution is
+base/KO's `2011→2021`: it occurs in ASR before appearing in translation, so it
+must not be attributed solely to MT. This matrix differs from the frozen1fb
+OWN-history experiment in runtime, title, concatenated corpus and CT2 version;
+its date error does not establish that experiment's policy cause here.
+
+The runtime observes app queues, persistence and serialized in-process audience
+hub delivery. End timestamps remain adapter estimates; no network/browser paint,
+microphone or independently aligned word timing is measured. Paced feed+drain+
+shutdown RTF is 1.0052–1.0803; this is not isolated native inference RTF. Runtime
+stage values are changed-latest telemetry samples, not every native call.
+Timestamp recoveries by execution order are 1/0/0/0/3/0, with zero observed
+out-of-range final segments. The local six-arm matrix was not rerun for offline
+scoring/publication. Separately, the existing PR-path-triggered
+[CI run42637966381](https://github.com/JDeun/LangTextFlow/actions/runs/42637966381)
+executed three real KO clips with tiny/30s at PR head `9780fed`; it is a separate
+Linux ASR smoke, not another local matrix arm or an absence of CI inference.
+Later PR synchronizations may trigger that existing smoke again.
+
+Process-tree RSS is **unavailable/partial in all arms** because sandbox PID
+discovery raised `PermissionError`; parent RSS is not total co-resident memory.
+The supervisor's empty-descendant-set `true` values are explicitly disqualified
+as complete reap proof. Parent `wait` completed; a separate normal OS process
+query found no surviving owned parent/group IDs after the matrix, without
+capturing individual native child exit codes. Approximate pre-spawn log creation
+times and real SQLite session times are recorded separately. A sibling synthetic
+pytest suite finished during the early arms; incidental host load and fixed
+order prevent a controlled latency ranking. The initial plan JSON preflight
+failure occurred before any model child and is preserved with the original plan.
+
+**No optimal combination, default change or acceptance closure follows.** These
+small monolingual read passages do not qualify language ID, code-switching,
+sermons, Linux-hosted performance, noisy microphones, 4GB/8GB hardware or long
+events. Full field readiness remains false.
+
 ## Next phases
 
 Independent translation-quality acceptance (#77/#108) still needs reviewed,

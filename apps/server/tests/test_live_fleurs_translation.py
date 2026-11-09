@@ -116,7 +116,9 @@ def fake_native_inference(monkeypatch):
             DecodedSegment(
                 0,
                 len(pcm) / 64000,
-                "Raw source" if request.source_language == "en" else "원문 증거",
+                {"en": "Raw source", "ko": "원문 증거", "ja": "原文の証拠"}[
+                    request.source_language
+                ],
             )
         ],
     )
@@ -126,7 +128,7 @@ def fake_native_inference(monkeypatch):
 
     monkeypatch.setattr(M2M100CT2Translator, "prepare", prepare)
     async def infer(self, text, source, target):
-        return "한국어 번역" if target == "ko" else "English translation"
+        return {"ko": "한국어 번역", "en": "English translation", "ja": "日本語訳"}[target]
 
     monkeypatch.setattr(M2M100CT2Translator, "_translate_rpc", infer)
 
@@ -310,3 +312,150 @@ def test_model_hashes_record_content_without_copying_models(tmp_path) -> None:
         "model.bin": hashlib.sha256(b"synthetic weights").hexdigest(),
         "config.json": hashlib.sha256(b"{}").hexdigest(),
     }
+
+
+@pytest.mark.asyncio
+async def test_japanese_dual_target_runtime_persists_and_keeps_gold_out_of_context(
+    tmp_path, fake_native_inference, monkeypatch,
+) -> None:
+    import sqlite3
+
+    from langtextflow.runtime import CaptionRuntime
+    from scripts.evaluate_live_fleurs_translation import run_live
+
+    original = CaptionRuntime.start
+
+    async def inspected(self, request):
+        assert request.source_language == "ja"
+        assert request.target_languages == ["ko", "en"]
+        assert request.resource_profile == "low"
+        assert "GOLD_SENTINEL" not in request.context.model_dump_json()
+        return await original(self, request)
+
+    monkeypatch.setattr(CaptionRuntime, "start", inspected)
+    report = await run_live(
+        b"\x01\x00" * 4000, "原文の証拠", [], tmp_path,
+        model="base", chunk_seconds=4, timeout_seconds=3,
+        source_language="ja", target_languages=["ko", "en"],
+        translation_provider="m2m100-ct2", resource_profile="low",
+        measurement_mode="mock-wiring",
+        reference_provenance={
+            "translation_references": {"ko": "GOLD_SENTINEL_KO", "en": "GOLD_SENTINEL_EN"}
+        },
+    )
+    assert report["status"] == "measured"
+    assert report["asr_quality"]["cer"] == 0
+    assert set(report["per_target_metrics"]) == {"ko", "en"}
+    for target in ("ko", "en"):
+        assert report["per_target_metrics"][target]["translation_coverage"] == 1
+        assert report["target_stages"][target][-1]["selected_language"] == target
+        assert report["audience_observation"]["per_target"][target]["closed_on_cleanup"]
+    assert report["runtime_budget"]["asr_cpu_threads"] == 2
+    assert report["runtime_budget"]["effective_parallel_target_limit"] == 1
+    assert report["runtime_budget"]["effective_postprocess_workers"] == 1
+    assert report["reference_provenance"]["translation_references"]["ko"] == "GOLD_SENTINEL_KO"
+    with sqlite3.connect(tmp_path / "live-benchmark.sqlite") as db:
+        assert db.execute("SELECT ended_at FROM sessions").fetchone()[0] is not None
+
+
+@pytest.mark.asyncio
+async def test_failed_peer_target_remains_visible_and_fails_measurement(
+    tmp_path, fake_native_inference, monkeypatch,
+) -> None:
+    import json
+
+    from langtextflow.translation.base import TranslationRejected
+    from langtextflow.translation.m2m100_ct2 import M2M100CT2Translator
+    from scripts.evaluate_live_fleurs_translation import run_live
+
+    async def rejected_peer(self, text, source, target):
+        if target == "en":
+            raise TranslationRejected("synthetic rejected output")
+        return "한국어 번역"
+
+    monkeypatch.setattr(M2M100CT2Translator, "_translate_rpc", rejected_peer)
+    with pytest.raises(RuntimeError, match="live interpretation pipeline failed"):
+        await run_live(
+            b"\x01\x00" * 4000, "原文の証拠", [], tmp_path,
+            model="base", chunk_seconds=4, timeout_seconds=3,
+            source_language="ja", target_languages=["ko", "en"],
+            translation_provider="m2m100-ct2", measurement_mode="mock-wiring",
+        )
+    report = json.loads((tmp_path / "live-interpretation-report.json").read_text())
+    assert report["status"] == "runtime-error"
+    assert report["per_target_metrics"]["ko"]["translation_coverage"] == 1
+    assert report["per_target_metrics"]["en"]["translation_coverage"] == 0
+    assert report["per_target_metrics"]["en"]["target_states"] == {"failed": 1}
+    assert report["per_target_metrics"]["en"]["translated_hypothesis"] == ""
+    assert report["queues_drained"]
+
+
+def parallel_fixture(tmp_path):
+    import hashlib
+    import json
+    import wave
+
+    from scripts.evaluate_live_fleurs_translation import FLEURS_REVISION
+
+    cohorts = {}
+    for language in ("ko", "en", "ja"):
+        pcm = b"\x01\x00" * 4000
+        wav = tmp_path / f"{language}.wav"
+        with wave.open(str(wav), "wb") as output:
+            output.setparams((1, 2, 16000, 0, "NONE", "not compressed"))
+            output.writeframes(pcm)
+        text = f"GOLD_SENTINEL_{language}"
+        cohorts[language] = [{
+            "id": 1883, "source_language": language, "duration_seconds": 0.25,
+            "reference": text, "reference_sha256": hashlib.sha256(text.encode()).hexdigest(),
+            "wav_path": wav.name, "sha256_wav": hashlib.sha256(wav.read_bytes()).hexdigest(),
+            "sha256_pcm16": hashlib.sha256(pcm).hexdigest(),
+        }]
+    manifest = tmp_path / "manifest.json"
+    payload = {"schema_version": 1, "dataset": "google/fleurs", "revision": FLEURS_REVISION,
+               "license": "CC-BY-4.0", "common_sentence_ids": [1883], "cohorts": cohorts,
+               "parallelism": {"scope": "synthetic validation fixture, no human translation claim"}}
+    manifest.write_text(json.dumps(payload))
+    return manifest, payload
+
+
+def test_local_manifest_hashes_all_sources_and_target_references(tmp_path):
+    import hashlib
+
+    from scripts.evaluate_live_fleurs_translation import load_local_pinned_speech
+
+    manifest, _ = parallel_fixture(tmp_path)
+    digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    pcm, clips, reference, provenance = load_local_pinned_speech(manifest, digest, "ja")
+    assert len(pcm) == 8000
+    assert clips[0]["source_language"] == "ja"
+    assert reference == "GOLD_SENTINEL_ja"
+    assert provenance["translation_references"] == {
+        "ko": "GOLD_SENTINEL_ko", "en": "GOLD_SENTINEL_en"
+    }
+    assert "wav_path" not in clips[0]
+    (tmp_path / "en.wav").write_bytes(b"corrupt foreign reference media")
+    with pytest.raises(ValueError, match="WAV hash"):
+        load_local_pinned_speech(manifest, digest, "ja")
+
+
+@pytest.mark.parametrize("mutation", ["hash", "order", "reference", "path", "pin"])
+def test_local_manifest_rejects_mismatched_inputs(tmp_path, mutation):
+    import hashlib
+    import json
+
+    from scripts.evaluate_live_fleurs_translation import load_local_pinned_speech
+
+    manifest, payload = parallel_fixture(tmp_path)
+    if mutation == "order":
+        payload["cohorts"]["en"][0]["id"] = 1929
+    elif mutation == "reference":
+        payload["cohorts"]["en"][0]["reference"] = "changed without updating digest"
+    elif mutation == "path":
+        payload["cohorts"]["en"][0]["wav_path"] = "../foreign.wav"
+    elif mutation == "pin":
+        payload["revision"] = "mutable-main"
+    manifest.write_text(json.dumps(payload))
+    digest = hashlib.sha256(manifest.read_bytes()).hexdigest() if mutation != "hash" else "0" * 64
+    with pytest.raises(ValueError):
+        load_local_pinned_speech(manifest, digest, "ja")

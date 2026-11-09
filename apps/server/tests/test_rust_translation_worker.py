@@ -78,6 +78,7 @@ class Native:
         if mode == "json-output" and inputs[0][0] == "원문": candidate = "{{untrusted-output}}"
         if mode == "source-copy" and prefix == "__en__" and inputs[0][0] == "2010...":
             candidate = "2010..."
+        if mode == "decimal-copy": candidate = inputs[0][0]
         if mode == "prefix-error": prefix = "__invalid__"
         return [types.SimpleNamespace(hypotheses=[[prefix, candidate]])]
 class NativeModule(types.ModuleType):
@@ -193,6 +194,37 @@ async def test_completed_output_rejection_keeps_actual_rust_worker_for_peer_and_
         process.stdin.close()
         assert await asyncio.wait_for(process.wait(), 2) == 0
         assert await process.stderr.read() == b""
+    finally:
+        await stop(process)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_actual_worker_preserves_decimal_only_caption_for_all_six_directions(
+    tmp_path, legacy,
+):
+    process, marker = await child(tmp_path, "decimal-copy", legacy=legacy)
+    try:
+        if legacy:
+            assert await receive(process) == {"ready": True}
+        for index, (source, target) in enumerate((
+            ("ko", "en"), ("ko", "ja"), ("en", "ko"),
+            ("en", "ja"), ("ja", "ko"), ("ja", "en"),
+        ), start=1):
+            value = ({"id": index, "text": "17", "source": source, "target": target}
+                     if legacy else request(source, target, text="17"))
+            await send(process, value)
+            reply = await receive(process)
+            if legacy:
+                assert reply == {"id": index, "text": "17"}
+            else:
+                assert reply == {
+                    **{key: value[key] for key in IDENTITY_KEYS},
+                    "status": "ok", "result": "17", "error": None,
+                }
+        assert marker.read_text().splitlines().count("load") == 1
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 2) == (1 if legacy else 0)
     finally:
         await stop(process)
 

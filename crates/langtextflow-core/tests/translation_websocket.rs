@@ -30,6 +30,7 @@ for line in sys.stdin:
     reply = {key:req[key] for key in ('protocol_version','request_id','session_id','session_generation','segment_id','source_revision')}
     failed = text == 'FAIL' and target == 'ko'
     reply.update(status='error' if failed else 'ok',result=None if failed else 'translated-'+target,error='private-fixture-error' if failed else None)
+    if text in ('17', 'COPY-ME', '０１７'): reply['result'] = text
     if text.startswith('2010') and target == 'en':
         reply.update(status='error',result=None,error='translation_rejected')
         if text == '2010-WRONG': reply['request_id'] = 'wrong'
@@ -246,6 +247,56 @@ fn independent_target_failure_preserves_source_good_target_and_reconnect() {
         assert_eq!(slot.available_permits(), 1);
         server.stop().await.unwrap();
     });
+}
+
+#[test]
+fn digit_only_copies_reach_both_targets_but_text_and_nonascii_copies_still_fail() {
+    for source in ["ko", "en", "ja"] {
+        runtime().block_on(async {
+            let fixture = Fixture::new();
+            let slot = worker_slot();
+            let dispatcher = fixture.dispatcher(4, slot.clone());
+            let session = AsrSession::default();
+            let targets = ["ko", "en", "ja"]
+                .into_iter()
+                .filter(|target| *target != source)
+                .map(String::from)
+                .collect::<Vec<_>>();
+            let token = session.start_observed("digits", source, &targets).unwrap();
+            enable(&session, &dispatcher, 2000);
+            let server = ObserverServer::bind(session.clone(), 0, ORIGIN)
+                .await
+                .unwrap();
+            let mut socket = connect(&server, &token).await;
+            receive(&mut socket).await;
+            publish(&session, "digits", 1, source, "17");
+            let frames = until_commit(&mut socket, "rs-1-0").await;
+            let final_frame = frames.last().unwrap();
+            assert_eq!(final_frame["original_text"], "17");
+            for target in &targets {
+                assert_eq!(final_frame["translation_states"][target], "available");
+                assert_eq!(final_frame["translations"][target], "17");
+            }
+            assert_eq!(
+                fixture.records().iter().filter(|row| row.get("text").is_none()).count(),
+                1
+            );
+            for text in ["COPY-ME", "０１７"] {
+                publish(&session, text, 1, source, text);
+                let first = receive(&mut socket).await;
+                let frames =
+                    until_commit(&mut socket, first["segment_id"].as_str().unwrap()).await;
+                let final_frame = frames.last().unwrap();
+                for target in &targets {
+                    assert_eq!(final_frame["translation_states"][target], "failed");
+                }
+                assert_eq!(final_frame["translations"], json!({}));
+            }
+            dispatcher.stop().await.unwrap();
+            assert_eq!(slot.available_permits(), 1);
+            server.stop().await.unwrap();
+        });
+    }
 }
 
 #[test]

@@ -1,0 +1,1218 @@
+{
+  "classification": "offline_scoring_of_preserved_first_matrix_no_native_rerun",
+  "source_sha": "ffa226f9432ffb4a771e761cab5c11a2cec1243a",
+  "analysis_sha256": "3f812eedafbb6327939609bcd9eab143ba5dc6423c780f2c11f3626543ee75bb",
+  "scorer_signature": "nrefs:1|case:mixed|eff:yes|nc:6|nw:0|space:no|version:2.5.1",
+  "scoring_overlay_versions": {
+    "sacrebleu": "2.5.1",
+    "numpy": "2.5.4",
+    "regex": "2026.11.9",
+    "lxml": "6.1.3",
+    "portalocker": "4.4.2",
+    "colorama": "0.4.6",
+    "tabulate": "0.10.0"
+  },
+  "scoring_overlay_did_not_modify_native_environment": true,
+  "metric_limit": "character chrF2, word_order0, one concatenated 3-sentence cohort per direction; not old synthetic sentence chrF++/semantic/theological correctness",
+  "population": {
+    "unique_speech_clips": 9,
+    "unique_parallel_sentence_ids": 3,
+    "model_source_arms": 6,
+    "planned_target_direction_arm_results": 12,
+    "complete_target_results": 11,
+    "incomplete_target_results": 1
+  },
+  "model_ranking_qualified": false,
+  "field_ready": false,
+  "results": [
+    {
+      "arm": "arm-0-base-ko",
+      "source_language": "ko",
+      "model": "base",
+      "status": "measured",
+      "error": null,
+      "report_sha256": "50eaaf27526b10552127642b3b5cac5039f469e3cfa02f296d7ea4ac5fb2f471",
+      "sqlite_sha256": "79b50f3d16009e5778ad8918880c85f61b301a6fc294b7c8920ceae7b61313c6",
+      "process_log_created_utc_immediately_before_Popen_approx": "2026-11-09T14:23:57.133270+00:00",
+      "session_started_at_utc": "2026-11-09T14:24:00.348927+00:00",
+      "session_ended_at_utc": "2026-11-09T14:24:34.491232+00:00",
+      "exact_OS_spawn_wall_timestamp_captured": false,
+      "audio_seconds_including_two_half_second_gaps": 33.22,
+      "asr_quality": {
+        "cer": 0.1894,
+        "wer": 0.45
+      },
+      "asr_wer_scope": "whitespace tokens; Japanese WER is not word-segmented and is not used for ranking",
+      "source_numeric_literal": {
+        "expected": [
+          "15",
+          "2011",
+          "8",
+          "2017",
+          "3",
+          "2",
+          "6",
+          "6"
+        ],
+        "actual": [
+          "15",
+          "2021",
+          "8",
+          "2017",
+          "3",
+          "6",
+          "6",
+          "1"
+        ],
+        "match": false
+      },
+      "asr_hypothesis_sha256": "b2795d562424034510613e9e672d9308b18abd31ad57d890ca885e2c0e562c26",
+      "targets": {
+        "en": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "a90a9f91352740701e0a59826ace609a9274c81614164df8cecdc7acdac6528a",
+          "hypothesis_sha256": "4ea441851689b4b749f6a2789f5a4bfa1f14ebf4e2dc8217b8ff2fca11fa0fd0",
+          "chrf": 38.91404551580882,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "2017",
+              "6-6",
+              "10,000"
+            ],
+            "actual": [
+              "15",
+              "2021",
+              "2017",
+              "6",
+              "6",
+              "10,000"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 8,
+          "target_states": {
+            "available": 8
+          },
+          "translated_committed": 8,
+          "target_coverage": 1.0,
+          "first_translation_ms": 5272.9,
+          "translated_p95_estimated_end_to_hub_ms": 3850.5,
+          "no_success_only_scoring": true
+        },
+        "ja": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0af8c7fe254b270a3b8cf5f5e5455cf8cd25088aa48c49a8508cd55b2fa5e6ea",
+          "hypothesis_sha256": "1bbbe90f15f2a91f3e8a6515b008f6a8a072a86ab59089f29def009c15f2dfe0",
+          "chrf": 18.816050954494273,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6-6",
+              "1"
+            ],
+            "actual": [
+              "15",
+              "2021",
+              "8",
+              "2017",
+              "3",
+              "6",
+              "6",
+              "1"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 8,
+          "target_states": {
+            "available": 8
+          },
+          "translated_committed": 8,
+          "target_coverage": 1.0,
+          "first_translation_ms": 5707.1,
+          "translated_p95_estimated_end_to_hub_ms": 3850.6,
+          "no_success_only_scoring": true
+        }
+      },
+      "queues_drained": true,
+      "timestamp_diagnostics": {
+        "timestamp_recovery_count": 1,
+        "timestamp_recovery_errors": [
+          {
+            "error_type": "out_of_bounds_timestamp",
+            "error": "faster-whisper returned out-of-bounds segment timestamps: 0.000–7.000s for 4.000s input",
+            "input_duration_seconds": 4.0,
+            "start_sample": 320000,
+            "sample_rate": 16000
+          }
+        ]
+      },
+      "invalid_timestamps": 0,
+      "runtime_stage_latency_ms": {
+        "asr": {
+          "count": 8,
+          "mean_ms": 1730.6,
+          "p50_ms": 1407.8,
+          "p95_ms": 3933.1,
+          "max_ms": 3933.1
+        },
+        "correction": {
+          "count": 5,
+          "mean_ms": 0.4,
+          "p50_ms": 0.4,
+          "p95_ms": 0.7,
+          "max_ms": 0.7
+        },
+        "translation": {
+          "count": 16,
+          "mean_ms": 586.3,
+          "p50_ms": 554.6,
+          "p95_ms": 1266.2,
+          "max_ms": 1266.2
+        },
+        "commit": {
+          "count": 8,
+          "mean_ms": 794.1,
+          "p50_ms": 716.9,
+          "p95_ms": 1266.7,
+          "max_ms": 1266.7
+        }
+      },
+      "timing_scopes": {
+        "runtime_stage_latency_ms": "changed latest telemetry sampled every 250ms; not all native calls",
+        "audience_lag": "estimated segment end to in-process hub JSON; includes actual queues, excludes network and browser paint",
+        "processing_rtf": "paced feed plus drain and shutdown wall time / audio duration",
+        "drain_seconds": "audio end to ASR/postprocess/persistence/audience-queue drain",
+        "isolated_component_decode_seconds": "not measured by this runtime harness"
+      },
+      "processing_rtf_paced_drain_shutdown": 1.0052,
+      "cold_start_including_hashes_seconds": 3.561,
+      "drain_seconds": 0.14361400064080954,
+      "queue_peaks": {
+        "postprocess": 0,
+        "persistence": 2
+      },
+      "parent_rss_mib_peak": 548.88,
+      "full_process_tree_memory_available": false,
+      "memory_observation_errors": {
+        "descendant_discovery_failed": 20
+      },
+      "runtime_budget": {
+        "asr_queue_chunks": 16,
+        "postprocess_workers": 2,
+        "parallel_target_limit": 2,
+        "target_timeout_seconds": 20.0,
+        "m2m100_cpu_threads": 2,
+        "asr_cpu_threads": 2,
+        "resource_profile": "low",
+        "effective_postprocess_workers": 1,
+        "effective_parallel_target_limit": 1,
+        "feed_and_drain_deadline_seconds": 153.22
+      },
+      "caption_counts": {
+        "stable_count": 8,
+        "committed_count": 8,
+        "uncommitted_stable_count": 0,
+        "empty_source_count": 0
+      }
+    },
+    {
+      "arm": "arm-1-small-en",
+      "source_language": "en",
+      "model": "small",
+      "status": "runtime-error",
+      "error": "incomplete translated committed coverage for a target",
+      "report_sha256": "40d879374808ffb0310293f8f7d1827f4fef9a20d5561bab3536afd8a10b4b29",
+      "sqlite_sha256": "3f721ad529fa5c940b6bb33f02925ea13c016895265cbc8670fa2197159c433a",
+      "process_log_created_utc_immediately_before_Popen_approx": "2026-11-09T14:24:35.737924+00:00",
+      "session_started_at_utc": "2026-11-09T14:24:38.542281+00:00",
+      "session_ended_at_utc": "2026-11-09T14:25:11.296177+00:00",
+      "exact_OS_spawn_wall_timestamp_captured": false,
+      "audio_seconds_including_two_half_second_gaps": 29.56,
+      "asr_quality": {
+        "cer": 0.1661,
+        "wer": 0.25
+      },
+      "asr_wer_scope": "whitespace tokens; Japanese WER is not word-segmented and is not used for ranking",
+      "source_numeric_literal": {
+        "expected": [
+          "15",
+          "2011",
+          "2017",
+          "6-6",
+          "10,000"
+        ],
+        "actual": [
+          "15",
+          "2011",
+          "2000",
+          "17",
+          "286",
+          "6",
+          "10"
+        ],
+        "match": false
+      },
+      "asr_hypothesis_sha256": "1af0ec7c8b11ed20ca9e0f3831f6b2ebdebe80672eed08213a660c6f7772cdae",
+      "targets": {
+        "ko": {
+          "status": "incomplete_outputs_kept",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0aab7326752ef40dfccae736666311986071b88c8c5744187b8240a097fd3e07",
+          "hypothesis_sha256": "fa1ae9ddd70c41dd2ae8a2b2e067ec984baa40da0d51615cdcbe02010603550a",
+          "chrf": 20.826436816845757,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6",
+              "6"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "8",
+              "2000",
+              "3",
+              "286",
+              "6",
+              "10"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 7,
+          "target_states": {
+            "available": 6,
+            "failed": 1
+          },
+          "translated_committed": 6,
+          "target_coverage": 0.8571,
+          "first_translation_ms": 7124.4,
+          "translated_p95_estimated_end_to_hub_ms": 8109.0,
+          "no_success_only_scoring": true
+        },
+        "ja": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0af8c7fe254b270a3b8cf5f5e5455cf8cd25088aa48c49a8508cd55b2fa5e6ea",
+          "hypothesis_sha256": "80a1506433059907c96a32972700008a94b1b20e250a97368807920b5e491d8c",
+          "chrf": 28.964091871803166,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6-6",
+              "1"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "8",
+              "2000",
+              "3",
+              "17",
+              "2",
+              "286",
+              "6",
+              "10"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 7,
+          "target_states": {
+            "available": 7
+          },
+          "translated_committed": 7,
+          "target_coverage": 1.0,
+          "first_translation_ms": 7675.3,
+          "translated_p95_estimated_end_to_hub_ms": 8109.1,
+          "no_success_only_scoring": true
+        }
+      },
+      "queues_drained": true,
+      "timestamp_diagnostics": {
+        "timestamp_recovery_count": 0,
+        "timestamp_recovery_errors": []
+      },
+      "invalid_timestamps": 0,
+      "runtime_stage_latency_ms": {
+        "asr": {
+          "count": 7,
+          "mean_ms": 4597.5,
+          "p50_ms": 3908.7,
+          "p95_ms": 8493.9,
+          "max_ms": 8493.9
+        },
+        "correction": {
+          "count": 5,
+          "mean_ms": 0.4,
+          "p50_ms": 0.4,
+          "p95_ms": 0.8,
+          "max_ms": 0.8
+        },
+        "translation": {
+          "count": 13,
+          "mean_ms": 763.6,
+          "p50_ms": 691.4,
+          "p95_ms": 1641.9,
+          "max_ms": 1641.9
+        },
+        "commit": {
+          "count": 7,
+          "mean_ms": 982.9,
+          "p50_ms": 1071.9,
+          "p95_ms": 1642.5,
+          "max_ms": 1642.5
+        }
+      },
+      "timing_scopes": {
+        "runtime_stage_latency_ms": "changed latest telemetry sampled every 250ms; not all native calls",
+        "audience_lag": "estimated segment end to in-process hub JSON; includes actual queues, excludes network and browser paint",
+        "processing_rtf": "paced feed plus drain and shutdown wall time / audio duration",
+        "drain_seconds": "audio end to ASR/postprocess/persistence/audience-queue drain",
+        "isolated_component_decode_seconds": "not measured by this runtime harness"
+      },
+      "processing_rtf_paced_drain_shutdown": 1.0803,
+      "cold_start_including_hashes_seconds": 3.231,
+      "drain_seconds": 0.7953163338825107,
+      "queue_peaks": {
+        "postprocess": 0,
+        "persistence": 1
+      },
+      "parent_rss_mib_peak": 1426.03,
+      "full_process_tree_memory_available": false,
+      "memory_observation_errors": {
+        "descendant_discovery_failed": 19
+      },
+      "runtime_budget": {
+        "asr_queue_chunks": 16,
+        "postprocess_workers": 2,
+        "parallel_target_limit": 2,
+        "target_timeout_seconds": 20.0,
+        "m2m100_cpu_threads": 2,
+        "asr_cpu_threads": 2,
+        "resource_profile": "low",
+        "effective_postprocess_workers": 1,
+        "effective_parallel_target_limit": 1,
+        "feed_and_drain_deadline_seconds": 149.56
+      },
+      "caption_counts": {
+        "stable_count": 7,
+        "committed_count": 7,
+        "uncommitted_stable_count": 0,
+        "empty_source_count": 0
+      }
+    },
+    {
+      "arm": "arm-2-base-ja",
+      "source_language": "ja",
+      "model": "base",
+      "status": "measured",
+      "error": null,
+      "report_sha256": "55afcb871f5fd525003ea875a3dbe80de3705190da45b832b38fa9ee34523842",
+      "sqlite_sha256": "006892d5ea49c5ce259bbe2a43cecdf1f99bf6950918861863fbb26720edbd80",
+      "process_log_created_utc_immediately_before_Popen_approx": "2026-11-09T14:25:12.614564+00:00",
+      "session_started_at_utc": "2026-11-09T14:25:15.542277+00:00",
+      "session_ended_at_utc": "2026-11-09T14:25:53.772555+00:00",
+      "exact_OS_spawn_wall_timestamp_captured": false,
+      "audio_seconds_including_two_half_second_gaps": 37.18,
+      "asr_quality": {
+        "cer": 0.3268,
+        "wer": 3.0
+      },
+      "asr_wer_scope": "whitespace tokens; Japanese WER is not word-segmented and is not used for ranking",
+      "source_numeric_literal": {
+        "expected": [
+          "15",
+          "2011",
+          "8",
+          "2017",
+          "3",
+          "2",
+          "6-6",
+          "1"
+        ],
+        "actual": [
+          "15",
+          "2011",
+          "8",
+          "2",
+          "2017",
+          "3",
+          "1",
+          "6",
+          "6",
+          "1",
+          "300"
+        ],
+        "match": false
+      },
+      "asr_hypothesis_sha256": "6c5bcea7d17b46a7a229e11594d91e1c36e33d37c800629e3f9f83db0065c905",
+      "targets": {
+        "ko": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0aab7326752ef40dfccae736666311986071b88c8c5744187b8240a097fd3e07",
+          "hypothesis_sha256": "e043a7c6d912d785d50bec676d5a62d5cbe294be884556b2454b612d0dd78794",
+          "chrf": 23.25043400221777,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6",
+              "6"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "8",
+              "2",
+              "2017",
+              "3",
+              "1",
+              "1",
+              "6",
+              "6",
+              "1",
+              "300"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 9,
+          "target_states": {
+            "available": 9
+          },
+          "translated_committed": 9,
+          "target_coverage": 1.0,
+          "first_translation_ms": 5240.4,
+          "translated_p95_estimated_end_to_hub_ms": 3017.7,
+          "no_success_only_scoring": true
+        },
+        "en": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "a90a9f91352740701e0a59826ace609a9274c81614164df8cecdc7acdac6528a",
+          "hypothesis_sha256": "4eafb0ec97884365f70f3fe50b3b051200e083e98e5c811898450e27658aea8c",
+          "chrf": 31.859782221936943,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "2017",
+              "6-6",
+              "10,000"
+            ],
+            "actual": [
+              "15",
+              "2",
+              "2011",
+              "2017",
+              "6",
+              "6",
+              "300"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 9,
+          "target_states": {
+            "available": 9
+          },
+          "translated_committed": 9,
+          "target_coverage": 1.0,
+          "first_translation_ms": 5506.7,
+          "translated_p95_estimated_end_to_hub_ms": 3017.7,
+          "no_success_only_scoring": true
+        }
+      },
+      "queues_drained": true,
+      "timestamp_diagnostics": {
+        "timestamp_recovery_count": 0,
+        "timestamp_recovery_errors": []
+      },
+      "invalid_timestamps": 0,
+      "runtime_stage_latency_ms": {
+        "asr": {
+          "count": 9,
+          "mean_ms": 1375.4,
+          "p50_ms": 1099.1,
+          "p95_ms": 3038.9,
+          "max_ms": 3038.9
+        },
+        "correction": {
+          "count": 3,
+          "mean_ms": 0.5,
+          "p50_ms": 0.4,
+          "p95_ms": 0.7,
+          "max_ms": 0.7
+        },
+        "translation": {
+          "count": 18,
+          "mean_ms": 600.0,
+          "p50_ms": 526.0,
+          "p95_ms": 1240.7,
+          "max_ms": 1240.7
+        },
+        "commit": {
+          "count": 9,
+          "mean_ms": 770.8,
+          "p50_ms": 742.4,
+          "p95_ms": 1241.2,
+          "max_ms": 1241.2
+        }
+      },
+      "timing_scopes": {
+        "runtime_stage_latency_ms": "changed latest telemetry sampled every 250ms; not all native calls",
+        "audience_lag": "estimated segment end to in-process hub JSON; includes actual queues, excludes network and browser paint",
+        "processing_rtf": "paced feed plus drain and shutdown wall time / audio duration",
+        "drain_seconds": "audio end to ASR/postprocess/persistence/audience-queue drain",
+        "isolated_component_decode_seconds": "not measured by this runtime harness"
+      },
+      "processing_rtf_paced_drain_shutdown": 1.0162,
+      "cold_start_including_hashes_seconds": 2.891,
+      "drain_seconds": 0.5830435417592525,
+      "queue_peaks": {
+        "postprocess": 0,
+        "persistence": 1
+      },
+      "parent_rss_mib_peak": 695.78,
+      "full_process_tree_memory_available": false,
+      "memory_observation_errors": {
+        "descendant_discovery_failed": 22
+      },
+      "runtime_budget": {
+        "asr_queue_chunks": 16,
+        "postprocess_workers": 2,
+        "parallel_target_limit": 2,
+        "target_timeout_seconds": 20.0,
+        "m2m100_cpu_threads": 2,
+        "asr_cpu_threads": 2,
+        "resource_profile": "low",
+        "effective_postprocess_workers": 1,
+        "effective_parallel_target_limit": 1,
+        "feed_and_drain_deadline_seconds": 157.18
+      },
+      "caption_counts": {
+        "stable_count": 9,
+        "committed_count": 9,
+        "uncommitted_stable_count": 0,
+        "empty_source_count": 0
+      }
+    },
+    {
+      "arm": "arm-3-small-ko",
+      "source_language": "ko",
+      "model": "small",
+      "status": "measured",
+      "error": null,
+      "report_sha256": "1c12ae127f575f989c6d7d3a78c0443c7a984bf7d65fda87e80f4d94673b3a14",
+      "sqlite_sha256": "549e0d2fef1e3e8f8b500f8dbb0c1ddbd8a7420252a3f44c86368b9adc076cf8",
+      "process_log_created_utc_immediately_before_Popen_approx": "2026-11-09T14:25:54.986064+00:00",
+      "session_started_at_utc": "2026-11-09T14:25:57.829038+00:00",
+      "session_ended_at_utc": "2026-11-09T14:26:34.215456+00:00",
+      "exact_OS_spawn_wall_timestamp_captured": false,
+      "audio_seconds_including_two_half_second_gaps": 33.22,
+      "asr_quality": {
+        "cer": 0.1894,
+        "wer": 0.575
+      },
+      "asr_wer_scope": "whitespace tokens; Japanese WER is not word-segmented and is not used for ranking",
+      "source_numeric_literal": {
+        "expected": [
+          "15",
+          "2011",
+          "8",
+          "2017",
+          "3",
+          "2",
+          "6",
+          "6"
+        ],
+        "actual": [
+          "15",
+          "2011",
+          "8",
+          "2017",
+          "3",
+          "2",
+          "6",
+          "6",
+          "1"
+        ],
+        "match": false
+      },
+      "asr_hypothesis_sha256": "26431a9f955d44c9b27a5e1bebb93ce3f9cde65e86344516b2184a083b65aca4",
+      "targets": {
+        "en": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "a90a9f91352740701e0a59826ace609a9274c81614164df8cecdc7acdac6528a",
+          "hypothesis_sha256": "be58e943ebb41f04591b6b15e2c70c7f5ff327cb5d210c49556241202121f21b",
+          "chrf": 39.88563587169136,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "2017",
+              "6-6",
+              "10,000"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "2017",
+              "2",
+              "6",
+              "6",
+              "10,000"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 8,
+          "target_states": {
+            "available": 8
+          },
+          "translated_committed": 8,
+          "target_coverage": 1.0,
+          "first_translation_ms": 7164.9,
+          "translated_p95_estimated_end_to_hub_ms": 5149.3,
+          "no_success_only_scoring": true
+        },
+        "ja": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0af8c7fe254b270a3b8cf5f5e5455cf8cd25088aa48c49a8508cd55b2fa5e6ea",
+          "hypothesis_sha256": "55aaa1f9a4404d4eac9a75e70776de394e2086763b990692d4bc414f17d08304",
+          "chrf": 24.587268523041306,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6-6",
+              "1"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6",
+              "6",
+              "1"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 8,
+          "target_states": {
+            "available": 8
+          },
+          "translated_committed": 8,
+          "target_coverage": 1.0,
+          "first_translation_ms": 7629.0,
+          "translated_p95_estimated_end_to_hub_ms": 5149.3,
+          "no_success_only_scoring": true
+        }
+      },
+      "queues_drained": true,
+      "timestamp_diagnostics": {
+        "timestamp_recovery_count": 0,
+        "timestamp_recovery_errors": []
+      },
+      "invalid_timestamps": 0,
+      "runtime_stage_latency_ms": {
+        "asr": {
+          "count": 8,
+          "mean_ms": 4018.4,
+          "p50_ms": 3464.1,
+          "p95_ms": 5323.7,
+          "max_ms": 5323.7
+        },
+        "correction": {
+          "count": 7,
+          "mean_ms": 0.4,
+          "p50_ms": 0.4,
+          "p95_ms": 0.8,
+          "max_ms": 0.8
+        },
+        "translation": {
+          "count": 16,
+          "mean_ms": 612.5,
+          "p50_ms": 564.6,
+          "p95_ms": 1294.9,
+          "max_ms": 1294.9
+        },
+        "commit": {
+          "count": 8,
+          "mean_ms": 842.8,
+          "p50_ms": 855.4,
+          "p95_ms": 1295.6,
+          "max_ms": 1295.6
+        }
+      },
+      "timing_scopes": {
+        "runtime_stage_latency_ms": "changed latest telemetry sampled every 250ms; not all native calls",
+        "audience_lag": "estimated segment end to in-process hub JSON; includes actual queues, excludes network and browser paint",
+        "processing_rtf": "paced feed plus drain and shutdown wall time / audio duration",
+        "drain_seconds": "audio end to ASR/postprocess/persistence/audience-queue drain",
+        "isolated_component_decode_seconds": "not measured by this runtime harness"
+      },
+      "processing_rtf_paced_drain_shutdown": 1.072,
+      "cold_start_including_hashes_seconds": 3.193,
+      "drain_seconds": 0.9367460422217846,
+      "queue_peaks": {
+        "postprocess": 0,
+        "persistence": 1
+      },
+      "parent_rss_mib_peak": 962.5,
+      "full_process_tree_memory_available": false,
+      "memory_observation_errors": {
+        "descendant_discovery_failed": 21
+      },
+      "runtime_budget": {
+        "asr_queue_chunks": 16,
+        "postprocess_workers": 2,
+        "parallel_target_limit": 2,
+        "target_timeout_seconds": 20.0,
+        "m2m100_cpu_threads": 2,
+        "asr_cpu_threads": 2,
+        "resource_profile": "low",
+        "effective_postprocess_workers": 1,
+        "effective_parallel_target_limit": 1,
+        "feed_and_drain_deadline_seconds": 153.22
+      },
+      "caption_counts": {
+        "stable_count": 8,
+        "committed_count": 8,
+        "uncommitted_stable_count": 0,
+        "empty_source_count": 0
+      }
+    },
+    {
+      "arm": "arm-4-base-en",
+      "source_language": "en",
+      "model": "base",
+      "status": "measured",
+      "error": null,
+      "report_sha256": "d9fe810d1d0979f4f88640faebfc89a4b0eecfe2ef8b46aaaf675b0b7bc5feb4",
+      "sqlite_sha256": "51a0e0a3fa041c7d27f19ed9cc346b3f066ddb5cb2100a1c8aa71e0cbdc83ef1",
+      "process_log_created_utc_immediately_before_Popen_approx": "2026-11-09T14:26:35.323683+00:00",
+      "session_started_at_utc": "2026-11-09T14:26:38.131569+00:00",
+      "session_ended_at_utc": "2026-11-09T14:27:09.027524+00:00",
+      "exact_OS_spawn_wall_timestamp_captured": false,
+      "audio_seconds_including_two_half_second_gaps": 29.56,
+      "asr_quality": {
+        "cer": 0.1557,
+        "wer": 0.3
+      },
+      "asr_wer_scope": "whitespace tokens; Japanese WER is not word-segmented and is not used for ranking",
+      "source_numeric_literal": {
+        "expected": [
+          "15",
+          "2011",
+          "2017",
+          "6-6",
+          "10,000"
+        ],
+        "actual": [
+          "15",
+          "2011",
+          "2000",
+          "17",
+          "10"
+        ],
+        "match": false
+      },
+      "asr_hypothesis_sha256": "0202b0453857c944ee43f4bac9dc0a9bb793de82eda8c35844eed46879f24137",
+      "targets": {
+        "ko": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0aab7326752ef40dfccae736666311986071b88c8c5744187b8240a097fd3e07",
+          "hypothesis_sha256": "5adafd6c35d1102904c9a840dc474598c14e6b28ca46f454726c52fc1bfdf534",
+          "chrf": 21.25570453603722,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6",
+              "6"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "8",
+              "2000",
+              "3",
+              "10"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 6,
+          "target_states": {
+            "available": 6
+          },
+          "translated_committed": 6,
+          "target_coverage": 1.0,
+          "first_translation_ms": 5359.9,
+          "translated_p95_estimated_end_to_hub_ms": 2828.6,
+          "no_success_only_scoring": true
+        },
+        "ja": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0af8c7fe254b270a3b8cf5f5e5455cf8cd25088aa48c49a8508cd55b2fa5e6ea",
+          "hypothesis_sha256": "0d7a49f59c51a4853e145502e45de0340e17668657e88353f43545c412943247",
+          "chrf": 26.78828988555686,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6-6",
+              "1"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "8",
+              "2000",
+              "3",
+              "2",
+              "10"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 6,
+          "target_states": {
+            "available": 6
+          },
+          "translated_committed": 6,
+          "target_coverage": 1.0,
+          "first_translation_ms": 5936.3,
+          "translated_p95_estimated_end_to_hub_ms": 2828.6,
+          "no_success_only_scoring": true
+        }
+      },
+      "queues_drained": true,
+      "timestamp_diagnostics": {
+        "timestamp_recovery_count": 3,
+        "timestamp_recovery_errors": [
+          {
+            "error_type": "out_of_bounds_timestamp",
+            "error": "faster-whisper returned out-of-bounds segment timestamps: 0.000–7.000s for 4.000s input",
+            "input_duration_seconds": 4.0,
+            "start_sample": 64000,
+            "sample_rate": 16000
+          },
+          {
+            "error_type": "out_of_bounds_timestamp",
+            "error": "faster-whisper returned out-of-bounds segment timestamps: 0.000–7.000s for 4.000s input",
+            "input_duration_seconds": 4.0,
+            "start_sample": 320000,
+            "sample_rate": 16000
+          },
+          {
+            "error_type": "out_of_bounds_timestamp",
+            "error": "faster-whisper returned out-of-bounds segment timestamps: 0.000–7.000s for 4.000s input",
+            "input_duration_seconds": 4.0,
+            "start_sample": 384000,
+            "sample_rate": 16000
+          }
+        ]
+      },
+      "invalid_timestamps": 0,
+      "runtime_stage_latency_ms": {
+        "asr": {
+          "count": 6,
+          "mean_ms": 1730.5,
+          "p50_ms": 1878.4,
+          "p95_ms": 2170.6,
+          "max_ms": 2170.6
+        },
+        "correction": {
+          "count": 3,
+          "mean_ms": 0.5,
+          "p50_ms": 0.4,
+          "p95_ms": 0.7,
+          "max_ms": 0.7
+        },
+        "translation": {
+          "count": 12,
+          "mean_ms": 877.5,
+          "p50_ms": 770.7,
+          "p95_ms": 1569.9,
+          "max_ms": 1569.9
+        },
+        "commit": {
+          "count": 6,
+          "mean_ms": 1189.0,
+          "p50_ms": 1159.3,
+          "p95_ms": 1570.4,
+          "max_ms": 1570.4
+        }
+      },
+      "timing_scopes": {
+        "runtime_stage_latency_ms": "changed latest telemetry sampled every 250ms; not all native calls",
+        "audience_lag": "estimated segment end to in-process hub JSON; includes actual queues, excludes network and browser paint",
+        "processing_rtf": "paced feed plus drain and shutdown wall time / audio duration",
+        "drain_seconds": "audio end to ASR/postprocess/persistence/audience-queue drain",
+        "isolated_component_decode_seconds": "not measured by this runtime harness"
+      },
+      "processing_rtf_paced_drain_shutdown": 1.0277,
+      "cold_start_including_hashes_seconds": 2.862,
+      "drain_seconds": 0.7913960423320532,
+      "queue_peaks": {
+        "postprocess": 0,
+        "persistence": 1
+      },
+      "parent_rss_mib_peak": 706.39,
+      "full_process_tree_memory_available": false,
+      "memory_observation_errors": {
+        "descendant_discovery_failed": 18
+      },
+      "runtime_budget": {
+        "asr_queue_chunks": 16,
+        "postprocess_workers": 2,
+        "parallel_target_limit": 2,
+        "target_timeout_seconds": 20.0,
+        "m2m100_cpu_threads": 2,
+        "asr_cpu_threads": 2,
+        "resource_profile": "low",
+        "effective_postprocess_workers": 1,
+        "effective_parallel_target_limit": 1,
+        "feed_and_drain_deadline_seconds": 149.56
+      },
+      "caption_counts": {
+        "stable_count": 6,
+        "committed_count": 6,
+        "uncommitted_stable_count": 0,
+        "empty_source_count": 0
+      }
+    },
+    {
+      "arm": "arm-5-small-ja",
+      "source_language": "ja",
+      "model": "small",
+      "status": "measured",
+      "error": null,
+      "report_sha256": "0e447764e9f2fb442c5c54807d1f57ec3e8093b71273ef1db6185affd7709b0f",
+      "sqlite_sha256": "4ec1700a9e0acfb32d8c6dabebb3f8bc2b7e04532be1f73e25121dbfb7e531cc",
+      "process_log_created_utc_immediately_before_Popen_approx": "2026-11-09T14:27:10.340458+00:00",
+      "session_started_at_utc": "2026-11-09T14:27:13.497014+00:00",
+      "session_ended_at_utc": "2026-11-09T14:27:54.000049+00:00",
+      "exact_OS_spawn_wall_timestamp_captured": false,
+      "audio_seconds_including_two_half_second_gaps": 37.18,
+      "asr_quality": {
+        "cer": 0.3529,
+        "wer": 3.3333
+      },
+      "asr_wer_scope": "whitespace tokens; Japanese WER is not word-segmented and is not used for ranking",
+      "source_numeric_literal": {
+        "expected": [
+          "15",
+          "2011",
+          "8",
+          "2017",
+          "3",
+          "2",
+          "6-6",
+          "1"
+        ],
+        "actual": [
+          "15",
+          "2011",
+          "8",
+          "2017",
+          "3",
+          "2",
+          "6",
+          "6",
+          "1",
+          "300"
+        ],
+        "match": false
+      },
+      "asr_hypothesis_sha256": "fe099c3137188922c17997f4b86ca6e0e9c8663691ab44d631f4f3a55a3640e3",
+      "targets": {
+        "ko": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "0aab7326752ef40dfccae736666311986071b88c8c5744187b8240a097fd3e07",
+          "hypothesis_sha256": "54bca6f4d32a5737d726b8f60c06fd46de75c5a74c82efdbae7b3193a1fe454d",
+          "chrf": 27.86552652812459,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "2",
+              "6",
+              "6"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "8",
+              "2017",
+              "3",
+              "6-6",
+              "1",
+              "300"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 10,
+          "target_states": {
+            "available": 10
+          },
+          "translated_committed": 10,
+          "target_coverage": 1.0,
+          "first_translation_ms": 7019.0,
+          "translated_p95_estimated_end_to_hub_ms": 4968.3,
+          "no_success_only_scoring": true
+        },
+        "en": {
+          "status": "complete_outputs",
+          "reference_scope": "one concatenated published human target cohort, three fixed parallel sentence IDs",
+          "reference_sha256": "a90a9f91352740701e0a59826ace609a9274c81614164df8cecdc7acdac6528a",
+          "hypothesis_sha256": "d3ef5691cd147e32e50516e5d26c65bf2ecd462f50adc5fea805a826be534019",
+          "chrf": 35.249955267661385,
+          "numeric_literal": {
+            "expected": [
+              "15",
+              "2011",
+              "2017",
+              "6-6",
+              "10,000"
+            ],
+            "actual": [
+              "15",
+              "2011",
+              "2017",
+              "6",
+              "6",
+              "300"
+            ],
+            "match": false
+          },
+          "committed_source_segments": 10,
+          "target_states": {
+            "available": 10
+          },
+          "translated_committed": 10,
+          "target_coverage": 1.0,
+          "first_translation_ms": 7304.6,
+          "translated_p95_estimated_end_to_hub_ms": 5179.3,
+          "no_success_only_scoring": true
+        }
+      },
+      "queues_drained": true,
+      "timestamp_diagnostics": {
+        "timestamp_recovery_count": 0,
+        "timestamp_recovery_errors": []
+      },
+      "invalid_timestamps": 0,
+      "runtime_stage_latency_ms": {
+        "asr": {
+          "count": 9,
+          "mean_ms": 3839.2,
+          "p50_ms": 3529.3,
+          "p95_ms": 5343.0,
+          "max_ms": 5343.0
+        },
+        "correction": {
+          "count": 8,
+          "mean_ms": 68.6,
+          "p50_ms": 0.4,
+          "p95_ms": 545.5,
+          "max_ms": 545.5
+        },
+        "translation": {
+          "count": 20,
+          "mean_ms": 582.6,
+          "p50_ms": 508.0,
+          "p95_ms": 1131.2,
+          "max_ms": 1192.3
+        },
+        "commit": {
+          "count": 10,
+          "mean_ms": 810.0,
+          "p50_ms": 759.5,
+          "p95_ms": 1192.8,
+          "max_ms": 1192.8
+        }
+      },
+      "timing_scopes": {
+        "runtime_stage_latency_ms": "changed latest telemetry sampled every 250ms; not all native calls",
+        "audience_lag": "estimated segment end to in-process hub JSON; includes actual queues, excludes network and browser paint",
+        "processing_rtf": "paced feed plus drain and shutdown wall time / audio duration",
+        "drain_seconds": "audio end to ASR/postprocess/persistence/audience-queue drain",
+        "isolated_component_decode_seconds": "not measured by this runtime harness"
+      },
+      "processing_rtf_paced_drain_shutdown": 1.0654,
+      "cold_start_including_hashes_seconds": 3.551,
+      "drain_seconds": 0.8910696674138308,
+      "queue_peaks": {
+        "postprocess": 1,
+        "persistence": 2
+      },
+      "parent_rss_mib_peak": 969.25,
+      "full_process_tree_memory_available": false,
+      "memory_observation_errors": {
+        "descendant_discovery_failed": 23
+      },
+      "runtime_budget": {
+        "asr_queue_chunks": 16,
+        "postprocess_workers": 2,
+        "parallel_target_limit": 2,
+        "target_timeout_seconds": 20.0,
+        "m2m100_cpu_threads": 2,
+        "asr_cpu_threads": 2,
+        "resource_profile": "low",
+        "effective_postprocess_workers": 1,
+        "effective_parallel_target_limit": 1,
+        "feed_and_drain_deadline_seconds": 157.18
+      },
+      "caption_counts": {
+        "stable_count": 10,
+        "committed_count": 10,
+        "uncommitted_stable_count": 0,
+        "empty_source_count": 0
+      }
+    }
+  ]
+}

@@ -26,7 +26,7 @@ def test_fixture_source_is_pinned_and_attributed() -> None:
     assert len(FLEURS_REVISION) == 40
     assert all(value in "0123456789abcdef" for value in FLEURS_REVISION)
     assert FLEURS_LICENSE == "https://creativecommons.org/licenses/by/4.0/"
-    assert CONFIGS == {"ko": "ko_kr", "en": "en_us"}
+    assert CONFIGS == {"ko": "ko_kr", "en": "en_us", "ja": "ja_jp"}
 
 
 @pytest.mark.parametrize(
