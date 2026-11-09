@@ -63,11 +63,10 @@ impl HistorySink {
     pub fn metrics(&self) -> HistoryMetrics {
         let shared = self.shared.lock().unwrap();
         let mut metrics = shared.metrics.clone();
-        metrics.queue_capacity = MAX_QUEUE;
         metrics.queue_depth = shared
             .sender
             .as_ref()
-            .map(|sender| MAX_QUEUE - sender.capacity())
+            .map(|sender| metrics.queue_capacity - sender.capacity())
             .or_else(|| metrics.stopped.then_some(0));
         metrics
     }
@@ -105,7 +104,7 @@ impl HistorySink {
                 .is_some_and(|sender| sender.try_send(command).is_ok());
         if sent {
             shared.metrics.accepted += 1;
-            let depth = MAX_QUEUE - shared.sender.as_ref().unwrap().capacity();
+            let depth = shared.metrics.queue_capacity - shared.sender.as_ref().unwrap().capacity();
             shared.metrics.queue_high_watermark = shared.metrics.queue_high_watermark.max(depth);
         } else {
             shared.metrics.dropped += 1;
@@ -154,6 +153,7 @@ impl HistoryWriter {
             ended_at: None,
             metrics: HistoryMetrics {
                 complete: true,
+                queue_capacity: capacity,
                 ..Default::default()
             },
         }));

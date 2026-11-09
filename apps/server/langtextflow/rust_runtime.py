@@ -12,6 +12,7 @@ import struct
 import sys
 import sysconfig
 import tempfile
+import time
 from contextlib import suppress
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from .models import (
     TranscriptEvent,
     public_model_identity,
 )
+from .telemetry import RustAuthorityMetrics, RustMetricsFrame
 from .whisper_cache import WHISPER_REPOSITORIES, managed_whisper_cache, resolve_whisper_model
 
 _ERROR = "Rust runtime unavailable; stop the session and check local runtime setup."
@@ -128,12 +130,44 @@ class RustRuntimeBridge(AsrEngine):
         self._stopping = False
         self.persistence_error: str | None = None
         self.correction_status = CorrectionStatus()
+        self._metrics: RustMetricsFrame | None = None
+        self._metrics_received_at: float | None = None
 
     running = property(lambda self: self._running)
     accepts_audio = property(lambda self: True)
     sample_rate = property(lambda self: 16_000)
     queue_capacity = property(lambda self: 8)
     failure = property(lambda self: self._failure)
+
+    def metrics_view(self) -> RustAuthorityMetrics:
+        age = (None if self._metrics_received_at is None
+               else max(0., (time.monotonic() - self._metrics_received_at) * 1000))
+        if self._failure:
+            status = "unavailable"
+        elif self._metrics is None:
+            status = "not_sampled"
+        elif self._metrics.final:
+            status = "unavailable" if self._metrics.stop_error else "final"
+        else:
+            status = "stale" if age is None or age > 1500 else "fresh"
+        return RustAuthorityMetrics(status=status, age_ms=age, sample=self._metrics)
+
+    def _accept_metrics(self, value: dict, size: int) -> RustMetricsFrame:
+        if size > 4096:
+            raise AsrEngineError(_ERROR)
+        frame = RustMetricsFrame.model_validate(value)
+        if frame.session_id != self.session_id or frame.session_generation != 1:
+            raise AsrEngineError(_ERROR)
+        if self._metrics is not None:
+            if frame.sequence <= self._metrics.sequence:
+                if frame.sequence == self._metrics.sequence and frame != self._metrics:
+                    raise AsrEngineError(_ERROR)
+                return frame  # Replay never refreshes the receipt clock.
+            if self._metrics.final:
+                raise AsrEngineError(_ERROR)
+        self._metrics = frame
+        self._metrics_received_at = time.monotonic()
+        return frame
 
     def _worker_commands(self, request: StartSessionRequest) -> tuple[dict, dict | None]:
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
@@ -220,6 +254,8 @@ class RustRuntimeBridge(AsrEngine):
             await self._process.stdin.drain()
             ready = await self._reply("ready")
             if (ready.get("protocol_version") != 1
+                    or type(ready.get("metrics_protocol_version")) is not int
+                    or ready.get("metrics_protocol_version") != 1
                     or type(ready.get("port")) is not int or not 1 <= ready["port"] <= 65535
                     or not isinstance(ready.get("observer_path"), str)
                     or not ready["observer_path"].startswith("/ws/observer?token=")
@@ -264,22 +300,37 @@ class RustRuntimeBridge(AsrEngine):
     async def _reply(self, kind: str, budget: float = _CONTROL_BUDGET) -> dict:
         if self._process is None:
             raise AsrEngineError(_ERROR)
-        raw = await asyncio.wait_for(self._process.stdout.readline(), budget)
-        if not raw or len(raw) > 1024:
-            raise AsrEngineError(_ERROR)
-        reply = json.loads(raw)
-        if (not isinstance(reply, dict) or reply.get("type") != kind
-                or reply.get("session_id") != self.session_id
-                or type(reply.get("session_generation")) is not int
-                or reply.get("session_generation") != 1):
-            raise AsrEngineError(_ERROR)
-        return reply
+        final_seen = False
+        async with asyncio.timeout(budget):
+            while True:
+                raw = await self._process.stdout.readline()
+                if not raw or len(raw) > 4096:
+                    raise AsrEngineError(_ERROR)
+                reply = json.loads(raw)
+                if isinstance(reply, dict) and reply.get("type") == "metrics":
+                    if kind != "stopped" or final_seen:
+                        raise AsrEngineError(_ERROR)
+                    frame = self._accept_metrics(reply, len(raw))
+                    if not frame.final or frame != self._metrics:
+                        raise AsrEngineError(_ERROR)
+                    final_seen = True
+                    continue
+                if (len(raw) > 1024 or not isinstance(reply, dict) or reply.get("type") != kind
+                        or reply.get("session_id") != self.session_id
+                        or type(reply.get("session_generation")) is not int
+                        or reply.get("session_generation") != 1
+                        or (kind == "stopped" and not final_seen)):
+                    raise AsrEngineError(_ERROR)
+                return reply
 
     async def _relay(self, socket) -> None:
         try:
             async with socket:
                 async for raw in socket:
                     frame = json.loads(raw)
+                    if isinstance(frame, dict) and frame.get("type") == "metrics":
+                        self._accept_metrics(frame, len(raw.encode()) + 1)
+                        continue
                     if (frame.get("session_id") != self.session_id
                             or type(frame.get("session_generation")) is not int
                             or frame.get("session_generation") != 1

@@ -637,6 +637,36 @@ impl AsrSession {
         self.0.lock().unwrap().projection.metrics.clone()
     }
 
+    pub(crate) fn source_metrics(&self) -> crate::telemetry::SourceMetrics {
+        let state = self.0.lock().unwrap();
+        crate::telemetry::SourceMetrics {
+            active_window: state.active.is_some(),
+            pending_corrections: state.pending_corrections.len(),
+            pending_targets: state.pending_targets.len(),
+        }
+    }
+
+    pub(crate) fn enable_metrics(&self) {
+        self.0.lock().unwrap().projection.telemetry = Some(tokio::sync::watch::channel(None).0);
+    }
+
+    pub(crate) fn publish_metrics(
+        &self,
+        sid: &str,
+        generation: u64,
+        frame: crate::caption_events::JsonFrame,
+    ) -> bool {
+        let state = self.0.lock().unwrap();
+        if state.session_id != sid || state.generation != generation {
+            return false;
+        }
+        let Some(sender) = &state.projection.telemetry else {
+            return false;
+        };
+        sender.send_replace(Some(frame));
+        true
+    }
+
     pub fn pending_translation_targets(&self) -> usize {
         self.0.lock().unwrap().pending_targets.len()
     }

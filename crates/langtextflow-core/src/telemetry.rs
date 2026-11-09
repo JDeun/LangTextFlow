@@ -1,8 +1,17 @@
 //! Bounded execution telemetry. No caption, model identity or filesystem values.
+use crate::asr_slice::AsrSession;
+use crate::caption_events::{JsonFrame, ObserverMetrics};
+use crate::history::{HistoryMetrics, HistorySink};
+use crate::pcm_ingress::{IngressMetrics, PcmInput};
 use serde::Serialize;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::time::Instant;
+use time::{format_description::well_known::Rfc3339, OffsetDateTime};
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
 
 pub const METRICS_BYTES: usize = 4096;
 const RING: usize = 512;
@@ -153,6 +162,170 @@ impl QueueTicket {
 impl Drop for QueueTicket {
     fn drop(&mut self) {
         self.finish(JobOutcome::Cancelled);
+    }
+}
+
+#[derive(Clone, Serialize)]
+pub(crate) struct SourceMetrics {
+    pub active_window: bool,
+    pub pending_corrections: usize,
+    pub pending_targets: usize,
+}
+
+#[derive(Serialize)]
+pub(crate) struct MetricsFrame {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    pub session_id: String,
+    pub session_generation: u64,
+    pub sequence: u64,
+    pub sampled_at: String,
+    #[serde(rename = "final")]
+    pub final_sample: bool,
+    pub stop_error: Option<&'static str>,
+    pub ingress: IngressMetrics,
+    pub source: SourceMetrics,
+    pub correction: Option<QueueSnapshot>,
+    pub translation: Option<QueueSnapshot>,
+    pub history: Option<HistoryMetrics>,
+    pub observer: ObserverMetrics,
+}
+
+impl MetricsFrame {
+    pub(crate) fn raw(&self) -> Result<JsonFrame, &'static str> {
+        let raw = serde_json::value::to_raw_value(self).map_err(|_| "metrics_serialization")?;
+        if raw.get().len() + 1 > METRICS_BYTES {
+            return Err("metrics_limit");
+        }
+        Ok(Arc::from(raw))
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct MetricsSources {
+    pub session: AsrSession,
+    pub session_id: String,
+    pub generation: u64,
+    pub input: PcmInput,
+    pub correction: Option<QueueTelemetry>,
+    pub translation: Option<(QueueTelemetry, usize)>,
+    pub history: Option<HistorySink>,
+}
+
+impl MetricsSources {
+    fn capture(
+        &self,
+        sequence: u64,
+        final_sample: bool,
+        stop_error: Option<&'static str>,
+    ) -> Result<MetricsFrame, &'static str> {
+        Ok(MetricsFrame {
+            kind: "metrics",
+            session_id: self.session_id.clone(),
+            session_generation: self.generation,
+            sequence,
+            sampled_at: OffsetDateTime::now_utc()
+                .format(&Rfc3339)
+                .map_err(|_| "clock_format")?,
+            final_sample,
+            stop_error,
+            ingress: self.input.metrics(),
+            source: self.session.source_metrics(),
+            correction: self.correction.as_ref().map(|queue| queue.snapshot(4)),
+            translation: self
+                .translation
+                .as_ref()
+                .map(|(queue, capacity)| queue.snapshot(*capacity)),
+            history: self.history.as_ref().map(HistorySink::metrics),
+            observer: self.session.observer_metrics(),
+        })
+    }
+}
+
+/// Owned by control, never by AsrSession. One watch value coalesces every observer.
+pub(crate) struct MetricsSampler {
+    sources: MetricsSources,
+    sequence: Arc<AtomicU64>,
+    stop: watch::Sender<bool>,
+    task: Option<JoinHandle<Result<(), &'static str>>>,
+}
+
+impl MetricsSampler {
+    pub(crate) fn start(sources: MetricsSources) -> Self {
+        sources.session.enable_metrics();
+        let owned = sources.clone();
+        let sequence = Arc::new(AtomicU64::new(0));
+        let sequenced = sequence.clone();
+        let (stop, mut stopping) = watch::channel(false);
+        let task = tokio::spawn(async move {
+            let mut timer = tokio::time::interval(Duration::from_millis(250));
+            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                if *stopping.borrow() {
+                    return Ok(());
+                }
+                let selected = futures_util::future::select(
+                    Box::pin(stopping.changed()),
+                    Box::pin(timer.tick()),
+                )
+                .await;
+                if matches!(selected, futures_util::future::Either::Left(_)) {
+                    return Ok(());
+                }
+                let sequence = sequenced.fetch_add(1, Ordering::Relaxed) + 1;
+                if sequence > MAX_COUNT {
+                    return Err("metrics_sequence");
+                }
+                let frame = owned.capture(sequence, false, None)?.raw()?;
+                if !owned
+                    .session
+                    .publish_metrics(&owned.session_id, owned.generation, frame)
+                {
+                    return Ok(());
+                }
+            }
+        });
+        Self {
+            sources,
+            sequence,
+            stop,
+            task: Some(task),
+        }
+    }
+
+    pub(crate) async fn stop(&mut self) -> Result<(), &'static str> {
+        let _ = self.stop.send(true);
+        if let Some(mut task) = self.task.take() {
+            match tokio::time::timeout(Duration::from_secs(1), &mut task).await {
+                Ok(Ok(result)) => result?,
+                _ => {
+                    task.abort();
+                    let _ = task.await;
+                    return Err("metrics_stop_unconfirmed");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn final_frame(
+        &self,
+        stop_error: Option<&'static str>,
+    ) -> Result<MetricsFrame, &'static str> {
+        let sequence = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
+        if sequence > MAX_COUNT {
+            return Err("metrics_sequence");
+        }
+        self.sources.capture(sequence, true, stop_error)
+    }
+}
+
+impl Drop for MetricsSampler {
+    fn drop(&mut self) {
+        let _ = self.stop.send(true);
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
     }
 }
 
