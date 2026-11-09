@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { mkdir, writeFile } from "node:fs/promises";
 
 // The product E2E uses Vite preview; this actual-hook fixture needs a separate dev server.
 const origin = process.env.LTF_WEB_URL || "http://127.0.0.1:5174";
@@ -176,6 +177,25 @@ try {
     retentionResult.exceptionDetails.exception?.description||retentionResult.exceptionDetails.text,
   );
   console.log(`project retention smoke passed: ${retentionResult.result.value}`);
+  for (const [width, locale] of [[360, "ko"], [1024, "en"]]) {
+    await cdp("Emulation.setDeviceMetricsOverride", { width, height: 1000, deviceScaleFactor: 1, mobile: false });
+    const telemetry = await cdp("Runtime.evaluate", {
+      expression: `import('/tests/fixtures/telemetryHarness.tsx').then(test => test.runTelemetryChecks('${locale}'))`,
+      awaitPromise: true, returnByValue: true,
+    });
+    if (telemetry.exceptionDetails) throw new Error(
+      telemetry.exceptionDetails.exception?.description || telemetry.exceptionDetails.text,
+    );
+    const image = await cdp("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+    await mkdir("artifacts", { recursive: true });
+    await writeFile(`artifacts/native-telemetry-${width}-${locale}.png`, Buffer.from(image.data, "base64"));
+    await cdp("Runtime.evaluate", {
+      expression: `import('/tests/fixtures/telemetryHarness.tsx').then(test => test.disposeTelemetryChecks())`,
+      awaitPromise: true,
+    });
+    console.log(`native telemetry smoke passed: ${telemetry.result.value}`);
+  }
+  await cdp("Emulation.clearDeviceMetricsOverride");
 } catch (error) {
   if (serverOutput) console.error(serverOutput);
   throw error;

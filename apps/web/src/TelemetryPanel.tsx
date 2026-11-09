@@ -23,16 +23,25 @@ function milliseconds(value: number | null) {
   return `${Math.round(value)} ms`;
 }
 
-function queueValue(depth: number, capacity: number) {
+function queueValue(depth: number | null, capacity: number | null) {
+  if (depth === null || capacity === null) return "—";
   return capacity > 0 ? `${depth} / ${capacity}` : `${depth}`;
 }
 
-function queueLevel(depth: number, capacity: number) {
-  if (capacity <= 0) return "normal";
+function queueLevel(depth: number | null, capacity: number | null) {
+  if (depth === null || capacity === null || capacity <= 0) return "normal";
   const ratio = depth / capacity;
   if (ratio >= 0.8) return "danger";
   if (ratio >= 0.5) return "warning";
   return "normal";
+}
+
+function count(value: number | null) {
+  return value === null ? "—" : value;
+}
+
+function positive(...values: (number | null)[]) {
+  return values.some(value => value !== null && value > 0);
 }
 
 function latencyLevel(value: number | null, warningMs: number, dangerMs: number) {
@@ -127,6 +136,15 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
     [metrics],
   );
   const providerFailed = Boolean(metrics?.asr_failure);
+  const native = metrics?.rust_authority;
+  const nativeMeasured = native && (native.status === "fresh" || native.status === "final");
+  const nativeFailed = Boolean(nativeMeasured && native.sample && [
+    native.sample.correction, native.sample.translation,
+  ].some(queue => queue !== null && positive(queue.failed, queue.expired, queue.overflow, queue.unavailable)));
+  const nativeStatus = native && ({
+    fresh: copy.metricsFresh, stale: copy.metricsStale, not_sampled: copy.metricsNotSampled,
+    unavailable: copy.metricsUnavailable, final: copy.metricsFinal,
+  })[native.status];
   const providerHealthy = Boolean(running && metrics?.asr_running && !providerFailed);
   const providerRecovered = Boolean(providerHealthy && (metrics?.asr_failover_count ?? 0) > 0);
   const statusLabel = providerFailed
@@ -185,6 +203,10 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
         <small>{audienceCopy.detail}</small>
       </div>
       {error && <div className="telemetry-empty">{error}</div>}
+      {native && <div className="telemetry-empty" data-testid="native-metrics-status">
+        <span role="status">{copy.rustTelemetry}: {nativeStatus}</span>
+        {native.age_ms !== null && <> · {copy.sampleAge} {milliseconds(native.age_ms)}</>}
+      </div>}
       {persistenceError && (
         <div className="error-box" role="alert" data-testid="persistence-error">
           {copy.storage}: {persistenceError}
@@ -228,25 +250,35 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
             <div className={`telemetry-metric ${queueLevel(metrics.asr_queue_depth, metrics.asr_queue_capacity)}`}>
               <span>{copy.asrQueue}</span>
               <strong>{queueValue(metrics.asr_queue_depth, metrics.asr_queue_capacity)}</strong>
-              <small>{copy.peak} {metrics.asr_queue_high_watermark}</small>
+              <small>{copy.peak} {count(metrics.asr_queue_high_watermark)}</small>
             </div>
             <div className={`telemetry-metric ${metrics.asr_failover_count > 0 ? "warning" : "normal"}`}>
               <span>{copy.failovers}</span>
               <strong>{metrics.asr_failover_count}</strong>
               <small>{metrics.asr_failover_count > 0 ? copy.recoveredHandoff : copy.none}</small>
             </div>
-            <div className={`telemetry-metric ${metrics.postprocess_segments_dropped + metrics.postprocess_segments_failed + metrics.postprocess_segments_expired > 0 ? "warning" : queueLevel(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}`}>
+            <div className={`telemetry-metric ${native ? "telemetry-native-queues" : ""} ${nativeFailed || positive(metrics.postprocess_segments_dropped, metrics.postprocess_segments_failed, metrics.postprocess_segments_expired) ? "warning" : queueLevel(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}`}>
               <span>{copy.postprocess}</span>
               <strong>{queueValue(metrics.postprocess_queue_depth, metrics.postprocess_queue_capacity)}</strong>
-              <small>
-                {copy.peak} {metrics.postprocess_queue_high_watermark}
-                {" · "}{copy.dropped} {metrics.postprocess_segments_dropped}
-                {" · "}{copy.failed} {metrics.postprocess_segments_failed}
-                {" · "}{copy.expired} {metrics.postprocess_segments_expired}
-                {" · "}{copy.duplicates} {metrics.postprocess_duplicate_asr_events_dropped}
-                {" · "}Queue wait p50 {milliseconds(metrics.postprocess_queue_lag_p50_ms ?? 0)}
-                {" · "}p95 {milliseconds(metrics.postprocess_queue_lag_p95_ms ?? 0)}
-              </small>
+              {native ? <>
+                <small>{copy.jobs}</small>
+                {nativeMeasured && native.sample && [
+                  { label: copy.correctionJobs, queue: native.sample.correction },
+                  { label: copy.translationJobs, queue: native.sample.translation },
+                ].map(({ label, queue }) => queue && <div className="telemetry-lane" key={label}>
+                  <small>{label}: {copy.waiting} {queue.queued} · {copy.active} {queue.active} · {copy.peak} {queue.high}</small>
+                  <small>{copy.succeeded} {queue.succeeded} · {copy.failed} {queue.failed} · {copy.expired} {queue.expired} · {copy.cancelled} {queue.cancelled} · {copy.dropped} {queue.overflow} · {copy.admissionClosed} {queue.unavailable}</small>
+                  <small>{queue.wait_samples > 0 ? <>{copy.queueWait}: p50 {milliseconds(queue.wait_p50_ms)} · p95 {milliseconds(queue.wait_p95_ms)} · n={queue.wait_samples} ({copy.queueWindow})</> : copy.noQueueSamples}</small>
+                </div>)}
+              </> : <small>
+                {copy.peak} {count(metrics.postprocess_queue_high_watermark)}
+                {" · "}{copy.dropped} {count(metrics.postprocess_segments_dropped)}
+                {" · "}{copy.failed} {count(metrics.postprocess_segments_failed)}
+                {" · "}{copy.expired} {count(metrics.postprocess_segments_expired)}
+                {" · "}{copy.duplicates} {count(metrics.postprocess_duplicate_asr_events_dropped)}
+                {" · "}Queue wait p50 {milliseconds(metrics.postprocess_queue_lag_p50_ms)}
+                {" · "}p95 {milliseconds(metrics.postprocess_queue_lag_p95_ms)}
+              </small>}
             </div>
             <div className={`telemetry-metric ${metrics.websocket_overflow_evictions + metrics.websocket_send_failures > 0 ? "warning" : "normal"}`}>
               <span>{copy.audienceClients}</span>
@@ -258,14 +290,14 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
                 {" · "}{copy.peak} {metrics.websocket_client_queue_high_watermark}
               </small>
             </div>
-            <div className={`telemetry-metric ${metrics.persistence_events_dropped + metrics.persistence_events_failed > 0 ? "warning" : queueLevel(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}`}>
+            <div className={`telemetry-metric ${positive(metrics.persistence_events_dropped, metrics.persistence_events_failed) ? "warning" : queueLevel(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}`}>
               <span>{copy.storage}</span>
               <strong>{queueValue(metrics.persistence_queue_depth, metrics.persistence_queue_capacity)}</strong>
               <small>
                 {copy.writer}
-                {" · "}{copy.peak} {metrics.persistence_queue_high_watermark}
-                {" · "}{copy.dropped} {metrics.persistence_events_dropped}
-                {" · "}{copy.failed} {metrics.persistence_events_failed}
+                {" · "}{copy.peak} {count(metrics.persistence_queue_high_watermark)}
+                {" · "}{copy.dropped} {count(metrics.persistence_events_dropped)}
+                {" · "}{copy.failed} {count(metrics.persistence_events_failed)}
               </small>
             </div>
             <div className={`telemetry-metric ${latencyLevel(metrics.last_audio_enqueue_wait_ms, 50, 200)}`}>
