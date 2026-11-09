@@ -432,6 +432,8 @@ class CaptionRuntime:
         )
         self.metrics.stale_asr_events_dropped = self.stale_asr_events_dropped
         if self._rust_session:
+            if self.engine is not None and getattr(self.engine, "correction_status", None):
+                self.state.correction_status = self.engine.correction_status
             if self.engine is not None and getattr(self.engine, "persistence_error", None):
                 self.state.persistence_error = self.engine.persistence_error
         else:

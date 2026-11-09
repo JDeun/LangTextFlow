@@ -25,14 +25,14 @@ def validate_inference_request(request: object, task_kind: str) -> None:
         raise ValueError("invalid_request")
     if (type(request["protocol_version"]) is not int
             or request["protocol_version"] != PROTOCOL_VERSION
-            or task_kind not in {"asr", "translation"} or request["task_kind"] != task_kind
+            or task_kind not in TASK_KINDS or request["task_kind"] != task_kind
             or not isinstance(request["source_language"], str)
             or request["source_language"] not in {"ko", "en", "ja"}
             or type(request["deadline_ms"]) is not int
             or not 1 <= request["deadline_ms"] <= 120_000):
         raise ValueError("unsupported_request")
     target = request["target_language"]
-    if ((task_kind == "asr" and target is not None)
+    if ((task_kind in {"asr", "correction"} and target is not None)
             or (task_kind == "translation" and (
                 not isinstance(target, str) or target not in {"ko", "en", "ja"}
                 or target == request["source_language"]))):

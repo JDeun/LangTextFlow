@@ -51,7 +51,7 @@ def test_inference_worker_pcm_range_is_bounded_and_exact(tmp_path):
         validate_request({**request(path), "payload": json.dumps({**chunk, "end_sample": 0})})
 
 
-async def fake_native_process(tmp_path, mode):
+async def fake_native_process(tmp_path, mode, *, reference="Reference"):
     model = tmp_path / "prepared-private-model"
     model.mkdir()
     for name in ("model.bin", "config.json", "tokenizer.json"):
@@ -64,6 +64,7 @@ async def fake_native_process(tmp_path, mode):
 import sys, types, time
 from pathlib import Path
 mode = {mode!r}
+reference = {reference!r}
 marker = Path({str(marker)!r})
 class Audio:
     def astype(self, *args, **kwargs): return self
@@ -80,7 +81,8 @@ class Model:
         assert kwargs['vad_filter'] is True
         if mode.startswith('context-'):
             assert kwargs['language'] == mode.split('-')[1]
-            assert kwargs['initial_prompt'] == 'Source title | Presenter | Description | Reference'
+            prompt_prefix = 'Source title | Presenter | Description | '
+            assert kwargs['initial_prompt'] == prompt_prefix + reference[:1200]
             assert kwargs['hotwords'] == 'explicit, source-term, source alias'
         else:
             assert kwargs['language'] == 'ko'
@@ -148,14 +150,15 @@ async def test_shipped_asr_worker_uses_source_scoped_context_with_native_decoder
 ):
     path = tmp_path / "fixture.wav"
     wav(path)
-    process, _ = await fake_native_process(tmp_path, "context-" + source)
+    reference = "r" * 3000 if (source, preset) == ("ko", "church") else "Reference"
+    process, _ = await fake_native_process(tmp_path, "context-" + source, reference=reference)
     value = request(path)
     value["source_language"] = source
     chunk = json.loads(value["payload"])
     good = {"term": "source-term", "source_language": source, "aliases": ["source alias"]}
     chunk["context"] = {
         "title": "Source title", "presenter": "Presenter", "description": "Description",
-        "reference_text": "Reference", "preset": preset, "hotwords": ["explicit"],
+        "reference_text": reference, "preset": preset, "hotwords": ["explicit"],
         "glossary": [good, {**good, "term": "wrong-source", "aliases": ["wrong alias"],
                             "source_language": "ja" if source != "ja" else "en"},
                      {**good, "term": "disabled", "enabled": False},
