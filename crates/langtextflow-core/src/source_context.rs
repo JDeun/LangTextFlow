@@ -45,7 +45,7 @@ impl SourceContext {
                 .as_ref()
                 .is_some_and(|text| text.chars().count() > 120)
             || self.description.chars().count() > 1000
-            || self.reference_text.chars().count() > 1200
+            || self.reference_text.chars().count() > 3000
             || self.hotwords.len() > 256
             || self
                 .hotwords

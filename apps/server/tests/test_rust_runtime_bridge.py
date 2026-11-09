@@ -9,6 +9,7 @@ import struct
 import subprocess
 import sys
 import time
+from pathlib import Path
 from contextlib import asynccontextmanager
 from threading import BoundedSemaphore
 
@@ -63,7 +64,7 @@ for line in sys.stdin:
 
 
 @pytest.mark.parametrize("change", [
-    {"engine": "auto"}, {"record_audio": True}, {"correction_provider": "ollama"},
+    {"engine": "auto"}, {"record_audio": True}, {"correction_provider": "unsupported"},
     {"translation_provider": "ollama"}, {"translation_model": "path/private"},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
@@ -134,6 +135,7 @@ def rust_api(monkeypatch, tmp_path):
         runtime_core="rust", rust_runtime_binary=binary,
         database_path=str(tmp_path / "session.db"), mdns_enabled=False,
     )
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
     runtime = CaptionRuntime(settings)
     from langtextflow.translation import m2m100_ct2
 
@@ -366,7 +368,7 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
     mt = [value for value in records if value["task_kind"] == "translation"]
     assert len(asr) == 1 and len(mt) == 2
     assert json.loads(asr[0]["payload"])["context"] == expected
-    assert expected["description"] == "d" * 1000 and expected["reference_text"] == "r" * 1200
+    assert expected["description"] == "d" * 1000 and expected["reference_text"] == "r" * 2000
     assert "late mutation" not in expected["hotwords"]
     assert all(entry["source_language"] == source for entry in expected["glossary"])
     assert "wrong-source" not in [entry["term"] for entry in expected["glossary"]]

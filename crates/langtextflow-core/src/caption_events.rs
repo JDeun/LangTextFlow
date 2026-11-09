@@ -1,5 +1,6 @@
-//! Canonical source and independent-target events. No correction or production cutover.
+//! Canonical source, correction and independent-target events; no default cutover.
 use crate::asr_slice::{AudioChunk, SourceEvent};
+use crate::correction_slice::{CorrectionDecision, CorrectionOptions, CorrectionProvenance};
 use crate::history::{HistorySink, Invalidation};
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -101,7 +102,7 @@ struct CaptionEvent {
     end_ms: u64,
     speaker: Option<String>,
     confidence: Option<f64>,
-    correction: Option<String>,
+    correction: Option<CorrectionProvenance>,
     committed: bool,
     emitted_at: String,
     session_id: String,
@@ -194,6 +195,7 @@ impl CaptionProjection {
         chunk: &AudioChunk,
         sources: &[SourceEvent],
         translating: bool,
+        correcting: bool,
     ) -> Result<Vec<ProjectedFrame>, &'static str> {
         let Some(config) = &self.config else {
             return Ok(Vec::new());
@@ -211,7 +213,7 @@ impl CaptionProjection {
         let mut serial = self.serial;
         for source in sources {
             let previous = self.versions.get(&source.segment_id).copied().unwrap_or(0);
-            let stages: &[(&str, u64, bool)] = if translating {
+            let stages: &[(&str, u64, bool)] = if translating || correcting {
                 &[("stable", 1, false)]
             } else {
                 &[("stable", 1, false), ("committed", 2, true)]
@@ -353,6 +355,8 @@ impl CaptionProjection {
             .all(|value| *value != "pending");
         event.stage = if event.committed {
             "committed"
+        } else if event.correction.is_some() {
+            "translated"
         } else {
             "stable"
         };
@@ -376,6 +380,98 @@ impl CaptionProjection {
         }
         self.apply(vec![prepared]);
         Ok(())
+    }
+
+    pub(crate) fn corrected(
+        &mut self,
+        id: &str,
+        revision: u64,
+        decision: CorrectionDecision,
+        options: &CorrectionOptions,
+        deadline: std::time::Instant,
+        cancelled: &std::sync::atomic::AtomicBool,
+        translating: bool,
+    ) -> Result<Option<String>, &'static str> {
+        let Some(previous) = self.latest.iter().find(|frame| frame.id == id) else {
+            return Ok(None);
+        };
+        if previous.event.source_revision != revision
+            || previous.event.committed
+            || previous.event.stage != "stable"
+            || cancelled.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err("stale_correction");
+        }
+        let mut event = previous.event.clone();
+        event.version = self.versions[&event.segment_id]
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("version_exhausted")?;
+        event.serial = self
+            .serial
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("serial_exhausted")?;
+        event.stage = "corrected";
+        event.text = decision.text;
+        event.correction = Some(decision.provenance);
+        event.emitted_at = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .map_err(|_| "clock_format")?;
+        let prepared = Self::frame(event)?;
+        let text = prepared.event.text.clone();
+        let mut frames = vec![prepared];
+        if !translating {
+            let mut committed = frames[0].event.clone();
+            committed.version = committed
+                .version
+                .checked_add(1)
+                .filter(|v| *v <= JS_MAX)
+                .ok_or("version_exhausted")?;
+            committed.serial = committed
+                .serial
+                .checked_add(1)
+                .filter(|v| *v <= JS_MAX)
+                .ok_or("serial_exhausted")?;
+            committed.stage = "committed";
+            committed.committed = true;
+            frames.push(Self::frame(committed)?);
+        }
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return Err("stale_correction");
+        }
+        if std::time::Instant::now() >= deadline
+            && frames[0].event.correction.as_ref().unwrap().method != "fallback"
+        {
+            let event = &frames[0].event;
+            let attempted = event.correction.as_ref().unwrap().llm_attempted;
+            let fallback = CorrectionDecision::fallback(
+                &event.original_text,
+                if attempted {
+                    &decision.deterministic_text
+                } else {
+                    &event.original_text
+                },
+                options,
+                attempted,
+                if attempted {
+                    "correction timed out; using deterministic result"
+                } else {
+                    "correction provider unavailable"
+                },
+            );
+            return self.corrected(
+                id,
+                revision,
+                fallback,
+                options,
+                deadline,
+                cancelled,
+                translating,
+            );
+        }
+        self.apply(frames);
+        Ok(Some(text))
     }
 
     pub(crate) fn apply(&mut self, prepared: Vec<ProjectedFrame>) {

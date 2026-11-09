@@ -3,6 +3,9 @@
 use crate::caption_events::{
     CaptionProjection, ObservedConfig, ObserverCredential, ObserverMetrics, ObserverReceiver,
 };
+use crate::correction_slice::{
+    CorrectionAdmission, CorrectionDecision, CorrectionDispatcher, CorrectionOptions,
+};
 use crate::mt_slice::{MtAdmission, MtDispatcher, MtOutcome, TranslationContext};
 use crate::source_context::SourceContext;
 use crate::{validate_reply, TaskKind, WorkerReply, WorkerRequest, WorkerStatus, PROTOCOL_VERSION};
@@ -123,6 +126,8 @@ struct State {
     translation: Option<MtAdmission>,
     pending_targets: HashMap<String, PendingTarget>,
     context: Option<SourceContext>,
+    correction: Option<CorrectionAdmission>,
+    pending_corrections: HashMap<String, PendingTarget>,
 }
 
 struct AcceptedChunk {
@@ -143,6 +148,106 @@ pub(crate) struct MtJob {
     pub source: String,
     owner: Weak<Mutex<State>>,
     armed: bool,
+}
+
+pub(crate) struct CorrectionJob {
+    pub request: WorkerRequest,
+    pub source: String,
+    pub context: SourceContext,
+    pub deadline: std::time::Instant,
+    pub cancelled: Arc<AtomicBool>,
+    options: CorrectionOptions,
+    translation: Option<MtAdmission>,
+    jobs: Vec<MtJob>,
+    owner: Weak<Mutex<State>>,
+    armed: bool,
+}
+
+impl CorrectionJob {
+    pub(crate) fn finish(&mut self, decision: CorrectionDecision) {
+        self.armed = false;
+        let Some(owner) = self.owner.upgrade() else {
+            return;
+        };
+        let mut state = owner.lock().unwrap();
+        let Some(pending) = state.pending_corrections.remove(&self.request.request_id) else {
+            return;
+        };
+        if self.cancelled.load(Ordering::Acquire)
+            || state.session_id != self.request.session_id
+            || state.generation != self.request.session_generation
+            || state
+                .revisions
+                .get(&pending.chunk_id)
+                .map(|version| version.revision)
+                != Some(self.request.source_revision)
+        {
+            return;
+        }
+        let text = state
+            .projection
+            .corrected(
+                &self.request.segment_id,
+                self.request.source_revision,
+                decision,
+                &self.options,
+                self.deadline,
+                &self.cancelled,
+                self.translation.is_some(),
+            )
+            .ok()
+            .flatten();
+        if self.translation.is_none() {
+            if let Some(accepted) = state.accepted.get_mut(&pending.chunk_id) {
+                accepted.committed = true;
+                accepted.events.clear();
+            }
+        }
+        drop(state);
+        if let Some(text) = text {
+            let mut jobs = std::mem::take(&mut self.jobs);
+            for job in &mut jobs {
+                job.source = text.clone();
+            }
+            submit_translation(jobs, self.translation.clone());
+        } else {
+            // Even a projection failure cannot leave already-admitted targets pending.
+            for job in &mut self.jobs {
+                job.armed = true;
+            }
+            self.jobs.clear();
+        }
+    }
+}
+
+impl Drop for CorrectionJob {
+    fn drop(&mut self) {
+        if self.armed {
+            self.finish(CorrectionDecision::fallback(
+                &self.source,
+                &self.source,
+                &self.options,
+                false,
+                "correction provider unavailable",
+            ));
+        }
+    }
+}
+
+fn submit_translation(jobs: Vec<MtJob>, config: Option<MtAdmission>) {
+    if let Some(config) = config {
+        for mut job in jobs {
+            job.armed = true;
+            if let Ok(permit) = config.sender.try_reserve() {
+                if let Ok(payload) = serde_json::to_string(&serde_json::json!({
+                    "text": job.source, "context": config.context,
+                })) {
+                    job.request.payload = payload;
+                    permit.send(job);
+                }
+            }
+        }
+    }
 }
 
 impl MtJob {
@@ -246,11 +351,39 @@ impl Default for AsrSession {
             translation: None,
             pending_targets: HashMap::new(),
             context: None,
+            correction: None,
+            pending_corrections: HashMap::new(),
         })))
     }
 }
 
 impl AsrSession {
+    pub fn enable_correction(
+        &self,
+        dispatcher: &CorrectionDispatcher,
+        options: CorrectionOptions,
+    ) -> Result<(), &'static str> {
+        options.validate()?;
+        let mut state = self.0.lock().unwrap();
+        if state.context.is_none()
+            || !state.revisions.is_empty()
+            || state.correction.is_some()
+            || dispatcher.sender.is_closed()
+            || dispatcher.options != options
+        {
+            return Err("correction_requires_new_context");
+        }
+        state.correction = Some(CorrectionAdmission {
+            sender: dispatcher.sender.clone(),
+            options,
+        });
+        Ok(())
+    }
+
+    pub fn pending_postprocessing(&self) -> usize {
+        let state = self.0.lock().unwrap();
+        state.pending_targets.len() + state.pending_corrections.len()
+    }
     /// Capture once before admission; source revisions cannot change inference inputs.
     pub fn configure_context(
         &self,
@@ -334,6 +467,14 @@ impl AsrSession {
         }
         state.translation = None;
         state.context = None;
+        state.correction = None;
+        for pending in state
+            .pending_corrections
+            .drain()
+            .map(|(_, pending)| pending)
+        {
+            pending.cancelled.store(true, Ordering::Release);
+        }
         state.session_id = session_id.into();
         state.revisions.clear();
         state.accepted.clear();
@@ -355,6 +496,14 @@ impl AsrSession {
         }
         state.translation = None;
         state.context = None;
+        state.correction = None;
+        for pending in state
+            .pending_corrections
+            .drain()
+            .map(|(_, pending)| pending)
+        {
+            pending.cancelled.store(true, Ordering::Release);
+        }
         state.projection.reset(None);
     }
 
@@ -484,6 +633,14 @@ impl AsrSession {
         state.revisions.get_mut(segment_id).unwrap().revision = revision;
         state.accepted.remove(segment_id);
         state.pending_targets.retain(|_, pending| {
+            if pending.chunk_id == segment_id {
+                pending.cancelled.store(true, Ordering::Release);
+                false
+            } else {
+                true
+            }
+        });
+        state.pending_corrections.retain(|_, pending| {
             if pending.chunk_id == segment_id {
                 pending.cancelled.store(true, Ordering::Release);
                 false
@@ -764,13 +921,15 @@ impl AsrSession {
             &admitted.chunk,
             &events,
             state.translation.is_some(),
+            state.correction.is_some(),
         )?;
         let translation = state.translation.clone();
+        let correction = state.correction.clone();
+        let published_at = std::time::Instant::now();
         let mut jobs = Vec::new();
         if let Some(config) = &translation {
             let targets = state.projection.config.as_ref().unwrap().targets.clone();
-            let deadline =
-                std::time::Instant::now() + std::time::Duration::from_millis(config.deadline_ms);
+            let deadline = published_at + std::time::Duration::from_millis(config.deadline_ms);
             for event in &events {
                 for target in &targets {
                     state.serial = state.serial.checked_add(1).ok_or("request_id_exhausted")?;
@@ -811,12 +970,12 @@ impl AsrSession {
         state.accepted.insert(
             admitted.request.segment_id.clone(),
             AcceptedChunk {
-                events: if translation.is_none() || events.is_empty() {
+                events: if (translation.is_none() && correction.is_none()) || events.is_empty() {
                     Vec::new()
                 } else {
                     events.clone()
                 },
-                committed: translation.is_none() || events.is_empty(),
+                committed: (translation.is_none() && correction.is_none()) || events.is_empty(),
             },
         );
         for job in &jobs {
@@ -829,22 +988,68 @@ impl AsrSession {
                 },
             );
         }
+        let mut corrections = Vec::new();
+        if let Some(config) = &correction {
+            let mut grouped: HashMap<String, Vec<MtJob>> = HashMap::new();
+            for job in jobs.drain(..) {
+                grouped
+                    .entry(job.request.segment_id.clone())
+                    .or_default()
+                    .push(job);
+            }
+            let mut deadline =
+                published_at + std::time::Duration::from_secs_f64(config.options.timeout_seconds);
+            if let Some(mt) = &translation {
+                deadline =
+                    deadline.min(published_at + std::time::Duration::from_millis(mt.deadline_ms));
+            }
+            for event in &events {
+                state.serial = state.serial.checked_add(1).ok_or("request_id_exhausted")?;
+                let request = WorkerRequest {
+                    protocol_version: PROTOCOL_VERSION,
+                    request_id: format!("cr{}", state.serial),
+                    session_id: state.session_id.clone(),
+                    session_generation: state.generation,
+                    segment_id: event.segment_id.clone(),
+                    source_revision: revision,
+                    task_kind: TaskKind::Correction,
+                    source_language: event.source_language.clone(),
+                    target_language: None,
+                    deadline_ms: (config.options.timeout_seconds * 1000.).round() as u64,
+                    payload: String::new(),
+                };
+                let cancelled = Arc::new(AtomicBool::new(false));
+                state.pending_corrections.insert(
+                    request.request_id.clone(),
+                    PendingTarget {
+                        chunk_id: admitted.request.segment_id.clone(),
+                        public_id: event.segment_id.clone(),
+                        cancelled: cancelled.clone(),
+                    },
+                );
+                corrections.push(CorrectionJob {
+                    request,
+                    source: event.text.clone(),
+                    context: state.context.as_ref().unwrap().clone(),
+                    deadline,
+                    cancelled,
+                    options: config.options.clone(),
+                    translation: translation.clone(),
+                    jobs: grouped.remove(&event.segment_id).unwrap_or_default(),
+                    owner: Arc::downgrade(&self.0),
+                    armed: false,
+                });
+            }
+        }
         state.projection.apply(prepared);
         drop(state);
-        if let Some(config) = translation {
-            for mut job in jobs {
+        if let Some(config) = correction {
+            for mut job in corrections {
                 job.armed = true;
-                // Queue overflow/closed owner drops the armed job, publishing a
-                // terminal failure without awaiting MT or holding source authority.
-                if let Ok(permit) = config.sender.try_reserve() {
-                    if let Ok(payload) = serde_json::to_string(&serde_json::json!({
-                        "text": job.source, "context": config.context,
-                    })) {
-                        job.request.payload = payload;
-                        permit.send(job);
-                    }
-                }
+                let _ = config.sender.try_send(job);
             }
+        } else {
+            submit_translation(jobs, translation);
         }
         Ok(events)
     }
