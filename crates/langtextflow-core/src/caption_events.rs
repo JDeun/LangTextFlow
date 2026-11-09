@@ -137,6 +137,7 @@ pub struct ObserverReceiver {
     pub(crate) id: u64,
     pub(crate) frames: mpsc::Receiver<JsonFrame>,
     pub(crate) control: watch::Receiver<bool>,
+    pub(crate) telemetry: Option<watch::Receiver<Option<JsonFrame>>>,
 }
 
 struct Subscriber {
@@ -166,6 +167,7 @@ pub(crate) struct CaptionProjection {
     next_client: u64,
     subscribers: HashMap<u64, Subscriber>,
     pub(crate) metrics: ObserverMetrics,
+    pub(crate) telemetry: Option<watch::Sender<Option<JsonFrame>>>,
 }
 
 impl CaptionProjection {
@@ -174,6 +176,7 @@ impl CaptionProjection {
             history.close();
         }
         self.close_observers();
+        self.telemetry = None;
         self.latest.clear();
         self.latest_bytes = 0;
         self.pending.clear();
@@ -787,6 +790,11 @@ impl CaptionProjection {
             id: self.next_client,
             frames: rx,
             control,
+            telemetry: self.telemetry.as_ref().map(|sender| {
+                let mut receiver = sender.subscribe();
+                receiver.mark_changed();
+                receiver
+            }),
         })
     }
 

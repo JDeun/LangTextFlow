@@ -26,6 +26,9 @@ pub struct HistoryMetrics {
     pub complete: bool,
     pub stopped: bool,
     pub error: Option<&'static str>,
+    pub queue_depth: Option<usize>,
+    pub queue_capacity: usize,
+    pub queue_high_watermark: usize,
 }
 
 enum Command {
@@ -58,7 +61,14 @@ pub struct HistorySink {
 
 impl HistorySink {
     pub fn metrics(&self) -> HistoryMetrics {
-        self.shared.lock().unwrap().metrics.clone()
+        let shared = self.shared.lock().unwrap();
+        let mut metrics = shared.metrics.clone();
+        metrics.queue_depth = shared
+            .sender
+            .as_ref()
+            .map(|sender| metrics.queue_capacity - sender.capacity())
+            .or_else(|| metrics.stopped.then_some(0));
+        metrics
     }
 
     pub(crate) fn matches(
@@ -94,6 +104,8 @@ impl HistorySink {
                 .is_some_and(|sender| sender.try_send(command).is_ok());
         if sent {
             shared.metrics.accepted += 1;
+            let depth = shared.metrics.queue_capacity - shared.sender.as_ref().unwrap().capacity();
+            shared.metrics.queue_high_watermark = shared.metrics.queue_high_watermark.max(depth);
         } else {
             shared.metrics.dropped += 1;
             shared.metrics.complete = false;
@@ -141,6 +153,7 @@ impl HistoryWriter {
             ended_at: None,
             metrics: HistoryMetrics {
                 complete: true,
+                queue_capacity: capacity,
                 ..Default::default()
             },
         }));

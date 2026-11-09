@@ -66,6 +66,22 @@ async fn bounded_headers(stream: &TcpStream) -> Result<(), &'static str> {
     }
 }
 
+async fn metric_frame(
+    receiver: &mut Option<watch::Receiver<Option<crate::caption_events::JsonFrame>>>,
+) -> crate::caption_events::JsonFrame {
+    if let Some(receiver) = receiver {
+        loop {
+            if receiver.changed().await.is_err() {
+                break;
+            }
+            if let Some(frame) = receiver.borrow_and_update().clone() {
+                return frame;
+            }
+        }
+    }
+    std::future::pending().await
+}
+
 fn deny() -> ErrorResponse {
     Response::builder()
         .status(StatusCode::FORBIDDEN)
@@ -152,23 +168,28 @@ async fn connection(
             let frame = Box::pin(attachment.receiver.frames.recv());
             let control = Box::pin(attachment.receiver.control.changed());
             let stopped = Box::pin(server_stop.changed());
-            match select(
+            let metrics = Box::pin(metric_frame(&mut attachment.receiver.telemetry));
+            let observed = select(
                 Box::pin(select(receive, frame)),
                 Box::pin(select(control, stopped)),
-            )
-            .await
-            {
-                Either::Left((Either::Left((Some(Ok(Message::Ping(_))), _)), _)) => Action::Flush,
-                Either::Left((Either::Left((Some(Ok(Message::Pong(_))), _)), _)) => continue,
-                Either::Left((Either::Left((Some(Ok(Message::Close(_))), _)), _)) => {
-                    Action::PeerClose
-                }
-                Either::Left((Either::Left((Some(Ok(_)), _)), _)) => Action::PolicyClose,
-                Either::Left((Either::Left(_), _)) => Action::Closed,
-                Either::Left((Either::Right((Some(frame), _)), _)) => Action::Frame(frame),
-                Either::Left((Either::Right((None, _)), _)) => Action::Closed,
-                Either::Right((Either::Left(_), _)) => Action::Reset,
-                Either::Right((Either::Right(_), _)) => Action::ServerStop,
+            );
+            match select(Box::pin(observed), metrics).await {
+                Either::Right((frame, _)) => Action::Frame(frame),
+                Either::Left((action, _)) => match action {
+                    Either::Left((Either::Left((Some(Ok(Message::Ping(_))), _)), _)) => {
+                        Action::Flush
+                    }
+                    Either::Left((Either::Left((Some(Ok(Message::Pong(_))), _)), _)) => continue,
+                    Either::Left((Either::Left((Some(Ok(Message::Close(_))), _)), _)) => {
+                        Action::PeerClose
+                    }
+                    Either::Left((Either::Left((Some(Ok(_)), _)), _)) => Action::PolicyClose,
+                    Either::Left((Either::Left(_), _)) => Action::Closed,
+                    Either::Left((Either::Right((Some(frame), _)), _)) => Action::Frame(frame),
+                    Either::Left((Either::Right((None, _)), _)) => Action::Closed,
+                    Either::Right((Either::Left(_), _)) => Action::Reset,
+                    Either::Right((Either::Right(_), _)) => Action::ServerStop,
+                },
             }
         };
         if *server_stop.borrow() {

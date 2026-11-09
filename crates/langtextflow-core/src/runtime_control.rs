@@ -8,6 +8,7 @@ use crate::pcm_ingress::{PcmIngress, FRAME_LIMIT};
 use crate::source_context::SourceContext;
 use crate::supervision::worker_slot;
 use crate::translation_provider::{TranslationOptions, TranslationProvider};
+use crate::telemetry::{MetricsFrame, MetricsSampler, MetricsSources};
 use crate::{TaskKind, WorkerRequest, PROTOCOL_VERSION};
 use futures_util::future::{select, Either};
 use serde::Deserialize;
@@ -117,9 +118,23 @@ async fn write_frame(
     value: serde_json::Value,
 ) -> Result<(), &'static str> {
     let frame = value.to_string();
-    if frame.len() > 1024 {
+    if frame.len() + 1 > 1024 {
         return Err("control_reply_limit");
     }
+    write_encoded(output, frame).await
+}
+
+async fn write_metrics(
+    output: &std::sync::mpsc::SyncSender<Output>,
+    value: &MetricsFrame,
+) -> Result<(), &'static str> {
+    write_encoded(output, value.raw()?.get().to_owned()).await
+}
+
+async fn write_encoded(
+    output: &std::sync::mpsc::SyncSender<Output>,
+    frame: String,
+) -> Result<(), &'static str> {
     let (tx, rx) = oneshot::channel();
     output.try_send((frame, tx)).map_err(|_| "control_output")?;
     tokio::time::timeout(Duration::from_secs(1), rx)
@@ -369,9 +384,24 @@ async fn serve(
     };
     let input = ingress.as_ref().unwrap().input();
     let cleanup_path = ingress.as_ref().unwrap().cleanup_path().to_owned();
+    let mut sampler = MetricsSampler::start(MetricsSources {
+        session: session.clone(),
+        session_id: config.session_id.clone(),
+        generation,
+        input: input.clone(),
+        correction: correction.as_ref().map(|owner| owner.metrics.clone()),
+        translation: mt
+            .as_ref()
+            .map(|owner| (owner.metrics.clone(), owner.queue_capacity)),
+        history: history
+            .as_ref()
+            .filter(|_| history_attached)
+            .map(HistoryWriter::sink),
+    });
     let mut failure = write_frame(
         &output,
         json!({"type":"ready", "protocol_version":1,
+        "metrics_protocol_version":1,
         "session_id":config.session_id,"session_generation":generation,
         "port":observer.address().port(), "observer_path":credential.path(),
         "correction_available":correction.as_ref().is_some_and(|owner| owner.available),
@@ -439,6 +469,9 @@ async fn serve(
             break;
         }
     }
+    if let Err(error) = sampler.stop().await {
+        failure.get_or_insert(error);
+    }
     // Revoke on parent loss, but retain accepted final results for explicit stop.
     if *parent_closed.borrow() || failure.is_some() {
         if session.stop_checked().is_err() {
@@ -471,10 +504,12 @@ async fn serve(
         .filter(|_| history_attached)
         .map(|writer| writer.sink().metrics());
     let _ = observer.stop().await;
+    let final_metrics = sampler.final_frame(failure)?;
     session.stop();
     if *parent_closed.borrow() {
         return failure.map_or(Ok(()), Err);
     }
+    write_metrics(&output, &final_metrics).await?;
     write_frame(
         &output,
         json!({"type":"stopped", "session_id":config.session_id,

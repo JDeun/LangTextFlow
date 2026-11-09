@@ -30,6 +30,8 @@ pub struct IngressMetrics {
     pub decoded_windows: u64,
     pub empty_windows: u64,
     pub queue_high_watermark: usize,
+    pub queue_depth: usize,
+    pub queue_capacity: usize,
     pub backpressure_events: u64,
     pub clipped_samples: u64,
     pub rms_dbfs: Option<f64>,
@@ -150,7 +152,10 @@ impl PcmInput {
     }
 
     pub fn metrics(&self) -> IngressMetrics {
-        self.state.lock().unwrap().metrics.clone()
+        let mut metrics = self.state.lock().unwrap().metrics.clone();
+        metrics.queue_depth = QUEUE_FRAMES - self.sender.capacity();
+        metrics.queue_capacity = QUEUE_FRAMES;
+        metrics
     }
 }
 

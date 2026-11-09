@@ -23,6 +23,10 @@ const en = {
     startRequest: "Requesting start…", start: "Start VibeVoice", stopRequest: "Requesting stop…", cancelStart: "Cancel startup", stop: "Stop VibeVoice", refresh: "Refresh status",
   },
   telemetry: {
+    sampleAge: "sample age", queueWindow: "last 512",
+    correctionJobs: "Correction jobs", translationJobs: "Target translation jobs", queueWait: "Queue wait",
+    admissionClosed: "admission closed",
+    rustTelemetry: "Rust processing", metricsFresh: "up to date", metricsStale: "stale sample", metricsNotSampled: "not measured yet", metricsUnavailable: "unavailable", metricsFinal: "final sample", jobs: "active + queued jobs", waiting: "waiting", active: "active", succeeded: "succeeded", cancelled: "cancelled", noQueueSamples: "no queue waits measured",
     unavailable: "telemetry unavailable", diagnosticsFailed: "Could not create diagnostics bundle.", title: "Realtime telemetry",
     collecting: "Collecting diagnostics…", diagnostics: "Diagnostics bundle", provider: "ASR provider", recovered: "recovered", failover: "failover",
     handoff: "provider handoff", healthy: "provider healthy", notRunning: "provider not running", idle: "session idle", voice: "Voice detected", noVoice: "No voice",
@@ -59,6 +63,10 @@ const ko: UtilityCopy = {
     startRequest: "시작 요청 중…", start: "VibeVoice 시작", stopRequest: "중지 요청 중…", cancelStart: "시작 취소", stop: "VibeVoice 종료", refresh: "상태 새로고침",
   },
   telemetry: {
+    sampleAge: "측정 경과", queueWindow: "최근 512개",
+    correctionJobs: "보정 작업", translationJobs: "언어별 번역 작업", queueWait: "큐 대기",
+    admissionClosed: "수용 중단",
+    rustTelemetry: "Rust 처리", metricsFresh: "최신 측정", metricsStale: "오래된 측정", metricsNotSampled: "아직 미측정", metricsUnavailable: "측정 불가", metricsFinal: "마지막 측정", jobs: "실행·대기 작업", waiting: "대기", active: "실행", succeeded: "성공", cancelled: "취소", noQueueSamples: "측정된 대기 시간 없음",
     unavailable: "telemetry unavailable", diagnosticsFailed: "진단 번들을 만들지 못했습니다.", title: "실시간 텔레메트리",
     collecting: "진단 수집 중…", diagnostics: "진단 번들", provider: "ASR provider", recovered: "복구됨", failover: "failover",
     handoff: "provider handoff", healthy: "provider 정상", notRunning: "provider 미실행", idle: "세션 대기", voice: "음성 감지", noVoice: "음성 없음",
@@ -92,6 +100,10 @@ const ja: UtilityCopy = {
     startRequest: "起動要求中…", start: "VibeVoiceを起動", stopRequest: "停止要求中…", cancelStart: "起動をキャンセル", stop: "VibeVoiceを終了", refresh: "状態を更新",
   },
   telemetry: {
+    sampleAge: "測定後", queueWindow: "直近512件",
+    correctionJobs: "補正ジョブ", translationJobs: "言語別翻訳ジョブ", queueWait: "キュー待機",
+    admissionClosed: "受付停止",
+    rustTelemetry: "Rust処理", metricsFresh: "最新の測定", metricsStale: "古い測定", metricsNotSampled: "未測定", metricsUnavailable: "測定不可", metricsFinal: "最終測定", jobs: "実行・待機ジョブ", waiting: "待機", active: "実行", succeeded: "成功", cancelled: "取消", noQueueSamples: "待機時間の測定なし",
     unavailable: "telemetry unavailable", diagnosticsFailed: "診断バンドルを作成できませんでした。", title: "リアルタイムテレメトリ",
     collecting: "診断収集中…", diagnostics: "診断バンドル", provider: "ASR provider", recovered: "復旧", failover: "failover",
     handoff: "provider handoff", healthy: "provider正常", notRunning: "provider未実行", idle: "セッション待機", voice: "音声検出", noVoice: "音声なし",

@@ -3,6 +3,7 @@ use crate::asr_slice::MtJob;
 use crate::supervision::{SupervisedWorker, WorkerError};
 use crate::translation_provider::{TranslationIdentity, TranslationProvider};
 use crate::{validate_reply, WorkerRequest, WorkerStatus};
+use crate::telemetry::{JobOutcome, QueueTelemetry};
 use futures_util::future::{select, Either};
 use serde::Serialize;
 use serde_json::Value;
@@ -83,6 +84,7 @@ pub(crate) struct MtAdmission {
     pub sender: mpsc::Sender<MtJob>,
     pub context: TranslationContext,
     pub deadline_ms: u64,
+    pub metrics: QueueTelemetry,
 }
 
 pub(crate) enum MtOutcome {
@@ -95,6 +97,8 @@ pub(crate) enum MtOutcome {
 /// Jobs retain only weak caption authority; there is no session/task ownership cycle.
 pub struct MtDispatcher {
     pub(crate) sender: mpsc::Sender<MtJob>,
+    pub(crate) metrics: QueueTelemetry,
+    pub(crate) queue_capacity: usize,
     stop: watch::Sender<bool>,
     task: Option<JoinHandle<Result<(), &'static str>>>,
     slot: Arc<Semaphore>,
@@ -129,6 +133,8 @@ impl MtDispatcher {
         ));
         Ok(Self {
             sender,
+            metrics: QueueTelemetry::default(),
+            queue_capacity,
             stop,
             task: Some(task),
             slot,
@@ -212,6 +218,8 @@ impl MtDispatcher {
         ));
         Ok(Self {
             sender,
+            metrics: QueueTelemetry::default(),
+            queue_capacity: 4,
             stop,
             task: Some(task),
             slot,
@@ -277,15 +285,19 @@ async fn run(
             Either::Right((job, _)) => job,
         };
         let Some(mut job) = next else { break };
+        job.start_metrics();
         if !prepared {
+            job.finish_metrics(JobOutcome::Failed);
             job.finish(MtOutcome::Failed);
             continue;
         }
         if job.cancelled() {
+            job.finish_metrics(JobOutcome::Cancelled);
             job.finish(MtOutcome::Failed);
             continue;
         }
         if Instant::now() >= job.deadline {
+            job.finish_metrics(JobOutcome::Expired);
             job.finish(MtOutcome::TimedOut);
             continue;
         }
@@ -315,12 +327,14 @@ async fn run(
                                 } else {
                                     let _ = returned.stop().await;
                                     health.store(false, Ordering::Release);
+                                    job.finish_metrics(JobOutcome::Failed);
                                     job.finish(MtOutcome::Failed);
                                     continue;
                                 }
                             }
                             Either::Right((Err(_), _)) => {
                                 health.store(false, Ordering::Release);
+                                job.finish_metrics(JobOutcome::Failed);
                                 job.finish(MtOutcome::Failed);
                                 continue;
                             }
@@ -331,6 +345,7 @@ async fn run(
                 }
                 Err(_) => {
                     health.store(false, Ordering::Release);
+                    job.finish_metrics(JobOutcome::Failed);
                     job.finish(MtOutcome::Failed);
                     continue;
                 }
@@ -370,6 +385,7 @@ async fn run(
                     let result = result.to_owned();
                     health.store(true, Ordering::Release);
                     worker = Some(returned);
+                    job.finish_metrics(JobOutcome::Succeeded);
                     job.finish(MtOutcome::Available(result));
                 } else if valid
                     && reply.status == WorkerStatus::Error
@@ -378,20 +394,24 @@ async fn run(
                     // Completed-output rejection fails only this target, not the healthy model.
                     worker = Some(returned);
                     health.store(true, Ordering::Release);
+                    job.finish_metrics(JobOutcome::Failed);
                     job.finish(MtOutcome::Failed);
                 } else {
                     // Native/unknown errors and invalid identity or framing remain terminal.
                     let _ = returned.stop().await;
                     health.store(false, Ordering::Release);
+                    job.finish_metrics(JobOutcome::Failed);
                     job.finish(MtOutcome::Failed);
                 }
             }
             Err(WorkerError::Deadline) => {
                 health.store(false, Ordering::Release);
+                job.finish_metrics(JobOutcome::Expired);
                 job.finish(MtOutcome::TimedOut);
             }
             Err(_) => {
                 health.store(false, Ordering::Release);
+                job.finish_metrics(JobOutcome::Failed);
                 job.finish(MtOutcome::Failed);
             }
         }

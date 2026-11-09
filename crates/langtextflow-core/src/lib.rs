@@ -12,6 +12,7 @@ pub mod runtime_control;
 pub mod source_context;
 pub mod supervision;
 pub mod translation_provider;
+pub mod telemetry;
 pub mod transport;
 
 pub fn supported_language(language: &str) -> bool {
