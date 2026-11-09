@@ -49,11 +49,14 @@ def validate_request(request: object) -> dict:
 
 
 def is_prepare(request: object) -> bool:
-    validate_inference_request(request, "asr")
+    validate_inference_request(request, "asr", max_deadline_ms=600_000)
     payload = json.loads(request["payload"])
-    return (isinstance(payload, dict) and set(payload) == {"asr_protocol_version", "mode"}
+    prepared = (isinstance(payload, dict) and set(payload) == {"asr_protocol_version", "mode"}
             and type(payload["asr_protocol_version"]) is int
             and payload["asr_protocol_version"] == 1 and payload["mode"] == "prepare")
+    if not prepared:
+        validate_inference_request(request, "asr")
+    return prepared
 
 
 def read_pcm(chunk: dict) -> bytes:

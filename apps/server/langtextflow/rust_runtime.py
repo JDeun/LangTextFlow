@@ -225,17 +225,14 @@ class RustRuntimeBridge(AsrEngine):
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         sidecar = None
         if not low:
-            from .asr.vibevoice import VibeVoiceStreamingAsrEngine
-
             sidecar = {
                 **_python_worker("langtextflow.asr_stream_worker", []),
                 "endpoint": self.settings.vibevoice_url,
-                "context_info": VibeVoiceStreamingAsrEngine._context_info(request) or "",
             }
         return {
             "sidecar": sidecar, "whisper_ready": self._whisper_ready,
             "low_resource": low,
-            "replay_ms": max(1, round(self.settings.asr_replay_seconds * 1000)),
+            "replay_seconds": self.settings.asr_replay_seconds,
             "health_ms": max(1, round(self.settings.asr_health_check_seconds * 1000)),
             "startup_ms": max(1, round(self.settings.session_start_timeout_seconds * 1000)),
             "queue_frames": min(8, self.settings.audio_queue_chunks),

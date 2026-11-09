@@ -139,6 +139,28 @@ def test_configured_identity_is_not_a_verified_checkpoint_or_a_local_path(tmp_pa
         assert bridge._configured_model(request) is None
 
 
+def test_auto_bootstrap_allows_missing_fallback_cache_only_for_standard_primary(monkeypatch):
+    from langtextflow import rust_runtime
+
+    def missing(*args):
+        raise FileNotFoundError("private-cache-location")
+
+    monkeypatch.setattr(rust_runtime, "resolve_whisper_model", missing)
+    settings = Settings()
+    bridge = RustRuntimeBridge(None, settings, asyncio.Semaphore(1))
+    request = StartSessionRequest(engine="auto", translation_provider="none")
+    asr, mt = bridge._worker_commands(request)
+    assert asr["args"][-1] == "auto" and mt is None
+    assert bridge._auto_options(request)["whisper_ready"] is False
+    settings.vibevoice_url = "malformed-unused-sidecar"
+    for low in (request.model_copy(update={"resource_profile": "low"}), request):
+        if low is request:
+            settings.resource_profile = "low"
+        assert bridge._auto_options(low)["sidecar"] is None
+        with pytest.raises(FileNotFoundError):
+            bridge._worker_commands(low)
+
+
 def test_windows_venv_worker_bootstrap_owns_actual_python_pid_and_keeps_site(tmp_path, monkeypatch):
     import importlib.metadata
     import sysconfig
@@ -308,6 +330,283 @@ def test_existing_http_capture_audience_history_and_restart_with_rust_authority(
     assert response.status_code == 200 and response.json()["running"]
     assert not isinstance(runtime.engine, RustRuntimeBridge)
     assert runtime._persistence_task is not None
+    assert client.post("/api/v1/session/stop").status_code == 200
+
+
+def test_actual_auto_primary_48k_uses_existing_audio_audience_history_and_restart(rust_api):
+    from test_asr_stream_worker import sidecar
+
+    client, runtime = rust_api
+    request = _REQUEST | {
+        "engine": "auto", "translation_provider": "none",
+        "context": {
+            "title": "AUTO title", "presenter": "Speaker", "description": "Description",
+            "reference_text": "Reference", "hotwords": ["explicit"], "preset": "general",
+            "glossary": [
+                {"term": "Original", "aliases": ["alias"], "source_language": "en",
+                 "translations": {"ko": "원문"}},
+                {"term": "wrong source", "source_language": "ko",
+                 "translations": {"en": "wrong"}},
+            ],
+        },
+    }
+    for _ in range(2):
+        with client.portal.wrap_async_context_manager(sidecar(
+            rate=48000, text="Original English source",
+        )) as (endpoint, observed):
+            runtime.settings.vibevoice_url = endpoint
+            runtime.settings.audio_queue_chunks = 3
+            started = client.post("/api/v1/session/start", json=request)
+            assert started.status_code == 200, started.text
+            state = started.json()
+            sid, bridge = state["session_id"], runtime.engine
+            assert state["engine"] == "vibevoice" and state["audio_sample_rate"] == 48000
+            runtime.state.context.title = "later mutable metadata"
+            assert bridge.sample_rate == 48000 and bridge.queue_capacity == 3
+            with client.websocket_connect(f"/ws/audience/{state['join_code']}") as audience:
+                assert audience.receive_json()["segments"] == []
+                with client.websocket_connect(f"/ws/audio?expected_session_id={sid}") as audio:
+                    assert audio.receive_json()["sample_rate"] == 48000
+                    pcm = struct.pack("<f", .25) * 48000
+                    audio.send_bytes(pcm)
+                    first = audience.receive_json()
+                    assert first["original_text"] == "Original English source"
+                    assert first["asr_provenance"]["provider"] == "vibevoice"
+                    assert first["asr_provenance"]["timestamp_basis"] == "sequence_estimated"
+                    assert first["asr_provenance"]["sample_rate"] == 48000
+                    assert first["asr_provenance"]["audio_chunk_end_sample"] == 48000
+                    assert first["asr_provenance"]["configured_model"] is None
+                    audio.send_text("end")
+                stopped = client.post("/api/v1/session/stop")
+                assert stopped.status_code == 200, stopped.text
+            assert observed["connections"] == 1 and bytes(observed["pcm"]) == pcm
+            assert observed["context"]["context_info"] == (
+                "AUTO title | Speaker | Description | Reference | explicit, Original, alias"
+            )
+            assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+            detail = client.get(f"/api/v1/history/{sid}").json()
+            assert detail["engine"] == "vibevoice" and detail["ended_at"] is not None
+            saved = client.get(f"/api/v1/history/{sid}/captions").json()
+            assert saved and all(row["end_ms"] <= 1000 for row in saved)
+            assert all(row["asr_provenance"]["auto_generation"] == 0 for row in saved)
+
+
+def test_actual_auto_disconnect_replays_without_python_pipeline_or_metadata_writes(
+    rust_api, monkeypatch,
+):
+    from test_asr_stream_worker import sidecar
+
+    client, runtime = rust_api
+    metadata_writes = []
+
+    def no_python_engine_update(*args):
+        metadata_writes.append(args)
+        raise AssertionError("Rust owns canonical provider metadata")
+
+    monkeypatch.setattr(runtime.history, "update_engine", no_python_engine_update)
+    with client.portal.wrap_async_context_manager(sidecar(
+        rate=16000, fault="disconnect-second", text="Original English source",
+    )) as (endpoint, observed):
+        runtime.settings.vibevoice_url = endpoint
+        runtime.settings.asr_health_check_seconds = .01
+        started = client.post("/api/v1/session/start", json=_REQUEST | {"engine": "auto"})
+        assert started.status_code == 200, started.text
+        state = started.json()
+        sid, bridge = state["session_id"], runtime.engine
+        with client.websocket_connect(f"/ws/audience/{state['join_code']}") as audience:
+            assert audience.receive_json()["segments"] == []
+            with client.websocket_connect(f"/ws/audio?expected_session_id={sid}") as audio:
+                assert audio.receive_json()["sample_rate"] == 16000
+                pcm = struct.pack("<f", .1) * 64000
+                audio.send_bytes(pcm)
+                first = audience.receive_json()
+                while not first["committed"]:
+                    first = audience.receive_json()
+                assert first["asr_provenance"]["provider"] == "vibevoice"
+                audio.send_bytes(pcm)
+                replayed = audience.receive_json()
+                while (not replayed["committed"]
+                       or replayed["asr_provenance"]["provider"] != "faster-whisper"):
+                    replayed = audience.receive_json()
+                assert replayed["start_ms"] == 4000 and replayed["end_ms"] == 8000
+                assert replayed["original_text"] == "Original English source"
+                assert replayed["translation_states"] == {"ko": "available", "ja": "failed"}
+                assert replayed["asr_provenance"]["auto_generation"] == 1
+                assert replayed["asr_provenance"]["timeline_offset_samples"] == 0
+                assert replayed["asr_provenance"]["replay_prefix_samples"] == 128000
+                assert replayed["asr_provenance"]["configured_model"] == "small"
+                audio.send_text("end")
+            stopped = client.post("/api/v1/session/stop")
+            assert stopped.status_code == 200, stopped.text
+        assert observed["connections"] == 1
+        assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+        detail = client.get(f"/api/v1/history/{sid}").json()
+        assert detail["engine"] == "faster-whisper" and detail["ended_at"] is not None
+        saved = client.get(f"/api/v1/history/{sid}/captions").json()
+        assert len(saved) == 2 and saved[0]["original_text"] == first["original_text"]
+        assert saved[0]["asr_provenance"]["provider"] == "vibevoice"
+        assert saved[1]["asr_provenance"] == replayed["asr_provenance"]
+        assert metadata_writes == []
+
+
+@pytest.mark.parametrize("where", ["request", "server"])
+def test_actual_auto_low_resource_never_queries_or_connects_sidecar(rust_api, where):
+    from test_asr_stream_worker import sidecar
+
+    client, runtime = rust_api
+    request = _REQUEST | {"engine": "auto", "translation_provider": "none"}
+    if where == "request":
+        request["resource_profile"] = "low"
+    else:
+        runtime.settings.resource_profile = "low"
+    runtime.settings.audio_queue_chunks = 3
+    with client.portal.wrap_async_context_manager(sidecar(rate=48000)) as (endpoint, observed):
+        runtime.settings.vibevoice_url = endpoint
+        started = client.post("/api/v1/session/start", json=request)
+        assert started.status_code == 200, started.text
+        bridge, sid = runtime.engine, runtime.state.session_id
+        assert bridge._auto_options(StartSessionRequest(**request))["sidecar"] is None
+        assert started.json()["engine"] == "faster-whisper"
+        assert bridge.sample_rate == 16000 and bridge.queue_capacity == 3
+        client.portal.call(runtime.feed_audio, struct.pack("<f", .1) * 1600)
+        client.portal.call(runtime.end_audio)
+        assert client.post("/api/v1/session/stop").status_code == 200
+        assert observed["connections"] == 0 and not observed["config_requested"].is_set()
+        saved = client.get(f"/api/v1/history/{sid}/captions").json()
+        assert len(saved) == 1 and saved[0]["asr_provenance"]["auto_generation"] == 0
+        assert saved[0]["asr_provenance"]["provider"] == "faster-whisper"
+        assert saved[0]["asr_provenance"]["configured_model"] == "base"
+
+
+def test_actual_auto_startup_refusal_prepares_cached_fallback_without_live_failover_count(rust_api):
+    from test_asr_stream_worker import sidecar
+
+    client, runtime = rust_api
+    with client.portal.wrap_async_context_manager(sidecar(
+        rate=48000, fault="config-redirect",
+    )) as (endpoint, observed):
+        runtime.settings.vibevoice_url = endpoint
+        started = client.post("/api/v1/session/start", json=_REQUEST | {
+            "engine": "auto", "translation_provider": "none",
+        })
+        assert started.status_code == 200, started.text
+        bridge, sid = runtime.engine, runtime.state.session_id
+        assert started.json()["engine"] == "faster-whisper" and bridge.sample_rate == 16000
+        client.portal.call(runtime.feed_audio, struct.pack("<f", .1) * 1600)
+        client.portal.call(runtime.end_audio)
+        assert client.post("/api/v1/session/stop").status_code == 200
+        assert observed["connections"] == 0 and observed["config_requested"].is_set()
+        assert bridge._metrics.source.auto_generation == 0
+        assert bridge._metrics.source.failover_count == 0
+        saved = client.get(f"/api/v1/history/{sid}/captions").json()
+        assert saved[0]["asr_provenance"]["auto_generation"] == 0
+        assert saved[0]["asr_provenance"]["provider"] == "faster-whisper"
+
+
+def test_confirmed_failed_prepare_releases_native_lease_for_a_new_session(rust_api, monkeypatch):
+    client, runtime = rust_api
+    command = RustRuntimeBridge._worker_commands
+
+    def invalid_prepare(self, request):
+        asr, mt = command(self, request)
+        return asr | {"args": ["-u", "-c", _ASR.replace("'prepared':True", "'prepared':False")]}, mt
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", invalid_prepare)
+    failed = client.post("/api/v1/session/start", json=_REQUEST)
+    assert failed.status_code == 503
+    assert runtime._rust_slot._value == 1  # Model refusal is distinct from unconfirmed reap.
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", command)
+    started = client.post("/api/v1/session/start", json=_REQUEST)
+    assert started.status_code == 200, started.text
+    assert client.post("/api/v1/session/stop").status_code == 200
+
+
+def test_actual_auto_rate_mismatch_never_spawns_whisper_and_confirmed_stop_allows_retry(
+    rust_api, monkeypatch, tmp_path,
+):
+    from test_asr_stream_worker import sidecar
+
+    from langtextflow.asr.base import AsrEngineError
+
+    client, runtime = rust_api
+    marker = tmp_path / "whisper-must-not-start"
+    command = RustRuntimeBridge._worker_commands
+
+    def tracked(self, request):
+        asr, mt = command(self, request)
+        return asr | {"args": ["-u", "-c", (
+            f"open({str(marker)!r},'w').write('started')\n" + _ASR
+        )]}, mt
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", tracked)
+    with client.portal.wrap_async_context_manager(sidecar(
+        rate=48000, fault="disconnect",
+    )) as (endpoint, _):
+        runtime.settings.vibevoice_url = endpoint
+        started = client.post("/api/v1/session/start", json=_REQUEST | {
+            "engine": "auto", "translation_provider": "none",
+        })
+        assert started.status_code == 200, started.text
+        bridge = runtime.engine
+        client.portal.call(runtime.feed_audio, struct.pack("<f", .1) * 192000)
+        with pytest.raises(AsrEngineError):
+            client.portal.call(runtime.end_audio)
+        assert not marker.exists(), "48kHz capture must not be passed to the 16kHz fallback"
+        with pytest.raises(AsrEngineError):
+            client.post("/api/v1/session/stop")
+        assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+        assert runtime.history.get_session(started.json()["session_id"]).ended_at is not None
+        monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", command)
+        retry = client.post("/api/v1/session/start", json=_REQUEST | {
+            "engine": "auto", "resource_profile": "low", "translation_provider": "none",
+        })
+        assert retry.status_code == 200, retry.text
+        assert client.post("/api/v1/session/stop").status_code == 200
+
+
+def test_cancelled_auto_config_prepare_reaps_leaf_without_starting_fallback_and_can_restart(
+    rust_api, monkeypatch, tmp_path,
+):
+    from test_asr_stream_worker import sidecar
+
+    client, runtime = rust_api
+    marker = tmp_path / "fallback-must-not-start"
+    command = RustRuntimeBridge._worker_commands
+
+    def tracked(self, request):
+        asr, mt = command(self, request)
+        return asr | {"args": ["-u", "-c", (
+            f"open({str(marker)!r},'w').write('started')\n" + _ASR
+        )]}, mt
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", tracked)
+    with client.portal.wrap_async_context_manager(sidecar(fault="config-gate")) as (
+        endpoint, observed,
+    ):
+        runtime.settings.vibevoice_url = endpoint
+
+        async def scenario():
+            task = asyncio.create_task(runtime.start(StartSessionRequest(**(_REQUEST | {
+                "engine": "auto", "translation_provider": "none",
+            }))))
+            await asyncio.wait_for(observed["config_requested"].wait(), 3)
+            bridge = runtime.engine
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 5)
+            assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+            assert runtime.engine is None and not runtime.state.running
+            assert not marker.exists() and observed["connections"] == 0
+
+        try:
+            client.portal.call(scenario)
+        finally:
+            client.portal.call(observed["release_config"].set)
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", command)
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "engine": "auto", "resource_profile": "low", "translation_provider": "none",
+    })
+    assert started.status_code == 200, started.text
     assert client.post("/api/v1/session/stop").status_code == 200
 
 
@@ -1093,9 +1392,9 @@ def test_rust_recording_never_opens_without_an_active_persisted_source(
         assert client.get("/api/v1/captions").json()[0]["committed"]
         assert client.post("/api/v1/session/stop").status_code == 200
     else:
-        # A nonzero host exit cannot attest descendant cleanup: preserve the
-        # existing quarantined lease rather than reopening recording/source.
-        assert runtime._rust_slot._value == 0 and runtime.engine is None
+        # Confirmed failed-start cleanup permits retry; recording still needs
+        # a successfully prepared, persisted and active source.
+        assert runtime._rust_slot._value == 1 and runtime.engine is None
 
 
 @pytest.mark.parametrize("action", ["start", "stop"])

@@ -19,6 +19,12 @@ from langtextflow.rust_runtime import _python_worker
 
 
 def request(mode, **options):
+    if mode == "open" and "context_info" in options:
+        options["context"] = {
+            "title": options.pop("context_info") or "ASR prototype", "presenter": None,
+            "description": "", "reference_text": "", "preset": "general",
+            "hotwords": [], "glossary": [],
+        }
     if mode in {"poll", "finish"}:
         options = {"sample_rate": 16000, "start_sample": 1600, "end_sample": 1600} | options
     return {
@@ -43,6 +49,18 @@ def test_stream_subprotocol_is_strict_and_old_whisper_does_not_accept_it(patch):
     value["payload"] = json.dumps(json.loads(value["payload"]) | patch)
     with pytest.raises((ValueError, TypeError)):
         validate(value)
+
+
+def test_only_stream_open_has_the_configured_startup_budget_without_widening_audio_or_poll():
+    opened = request("open", endpoint="http://127.0.0.1:8001", context_info="")
+    validate(opened | {"deadline_ms": 600_000})
+    with pytest.raises(ValueError):
+        validate(opened | {"deadline_ms": 600_001})
+    for mode in ("append", "poll", "finish"):
+        value = (request(mode, pcm_path="owned", start_sample=0, end_sample=1600,
+                         sample_rate=16000) if mode == "append" else request(mode))
+        with pytest.raises(ValueError):
+            validate(value | {"deadline_ms": 120_001})
 
 
 @pytest.mark.parametrize("mode", ["wrong-size", "nan", "directory", "symlink"])
@@ -90,15 +108,17 @@ async def test_stream_tls_uses_verified_explicit_trust_without_environment_overr
 
 
 @asynccontextmanager
-async def sidecar(*, rate=48000, fault=None):
+async def sidecar(*, rate=48000, fault=None, text="日本語の原文"):
     observed = {"context": None, "pcm": bytearray(), "connections": 0,
-                "config_requested": asyncio.Event()}
+                "config_requested": asyncio.Event(), "release_config": asyncio.Event()}
 
     async def config(connection, incoming):
         if incoming.path == "/v1/config":
             observed["config_requested"].set()
             if fault == "config-hang":
                 await asyncio.sleep(10)
+            if fault == "config-gate":
+                await observed["release_config"].wait()
             if fault == "config-redirect":
                 return Response(302, "Found", Headers({"Location": "/secret-target"}), b"")
             body = json.dumps({"sample_rate": rate, "chunk_seconds": 2.}).encode()
@@ -118,7 +138,8 @@ async def sidecar(*, rate=48000, fault=None):
                 return
             assert isinstance(frame, bytes)
             observed["pcm"].extend(frame)
-            if fault == "disconnect":
+            if fault == "disconnect" or (fault == "disconnect-second"
+                                         and len(observed["pcm"]) > rate * 4 * 4):
                 await socket.close()
                 return
             if fault == "flood":
@@ -127,7 +148,7 @@ async def sidecar(*, rate=48000, fault=None):
             elif fault == "surrogate":
                 await socket.send('{"text":"\\ud800"}')
             else:
-                await socket.send(json.dumps({"text": "日本語の原文"}))
+                await socket.send(json.dumps({"text": text}))
 
     async with serve(connection, "127.0.0.1", 0, process_request=config) as server:
         yield f"http://127.0.0.1:{server.sockets[0].getsockname()[1]}", observed
@@ -139,6 +160,7 @@ async def worker():
     process = await asyncio.create_subprocess_exec(
         command["program"], *command["args"], stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        limit=128 * 1024,
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
     )
     try:
@@ -204,6 +226,27 @@ async def test_actual_stream_leaf_persistent_descriptor_batches_and_48k_clock(
         assert seen["connections"] == 1 and seen["pcm"] == pcm * 2
         assert seen["context"]["context_info"] == "題名"
         assert "segment_id" not in finished and "timestamp_basis" not in finished
+
+
+async def test_actual_stream_leaf_twenty_thousand_supplementary_characters_fit_utf8_frame(tmp_path):
+    path = tmp_path / "owned.pcm"
+    path.write_bytes(bytes(6400))
+    text = "𝄞" * 20_000
+    async with sidecar(rate=16000, text=text) as (endpoint, _), worker() as process:
+        assert (await exchange(process, request("open", endpoint=endpoint, context_info="")))[
+            "status"
+        ] == "ok"
+        response = await exchange(process, request(
+            "append", pcm_path=str(path), start_sample=0, end_sample=1600, sample_rate=16000,
+        ))
+        messages = json.loads(response["result"])["messages"]
+        for _ in range(100):
+            if messages:
+                break
+            await asyncio.sleep(.01)
+            response = await exchange(process, request("poll"))
+            messages.extend(json.loads(response["result"])["messages"])
+        assert messages == [{"text": text, "audio_end_sample": 1600}]
 
 
 @pytest.mark.parametrize("fault", ["config-redirect", "ws-redirect", "disconnect", "flood",

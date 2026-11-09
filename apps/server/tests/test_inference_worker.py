@@ -66,6 +66,18 @@ def test_whisper_prepare_is_distinct_from_the_legacy_wav_contract(tmp_path):
             validate_request(value)
 
 
+def test_only_audio_free_prepare_has_six_hundred_second_start_budget(tmp_path):
+    value = request(tmp_path / "no-audio.wav") | {"deadline_ms": 600_000}
+    with pytest.raises(ValueError):
+        is_prepare(value)
+    with pytest.raises(ValueError):
+        validate_request(value)
+    value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
+    assert is_prepare(value)
+    with pytest.raises(ValueError):
+        is_prepare(value | {"deadline_ms": 600_001})
+
+
 async def fake_native_process(tmp_path, mode, *, reference="Reference"):
     model = tmp_path / "prepared-private-model"
     model.mkdir()
@@ -169,6 +181,7 @@ async def test_actual_whisper_prepare_loads_without_audio_or_inference_and_eof_i
     process, marker = await fake_native_process(tmp_path, mode)
     value = request(tmp_path / "absent-audio.wav")
     value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
+    value["deadline_ms"] = 600_000
     try:
         process.stdin.write((json.dumps(value) + "\n").encode())
         await process.stdin.drain()

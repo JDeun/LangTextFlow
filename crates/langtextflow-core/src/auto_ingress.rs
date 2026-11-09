@@ -1,7 +1,8 @@
 //! One-way AUTO source ownership; workers never select providers or publish events.
 use crate::asr_slice::{AsrSession, AudioChunk, AutoSource};
 use crate::auto_asr::{
-    AutoClock, AutoOptions, FailoverReason, ReplayPcm, StreamBatch, StreamClient, WhisperClient,
+    while_current, AutoClock, AutoOptions, FailoverReason, ReplayPcm, StreamBatch, StreamClient,
+    WhisperClient,
 };
 use crate::pcm_ingress::{AsrChildren, Input, PcmIngress, PcmInput, Spool, WINDOW_SAMPLES};
 use crate::source_context::SourceContext;
@@ -66,12 +67,17 @@ pub(crate) async fn start(
             StreamClient::spawn(sidecar, &sid, generation, source, epoch, slot.clone())
         {
             children.track(client.reaped.clone())?;
-            match client
-                .prepare(
+            match while_current(
+                &session,
+                source,
+                generation,
+                client.prepare(
                     sidecar,
+                    &context,
                     Instant::now() + Duration::from_millis(options.startup_ms),
-                )
-                .await
+                ),
+            )
+            .await
             {
                 Ok(()) => selected = Some(Candidate::Stream(client)),
                 Err(_) => {
@@ -98,9 +104,13 @@ pub(crate) async fn start(
             slot.clone(),
         )?;
         children.track(client.reaped.clone())?;
-        if let Err(error) = client
-            .prepare(Instant::now() + Duration::from_millis(options.startup_ms))
-            .await
+        if let Err(error) = while_current(
+            &session,
+            source,
+            generation,
+            client.prepare(Instant::now() + Duration::from_millis(options.startup_ms)),
+        )
+        .await
         {
             client.stop().await?;
             return Err(error);
@@ -118,7 +128,7 @@ pub(crate) async fn start(
     let spool = Spool::new(temporary_parent, children.clone())?;
     let root = spool.root.clone();
     session.activate_auto_candidate(generation, epoch, provider, &clock, None)?;
-    let replay_ms = options.replay_ms;
+    let replay_seconds = options.replay_seconds;
     let owner = Owner {
         candidate,
         options,
@@ -131,7 +141,7 @@ pub(crate) async fn start(
         epoch,
         context,
         clock,
-        ring: ReplayPcm::new(rate, replay_ms)?,
+        ring: ReplayPcm::new_seconds(rate, replay_seconds)?,
         buffer: Vec::with_capacity(WINDOW_SAMPLES * 4),
         cursor: 0,
         sequence: 0,
@@ -190,9 +200,13 @@ async fn consume(
                 Some(None) => return Err("audio_input_disappeared"),
                 None if Instant::now() >= next_health => {
                     if let Candidate::Stream(client) = &mut owner.candidate {
-                        let batch = client
-                            .poll(false, Instant::now() + Duration::from_secs(1))
-                            .await;
+                        let batch = while_current(
+                            &input.session,
+                            &input.source,
+                            owner.generation,
+                            client.poll(false, Instant::now() + Duration::from_secs(1)),
+                        )
+                        .await;
                         match batch {
                             Ok(batch) => {
                                 let done = batch.done;
@@ -205,7 +219,7 @@ async fn consume(
                             }
                             Err(_) => {
                                 owner
-                                    .failover(&input, &mut spool, FailoverReason::ProviderClosed)
+                                    .failover(&input, &mut spool, FailoverReason::ProviderFailed)
                                     .await?
                             }
                         }
@@ -278,9 +292,13 @@ impl Owner {
             input
                 .session
                 .auto_window(self.generation, self.epoch, true)?;
-            let batch = client
-                .append(&path, (pcm.len() / 4) as u64, deadline)
-                .await?;
+            let batch = while_current(
+                &input.session,
+                &input.source,
+                self.generation,
+                client.append(&path, (pcm.len() / 4) as u64, deadline),
+            )
+            .await?;
             input
                 .session
                 .auto_window(self.generation, self.epoch, false)?;
@@ -327,8 +345,11 @@ impl Owner {
         input
             .session
             .auto_window(self.generation, self.epoch, true)?;
-        let result = client
-            .infer(
+        let result = while_current(
+            &input.session,
+            &input.source,
+            self.generation,
+            client.infer(
                 &AudioChunk {
                     wav_path: path.to_string_lossy().into(),
                     start_sample: 0,
@@ -337,8 +358,9 @@ impl Owner {
                 },
                 &self.context,
                 deadline,
-            )
-            .await?;
+            ),
+        )
+        .await?;
         input
             .session
             .auto_window(self.generation, self.epoch, false)?;
@@ -412,9 +434,13 @@ impl Owner {
             self.slot.clone(),
         )?;
         self.children.track(client.reaped.clone())?;
-        if let Err(error) = client
-            .prepare(Instant::now() + Duration::from_millis(self.options.startup_ms))
-            .await
+        if let Err(error) = while_current(
+            &input.session,
+            &input.source,
+            self.generation,
+            client.prepare(Instant::now() + Duration::from_millis(self.options.startup_ms)),
+        )
+        .await
         {
             client.stop().await?;
             return Err(error);
@@ -432,10 +458,12 @@ impl Owner {
             self.buffer.extend_from_slice(part);
             if self.buffer.len() == WINDOW_SAMPLES * 4 {
                 let sources = self.decode(input, spool, deadline).await?;
-                bytes += sources.iter().map(|s| s.mapped.text.len()).sum::<usize>();
-                provisional.extend(sources);
-                if provisional.len() > 128 || bytes > 1024 * 1024 {
-                    return Err("auto_replay_result_capacity");
+                for source in sources {
+                    if provisional.len() == 128 || bytes + source.mapped.text.len() > 1024 * 1024 {
+                        return Err("auto_replay_result_capacity");
+                    }
+                    bytes += source.mapped.text.len();
+                    provisional.push(source);
                 }
                 self.buffer.clear();
             }
@@ -467,7 +495,13 @@ impl Owner {
                     return Ok(());
                 }
                 Candidate::Stream(client) => {
-                    let batch = client.poll(true, deadline).await;
+                    let batch = while_current(
+                        &input.session,
+                        &input.source,
+                        self.generation,
+                        client.poll(true, deadline),
+                    )
+                    .await;
                     match batch {
                         Ok(batch) => {
                             let done = batch.done;
@@ -509,6 +543,8 @@ for line in sys.stdin:
    out.update(status='error',result=None,error='fixed');print(json.dumps(out),flush=True);continue
   count=p['end_sample']-p['start_sample']
   result={'sample_rate':16000,'sample_count':count,'segments':[{'text':'Alpha source' if serial==1 else 'Beta source','start_seconds':0.,'end_seconds':count/16000,'estimated_timestamps':False}]}
+  if sys.argv[1]=='overflow' and serial==2:
+   result['segments']=[{'text':'part '+str(i),'start_seconds':i*4/129,'end_seconds':(i+1)*4/129,'estimated_timestamps':False} for i in range(129)]
  out.update(status='ok',result=json.dumps(result),error=None);print(json.dumps(out),flush=True)
 "#;
     const STREAM: &str = r#"
@@ -528,7 +564,8 @@ for line in sys.stdin:
     #[test]
     fn actual_owned_children_replay_fences_duplicates_and_failed_candidate_never_publishes() {
         let python = std::env::var("LTF_WORKER_PYTHON").unwrap_or_else(|_| "python3".into());
-        for fail in [false, true] {
+        for mode in ["ok", "fail", "overflow"] {
+            let fail = mode != "ok";
             tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -548,11 +585,10 @@ for line in sys.stdin:
                             program: python.clone(),
                             args: vec!["-u".into(), "-c".into(), STREAM.into()],
                             endpoint: "http://127.0.0.1:8001".into(),
-                            context_info: String::new(),
                         }),
                         whisper_ready: true,
                         low_resource: false,
-                        replay_ms: 8000,
+                        replay_seconds: 8.,
                         health_ms: 1000,
                         startup_ms: 5000,
                         queue_frames: 3,
@@ -562,7 +598,7 @@ for line in sys.stdin:
                         "en",
                         options,
                         &python,
-                        &["-u", "-c", WHISPER, if fail { "fail" } else { "ok" }],
+                        &["-u", "-c", WHISPER, mode],
                         slot.clone(),
                         &std::env::temp_dir(),
                     )
@@ -574,8 +610,8 @@ for line in sys.stdin:
                     let result = owner.finish().await;
                     assert_eq!(result.is_err(), fail);
                     assert_eq!(slot.available_permits(), 1);
-                let path = credential.path();
-                let token = path.split("token=").nth(1).unwrap();
+                    let path = credential.path();
+                    let token = path.split("token=").nth(1).unwrap();
                     let mut observer = session.subscribe_observer(token).unwrap();
                     let snapshot: serde_json::Value =
                         serde_json::from_str(observer.receiver.frames.try_recv().unwrap().get())
@@ -597,6 +633,92 @@ for line in sys.stdin:
                         assert_eq!(metrics.queue_capacity, 3);
                         assert_eq!(metrics.accepted_samples, metrics.processed_samples);
                         assert_eq!(session.source_metrics().failover_count, Some(1));
+                    }
+                });
+        }
+    }
+
+    #[test]
+    fn session_replacement_reaps_idle_or_hung_auto_leaf_even_with_old_producer_clones() {
+        let python = std::env::var("LTF_WORKER_PYTHON").unwrap_or_else(|_| "python3".into());
+        for infer in [false, true] {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let mut nonce = [0u8; 8];
+                    getrandom::fill(&mut nonce).unwrap();
+                    let marker = std::env::temp_dir().join(format!(
+                        "ltf-auto-infer-{:x}.marker",
+                        u64::from_le_bytes(nonce)
+                    ));
+                    let script = WHISPER.replace(
+                        "  serial+=1",
+                        &format!(
+                    "  serial+=1\n  open({},'w').write('infer')\n  __import__('time').sleep(30)",
+                    serde_json::to_string(&marker.to_string_lossy()).unwrap(),
+                ),
+                    );
+                    let session = AsrSession::default();
+                    session
+                        .start_observed("old-auto", "en", &["ko".into()])
+                        .unwrap();
+                    session
+                        .configure_context("en", SourceContext::default())
+                        .unwrap();
+                    let slot = Arc::new(Semaphore::new(1));
+                    let options = AutoOptions {
+                        sidecar: None,
+                        whisper_ready: true,
+                        low_resource: true,
+                        replay_seconds: 8.,
+                        health_ms: 250,
+                        startup_ms: 5000,
+                        queue_frames: 3,
+                    };
+                    let owner = start(
+                        session.clone(),
+                        "en",
+                        options,
+                        &python,
+                        &["-u", "-c", &script, "ok"],
+                        slot.clone(),
+                        &std::env::temp_dir(),
+                    )
+                    .await
+                    .unwrap();
+                    let old_producer = owner.input();
+                    if infer {
+                        old_producer
+                            .feed(&vec![0; WINDOW_SAMPLES * 4])
+                            .await
+                            .unwrap();
+                        tokio::time::timeout(Duration::from_secs(2), async {
+                            while !marker.exists() {
+                                tokio::time::sleep(Duration::from_millis(5)).await;
+                            }
+                        })
+                        .await
+                        .unwrap();
+                    }
+                    session
+                        .start_observed("new-auto", "en", &["ko".into()])
+                        .unwrap();
+                    tokio::time::timeout(Duration::from_secs(2), async {
+                        while slot.available_permits() == 0
+                            || old_producer.metrics().failure.is_none()
+                        {
+                            tokio::time::sleep(Duration::from_millis(5)).await;
+                        }
+                    })
+                    .await
+                    .expect("old generation kept native capacity leased");
+                    assert!(old_producer.feed(&[0; 4]).await.is_err());
+                    assert!(old_producer.metrics().failure.is_some());
+                    owner.cancel().await.unwrap();
+                    if infer {
+                        std::fs::remove_file(&marker).unwrap();
                     }
                 });
         }

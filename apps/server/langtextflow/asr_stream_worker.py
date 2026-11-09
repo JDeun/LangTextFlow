@@ -15,14 +15,15 @@ from contextlib import suppress
 import httpx
 import websockets
 
-from .asr.vibevoice import vibevoice_ws_url
+from .asr.vibevoice import VibeVoiceStreamingAsrEngine, vibevoice_ws_url
+from .models import SessionContext, StartSessionRequest
 from .parent_pipe import read_parent_pipe
 from .provider_http import bounded_json_request
 from .worker_ipc import IDENTITY_KEYS, MAX_FRAME_BYTES, validate_inference_request
 
 STREAM_PROTOCOL_VERSION = 1
 MAX_PCM_BYTES = 1024 * 1024
-MAX_BATCH_BYTES = 64 * 1024  # Leaves room for JSON-in-JSON escaping and identity.
+MAX_BATCH_BYTES = 96 * 1024  # UTF-8 batches still pass the final 128KiB frame gate.
 MAX_BATCH_MESSAGES = 128
 MAX_SAMPLE = (2**53) // 1000
 
@@ -33,7 +34,7 @@ class NoRedirectConnect(websockets.connect):
 
 
 def validate(request: object) -> dict:
-    validate_inference_request(request, "asr")
+    validate_inference_request(request, "asr", max_deadline_ms=600_000)
     value = json.loads(request["payload"])
     required = {"stream_protocol_version", "candidate_epoch", "mode"}
     if (not isinstance(value, dict) or not required <= set(value)
@@ -43,15 +44,20 @@ def validate(request: object) -> dict:
             or not 1 <= value["candidate_epoch"] <= 2**53 - 1):
         raise ValueError("invalid_stream_request")
     mode = value["mode"]
-    extra = ({"endpoint", "context_info"} if mode == "open" else
+    extra = ({"endpoint", "context"} if mode == "open" else
              {"pcm_path", "start_sample", "end_sample", "sample_rate"}
              if mode == "append" else {"start_sample", "end_sample", "sample_rate"})
     if mode not in {"open", "append", "poll", "finish"} or set(value) != required | extra:
         raise ValueError("invalid_stream_request")
+    if mode != "open":
+        validate_inference_request(request, "asr")
     if mode == "open":
-        endpoint, context = value["endpoint"], value["context_info"]
+        endpoint, context = value["endpoint"], value["context"]
         if (not isinstance(endpoint, str) or not 1 <= len(endpoint) <= 4096
-                or not isinstance(context, str) or len(context.encode()) > 48 * 1024):
+                or not isinstance(context, dict) or set(context) != {
+                    "title", "presenter", "description", "reference_text", "preset",
+                    "hotwords", "glossary",
+                } or len(json.dumps(context, ensure_ascii=False).encode()) > 48 * 1024):
             raise ValueError("invalid_stream_options")
         vibevoice_ws_url(endpoint)
     if mode != "open" and (
@@ -133,7 +139,7 @@ class StreamLeaf:
                     if self.transmitted_samples == 0:
                         raise ValueError("stream_text_before_audio")
                     item = {"text": text, "audio_end_sample": self.transmitted_samples}
-                size = len(json.dumps(item, ensure_ascii=True).encode())
+                size = len(json.dumps(item, ensure_ascii=False).encode())
                 if (len(self.messages) >= MAX_BATCH_MESSAGES
                         or self.batch_bytes + size > MAX_BATCH_BYTES):
                     raise ValueError("stream_batch_limit")
@@ -171,7 +177,11 @@ class StreamLeaf:
                 **tls,
             )
             await self.socket.send(json.dumps({
-                "context_info": value["context_info"] or None,
+                "context_info": VibeVoiceStreamingAsrEngine._context_info(StartSessionRequest(
+                    source_language=request["source_language"],
+                    target_languages=["ko" if request["source_language"] == "en" else "en"],
+                    context=SessionContext.model_validate(value["context"]),
+                )),
                 "max_tokens": 256, "temperature": 0., "top_p": 1.,
             }))
             self.receiver = asyncio.create_task(self.receive())
@@ -260,8 +270,8 @@ def main(args: list[str] | None = None) -> None:
                     async with asyncio.timeout(request["deadline_ms"] / 1000):
                         result = await leaf.handle(request)
                     reply = {**identity, "status": "ok", "error": None,
-                             "result": json.dumps(result, ensure_ascii=True, allow_nan=False)}
-                    frame = (json.dumps(reply, ensure_ascii=True, allow_nan=False) + "\n").encode()
+                             "result": json.dumps(result, ensure_ascii=False, allow_nan=False)}
+                    frame = (json.dumps(reply, ensure_ascii=False, allow_nan=False) + "\n").encode()
                     if len(frame) > MAX_FRAME_BYTES:
                         raise ValueError("stream_reply_limit")
                     output.write(frame)

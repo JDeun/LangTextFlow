@@ -1,6 +1,7 @@
 //! Rust-owned AUTO candidate epochs, bounded replay and private sidecar exchanges.
 use crate::supervision::SupervisedWorker;
 use crate::{validate_reply, TaskKind, WorkerRequest, WorkerStatus, PROTOCOL_VERSION};
+use futures_util::future::{select, Either};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
@@ -10,13 +11,35 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
 
+pub(crate) async fn while_current<T>(
+    session: &crate::asr_slice::AsrSession,
+    source: &str,
+    generation: u64,
+    operation: impl std::future::Future<Output = Result<T, &'static str>>,
+) -> Result<T, &'static str> {
+    if session.audio_generation(source)? != generation {
+        return Err("stale_audio_generation");
+    }
+    let retired = async {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            if session.audio_generation(source).ok() != Some(generation) {
+                break;
+            }
+        }
+    };
+    match select(Box::pin(operation), Box::pin(retired)).await {
+        Either::Left((result, _)) => result,
+        Either::Right(_) => Err("stale_audio_generation"),
+    }
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct StreamOptions {
     pub program: String,
     pub args: Vec<String>,
     pub endpoint: String,
-    pub context_info: String,
 }
 
 impl StreamOptions {
@@ -31,7 +54,6 @@ impl StreamOptions {
                 .all(|arg| arg.len() <= 4096 && !arg.contains('\0'))
             && !self.endpoint.is_empty()
             && self.endpoint.len() <= 4096
-            && self.context_info.len() <= 48 * 1024
     }
 }
 
@@ -41,7 +63,7 @@ pub struct AutoOptions {
     pub sidecar: Option<StreamOptions>,
     pub whisper_ready: bool,
     pub low_resource: bool,
-    pub replay_ms: u64,
+    pub replay_seconds: f64,
     pub health_ms: u64,
     pub startup_ms: u64,
     pub queue_frames: usize,
@@ -49,7 +71,9 @@ pub struct AutoOptions {
 
 impl AutoOptions {
     pub fn valid(&self) -> bool {
-        (1..=120_000).contains(&self.replay_ms)
+        self.replay_seconds.is_finite()
+            && self.replay_seconds > 0.
+            && self.replay_seconds <= 120.
             && (1..=crate::pcm_ingress::QUEUE_FRAMES).contains(&self.queue_frames)
             && (1..=60_000).contains(&self.health_ms)
             && (1..=600_000).contains(&self.startup_ms)
@@ -109,7 +133,13 @@ impl StreamClient {
         deadline: Instant,
     ) -> Result<Self, &'static str> {
         let mut owner = Self::spawn(options, sid, generation, source, epoch, slot)?;
-        owner.prepare(options, deadline).await?;
+        owner
+            .prepare(
+                options,
+                &crate::source_context::SourceContext::default(),
+                deadline,
+            )
+            .await?;
         Ok(owner)
     }
 
@@ -148,12 +178,14 @@ impl StreamClient {
     pub async fn prepare(
         &mut self,
         options: &StreamOptions,
+        context: &crate::source_context::SourceContext,
         deadline: Instant,
     ) -> Result<(), &'static str> {
+        context.validate()?;
         let batch = self
             .exchange(
                 "open",
-                json!({"endpoint":options.endpoint,"context_info":options.context_info}),
+                json!({"endpoint":options.endpoint,"context":context}),
                 0,
                 deadline,
             )
@@ -228,7 +260,8 @@ impl StreamClient {
             deadline_ms: deadline
                 .saturating_duration_since(Instant::now())
                 .as_millis()
-                .min(120_000) as u64,
+                .min(if mode == "open" { 600_000 } else { 120_000 })
+                as u64,
             payload: payload.to_string(),
         };
         let (worker, reply) = self
@@ -410,7 +443,13 @@ impl WhisperClient {
             deadline_ms: deadline
                 .saturating_duration_since(Instant::now())
                 .as_millis()
-                .min(120000) as u64,
+                .min(
+                    if payload.get("mode").and_then(Value::as_str) == Some("prepare") {
+                        600_000
+                    } else {
+                        120_000
+                    },
+                ) as u64,
             payload: payload.to_string(),
         };
         let (worker, reply) = self
@@ -460,10 +499,19 @@ pub struct ReplayPcm {
 
 impl ReplayPcm {
     pub fn new(sample_rate: u32, replay_ms: u64) -> Result<Self, &'static str> {
-        if !(8000..=192000).contains(&sample_rate) || !(1..=120_000).contains(&replay_ms) {
+        Self::new_seconds(sample_rate, replay_ms as f64 / 1000.)
+    }
+
+    pub fn new_seconds(sample_rate: u32, seconds: f64) -> Result<Self, &'static str> {
+        if !(8000..=192000).contains(&sample_rate)
+            || !seconds.is_finite()
+            || seconds <= 0.
+            || seconds > 120.
+        {
             return Err("asr_replay_configuration");
         }
-        let limit = ((sample_rate as u64 * replay_ms / 1000).max(1) * 4) as usize;
+        let bytes = (seconds * f64::from(sample_rate) * 4.) as usize;
+        let limit = (bytes - bytes % 4).max(4);
         Ok(Self {
             pcm: VecDeque::new(),
             limit,
@@ -790,13 +838,26 @@ print(json.dumps({'unicode_version':unicodedata.unidata_version,
     }
 
     #[test]
+    fn fractional_replay_seconds_keep_the_existing_float_to_complete_pcm_sample_policy() {
+        let mut tiny = ReplayPcm::new_seconds(16000, 0.0001).unwrap();
+        tiny.push(&[0; 32]).unwrap();
+        assert_eq!(tiny.snapshot(), (7, vec![0; 4]));
+        let mut fractional = ReplayPcm::new_seconds(48000, 0.0251).unwrap();
+        fractional.push(&vec![0; 1300 * 4]).unwrap();
+        assert_eq!(fractional.snapshot(), (96, vec![0; 1204 * 4]));
+        for bad in [0., -0.1, f64::NAN, f64::INFINITY, 120.01] {
+            assert!(ReplayPcm::new_seconds(16000, bad).is_err());
+        }
+    }
+
+    #[test]
     fn low_policy_can_never_carry_a_sidecar_or_an_unprepared_whisper() {
         let mut options = AutoOptions {
             queue_frames: 3,
             sidecar: None,
             whisper_ready: true,
             low_resource: true,
-            replay_ms: 8000,
+            replay_seconds: 8.,
             health_ms: 250,
             startup_ms: 120000,
         };
@@ -808,7 +869,6 @@ print(json.dumps({'unicode_version':unicodedata.unidata_version,
             program: "python".into(),
             args: vec![],
             endpoint: "http://127.0.0.1:8001".into(),
-            context_info: "".into(),
         });
         assert!(!options.valid());
     }
@@ -851,7 +911,6 @@ for line in sys.stdin:
                         program: python.clone(),
                         args: vec!["-u".into(), "-c".into(), script.into(), mode.into()],
                         endpoint: "http://127.0.0.1:8001".into(),
-                        context_info: String::new(),
                     };
                     let result = StreamClient::open(
                         &options,

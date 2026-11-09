@@ -221,9 +221,13 @@ impl PcmIngress {
         reaped.track(client.reaped.clone())?;
         let spool = Spool::new(temporary_parent, reaped.clone())?;
         let root = spool.root.clone();
-        if let Err(error) = client
-            .prepare(Instant::now() + Duration::from_millis(startup_ms))
-            .await
+        if let Err(error) = crate::auto_asr::while_current(
+            &input.session,
+            source,
+            generation,
+            client.prepare(Instant::now() + Duration::from_millis(startup_ms)),
+        )
+        .await
         {
             client.stop().await?;
             return Err(error);
