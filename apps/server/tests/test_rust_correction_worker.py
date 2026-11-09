@@ -4,6 +4,8 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import time
+from contextlib import suppress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
@@ -106,19 +108,23 @@ async def test_actual_child_reuses_existing_deterministic_corrector_and_source_s
 @pytest.fixture
 def ollama():
     calls = []
-    result = {"candidate": "요한복음 3장.", "available": True}
+    result = {"candidate": "요한복음 3장.", "available": True, "delay": 0,
+              "prepare_delay": 0, "preparing": False}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
 
         def do_GET(self):
+            result["preparing"] = True
+            time.sleep(result["prepare_delay"])
             payload = {"models": [{"name": "fixture-model:tag"}] if result["available"] else []}
             self.reply(payload)
 
         def do_POST(self):
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             calls.append(payload)
+            time.sleep(result["delay"])
             self.reply({"message": {"content": json.dumps({
                 "corrected_text": result["candidate"],
             })}})
@@ -129,7 +135,8 @@ def ollama():
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()
-            self.wfile.write(raw)
+            with suppress(BrokenPipeError, ConnectionResetError):
+                self.wfile.write(raw)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     thread = Thread(target=server.serve_forever, kwargs={"poll_interval": .01}, daemon=True)
@@ -180,5 +187,24 @@ async def test_unavailable_optional_provider_keeps_deterministic_child_usable(ol
         assert reply["error"] == "correction_provider_unavailable"
         reply = await exchange(process, request(url=url))
         assert reply["result"] == "요한복음과 성령"
+    finally:
+        await close(process)
+
+
+async def test_parent_eof_terminates_real_correction_worker_while_http_is_blocked(ollama):
+    url, calls, response = ollama
+    response["delay"] = .5
+    process = await child()
+    try:
+        assert (await exchange(process, request("prepare", url=url)))["result"] == "ready"
+        value = request("llm", "요한복음 3장", url=url)
+        process.stdin.write((json.dumps(value) + "\n").encode())
+        await process.stdin.drain()
+        async with asyncio.timeout(2):
+            while not calls:
+                await asyncio.sleep(.005)
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 1) == 0
+        assert await process.stdout.read() == b"" and await process.stderr.read() == b""
     finally:
         await close(process)

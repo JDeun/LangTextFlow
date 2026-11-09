@@ -276,7 +276,14 @@ async fn evaluate(
                     !text.trim().is_empty() && text.chars().count() <= 20_000
                 }) =>
         {
-            (Some(worker), Ok(reply.result.unwrap()))
+            if Instant::now() >= job.deadline {
+                (
+                    Some(worker),
+                    Err("correction timed out; using deterministic result"),
+                )
+            } else {
+                (Some(worker), Ok(reply.result.unwrap()))
+            }
         }
         Ok((worker, reply))
             if validate_reply(
@@ -343,7 +350,11 @@ async fn run(
         if worker.is_none() {
             worker = spawn(&program, &args, &slot, &reaped).ok();
             if options.provider == "ollama" && available && worker.is_some() {
-                let result = prepare_worker(worker.take().unwrap(), &prepare, job.deadline).await;
+                let preparing = prepare_worker(worker.take().unwrap(), &prepare, job.deadline);
+                let result = match select(Box::pin(stopping.changed()), Box::pin(preparing)).await {
+                    Either::Left(_) => break,
+                    Either::Right((result, _)) => result,
+                };
                 worker = result.0;
                 available = result.1;
             }

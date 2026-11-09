@@ -224,7 +224,9 @@ async fn serve(
         None
     };
     let observer = ObserverServer::bind(session.clone(), 0, ORIGIN).await?;
-    let correction = if let Some(configured) = config.correction {
+    let correction = if *parent_closed.borrow() {
+        None
+    } else if let Some(configured) = config.correction {
         let request = WorkerRequest {
             protocol_version: PROTOCOL_VERSION,
             request_id: "correction-prepare".into(),
@@ -258,6 +260,29 @@ async fn serve(
     } else {
         None
     };
+    // An optional prepare may suspend across parent EOF. Do not start a fresh
+    // ASR child or spool after that cancellation; confirm existing owners first.
+    if *parent_closed.borrow() {
+        session.stop();
+        let mut error = None;
+        if let Some(owner) = correction {
+            if owner.stop().await.is_err() {
+                error = Some("correction_reap_unconfirmed");
+            }
+        }
+        if let Some(owner) = mt {
+            if owner.stop().await.is_err() {
+                error = Some("translation_reap_unconfirmed");
+            }
+        }
+        if let Some(writer) = &mut history {
+            if writer.stop().await.is_err() {
+                error = Some("history_stop_unconfirmed");
+            }
+        }
+        let _ = observer.stop().await;
+        return error.map_or(Ok(()), Err);
+    }
     let asr_slot = worker_slot();
     let started = PcmIngress::start(
         session.clone(),

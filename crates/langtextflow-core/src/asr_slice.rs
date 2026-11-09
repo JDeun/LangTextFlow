@@ -125,7 +125,7 @@ struct State {
     projection: CaptionProjection,
     translation: Option<MtAdmission>,
     pending_targets: HashMap<String, PendingTarget>,
-    context: Option<SourceContext>,
+    context: Option<Arc<SourceContext>>,
     correction: Option<CorrectionAdmission>,
     pending_corrections: HashMap<String, PendingTarget>,
 }
@@ -153,11 +153,11 @@ pub(crate) struct MtJob {
 pub(crate) struct CorrectionJob {
     pub request: WorkerRequest,
     pub source: String,
-    pub context: SourceContext,
+    pub context: Arc<SourceContext>,
     pub deadline: std::time::Instant,
     pub cancelled: Arc<AtomicBool>,
-    options: CorrectionOptions,
-    translation: Option<MtAdmission>,
+    options: Arc<CorrectionOptions>,
+    translation: Option<Arc<MtAdmission>>,
     jobs: Vec<MtJob>,
     owner: Weak<Mutex<State>>,
     armed: bool,
@@ -209,7 +209,7 @@ impl CorrectionJob {
             for job in &mut jobs {
                 job.source = text.clone();
             }
-            submit_translation(jobs, self.translation.clone());
+            submit_translation(jobs, self.translation.as_deref());
         } else {
             // Even a projection failure cannot leave already-admitted targets pending.
             for job in &mut self.jobs {
@@ -234,7 +234,7 @@ impl Drop for CorrectionJob {
     }
 }
 
-fn submit_translation(jobs: Vec<MtJob>, config: Option<MtAdmission>) {
+fn submit_translation(jobs: Vec<MtJob>, config: Option<&MtAdmission>) {
     if let Some(config) = config {
         for mut job in jobs {
             job.armed = true;
@@ -402,7 +402,7 @@ impl AsrSession {
         {
             return Err("source_context_scope");
         }
-        state.context = Some(context);
+        state.context = Some(Arc::new(context));
         Ok(())
     }
 
@@ -804,7 +804,7 @@ impl AsrSession {
             deadline_ms,
             payload: serde_json::to_string(&Payload {
                 chunk: &file_chunk,
-                context: state.context.as_ref(),
+                context: state.context.as_deref(),
             })
             .map_err(|_| "invalid_payload")?,
         };
@@ -990,6 +990,8 @@ impl AsrSession {
         }
         let mut corrections = Vec::new();
         if let Some(config) = &correction {
+            let shared_translation = translation.clone().map(Arc::new);
+            let shared_options = Arc::new(config.options.clone());
             let mut grouped: HashMap<String, Vec<MtJob>> = HashMap::new();
             for job in jobs.drain(..) {
                 grouped
@@ -1033,8 +1035,8 @@ impl AsrSession {
                     context: state.context.as_ref().unwrap().clone(),
                     deadline,
                     cancelled,
-                    options: config.options.clone(),
-                    translation: translation.clone(),
+                    options: shared_options.clone(),
+                    translation: shared_translation.clone(),
                     jobs: grouped.remove(&event.segment_id).unwrap_or_default(),
                     owner: Arc::downgrade(&self.0),
                     armed: false,
@@ -1049,7 +1051,7 @@ impl AsrSession {
                 let _ = config.sender.try_send(job);
             }
         } else {
-            submit_translation(jobs, translation);
+            submit_translation(jobs, translation.as_ref());
         }
         Ok(events)
     }
