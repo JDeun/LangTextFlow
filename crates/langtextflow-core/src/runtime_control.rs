@@ -50,6 +50,8 @@ struct Config {
     spool_directory: PathBuf,
     asr: Worker,
     #[serde(default)]
+    auto_asr: Option<crate::auto_asr::AutoOptions>,
+    #[serde(default)]
     asr_model_identity: Option<String>,
     mt: Option<Worker>,
     translation_deadline_ms: u64,
@@ -160,6 +162,10 @@ pub fn run_stdio() -> Result<(), &'static str> {
         || config.session_id.is_empty()
         || config.session_id.len() > 64
         || !config.asr.valid()
+        || config
+            .auto_asr
+            .as_ref()
+            .is_some_and(|options| !options.valid())
         || config.mt.as_ref().is_some_and(|mt| !mt.valid())
         || config.correction.as_ref().is_some_and(|correction| {
             !correction.worker.valid() || correction.options.validate().is_err()
@@ -299,19 +305,33 @@ async fn serve(
         return error.map_or(Ok(()), Err);
     }
     let asr_slot = worker_slot();
-    let started = PcmIngress::start(
-        session.clone(),
-        &config.source_language,
-        &config.asr.program,
-        &config
-            .asr
-            .args
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        asr_slot.clone(),
-        &config.spool_directory,
-    );
+    let args = config
+        .asr
+        .args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let started = if let Some(options) = config.auto_asr {
+        crate::auto_ingress::start(
+            session.clone(),
+            &config.source_language,
+            options,
+            &config.asr.program,
+            &args,
+            asr_slot.clone(),
+            &config.spool_directory,
+        )
+        .await
+    } else {
+        PcmIngress::start(
+            session.clone(),
+            &config.source_language,
+            &config.asr.program,
+            &args,
+            asr_slot.clone(),
+            &config.spool_directory,
+        )
+    };
     let mut ingress = match started {
         Ok(ingress) => Some(ingress),
         Err(error) => {

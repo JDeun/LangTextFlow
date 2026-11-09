@@ -3,6 +3,7 @@
 
 pub mod asr_slice;
 pub mod auto_asr;
+mod auto_ingress;
 pub mod caption_events;
 pub mod correction_slice;
 pub mod history;

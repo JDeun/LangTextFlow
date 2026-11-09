@@ -40,18 +40,18 @@ pub struct IngressMetrics {
 }
 
 #[derive(Default)]
-struct InputState {
-    closing: bool,
+pub(crate) struct InputState {
+    pub(crate) closing: bool,
     hangover: u8,
-    metrics: IngressMetrics,
+    pub(crate) metrics: IngressMetrics,
 }
 
-struct Frame {
-    pcm: Vec<u8>,
-    start_sample: u64,
-    accepted_at: Instant,
+pub(crate) struct Frame {
+    pub(crate) pcm: Vec<u8>,
+    pub(crate) start_sample: u64,
+    pub(crate) accepted_at: Instant,
 }
-enum Input {
+pub(crate) enum Input {
     Frame(Frame),
     End,
 }
@@ -60,11 +60,13 @@ enum Input {
 #[derive(Clone)]
 pub struct PcmInput {
     sender: mpsc::Sender<Input>,
-    state: Arc<Mutex<InputState>>,
+    pub(crate) state: Arc<Mutex<InputState>>,
     producer: Arc<Semaphore>,
-    session: AsrSession,
-    generation: u64,
-    source: String,
+    pub(crate) session: AsrSession,
+    pub(crate) generation: u64,
+    pub(crate) source: String,
+    capacity: usize,
+    max_samples: u64,
 }
 
 fn analyze(pcm: &[u8]) -> Result<(f64, u64), &'static str> {
@@ -88,6 +90,32 @@ fn analyze(pcm: &[u8]) -> Result<(f64, u64), &'static str> {
 }
 
 impl PcmInput {
+    pub(crate) fn channel(
+        session: AsrSession,
+        source: &str,
+        sample_rate: u32,
+        capacity: usize,
+    ) -> Result<(Self, mpsc::Receiver<Input>), &'static str> {
+        if !(8000..=192000).contains(&sample_rate) || !(1..=QUEUE_FRAMES).contains(&capacity) {
+            return Err("audio_configuration");
+        }
+        let generation = session.bind_audio_generation(source)?;
+        let (sender, receiver) = mpsc::channel(capacity);
+        Ok((
+            Self {
+                sender,
+                state: Arc::new(Mutex::new(InputState::default())),
+                producer: Arc::new(Semaphore::new(1)),
+                session,
+                generation,
+                source: source.into(),
+                capacity,
+                max_samples: MAX_SOURCE_CHUNKS as u64 * 4 * u64::from(sample_rate),
+            },
+            receiver,
+        ))
+    }
+
     pub async fn feed(&self, pcm_f32le: &[u8]) -> Result<(), &'static str> {
         let _producer = self
             .producer
@@ -124,7 +152,7 @@ impl PcmInput {
         let start_sample = state.metrics.accepted_samples;
         let end = start_sample
             .checked_add(count)
-            .filter(|n| *n <= MAX_STREAM_SAMPLES)
+            .filter(|n| *n <= self.max_samples)
             .ok_or("audio_prototype_capacity")?;
         let frame = Frame {
             pcm: pcm_f32le.to_vec(),
@@ -146,15 +174,15 @@ impl PcmInput {
         }
         state.metrics.backpressure_events += u64::from(backpressure);
         permit.send(Input::Frame(frame));
-        let depth = QUEUE_FRAMES - self.sender.capacity();
+        let depth = self.capacity - self.sender.capacity();
         state.metrics.queue_high_watermark = state.metrics.queue_high_watermark.max(depth);
         Ok(())
     }
 
     pub fn metrics(&self) -> IngressMetrics {
         let mut metrics = self.state.lock().unwrap().metrics.clone();
-        metrics.queue_depth = QUEUE_FRAMES - self.sender.capacity();
-        metrics.queue_capacity = QUEUE_FRAMES;
+        metrics.queue_depth = self.capacity - self.sender.capacity();
+        metrics.queue_capacity = self.capacity;
         metrics
     }
 }
@@ -163,11 +191,25 @@ impl PcmInput {
 pub struct PcmIngress {
     input: PcmInput,
     task: Option<JoinHandle<Result<(), &'static str>>>,
-    reaped: Arc<AtomicBool>,
+    pub(crate) reaped: AsrChildren,
     root: PathBuf,
 }
 
 impl PcmIngress {
+    pub(crate) fn owned(
+        input: PcmInput,
+        task: JoinHandle<Result<(), &'static str>>,
+        reaped: AsrChildren,
+        root: PathBuf,
+    ) -> Self {
+        Self {
+            input,
+            task: Some(task),
+            reaped,
+            root,
+        }
+    }
+
     pub fn start(
         session: AsrSession,
         source: &str,
@@ -176,24 +218,15 @@ impl PcmIngress {
         slot: Arc<Semaphore>,
         temporary_parent: &Path,
     ) -> Result<Self, &'static str> {
-        let generation = session.bind_audio_generation(source)?;
+        let (input, receiver) = PcmInput::channel(session, source, SAMPLE_RATE, QUEUE_FRAMES)?;
         // Acquire native ownership before creating a spool. Replacement owners
         // must share this slot and cannot accumulate files while reap is pending.
         let worker =
             SupervisedWorker::spawn(program, args, slot).map_err(|_| "audio_worker_unavailable")?;
-        let reaped = worker.reaped_signal();
+        let reaped = AsrChildren::default();
+        reaped.track(worker.reaped_signal())?;
         let spool = Spool::new(temporary_parent, reaped.clone())?;
         let root = spool.root.clone();
-        let (sender, receiver) = mpsc::channel(QUEUE_FRAMES);
-        let state = Arc::new(Mutex::new(InputState::default()));
-        let input = PcmInput {
-            sender,
-            state,
-            producer: Arc::new(Semaphore::new(1)),
-            session,
-            generation,
-            source: source.into(),
-        };
         let task = tokio::spawn(consume(input.clone(), receiver, worker, spool));
         Ok(Self {
             input,
@@ -258,12 +291,10 @@ impl PcmIngress {
 
     async fn confirm_cleanup(&self) -> Result<(), &'static str> {
         let deadline = Instant::now() + CLEANUP_BUDGET;
-        while (!self.reaped.load(Ordering::Acquire) || self.root.exists())
-            && Instant::now() < deadline
-        {
+        while (!self.reaped.complete() || self.root.exists()) && Instant::now() < deadline {
             tokio::time::sleep(POLL).await;
         }
-        if !self.reaped.load(Ordering::Acquire) || self.root.exists() {
+        if !self.reaped.complete() || self.root.exists() {
             return Err("audio_cleanup_unconfirmed");
         }
         Ok(())
@@ -294,15 +325,37 @@ fn quantize(pcm: &[u8]) -> Vec<u8> {
     converted
 }
 
-struct Spool {
-    root: PathBuf,
+#[derive(Clone, Default)]
+pub(crate) struct AsrChildren(Arc<Mutex<Vec<Arc<AtomicBool>>>>);
+
+impl AsrChildren {
+    pub(crate) fn track(&self, reaped: Arc<AtomicBool>) -> Result<(), &'static str> {
+        let mut children = self.0.lock().unwrap();
+        if children.len() >= 2 || children.iter().any(|child| !child.load(Ordering::Acquire)) {
+            return Err("audio_previous_child_unreaped");
+        }
+        children.push(reaped);
+        Ok(())
+    }
+
+    pub(crate) fn complete(&self) -> bool {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|child| child.load(Ordering::Acquire))
+    }
+}
+
+pub(crate) struct Spool {
+    pub(crate) root: PathBuf,
     active: Option<PathBuf>,
     sequence: u64,
-    reaped: Arc<AtomicBool>,
+    reaped: AsrChildren,
 }
 
 impl Spool {
-    fn new(parent: &Path, reaped: Arc<AtomicBool>) -> Result<Self, &'static str> {
+    pub(crate) fn new(parent: &Path, reaped: AsrChildren) -> Result<Self, &'static str> {
         let parent = parent.canonicalize().map_err(|_| "audio_spool_parent")?;
         let mut random = [0u8; 16];
         getrandom::fill(&mut random).map_err(|_| "audio_spool_random")?;
@@ -326,7 +379,7 @@ impl Spool {
         })
     }
 
-    fn write_window(&mut self, pcm: &[u8]) -> Result<PathBuf, &'static str> {
+    pub(crate) fn write_window(&mut self, pcm: &[u8]) -> Result<PathBuf, &'static str> {
         if self.active.is_some() || pcm.is_empty() || pcm.len() > WINDOW_SAMPLES * 4 {
             return Err("audio_window_shape");
         }
@@ -346,7 +399,32 @@ impl Spool {
         Ok(path)
     }
 
-    fn clear(&mut self) -> Result<(), &'static str> {
+    pub(crate) fn write_pcm(&mut self, pcm: &[u8]) -> Result<PathBuf, &'static str> {
+        if self.active.is_some()
+            || pcm.is_empty()
+            || !pcm.len().is_multiple_of(4)
+            || pcm.len() > FRAME_LIMIT
+        {
+            return Err("audio_frame_shape");
+        }
+        self.sequence += 1;
+        let path = self.root.join(format!("frame-{}.pcm", self.sequence));
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&path).map_err(|_| "audio_frame_create")?;
+        self.active = Some(path.clone());
+        file.write_all(pcm)
+            .and_then(|_| file.flush())
+            .map_err(|_| "audio_frame_write")?;
+        Ok(path)
+    }
+
+    pub(crate) fn clear(&mut self) -> Result<(), &'static str> {
         if let Some(path) = &self.active {
             std::fs::remove_file(path).map_err(|_| "audio_window_remove")?;
             self.active = None;
@@ -391,7 +469,7 @@ impl Drop for Spool {
         let _ = std::thread::Builder::new()
             .name("ltf-audio-spool-cleanup".into())
             .spawn(move || {
-                while !reaped.load(Ordering::Acquire) {
+                while !reaped.complete() {
                     std::thread::sleep(POLL);
                 }
                 let _ = std::fs::remove_file(path);
@@ -544,6 +622,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn replacement_child_needs_its_predecessors_actual_reap_and_both_proofs_stay_owned() {
+        let children = AsrChildren::default();
+        let first = Arc::new(AtomicBool::new(false));
+        let second = Arc::new(AtomicBool::new(false));
+        children.track(first.clone()).unwrap();
+        assert!(children.track(second.clone()).is_err());
+        assert!(!children.complete());
+        first.store(true, Ordering::Release);
+        children.track(second.clone()).unwrap();
+        assert!(!children.complete());
+        second.store(true, Ordering::Release);
+        assert!(children.complete());
+        assert!(children.track(Arc::new(AtomicBool::new(true))).is_err());
+    }
+
+    #[test]
     fn float_validation_rms_and_pcm16_quantization_match_python_contract() {
         for invalid in [
             vec![],
@@ -571,7 +665,7 @@ mod tests {
 
     #[test]
     fn private_wav_is_bounded_and_cleanup_never_recursively_deletes_unknown_files() {
-        let mut spool = Spool::new(&std::env::temp_dir(), Arc::new(AtomicBool::new(true))).unwrap();
+        let mut spool = Spool::new(&std::env::temp_dir(), AsrChildren::default()).unwrap();
         let root = spool.root.clone();
         let path = spool.write_window(&0.5f32.to_le_bytes()).unwrap();
         let bytes = std::fs::read(&path).unwrap();

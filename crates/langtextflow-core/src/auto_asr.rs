@@ -44,11 +44,13 @@ pub struct AutoOptions {
     pub replay_ms: u64,
     pub health_ms: u64,
     pub startup_ms: u64,
+    pub queue_frames: usize,
 }
 
 impl AutoOptions {
     pub fn valid(&self) -> bool {
         (1..=120_000).contains(&self.replay_ms)
+            && (1..=crate::pcm_ingress::QUEUE_FRAMES).contains(&self.queue_frames)
             && (1..=60_000).contains(&self.health_ms)
             && (1..=600_000).contains(&self.startup_ms)
             && self.sidecar.as_ref().is_none_or(StreamOptions::valid)
@@ -106,6 +108,19 @@ impl StreamClient {
         slot: Arc<Semaphore>,
         deadline: Instant,
     ) -> Result<Self, &'static str> {
+        let mut owner = Self::spawn(options, sid, generation, source, epoch, slot)?;
+        owner.prepare(options, deadline).await?;
+        Ok(owner)
+    }
+
+    pub fn spawn(
+        options: &StreamOptions,
+        sid: &str,
+        generation: u64,
+        source: &str,
+        epoch: u64,
+        slot: Arc<Semaphore>,
+    ) -> Result<Self, &'static str> {
         if !options.valid() || epoch == 0 || epoch > (1 << 53) - 1 {
             return Err("asr_stream_configuration");
         }
@@ -115,7 +130,7 @@ impl StreamClient {
             slot,
         )
         .map_err(|_| "asr_stream_unavailable")?;
-        let mut owner = Self {
+        Ok(Self {
             reaped: worker.reaped_signal(),
             worker: Some(worker),
             sid: sid.into(),
@@ -127,8 +142,15 @@ impl StreamClient {
             chunk_seconds: 0.,
             transmitted_samples: 0,
             previous_message_sample: 0,
-        };
-        let batch = owner
+        })
+    }
+
+    pub async fn prepare(
+        &mut self,
+        options: &StreamOptions,
+        deadline: Instant,
+    ) -> Result<(), &'static str> {
+        let batch = self
             .exchange(
                 "open",
                 json!({"endpoint":options.endpoint,"context_info":options.context_info}),
@@ -139,9 +161,9 @@ impl StreamClient {
         if batch.done || !batch.messages.is_empty() {
             return Err("asr_stream_initial_result");
         }
-        owner.sample_rate = batch.sample_rate;
-        owner.chunk_seconds = batch.chunk_seconds;
-        Ok(owner)
+        self.sample_rate = batch.sample_rate;
+        self.chunk_seconds = batch.chunk_seconds;
+        Ok(())
     }
 
     pub async fn append(
@@ -258,10 +280,9 @@ impl StreamClient {
         if let Some(mut worker) = self.worker.take() {
             worker.stop().await.map_err(|_| "asr_stream_reap")?;
         }
-        if !self.reaped.load(Ordering::Acquire) {
-            return Err("asr_stream_reap");
-        }
-        Ok(())
+        confirm_reaped(&self.reaped)
+            .await
+            .map_err(|_| "asr_stream_reap")
     }
 }
 
@@ -286,9 +307,26 @@ impl WhisperClient {
         slot: Arc<Semaphore>,
         deadline: Instant,
     ) -> Result<Self, &'static str> {
+        let mut client = Self::spawn(program, args, sid, generation, source, epoch, slot)?;
+        client.prepare(deadline).await?;
+        Ok(client)
+    }
+
+    pub fn spawn(
+        program: &str,
+        args: &[&str],
+        sid: &str,
+        generation: u64,
+        source: &str,
+        epoch: u64,
+        slot: Arc<Semaphore>,
+    ) -> Result<Self, &'static str> {
+        if epoch == 0 || epoch > (1 << 53) - 1 {
+            return Err("asr_whisper_configuration");
+        }
         let worker =
             SupervisedWorker::spawn(program, args, slot).map_err(|_| "asr_whisper_unavailable")?;
-        let mut client = Self {
+        Ok(Self {
             reaped: worker.reaped_signal(),
             worker: Some(worker),
             sid: sid.into(),
@@ -296,14 +334,17 @@ impl WhisperClient {
             source: source.into(),
             epoch,
             serial: 0,
-        };
-        let result = client
+        })
+    }
+
+    pub async fn prepare(&mut self, deadline: Instant) -> Result<(), &'static str> {
+        let result = self
             .exchange(json!({"asr_protocol_version":1,"mode":"prepare"}), deadline)
             .await?;
         if result != json!({"asr_protocol_version":1,"prepared":true,"sample_rate":16000}) {
             return Err("asr_whisper_prepare");
         }
-        Ok(client)
+        Ok(())
     }
 
     pub async fn infer(
@@ -388,11 +429,21 @@ impl WhisperClient {
         if let Some(mut worker) = self.worker.take() {
             worker.stop().await.map_err(|_| "asr_whisper_reap")?;
         }
-        if !self.reaped.load(Ordering::Acquire) {
-            return Err("asr_whisper_reap");
-        }
-        Ok(())
+        confirm_reaped(&self.reaped)
+            .await
+            .map_err(|_| "asr_whisper_reap")
     }
+}
+
+async fn confirm_reaped(reaped: &AtomicBool) -> Result<(), ()> {
+    let deadline = Instant::now() + std::time::Duration::from_secs(2);
+    while !reaped.load(Ordering::Acquire) {
+        if Instant::now() >= deadline {
+            return Err(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    Ok(())
 }
 
 /// A byte ring also bounds tiny-frame metadata. Input clock always includes the
@@ -444,7 +495,17 @@ pub struct AutoStatus {
     pub active_provider: Option<&'static str>,
     pub auto_generation: u64,
     pub failover_count: u64,
-    pub last_failover_reason: Option<&'static str>,
+    pub last_failover_reason: Option<FailoverReason>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailoverReason {
+    ProviderFailed,
+    ProviderClosed,
+    ProviderTimeout,
+    ProviderProtocol,
+    ProviderEnded,
 }
 
 fn python_space(ch: char) -> bool {
@@ -508,6 +569,13 @@ impl AutoClock {
     ) -> Result<(), &'static str> {
         if !(8000..=192000).contains(&rate) || (self.sample_rate != 0 && rate != self.sample_rate) {
             return Err("asr_sample_rate_mismatch");
+        }
+        if generation > 1
+            || origin > (1_u64 << 53) / 1000
+            || replay > 120 * u64::from(rate)
+            || (generation == 0 && (origin != 0 || replay != 0))
+        {
+            return Err("asr_replay_clock");
         }
         self.sample_rate = rate;
         self.generation = generation;
@@ -720,6 +788,7 @@ print(json.dumps({'unicode_version':unicodedata.unidata_version,
     #[test]
     fn low_policy_can_never_carry_a_sidecar_or_an_unprepared_whisper() {
         let mut options = AutoOptions {
+            queue_frames: 3,
             sidecar: None,
             whisper_ready: true,
             low_resource: true,

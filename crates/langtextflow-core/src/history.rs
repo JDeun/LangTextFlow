@@ -35,6 +35,7 @@ enum Command {
     Event(JsonFrame),
     Invalidate(Vec<Invalidation>),
     Flush(oneshot::Sender<()>),
+    Engine(&'static str),
 }
 
 pub(crate) struct Invalidation {
@@ -93,6 +94,30 @@ impl HistorySink {
 
     pub(crate) fn invalidate(&self, ids: Vec<Invalidation>) {
         self.enqueue_command(Command::Invalidate(ids));
+    }
+
+    pub(crate) fn engine_changed(&self, provider: &'static str) {
+        if !matches!(provider, "vibevoice" | "faster-whisper") {
+            return;
+        }
+        let mut shared = self.shared.lock().unwrap();
+        // Metadata control remains eligible after a failed caption INSERT,
+        // just like the observed session-end control. Never await this queue.
+        let sent = shared
+            .sender
+            .as_ref()
+            .is_some_and(|s| s.try_send(Command::Engine(provider)).is_ok());
+        if sent {
+            shared.metrics.accepted += 1;
+            if let Some(sender) = &shared.sender {
+                let depth = shared.metrics.queue_capacity - sender.capacity();
+                shared.metrics.queue_high_watermark =
+                    shared.metrics.queue_high_watermark.max(depth);
+            }
+        } else {
+            shared.metrics.dropped += 1;
+            shared.metrics.complete = false;
+        }
     }
 
     fn enqueue_command(&self, command: Command) {
@@ -309,6 +334,29 @@ fn run(mut connection: Connection, mut receiver: mpsc::Receiver<Command>, sink: 
                 let _ = tx.send(());
                 continue;
             }
+            Command::Engine(provider) => {
+                match connection.execute(
+                    "UPDATE sessions SET engine=?
+                    WHERE session_id=? AND started_at=? AND ended_at IS NULL",
+                    params![provider, sink.session_id, sink.started_at],
+                ) {
+                    Ok(changed) => {
+                        let mut shared = sink.shared.lock().unwrap();
+                        if changed > 0 {
+                            shared.metrics.persisted += 1;
+                        } else {
+                            shared.metrics.stale += 1;
+                        }
+                    }
+                    Err(error) => {
+                        let mut shared = sink.shared.lock().unwrap();
+                        shared.metrics.write_errors += 1;
+                        shared.metrics.complete = false;
+                        shared.metrics.error = Some(category(error));
+                        failed = true;
+                    }
+                }
+            }
             command => {
                 if failed {
                     sink.shared.lock().unwrap().metrics.dropped += 1;
@@ -321,7 +369,7 @@ fn run(mut connection: Connection, mut receiver: mpsc::Receiver<Command>, sink: 
                     Command::Invalidate(ids) => {
                         invalidate(&mut connection, &sink, ids).map(|count| (count > 0, count))
                     }
-                    Command::Flush(_) => unreachable!(),
+                    Command::Flush(_) | Command::Engine(_) => unreachable!(),
                 };
                 match result {
                     Ok((changed, invalidated)) => {
@@ -631,6 +679,35 @@ mod tests {
             assert!(!report.complete && report.write_errors > 0);
             assert_eq!(report.error, Some("history_write_failed"));
             assert!(!serde_json::to_string(&report).unwrap().contains("secret"));
+        });
+    }
+
+    #[test]
+    fn provider_metadata_remains_controlled_after_failed_caption_and_never_rewrites_closed_session()
+    {
+        let f = Fixture::new("setup");
+        runtime().block_on(async {
+            let mut writer = HistoryWriter::open(f.db(), "history-session", 1, 8, Arc::new(Semaphore::new(1)))
+                .await.unwrap();
+            let connection = Connection::open(f.db()).unwrap();
+            connection.execute_batch("CREATE TRIGGER fail_auto_caption BEFORE INSERT ON transcript_segments BEGIN SELECT RAISE(FAIL,'private'); END").unwrap();
+            let sink = writer.sink();
+            sink.engine_changed("vibevoice");
+            writer.flush().await.unwrap();
+            let engine = || connection.query_row("SELECT engine FROM sessions WHERE session_id='history-session'", [], |r| r.get::<_, String>(0)).unwrap();
+            assert_eq!(engine(), "vibevoice");
+            sink.enqueue(frame(event(1, 1, "stable", "source")));
+            assert!(writer.flush().await.is_err());
+            sink.engine_changed("faster-whisper");
+            let _ = writer.flush().await;
+            let report = writer.stop().await.unwrap();
+            assert!(!report.complete && report.write_errors > 0);
+            assert_eq!(engine(), "faster-whisper");
+            let ended: Option<String> = connection.query_row("SELECT ended_at FROM sessions WHERE session_id='history-session'", [], |r| r.get(0)).unwrap();
+            assert!(ended.is_some());
+            sink.engine_changed("vibevoice");
+            assert_eq!(engine(), "faster-whisper");
+            assert!(sink.metrics().dropped > 0);
         });
     }
 
