@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, watch, Semaphore};
 use tokio::task::JoinHandle;
 
 const MAX_CONTEXT_BYTES: usize = 64 * 1024;
-struct ContextBytes(usize);
+pub(crate) struct ContextBytes(pub(crate) usize);
 
 impl std::io::Write for ContextBytes {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
