@@ -11,6 +11,7 @@ from pathlib import Path
 from threading import Thread
 
 import pytest
+from test_correction_negation_guard import _CASES
 
 from langtextflow.correction_worker import validate_request
 from langtextflow.rust_runtime import _python_worker
@@ -206,5 +207,23 @@ async def test_parent_eof_terminates_real_correction_worker_while_http_is_blocke
         process.stdin.close()
         assert await asyncio.wait_for(process.wait(), 1) == 0
         assert await process.stdout.read() == b"" and await process.stderr.read() == b""
+    finally:
+        await close(process)
+
+
+@pytest.mark.parametrize("language,source,candidate", [_CASES[0], _CASES[4], _CASES[7]],
+                         ids=["ko", "en", "ja"])
+async def test_shipped_leaf_inherits_shared_source_language_negation_guard(
+    ollama, language, source, candidate,
+):
+    url, _, response = ollama
+    response["candidate"] = candidate
+    process = await child()
+    try:
+        assert (await exchange(process, request("prepare", url=url)))["result"] == "ready"
+        rejected = await exchange(process, request("llm", source, language, url=url))
+        assert rejected["status"] == "error" and rejected["error"] == "correction_rejected"
+        deterministic = await exchange(process, request(text=source, source=language, url=url))
+        assert deterministic["result"] == source
     finally:
         await close(process)
