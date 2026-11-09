@@ -587,6 +587,79 @@ outside Git as described by the record, then invoke the companion with
 eight-minute and whole-experiment forty-minute budgets; existing artifacts are
 never overwritten. No workflow or automatic model download is added here.
 
+## 2026-11-09: bounded OWN-prior-hypothesis prompt — do not promote this policy
+
+The [append-only negative record](knowledge/raw/2026-11-09-asr-own-history-negative.json)
+preserves a separate harness-only pilot at frozen source
+`1fb5e24e136ce891b8f03c323f5a8c0f1b7ea6d5` and CTranslate2 **4.8.2**. It uses the
+same eight licensed KO PCM/reference fixtures and verified base files above,
+CPU2/INT8/beam1, fixed 4s windows, existing VAD and
+`condition_on_previous_text=False`. It is not a run of later source-context,
+dependency or correction changes.
+
+Six fresh OS children ran **OFF → ON → ON → OFF → OFF → ON**. OFF and ON each
+have three repetitions of eight unique clips: **48 correlated real observations**,
+not 48 independent clips. All completed without an execution failure or empty
+whole-clip hypothesis. Both arms were rerun in this pilot; the OFF measurements
+were not borrowed from the preceding base/small comparison.
+
+Only ON adds the previous successful **uncorrected, same-clip OWN ASR output**
+to the unchanged `ASR prototype` prefix. History clears on clip/session/language
+change, failure or an empty result. It is bounded to 256 Unicode characters and
+128 total initial-prompt tokens; actual maxima were 39 characters/28 tokens.
+References are scoring-only, after real-clip decoding. No reference, future
+speech, correction, MT or LLM output enters inference. The saved provenance
+checks found one common first-prompt hash and no invalid history origin across
+57 hinted real calls. First-chunk texts happened to match across all six arms;
+decoded bit identity was not forced or assumed under the native random defaults.
+
+| Policy, three repeats | Macro CER range | Macro WER range | Mean per-clip component RTF | Maximum single common decode |
+|---|---:|---:|---:|---:|
+| OFF | 0.246975 | 0.484663 | 0.20753–0.22349 | 1.597–1.672s |
+| ON | 0.193200–0.288438 | 0.484488–0.567825 | 0.22937–0.35276 | 1.701–11.135s |
+
+The decisive new reference mismatch is clip **1883**: all three OFF runs retain
+`2011`, while all three ON runs produce `2021`. Ordered literal digit matches
+fall from **2/3 to 1/3** numeric-reference clips per repetition. Literal digit
+insertions in the five references without digits fall from two to one; neither
+check certifies spelled-out numbers or semantic equivalence. The candidate's
+lower CER in two repetitions does not justify this new date error. WER and
+component timing also fail to improve consistently. Timestamp-recovery counts
+are 2/2/2 for OFF and 3/5/4 for ON. Repeated-fourgram proxies are 0/0/0 versus
+1/0/6; these are **not word-aligned hallucination rates**.
+
+Each clip also receives one separate, known-zero **4s PCM tail**, without a
+special history pre-clear: **48 synthetic controls**, all empty. Only **6/24 ON
+tails actually carry a hint**; the other 18 follow empty real residual results
+that already cleared history normally. This is not evidence of 24 hinted-tail
+successes, noisy-room VAD safety or music/crowd handling. Negation preservation
+is **N/A**: the frozen scorer covers 0/8 references and misses the prohibition
+cue `잊지 마라`. This is not validation of a later negation helper.
+
+The component RTF sums separately recorded policy construction, common
+PCM conversion+decode/VAD/retry, and history-update costs. It excludes model
+load, file reads, output shaping, scoring, pacing, runtime queues, network and
+browser paint. The maximum-call/retry supplement is descriptive offline analysis
+of the same calls, not another native run. RSS is the one-child lifetime high
+water through real/silence/scoring/per-clip serialization; it is not process-tree
+or physical-device memory. Intentional native/GUI/compile overlap was excluded;
+incidental host load and filesystem warmth remain uncontrolled.
+
+**Disposition: do not promote this specific bounded previous-hypothesis policy.**
+Other rolling-context algorithms have not been rejected by this pilot. Product
+code/defaults and prior raw records remain unchanged; no realtime, six-direction,
+semantic, long-event, physical-hardware or optimal-model qualification follows.
+
+The [relocatable POSIX companion](knowledge/raw/2026-11-09-asr-own-history-reproduction.py)
+did not produce these native results. The record distinguishes original private
+driver/helper hashes from public companion hashes and documents the path,
+equivalent-helper identity and version-record binding adaptations; remaining AST
+matches. Only a fake-contract selfcheck runs on the public companion. Its explicit
+setup/run requirements reuse the preceding matched companion and cached fixtures;
+no automatic model download or CI-native benchmark is added. Private original
+artifacts, including all 112 initial records and two later decision/supplement
+records, remain unchanged and are indexed by relative name and hash.
+
 ## Next phases
 
 Independent translation-quality acceptance (#77/#108) still needs reviewed,

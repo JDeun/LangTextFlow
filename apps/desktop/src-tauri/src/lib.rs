@@ -76,7 +76,10 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error
     );
     env.insert(
         "LANGTEXTFLOW_DATABASE_PATH".to_string(),
-        data_dir.join("langtextflow.db").to_string_lossy().into_owned(),
+        data_dir
+            .join("langtextflow.db")
+            .to_string_lossy()
+            .into_owned(),
     );
     env.insert(
         "LANGTEXTFLOW_MODEL_CACHE_DIR".to_string(),
@@ -87,7 +90,10 @@ fn spawn_backend(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error
         runtime_dir.to_string_lossy().into_owned(),
     );
     env.insert("LANGTEXTFLOW_BACKEND_PORT".to_string(), "8000".to_string());
-    env.insert("LANGTEXTFLOW_ENVIRONMENT".to_string(), "desktop".to_string());
+    env.insert(
+        "LANGTEXTFLOW_ENVIRONMENT".to_string(),
+        "desktop".to_string(),
+    );
 
     let command = app.shell().sidecar("langtextflow-server")?.envs(env);
     let (_events, child) = command.spawn()?;
@@ -134,7 +140,7 @@ fn stop_backend(app: &tauri::AppHandle) {
     if let Some(child) = child {
         request_backend_shutdown();
         // Give FastAPI/Uvicorn lifespan enough time to drain post-processing and SQLite.
-        // kill() remains a bounded fallback for a wedged backend.
+        // After the graceful budget, kill and reap the owned sidecar.
         wait_for_backend_shutdown(Duration::from_millis(2500));
         let _ = child.kill();
     }
@@ -142,6 +148,7 @@ fn stop_backend(app: &tauri::AppHandle) {
 
 #[tauri::command]
 async fn check_for_update(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    require_updater_configuration(app.config())?;
     let updater = app.updater().map_err(|error| error.to_string())?;
     let update = updater.check().await.map_err(|error| error.to_string())?;
     Ok(update.map(|candidate| candidate.version))
@@ -149,6 +156,7 @@ async fn check_for_update(app: tauri::AppHandle) -> Result<Option<String>, Strin
 
 #[tauri::command]
 async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
+    require_updater_configuration(app.config())?;
     let updater = app.updater().map_err(|error| error.to_string())?;
     let Some(update) = updater.check().await.map_err(|error| error.to_string())? else {
         return Err("No newer LangTextFlow update is available.".to_string());
@@ -174,13 +182,30 @@ async fn install_update(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn require_updater_configuration(config: &tauri::Config) -> Result<(), String> {
+    if config.plugins.0.contains_key("updater") {
+        Ok(())
+    } else {
+        Err("Automatic updates are not configured for this build.".to_string())
+    }
+}
+
+fn register_updater<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
+    // Unsigned builds have no updater key/endpoint; explicit invalid config still fails.
+    if require_updater_configuration(app.config()).is_ok() {
+        app.handle()
+            .plugin(tauri_plugin_updater::Builder::new().build())?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .manage(BackendProcess(Mutex::new(None)))
         .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![check_for_update, install_update])
         .setup(|app| {
+            register_updater(app)?;
             spawn_backend(&app.handle())?;
             Ok(())
         })
@@ -192,4 +217,47 @@ pub fn run() {
             stop_backend(app_handle);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{register_updater, require_updater_configuration};
+    use tauri::test::{mock_builder, mock_context, noop_assets};
+    use tauri_plugin_updater::UpdaterExt;
+
+    #[test]
+    fn unsigned_config_rejects_update_commands_without_plugin_state() {
+        let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+        register_updater(&app).expect("unsigned app must initialize without updater configuration");
+        assert_eq!(
+            require_updater_configuration(app.config()),
+            Err("Automatic updates are not configured for this build.".to_string())
+        );
+    }
+
+    #[test]
+    fn explicit_release_configuration_initializes_real_updater_state() {
+        let mut context = mock_context(noop_assets());
+        context.config_mut().plugins.0.insert(
+            "updater".into(),
+            r#"{"pubkey":"fixture-only","endpoints":["https://example.invalid/update"]}"#
+                .parse()
+                .unwrap(),
+        );
+        let app = mock_builder().build(context).unwrap();
+        register_updater(&app).unwrap();
+        assert!(app.updater().is_ok());
+    }
+
+    #[test]
+    fn explicit_invalid_configuration_fails_startup() {
+        let mut context = mock_context(noop_assets());
+        context
+            .config_mut()
+            .plugins
+            .0
+            .insert("updater".into(), Default::default());
+        let app = mock_builder().build(context).unwrap();
+        assert!(register_updater(&app).is_err());
+    }
 }
