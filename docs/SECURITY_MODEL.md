@@ -207,6 +207,18 @@ Linux desktop remains unqualified: Tauri 2.12/WRY's GTK 0.18 constraints cannot
 select patched glib >=0.20 through a compatible lock update. Do not ship a Linux
 desktop bundle under the Windows/macOS result.
 
+The desktop maintenance update pins [Tauri 2.12.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.5)
+and [shell 2.6.0](https://github.com/tauri-apps/plugins-workspace/releases/tag/shell-v2.6.0)
+without changing updater 2.14.1 or the patched TLS/ZIP versions above. Both keep
+Apache-2.0/MIT licensing and the existing Rust 1.90 toolchain. The shell's
+[process implementation](https://github.com/tauri-apps/plugins-workspace/blob/shell-v2.6.0/plugins/shell/src/process/mod.rs)
+retains `sidecar`, `envs`, `spawn` and explicit `CommandChild::kill`; its new
+`process_group` and `kill_on_drop` options default to false. This update leaves
+those defaults unchanged. The application does not consume shell JavaScript
+commands or Tauri's changed custom NSIS language key. Full unsigned Windows/macOS
+packaging and the complete-lock/native-graph security gates remain required;
+dependency compatibility does not qualify signed updates or Linux desktop.
+
 Reproduce with the pinned tool and a current official database checkout:
 
 ```sh
