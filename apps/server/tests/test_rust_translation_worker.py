@@ -272,8 +272,12 @@ async def test_six_direction_preset_glossary_positive_and_fail_closed_native_wor
             "preset": "church", "glossary": [irrelevant],
         }))
         reply = await receive(process)
-        assert reply["status"] == "error" and reply["error"] == "translation_worker_failed"
-        assert await asyncio.wait_for(process.wait(), 2) == 1
+        assert reply["status"] == "error" and reply["error"] == "translation_rejected"
+        # A measured candidate rejection must not kill the healthy native owner.
+        await send(process, request(source, target, text="source term", context=context))
+        assert (await receive(process))["result"] == "synthetic-" + target
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 2) == 0
         assert await process.stderr.read() == b""
     finally:
         await stop(process)

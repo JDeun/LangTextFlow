@@ -43,8 +43,11 @@ def _source_context(request: StartSessionRequest) -> dict:
                      if entry.enabled and entry.applies_to(context.preset)
                      and entry.source_language == request.source_language],
     }
-    if len(json.dumps(snapshot, ensure_ascii=False).encode()) > _CONTEXT_LIMIT:
-        raise ValueError("Rust inference context exceeds the 48KiB transport limit")
+    size = 0
+    for chunk in json.JSONEncoder(ensure_ascii=False).iterencode(snapshot):
+        size += len(chunk.encode())
+        if size > _CONTEXT_LIMIT:
+            raise ValueError("Rust inference context exceeds the 48KiB transport limit")
     return snapshot
 
 

@@ -342,6 +342,8 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
     }
     started = client.post("/api/v1/session/start", json=request)
     assert started.status_code == 200, started.text
+    assert started.json()["context"]["description"] == "d" * 2000
+    assert started.json()["context"]["reference_text"] == "r" * 2000
     expected = _source_context(StartSessionRequest(
         **(request | {"context": runtime.state.context.model_dump(mode="json")}),
     ))
