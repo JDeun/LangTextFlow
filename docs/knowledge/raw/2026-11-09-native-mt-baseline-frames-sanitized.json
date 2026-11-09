@@ -1,0 +1,302 @@
+{
+  "publication": {
+    "kind": "sanitized_companion_not_original_bytes",
+    "original_sha256": "8ddbba67f8eecab1287c28515de64ab09fbf101b65a90128d48d54480c96131a",
+    "rule": "replace absolute local filesystem locations and local fixture path values; retain synthetic/public text, model hashes, PIDs, versions and failure status",
+    "redacted_json_pointers": []
+  },
+  "record": [
+    {
+      "type": "snapshot",
+      "session_id": "asr-prototype",
+      "session_generation": 1,
+      "serial": 2,
+      "source_language": "ko",
+      "target_languages": [
+        "en",
+        "ja"
+      ],
+      "segments": [
+        {
+          "type": "transcript",
+          "segment_id": "rs-1-0",
+          "version": 1,
+          "source_revision": 1,
+          "stage": "stable",
+          "source_language": "ko",
+          "text": "2010...",
+          "original_text": "2010...",
+          "translations": {},
+          "translation_states": {
+            "en": "pending",
+            "ja": "pending"
+          },
+          "asr_provenance": {
+            "provider": "faster-whisper",
+            "configured_model": null,
+            "verified_model": null,
+            "model_revision": null,
+            "timestamp_basis": "sample_clock_native_hint",
+            "sample_rate": 16000,
+            "audio_chunk_start_sample": 0,
+            "audio_chunk_end_sample": 64000,
+            "auto_generation": null,
+            "timeline_offset_samples": null,
+            "replay_prefix_samples": null,
+            "overlap_trimmed": false
+          },
+          "translation_provenance": {},
+          "start_ms": 0,
+          "end_ms": 4000,
+          "speaker": null,
+          "confidence": null,
+          "correction": null,
+          "committed": false,
+          "emitted_at": "2026-11-09T12:18:30.152379Z",
+          "session_id": "asr-prototype",
+          "session_generation": 1,
+          "serial": 1
+        },
+        {
+          "type": "transcript",
+          "segment_id": "rs-4-0",
+          "version": 1,
+          "source_revision": 1,
+          "stage": "stable",
+          "source_language": "ko",
+          "text": "안녕하세요.",
+          "original_text": "안녕하세요.",
+          "translations": {},
+          "translation_states": {
+            "en": "pending",
+            "ja": "pending"
+          },
+          "asr_provenance": {
+            "provider": "faster-whisper",
+            "configured_model": null,
+            "verified_model": null,
+            "model_revision": null,
+            "timestamp_basis": "sample_clock_native_hint",
+            "sample_rate": 16000,
+            "audio_chunk_start_sample": 64000,
+            "audio_chunk_end_sample": 128000,
+            "auto_generation": null,
+            "timeline_offset_samples": null,
+            "replay_prefix_samples": null,
+            "overlap_trimmed": false
+          },
+          "translation_provenance": {},
+          "start_ms": 4000,
+          "end_ms": 8000,
+          "speaker": null,
+          "confidence": null,
+          "correction": null,
+          "committed": false,
+          "emitted_at": "2026-11-09T12:18:30.153382Z",
+          "session_id": "asr-prototype",
+          "session_generation": 1,
+          "serial": 2
+        }
+      ],
+      "snapshot_evictions": 0
+    },
+    {
+      "type": "transcript",
+      "segment_id": "rs-1-0",
+      "version": 2,
+      "source_revision": 1,
+      "stage": "stable",
+      "source_language": "ko",
+      "text": "2010...",
+      "original_text": "2010...",
+      "translations": {},
+      "translation_states": {
+        "en": "failed",
+        "ja": "pending"
+      },
+      "asr_provenance": {
+        "provider": "faster-whisper",
+        "configured_model": null,
+        "verified_model": null,
+        "model_revision": null,
+        "timestamp_basis": "sample_clock_native_hint",
+        "sample_rate": 16000,
+        "audio_chunk_start_sample": 0,
+        "audio_chunk_end_sample": 64000,
+        "auto_generation": null,
+        "timeline_offset_samples": null,
+        "replay_prefix_samples": null,
+        "overlap_trimmed": false
+      },
+      "translation_provenance": {},
+      "start_ms": 0,
+      "end_ms": 4000,
+      "speaker": null,
+      "confidence": null,
+      "correction": null,
+      "committed": false,
+      "emitted_at": "2026-11-09T12:18:32.481178Z",
+      "session_id": "asr-prototype",
+      "session_generation": 1,
+      "serial": 3
+    },
+    {
+      "type": "transcript",
+      "segment_id": "rs-1-0",
+      "version": 3,
+      "source_revision": 1,
+      "stage": "committed",
+      "source_language": "ko",
+      "text": "2010...",
+      "original_text": "2010...",
+      "translations": {
+        "ja": "2010年..."
+      },
+      "translation_states": {
+        "en": "failed",
+        "ja": "available"
+      },
+      "asr_provenance": {
+        "provider": "faster-whisper",
+        "configured_model": null,
+        "verified_model": null,
+        "model_revision": null,
+        "timestamp_basis": "sample_clock_native_hint",
+        "sample_rate": 16000,
+        "audio_chunk_start_sample": 0,
+        "audio_chunk_end_sample": 64000,
+        "auto_generation": null,
+        "timeline_offset_samples": null,
+        "replay_prefix_samples": null,
+        "overlap_trimmed": false
+      },
+      "translation_provenance": {
+        "ja": {
+          "provider": "m2m100-ct2",
+          "requested_model": null,
+          "configured_model": null,
+          "verified_model": null,
+          "model_revision": null
+        }
+      },
+      "start_ms": 0,
+      "end_ms": 4000,
+      "speaker": null,
+      "confidence": null,
+      "correction": null,
+      "committed": true,
+      "emitted_at": "2026-11-09T12:18:32.645295Z",
+      "session_id": "asr-prototype",
+      "session_generation": 1,
+      "serial": 4
+    },
+    {
+      "type": "transcript",
+      "segment_id": "rs-4-0",
+      "version": 2,
+      "source_revision": 1,
+      "stage": "stable",
+      "source_language": "ko",
+      "text": "안녕하세요.",
+      "original_text": "안녕하세요.",
+      "translations": {
+        "en": "Hello to."
+      },
+      "translation_states": {
+        "en": "available",
+        "ja": "pending"
+      },
+      "asr_provenance": {
+        "provider": "faster-whisper",
+        "configured_model": null,
+        "verified_model": null,
+        "model_revision": null,
+        "timestamp_basis": "sample_clock_native_hint",
+        "sample_rate": 16000,
+        "audio_chunk_start_sample": 64000,
+        "audio_chunk_end_sample": 128000,
+        "auto_generation": null,
+        "timeline_offset_samples": null,
+        "replay_prefix_samples": null,
+        "overlap_trimmed": false
+      },
+      "translation_provenance": {
+        "en": {
+          "provider": "m2m100-ct2",
+          "requested_model": null,
+          "configured_model": null,
+          "verified_model": null,
+          "model_revision": null
+        }
+      },
+      "start_ms": 4000,
+      "end_ms": 8000,
+      "speaker": null,
+      "confidence": null,
+      "correction": null,
+      "committed": false,
+      "emitted_at": "2026-11-09T12:18:32.814568Z",
+      "session_id": "asr-prototype",
+      "session_generation": 1,
+      "serial": 5
+    },
+    {
+      "type": "transcript",
+      "segment_id": "rs-4-0",
+      "version": 3,
+      "source_revision": 1,
+      "stage": "committed",
+      "source_language": "ko",
+      "text": "안녕하세요.",
+      "original_text": "안녕하세요.",
+      "translations": {
+        "en": "Hello to.",
+        "ja": "こんにちは。"
+      },
+      "translation_states": {
+        "en": "available",
+        "ja": "available"
+      },
+      "asr_provenance": {
+        "provider": "faster-whisper",
+        "configured_model": null,
+        "verified_model": null,
+        "model_revision": null,
+        "timestamp_basis": "sample_clock_native_hint",
+        "sample_rate": 16000,
+        "audio_chunk_start_sample": 64000,
+        "audio_chunk_end_sample": 128000,
+        "auto_generation": null,
+        "timeline_offset_samples": null,
+        "replay_prefix_samples": null,
+        "overlap_trimmed": false
+      },
+      "translation_provenance": {
+        "en": {
+          "provider": "m2m100-ct2",
+          "requested_model": null,
+          "configured_model": null,
+          "verified_model": null,
+          "model_revision": null
+        },
+        "ja": {
+          "provider": "m2m100-ct2",
+          "requested_model": null,
+          "configured_model": null,
+          "verified_model": null,
+          "model_revision": null
+        }
+      },
+      "start_ms": 4000,
+      "end_ms": 8000,
+      "speaker": null,
+      "confidence": null,
+      "correction": null,
+      "committed": true,
+      "emitted_at": "2026-11-09T12:18:33.082122Z",
+      "session_id": "asr-prototype",
+      "session_generation": 1,
+      "serial": 6
+    }
+  ]
+}
