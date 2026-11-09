@@ -94,7 +94,9 @@ jobs:
       - name: Verify locked Rust desktop shell
         if: ${{ !inputs.native_m2m100_import_probe || inputs.native_m2m100_prepare }}
         working-directory: apps/desktop/src-tauri
-        run: cargo check --locked
+        run: |
+          cargo check --locked
+          cargo test --locked --lib
       - name: Build unsigned desktop bundle
         if: ${{ !inputs.native_m2m100_import_probe || inputs.native_m2m100_prepare }}
         working-directory: apps/desktop

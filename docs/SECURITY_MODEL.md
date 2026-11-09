@@ -219,6 +219,15 @@ commands or Tauri's changed custom NSIS language key. Full unsigned Windows/macO
 packaging and the complete-lock/native-graph security gates remain required;
 dependency compatibility does not qualify signed updates or Linux desktop.
 
+Unsigned builds omit the updater key/endpoint configuration. The shell registers
+the updater only when an explicit configuration is present; otherwise the existing
+check/install commands return an unavailable error without accessing plugin state.
+An explicit invalid configuration still fails startup before spawning the backend.
+Signed release overlays retain the real key/endpoint and normal signature checks;
+no placeholder key or endpoint is inserted for unsigned startup. Plugin setup is
+tested with Tauri's test runtime, while an actual GUI launch/quit remains separate
+from frozen-backend smoke and successful bundle compilation.
+
 Reproduce with the pinned tool and a current official database checkout:
 
 ```sh
