@@ -437,7 +437,7 @@ def test_actual_api_correction_preserves_original_provenance_history_and_mt_hand
     assert provenance["deterministic_changed"] and provenance["changed"]
     assert provenance["llm_attempted"] == (mode in {"llm", "rejected"})
     assert provenance["llm_applied"] == (mode == "llm")
-    assert url not in json.dumps(final) and "4000" not in json.dumps(final)
+    assert url not in json.dumps(final) and "r" * 64 not in json.dumps(final)
     if calls:
         context = json.loads(calls[0]["messages"][1]["content"])
         assert context["reference_material"] == "r" * 3000
