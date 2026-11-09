@@ -68,6 +68,7 @@ def test_safe_small_edits_and_word_controls_are_preserved(language, source, cand
 
 
 def test_prohibition_markers_require_the_ji_form_and_a_complete_word_ending():
+    assert protected_tokens("Knowledge and notable progress.", "en") == ([], 0)
     assert protected_tokens("마음 마라톤 저지 마라톤 바지 마음", "ko") == ([], 0)
     assert protected_tokens("잊지 마라. 하지 마세요. 잊지마.", "ko") == ([], 3)
 
