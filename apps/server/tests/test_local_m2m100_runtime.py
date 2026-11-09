@@ -77,6 +77,23 @@ async def test_runtime_m2m100_routes_six_supported_directions(
     assert fake_engine.targets == [f"__{target}__"]
 
 
+@pytest.mark.parametrize("text", ["17", " 17 ", "０１７"])
+def test_unchanged_decimal_caption_preserves_language_independent_digits(monkeypatch, text):
+    tokenizer = _FakeTokenizer()
+    monkeypatch.setattr(tokenizer, "decode", lambda *args, **kwargs: text.strip())
+    provider = M2M100CT2Translator(model_dir=".", tokenizer_dir=".")
+    assert provider._translate_sync(text, "en", "ko", tokenizer, _FakeEngine()) == text.strip()
+
+
+@pytest.mark.parametrize("text", ["Speech", "2010...", "17위", "1.7", "[17]", ""])
+def test_nondecimal_source_copy_remains_rejected(monkeypatch, text):
+    tokenizer = _FakeTokenizer()
+    monkeypatch.setattr(tokenizer, "decode", lambda *args, **kwargs: text)
+    provider = M2M100CT2Translator(model_dir=".", tokenizer_dir=".")
+    with pytest.raises(TranslationError):
+        provider._translate_sync(text, "en", "ko", tokenizer, _FakeEngine())
+
+
 @pytest.mark.asyncio
 async def test_local_m2m100_fails_closed_if_model_not_prepared(tmp_path) -> None:
     provider = M2M100CT2Translator(
@@ -104,10 +121,11 @@ async def test_local_m2m100_rejects_unsupported_and_same_language() -> None:
 
 
 @pytest.mark.asyncio
-async def test_local_m2m100_rejects_incorrect_target_prefix() -> None:
+@pytest.mark.parametrize("text", ["Speech", "17"])
+async def test_local_m2m100_rejects_incorrect_target_prefix(text) -> None:
     provider = M2M100CT2Translator(model_dir=".", tokenizer_dir=".")
     with pytest.raises(TranslationError, match="target language prefix"):
-        provider._translate_sync("Speech", "en", "ko", _FakeTokenizer(),
+        provider._translate_sync(text, "en", "ko", _FakeTokenizer(),
                                  _FakeEngine(wrong_prefix=True))
 
 

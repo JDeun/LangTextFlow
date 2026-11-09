@@ -371,8 +371,10 @@ class M2M100CT2Translator(Translator):
                 raise TranslationError("Local M2M100 violated the target language prefix")
             target_ids = tokenizer.convert_tokens_to_ids(tokens[1:])
             candidate = tokenizer.decode(target_ids, skip_special_tokens=True).strip()
+            # Captions containing only decimal digits need no change across KO/EN/JA.
             if (not candidate or len(candidate) > MAX_TRANSLATION_TEXT_CHARS
-                    or candidate.casefold() == text.strip().casefold()
+                    or (candidate.casefold() == text.strip().casefold()
+                        and not candidate.isdecimal())
                     or candidate.startswith(("{", "["))):
                 raise TranslationRejected("Local M2M100 returned an invalid translated caption")
             return candidate
