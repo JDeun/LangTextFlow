@@ -33,12 +33,15 @@ _CASES = [
     ("ja", _JA + "忘れない。", _JA + "忘れる。"),
     ("ja", _JA + "忘れます。", _JA + "忘れません。"),
     ("ja", _JA + "忘れないし諦めません。", _JA + "忘れるし諦めません。"),
+    ("ko", _KO + "무시하지 말라.", _KO + "무시하라."),
+    ("ko", _KO + "잊지 마십시오.", _KO + "잊으십시오."),
 ]
 
 
 @pytest.mark.parametrize("language,source,candidate", _CASES, ids=[
     "ko-remove-mara", "ko-remove-maseyo", "ko-insert", "ko-count",
     "en-remove", "en-insert", "en-count", "ja-remove", "ja-insert", "ja-count",
+    "ko-formal-malla", "ko-formal-masipsio",
 ])
 def test_shared_llm_guard_rejects_detectable_negation_changes(language, source, candidate):
     with pytest.raises(CorrectionError, match="negation"):
@@ -47,6 +50,7 @@ def test_shared_llm_guard_rejects_detectable_negation_changes(language, source, 
 
 @pytest.mark.parametrize("alias,canonical", [
     ("잊지 마라", "잊어라"), ("포기하지 마세요", "포기하세요"), ("잊어라", "잊지마라"),
+    ("무시하지 말라", "무시하라"), ("잊지 마십시오", "잊으십시오"),
 ])
 def test_deterministic_alias_cannot_change_the_same_korean_prohibitions(alias, canonical):
     source = _KO + alias + "."
@@ -69,8 +73,8 @@ def test_safe_small_edits_and_word_controls_are_preserved(language, source, cand
 
 def test_prohibition_markers_require_the_ji_form_and_a_complete_word_ending():
     assert protected_tokens("Knowledge and notable progress.", "en") == ([], 0)
-    assert protected_tokens("마음 마라톤 저지 마라톤 바지 마음", "ko") == ([], 0)
-    assert protected_tokens("잊지 마라. 하지 마세요. 잊지마.", "ko") == ([], 3)
+    assert protected_tokens("마음 마라톤 저지 마라톤 바지 마음 저지 말라리아", "ko") == ([], 0)
+    assert protected_tokens("잊지 마라. 하지 마세요. 잊지마. 하지 말라. 잊지 마십시오.", "ko") == ([], 5)
 
 
 @pytest.mark.parametrize("language,source,candidate", [_CASES[0], _CASES[4], _CASES[7]],
