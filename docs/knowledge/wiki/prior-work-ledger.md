@@ -147,3 +147,29 @@ This ledger indexes claims already written in project issues. It does **not** in
 - [Issue #101](https://github.com/JDeun/LangTextFlow/issues/101), [#117](https://github.com/JDeun/LangTextFlow/issues/117), [#118](https://github.com/JDeun/LangTextFlow/issues/118), [#128](https://github.com/JDeun/LangTextFlow/issues/128), [#209](https://github.com/JDeun/LangTextFlow/issues/209)
 
 Return to the [knowledge index](index.md).
+
+## 2026-11-09 — reproduced negative: one bounded OWN-history prompt policy
+
+This new first-party measurement is distinct from the older issue-index summaries
+above. [Canonical result](../../REAL_SPEECH_EVALUATION.md#2026-11-09-bounded-own-prior-hypothesis-prompt--do-not-promote-this-policy)
+and [append-only provenance/aggregates](../raw/2026-11-09-asr-own-history-negative.json)
+record frozen source `1fb5e24`, CT2 4.8.2, verified base/CPU2/4s and the same eight
+licensed FLEURS clips. Six fresh ABBAAB arms give 48 correlated real observations
+plus 48 separately counted zero-PCM controls. OFF and ON are both rerun; no
+historical result is substituted as the control.
+
+ON feeds only the prior successful uncorrected same-clip hypothesis, within
+256-character/128-token caps and explicit scope/failure/empty resets. References
+are scoring-only. In all three paired comparisons, clip1883 changes a correct
+reference year `2011` to `2021`; literal numeric matches fall 2/3→1/3. CER changes
+are inconsistent, WER/component timing do not improve consistently, and one
+direct native call reaches 11.135s. Repeat-fourgram counts are drift proxies, not
+word-aligned hallucination rates. Zero tails are all empty, but only 6/24 ON tails
+actually contain a hint; frozen negation coverage is 0/8 and remains N/A.
+
+**Disposition: do not promote this policy; do not repeat the same policy/corpus
+as a new improvement.** A distinct preregistered policy and independent held-out
+numeric/negation safety evidence would justify another experiment. This does not
+reject all rolling context or qualify live latency, code-switching, six directions,
+sermon semantics or hardware. Original private artifacts and earlier failures are
+preserved. #210/#211/#213/#158 remain open; product code and defaults are unchanged.
