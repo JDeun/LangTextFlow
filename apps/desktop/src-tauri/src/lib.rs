@@ -134,7 +134,7 @@ fn stop_backend(app: &tauri::AppHandle) {
     if let Some(child) = child {
         request_backend_shutdown();
         // Give FastAPI/Uvicorn lifespan enough time to drain post-processing and SQLite.
-        // kill() remains a bounded fallback for a wedged backend.
+        // After the graceful budget, kill and reap the owned sidecar.
         wait_for_backend_shutdown(Duration::from_millis(2500));
         let _ = child.kill();
     }
