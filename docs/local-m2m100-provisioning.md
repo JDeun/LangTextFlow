@@ -200,3 +200,40 @@ provider. Parent-pipe EOF also ends the child during blocked native work.
 An OS reap failure retains admission rather than starting more model
 processes. These lifecycle guarantees do not establish model quality or
 device memory/latency qualification.
+
+## Short native compatibility evidence (2026-11-09)
+
+The [scoped provenance record](knowledge/raw/2026-11-09-native-mt-and-dependency-compatibility.json)
+links sanitized receipt companions and records both original and published-byte
+hashes. Private originals remain unchanged. The runs use the same seven pinned
+files above, CPU INT8/two threads and isolated frozen-lock environments on macOS
+ARM64, without Torch or private audio.
+
+| Exact source | Native dependencies | Observed lifecycle |
+| --- | --- | --- |
+| `0d7a5ec674771174efde45a2c518cb5bbdbe9143` ([PR #441](https://github.com/JDeun/LangTextFlow/pull/441)) | CT2 4.8.2 / SentencePiece 0.2.1 | Legacy worker and actual Rust `MtDispatcher` retain one native PID after a rejected numeric English result, then produce Japanese and a later English result; all children exit. |
+| `f1db8e59bb89327afe5a5f7419becc0e2a9fde4d` ([dependency candidate #444](https://github.com/JDeun/LangTextFlow/pull/444)) | CT2 4.8.5 / SentencePiece 0.2.2 | Same files, statuses and legacy output strings; native preparation and both MT paths complete, with one native PID per path and verified child exit. |
+
+`2010...` remains rejected for English; the Japanese result is `2010年...`.
+The later owned Korean greeting produces the unchanged, unreviewed English
+`Hello to.`. An available result is not a semantic-quality approval. The Rust
+path uses synthetic ASR source events and the shipped native MT worker, rather
+than claiming real speech recognition in that MT fixture.
+
+The baseline runner itself exited 1 because its reporter parsed the example's
+two JSONL records as one JSON object. Its original failure is retained beside
+the separately labeled offline validation of saved caption/PID evidence; the
+baseline example stdout was not retained. The copied candidate driver parses
+JSONL correctly and exits 0. The shipped Rust example exposes its own exit code
+and confirms native PID absence, but does not expose the native child's exit
+status; the receipts explicitly retain that unknown value.
+
+The dependency candidate also runs the actual Whisper inference worker with
+cached base/small weights on public FLEURS clip 1883 (CC-BY-4.0): first 4 seconds
+and the full 12.48 seconds succeed. First-window text, times and estimated flags
+match both earlier matched-ASR arms for each model. A deliberate out-of-range
+source interval still returns only `asr_worker_failed` with a null result, then
+exits 1 and is reaped. The prior successful source results remain in the receipt.
+These source-specific checks do not qualify later source-context changes,
+Windows packaging, latency, long-duration recovery, human translation quality
+or field use, and do not supersede prior negative duration evidence.

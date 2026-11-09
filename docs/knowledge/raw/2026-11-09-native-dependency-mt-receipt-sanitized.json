@@ -1,0 +1,215 @@
+{
+  "publication": {
+    "kind": "sanitized_companion_not_original_bytes",
+    "original_sha256": "18cac1cd6bce5667cb3c51bec70ea329adbf651f1e2812f527318848e1a4c3ea",
+    "rule": "replace absolute local filesystem locations and local fixture path values; retain synthetic/public text, model hashes, PIDs, versions and failure status",
+    "redacted_json_pointers": []
+  },
+  "record": {
+    "source_sha": "f1db8e59bb89327afe5a5f7419becc0e2a9fde4d",
+    "scope": "legacy_native_owner_and_actual_rust_mt_dispatcher",
+    "synthetic_asr": true,
+    "owned_text": true,
+    "semantic_quality_scored": false,
+    "field_qualified": false,
+    "cpu_threads": 2,
+    "paths": {
+      "legacy": {
+        "requests": [
+          {
+            "source": "ko",
+            "target": "en",
+            "text": "2010...",
+            "status": "rejected",
+            "error_code": "translation_rejected",
+            "pid": 49424
+          },
+          {
+            "source": "ko",
+            "target": "ja",
+            "text": "2010...",
+            "translation": "2010年...",
+            "status": "available",
+            "pid": 49424
+          },
+          {
+            "source": "ko",
+            "target": "en",
+            "text": "안녕하세요.",
+            "translation": "Hello to.",
+            "status": "available",
+            "pid": 49424
+          }
+        ],
+        "pid": 49424,
+        "exit_code": -15,
+        "reaped": true
+      },
+      "rust": {
+        "native_dispatcher": true,
+        "synthetic_asr": true,
+        "example_report": [
+          {
+            "events": [
+              {
+                "end_ms": 4000,
+                "segment_id": "rs-1-0",
+                "session_generation": 1,
+                "session_id": "asr-prototype",
+                "source_language": "ko",
+                "source_revision": 1,
+                "stage": "stable",
+                "start_ms": 0,
+                "text": "2010...",
+                "timestamp_basis": "sample_clock_native_hint"
+              }
+            ],
+            "field_ready": false,
+            "scope": "rust_asr_prototype",
+            "status": "accepted"
+          },
+          {
+            "events": [
+              {
+                "end_ms": 8000,
+                "segment_id": "rs-4-0",
+                "session_generation": 1,
+                "session_id": "asr-prototype",
+                "source_language": "ko",
+                "source_revision": 1,
+                "stage": "stable",
+                "start_ms": 4000,
+                "text": "안녕하세요.",
+                "timestamp_basis": "sample_clock_native_hint"
+              }
+            ],
+            "field_ready": false,
+            "scope": "rust_asr_prototype",
+            "status": "accepted"
+          }
+        ],
+        "native_pids": [
+          49429
+        ],
+        "native_reaped": true,
+        "fixture_asr_reaped": true,
+        "native_exit_code": null,
+        "native_exit_code_status": "not_exposed_by_shipped_example",
+        "numeric_source_preserved": true,
+        "error_code": "translation_rejected",
+        "numeric_english_state": "failed",
+        "numeric_japanese_state": "available",
+        "following_english_state": "available",
+        "example_exit_code": 0
+      }
+    },
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.12.13",
+    "verified_inputs": {
+      "model/model.bin": {
+        "sha256": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+        "bytes": 490667752
+      },
+      "model/config.json": {
+        "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+        "bytes": 223
+      },
+      "model/shared_vocabulary.json": {
+        "sha256": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+        "bytes": 2796509
+      },
+      "tokenizer/tokenizer_config.json": {
+        "sha256": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+        "bytes": 298
+      },
+      "tokenizer/special_tokens_map.json": {
+        "sha256": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+        "bytes": 1140
+      },
+      "tokenizer/sentencepiece.bpe.model": {
+        "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+        "bytes": 2423393
+      },
+      "tokenizer/vocab.json": {
+        "sha256": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc",
+        "bytes": 3708092
+      }
+    },
+    "versions": {
+      "ctranslate2": "4.8.5",
+      "transformers": "5.22.1",
+      "sentencepiece": "0.2.2",
+      "numpy": "2.5.3",
+      "tokenizers": "0.23.2"
+    },
+    "prepared_files": {
+      "model/model.bin": {
+        "sha256": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+        "bytes": 490667752
+      },
+      "model/config.json": {
+        "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+        "bytes": 223
+      },
+      "model/shared_vocabulary.json": {
+        "sha256": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+        "bytes": 2796509
+      },
+      "tokenizer/tokenizer_config.json": {
+        "sha256": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+        "bytes": 298
+      },
+      "tokenizer/special_tokens_map.json": {
+        "sha256": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+        "bytes": 1140
+      },
+      "tokenizer/sentencepiece.bpe.model": {
+        "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+        "bytes": 2423393
+      },
+      "tokenizer/vocab.json": {
+        "sha256": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc",
+        "bytes": 3708092
+      }
+    },
+    "prepare": {
+      "ready": true,
+      "pid": 49399,
+      "path": "shipped_prepare_worker_copy_verified_cache_and_native_load",
+      "exit_code": -15,
+      "reaped": true
+    },
+    "rust_example_sha256": "d710779e8b14eb54205ac9e5bd299edb5d7bbc01cdbdea97797f034f57924b05",
+    "verified_files_after": {
+      "model/model.bin": {
+        "sha256": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+        "bytes": 490667752
+      },
+      "model/config.json": {
+        "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+        "bytes": 223
+      },
+      "model/shared_vocabulary.json": {
+        "sha256": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+        "bytes": 2796509
+      },
+      "tokenizer/tokenizer_config.json": {
+        "sha256": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+        "bytes": 298
+      },
+      "tokenizer/special_tokens_map.json": {
+        "sha256": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+        "bytes": 1140
+      },
+      "tokenizer/sentencepiece.bpe.model": {
+        "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+        "bytes": 2423393
+      },
+      "tokenizer/vocab.json": {
+        "sha256": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc",
+        "bytes": 3708092
+      }
+    },
+    "status": "passed"
+  }
+}
