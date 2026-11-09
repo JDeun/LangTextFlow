@@ -10,12 +10,14 @@ import subprocess
 import sys
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from threading import BoundedSemaphore
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
+from test_rust_correction_worker import ollama  # noqa: F401
 
 from langtextflow import main
 from langtextflow.config import Settings
@@ -63,7 +65,7 @@ for line in sys.stdin:
 
 
 @pytest.mark.parametrize("change", [
-    {"engine": "auto"}, {"record_audio": True}, {"correction_provider": "ollama"},
+    {"engine": "auto"}, {"record_audio": True}, {"correction_provider": "unsupported"},
     {"translation_provider": "ollama"}, {"translation_model": "path/private"},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
@@ -134,6 +136,7 @@ def rust_api(monkeypatch, tmp_path):
         runtime_core="rust", rust_runtime_binary=binary,
         database_path=str(tmp_path / "session.db"), mdns_enabled=False,
     )
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
     runtime = CaptionRuntime(settings)
     from langtextflow.translation import m2m100_ct2
 
@@ -366,7 +369,7 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
     mt = [value for value in records if value["task_kind"] == "translation"]
     assert len(asr) == 1 and len(mt) == 2
     assert json.loads(asr[0]["payload"])["context"] == expected
-    assert expected["description"] == "d" * 1000 and expected["reference_text"] == "r" * 1200
+    assert expected["description"] == "d" * 1000 and expected["reference_text"] == "r" * 2000
     assert "late mutation" not in expected["hotwords"]
     assert all(entry["source_language"] == source for entry in expected["glossary"])
     assert "wrong-source" not in [entry["term"] for entry in expected["glossary"]]
@@ -376,6 +379,217 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
             "preset": preset, "glossary": expected["glossary"],
         }
     assert runtime._rust_slot._value == 1
+
+
+@pytest.mark.parametrize("provider,mode", [
+    ("none", "deterministic"), ("ollama", "llm"), ("ollama", "rejected"),
+    ("ollama", "unavailable"),
+])
+def test_actual_api_correction_preserves_original_provenance_history_and_mt_handoff(
+    rust_api, monkeypatch, ollama, provider, mode,  # noqa: F811 - imported pytest fixture
+):
+    client, runtime = rust_api
+    url, calls, response = ollama
+    runtime.settings.ollama_url = url
+    runtime.settings.ollama_correction_model = "fixture-model:tag"
+    response["candidate"] = "요한복음 9장." if mode == "rejected" else "요한복음 3장."
+    response["available"] = mode != "unavailable"
+    chosen = "요한복음 3장." if mode == "llm" else "요한복음 3장"
+
+    def commands(self, request):
+        asr = _ASR.replace("Original English source", "요한 보금 3장")
+        mt = _MT.replace("    failed=", (
+            f"    assert json.loads(req['payload'])['text']=={chosen!r}\n    failed="
+        ))
+        return ({"program": sys.executable, "args": ["-u", "-c", asr]},
+                {"program": sys.executable, "args": ["-u", "-c", mt]})
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "source_language": "ko", "target_languages": ["en", "ja"],
+        "correction_provider": provider,
+        "context": {"preset": "church", "title": "Source title", "presenter": "Presenter",
+                    "reference_text": "r" * 4000},
+    })
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        assert captions.receive_json()["type"] == "snapshot"
+        assert audio.receive_json()["type"] == "audio_config"
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        events = [captions.receive_json()]
+        while not events[-1]["committed"]:
+            events.append(captions.receive_json())
+    assert events[0]["stage"] == "stable" and events[0]["text"] == "요한 보금 3장"
+    corrected = next(event for event in events if event["stage"] == "corrected")
+    assert corrected["text"] == chosen
+    assert all(event["original_text"] == "요한 보금 3장" for event in events)
+    stage_order = {"stable": 1, "corrected": 2, "translated": 3, "committed": 4}
+    assert [stage_order[event["stage"]] for event in events] == sorted(
+        stage_order[event["stage"]] for event in events
+    )
+    final = events[-1]
+    assert final["translation_states"] == {"en": "available", "ja": "failed"}
+    provenance = final["correction"]
+    assert provenance["method"] == (mode if mode in {"llm", "deterministic"} else "fallback")
+    assert provenance["deterministic_changed"] and provenance["changed"]
+    assert provenance["llm_attempted"] == (mode in {"llm", "rejected"})
+    assert provenance["llm_applied"] == (mode == "llm")
+    assert url not in json.dumps(final) and "r" * 64 not in json.dumps(final)
+    if calls:
+        context = json.loads(calls[0]["messages"][1]["content"])
+        assert context["reference_material"] == "r" * 3000
+        assert context["session_title"] == "Source title" and context["presenter"] == "Presenter"
+    assert client.post("/api/v1/session/stop").status_code == 200
+    saved = client.get(f"/api/v1/history/{sid}/captions").json()
+    assert saved[0]["text"] == chosen and saved[0]["original_text"] == "요한 보금 3장"
+    assert saved[0]["correction"] == provenance
+    assert runtime._rust_slot._value == 1
+
+
+def test_cancel_during_optional_prepare_does_not_start_asr_after_parent_eof(
+    rust_api, monkeypatch, ollama, tmp_path,  # noqa: F811 - imported pytest fixture
+):
+    client, runtime = rust_api
+    url, _, response = ollama
+    response["prepare_delay"] = .25
+    runtime.settings.ollama_url = url
+    runtime.settings.ollama_correction_model = "fixture-model:tag"
+    marker = tmp_path / "asr-must-not-start"
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c",
+                 f"open({str(marker)!r},'w').write('started')\n" + _ASR]}, None)
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+
+    async def scenario():
+        task = asyncio.create_task(runtime.start(StartSessionRequest(
+            **(_REQUEST | {"correction_provider": "ollama"}),
+        )))
+        async with asyncio.timeout(3):
+            while not response["preparing"]:
+                await asyncio.sleep(.005)
+        bridge = runtime.engine
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 5)
+        assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+        assert not marker.exists() and runtime.engine is None and not runtime.state.running
+
+    client.portal.call(scenario)
+
+
+def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
+    rust_api, monkeypatch, tmp_path,
+):
+    from langtextflow import rust_runtime
+    from langtextflow.asr.base import AsrEngineError
+
+    client, runtime = rust_api
+    correction_pid = tmp_path / "correction.pid"
+    mt_started = tmp_path / "mt-started"
+    worker_command = rust_runtime._python_worker
+    sleeper = (
+        "import json,os,sys,time\nfor line in sys.stdin:\n"
+        f"    open({str(correction_pid)!r},'w').write(str(os.getpid()))\n"
+        "    time.sleep(30)\n"
+    )
+
+    def worker(module, args):
+        if module == "langtextflow.correction_worker":
+            return {"program": getattr(sys, "_base_executable", None) or sys.executable,
+                    "args": ["-u", "-c", sleeper]}
+        return worker_command(module, args)
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                {"program": sys.executable, "args": ["-u", "-c",
+                 f"open({str(mt_started)!r},'w').write('started')\n" + _MT]})
+
+    monkeypatch.setattr(rust_runtime, "_python_worker", worker)
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST)
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+    with client.websocket_connect("/ws/captions") as captions:
+        assert captions.receive_json()["type"] == "snapshot"
+
+        async def scenario():
+            await runtime.feed_audio(struct.pack("<f", .1) * 64000)
+            async with asyncio.timeout(3):
+                while not correction_pid.exists():
+                    await asyncio.sleep(.005)
+            bridge = runtime.engine
+            bridge._process.stdin.close()
+            await asyncio.wait_for(bridge._process.wait(), 8)
+            await asyncio.wait_for(bridge._reader, 2)
+            with pytest.raises(AsrEngineError):
+                await runtime.stop()
+            assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+
+        client.portal.call(scenario)
+    saved = client.get(f"/api/v1/history/{sid}/captions").json()
+    assert saved[0]["committed"] and saved[0]["stage"] == "committed"
+    assert saved[0]["text"] == saved[0]["original_text"] == "Original English source"
+    assert saved[0]["translation_states"] == {"ko": "failed", "ja": "failed"}
+    assert not mt_started.exists() and not _pid_alive(int(correction_pid.read_text()))
+
+
+def test_parent_eof_preserves_known_llm_attempt_and_deterministic_result_but_not_queued_attempts(
+    rust_api, monkeypatch, ollama,  # noqa: F811 - imported pytest fixture
+):
+    from langtextflow.asr.base import AsrEngineError
+
+    client, runtime = rust_api
+    url, calls, response = ollama
+    response["delay"] = 2
+    runtime.settings.ollama_url = url
+    runtime.settings.ollama_correction_model = "fixture-model:tag"
+    runtime.settings.correction_timeout_seconds = 5
+    asr = _ASR.replace("Original English source", "요한 보금 3장")
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", lambda *_: (
+        {"program": sys.executable, "args": ["-u", "-c", asr]}, None,
+    ))
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "source_language": "ko", "target_languages": ["en", "ja"],
+        "correction_provider": "ollama", "translation_provider": "none",
+        "context": {"preset": "church"},
+    })
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+
+    async def scenario():
+        for _ in range(2):
+            await runtime.feed_audio(struct.pack("<f", .1) * 64000)
+        async with asyncio.timeout(3):
+            while not calls or len(runtime.store.snapshot()) != 2:
+                await asyncio.sleep(.005)
+        bridge = runtime.engine
+        bridge._process.stdin.close()
+        await asyncio.wait_for(bridge._process.wait(), 8)
+        await asyncio.wait_for(bridge._reader, 2)
+        with pytest.raises(AsrEngineError):
+            await runtime.stop()
+        assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+
+    client.portal.call(scenario)
+    saved = client.get(f"/api/v1/history/{sid}/captions").json()
+    assert len(saved) == 2 and len(calls) == 1
+    active, queued = saved
+    assert active["text"] == "요한복음 3장" and queued["text"] == "요한 보금 3장"
+    for event, attempted in [(active, True), (queued, False)]:
+        assert event["committed"] and event["stage"] == "committed"
+        assert event["original_text"] == "요한 보금 3장"
+        assert event["translation_states"] == {"en": "unsupported", "ja": "unsupported"}
+        assert event["correction"]["method"] == "fallback"
+        assert event["correction"]["llm_attempted"] is attempted
+        assert event["correction"]["llm_applied"] is False
+        assert event["correction"]["deterministic_changed"] is attempted
+        assert event["correction"]["changed"] is attempted
+        assert url not in json.dumps(event)
 
 
 def test_rust_history_failure_does_not_block_source_and_later_stop_ends_session(rust_api):

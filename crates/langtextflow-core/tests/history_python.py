@@ -103,5 +103,8 @@ elif mode == "verify":
     assert restored.segments("history-session") == events
     print(json.dumps({"python_repository": True, "http_history": True,
                       "export": True, "private_backup_restore": True}))
+elif mode == "dump":
+    print(json.dumps([event.model_dump(mode="json")
+                      for event in history.segments("history-session")], ensure_ascii=True))
 else:
     raise AssertionError("unknown test mode")

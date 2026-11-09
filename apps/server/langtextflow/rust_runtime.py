@@ -19,7 +19,13 @@ from websockets.asyncio.client import connect
 
 from .asr.base import AsrEngine, AsrEngineError
 from .config import Settings
-from .models import GlossaryEntry, StartSessionRequest, TranscriptEvent
+from .models import (
+    CorrectionStatus,
+    GlossaryEntry,
+    StartSessionRequest,
+    TranscriptEvent,
+    public_model_identity,
+)
 from .whisper_cache import WHISPER_REPOSITORIES, managed_whisper_cache, resolve_whisper_model
 
 _ERROR = "Rust runtime unavailable; stop the session and check local runtime setup."
@@ -31,12 +37,12 @@ _CONTEXT_LIMIT = 48 * 1024
 
 def _source_context(request: StartSessionRequest) -> dict:
     context = request.context
-    # These are exactly the fields consumed by the existing ASR prompt and MT
+    # These are exactly the fields consumed by existing ASR/LLM prompts and MT
     # guard. Preserve explicit hotwords; glossary hints require actual source.
     snapshot = {
         "title": context.title, "presenter": context.presenter,
         "description": context.description[:1000],
-        "reference_text": context.reference_excerpt(1200),
+        "reference_text": context.reference_excerpt(3000),
         "preset": context.preset.value, "hotwords": list(context.hotwords),
         "glossary": [entry.model_dump(mode="json", include=set(GlossaryEntry.model_fields))
                      for entry in context.glossary
@@ -67,9 +73,15 @@ def _python_worker(module: str, args: list[str]) -> dict:
 
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
     if (getattr(sys, "frozen", False) or request.engine != "faster-whisper"
-            or request.correction_provider != "none"
+            or request.correction_provider not in {"none", "ollama"}
             or request.translation_provider not in {"none", "m2m100-ct2"}
-            or request.record_audio or request.translation_model or request.correction_model
+            or request.record_audio or request.translation_model
+            or (request.correction_model and request.correction_provider != "ollama")
+            or not 0 < settings.correction_timeout_seconds <= 120
+            or (request.correction_provider == "ollama" and (
+                len(settings.ollama_url.encode()) > 4096
+                or not 1 <= len(request.correction_model or settings.ollama_correction_model) <= 200
+            ))
             or request.source_language not in {"ko", "en", "ja"}
             or any(lang not in {"ko", "en", "ja"} for lang in request.target_languages)
             or len(request.target_languages) > 2
@@ -80,7 +92,7 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
         raise ValueError(
             "Rust rollout requires source-mode CPU/int8 faster-whisper, "
-            "no correction/recording, and none or M2M100 MT; "
+            "none or Ollama correction, no recording, and none or M2M100 MT; "
             "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
         )
     _source_context(request)  # Reject an oversized snapshot before replacing a live source.
@@ -115,6 +127,7 @@ class RustRuntimeBridge(AsrEngine):
         self._stopped = False
         self._stopping = False
         self.persistence_error: str | None = None
+        self.correction_status = CorrectionStatus()
 
     running = property(lambda self: self._running)
     accepts_audio = property(lambda self: True)
@@ -152,6 +165,18 @@ class RustRuntimeBridge(AsrEngine):
     async def start(self, request: StartSessionRequest) -> None:
         validate_rust_request(self.settings, request)
         context = _source_context(request)
+        correction_options = {
+            "provider": request.correction_provider,
+            "url": self.settings.ollama_url if request.correction_provider != "none" else "",
+            "model": ((request.correction_model or self.settings.ollama_correction_model)
+                      if request.correction_provider != "none" else "unused"),
+            "timeout_seconds": max(self.settings.correction_timeout_seconds, .1),
+        }
+        self.correction_status = CorrectionStatus(
+            enabled=request.correction_provider != "none", provider=request.correction_provider,
+            model=(public_model_identity(correction_options["model"])
+                   if request.correction_provider != "none" else None),
+        )
         if not self.session_id:
             raise AsrEngineError(_ERROR)
         try:
@@ -175,6 +200,10 @@ class RustRuntimeBridge(AsrEngine):
                 "spool_directory": tempfile.gettempdir(), "asr": asr, "mt": mt,
                 "asr_model_identity": self._configured_model(request),
                 "context": context,
+                "correction": {
+                    "worker": _python_worker("langtextflow.correction_worker", []),
+                    "options": {**correction_options, "public_model": self.correction_status.model},
+                },
                 "translation_deadline_ms": round(
                     self.settings.translation_target_timeout_seconds * 1000,
                 ),
@@ -198,6 +227,9 @@ class RustRuntimeBridge(AsrEngine):
                     or any(c not in "0123456789abcdef" for c in ready["observer_path"][-64:])):
                 raise AsrEngineError(_ERROR)
             self._ready = True
+            self.correction_status.available = ready.get("correction_available") is True
+            if self.correction_status.enabled and not self.correction_status.available:
+                self.correction_status.error = "correction provider unavailable"
             if ready.get("history_available") is not True:
                 self.persistence_error = "Rust history unavailable; archive may be incomplete."
             # Endpoint derives solely from a bounded integer port; no redirects,
@@ -256,7 +288,12 @@ class RustRuntimeBridge(AsrEngine):
                             or frame["serial"] < self._serial):
                         raise AsrEngineError(_ERROR)
                     if frame.get("type") == "transcript":
-                        await self.publish(TranscriptEvent.model_validate(frame))
+                        event = TranscriptEvent.model_validate(frame)
+                        if event.correction is not None:
+                            if event.correction.llm_attempted:
+                                self.correction_status.available = True
+                            self.correction_status.error = event.correction.fallback_reason
+                        await self.publish(event)
                     elif frame.get("type") == "snapshot":
                         # No source revisions are accepted from this audio route;
                         # initial snapshot is empty. Reconnect never invents events.
@@ -295,7 +332,8 @@ class RustRuntimeBridge(AsrEngine):
         try:
             self._sequence += 1
             self._process.stdin.write(struct.pack("<BI", tag, len(frame)) + frame)
-            budget = _CONTROL_BUDGET + self.settings.translation_target_timeout_seconds
+            budget = _CONTROL_BUDGET + max(self.settings.translation_target_timeout_seconds,
+                                          self.settings.correction_timeout_seconds)
             async with asyncio.timeout(budget):
                 await self._process.stdin.drain()
                 reply = await self._reply("ack", budget)
