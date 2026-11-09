@@ -74,7 +74,8 @@ def test_safe_small_edits_and_word_controls_are_preserved(language, source, cand
 def test_prohibition_markers_require_the_ji_form_and_a_complete_word_ending():
     assert protected_tokens("Knowledge and notable progress.", "en") == ([], 0)
     assert protected_tokens("마음 마라톤 저지 마라톤 바지 마음 저지 말라리아", "ko") == ([], 0)
-    assert protected_tokens("잊지 마라. 하지 마세요. 잊지마. 하지 말라. 잊지 마십시오.", "ko") == ([], 5)
+    prohibitions = "잊지 마라. 하지 마세요. 잊지마. 하지 말라. 잊지 마십시오."
+    assert protected_tokens(prohibitions, "ko") == ([], 5)
 
 
 @pytest.mark.parametrize("language,source,candidate", [_CASES[0], _CASES[4], _CASES[7]],
