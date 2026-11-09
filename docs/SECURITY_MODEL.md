@@ -130,3 +130,87 @@ Before distributing a desktop release, the installer must document the database/
 ## Release security gate
 
 A release candidate must satisfy `docs/RELEASE_CHECKLIST.md`. Any unresolved critical/high dependency advisory, exposed secret, operator endpoint reachable from a non-loopback or disallowed browser origin, or reproducible crash/data-loss defect blocks release.
+
+### Rust lock audits (2026-11-04)
+
+CI uses official `cargo-audit =0.22.2` (MSRV 1.88, Apache-2.0/MIT) with the
+repository's Rust 1.90 toolchain. It snapshots the current official RustSec database
+and records its commit, then audits **both complete lock files** with
+`--deny warnings --json`, without advisory ignores or target filters. The
+`rust-dependency-security` artifact retains both raw reports, strict exit codes,
+three cross-target desktop graphs, and `qualification.json`. Existing Windows/macOS
+platform-smoke jobs additionally check and upload their actual native-host graph;
+an Intel-only metadata job uses the officially supported
+[`macos-15-intel` runner](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+to check Intel macOS without repeating model/backend/UI tests:
+cross-target Cargo trees alone do not include every host-conditional build edge.
+Database/network/graph/tool failures fail the job. This fills the former Python/npm-only audit gap;
+successful unsigned packaging alone does not establish dependency security.
+
+The auditor runs from a temporary directory containing an explicit configuration
+with yank checking enabled and terminal quiet mode disabled, overriding project/home
+audit configuration. Locked Cargo metadata is fetched before auditing. Raw JSON
+stderr errors fail qualification; a companion nonquiet, colorless terminal audit
+also exposes registry-open/update failures that cargo-audit 0.22.2 hides in JSON
+mode. Both lock hashes must remain unchanged before and after **every subprocess**.
+An earlier implementation's green artifact (run 41689319049) contained registry
+lookup errors and therefore proves advisory matching only, not complete yank checking.
+Its original artifact remains preserved; that result must not be reused as full
+dependency qualification.
+
+The original desktop lock had 11 vulnerability findings at RustSec database
+`6c5fedf8ff03c485ed674d8f941e0180f3f72d70`:
+
+| Dependency | Patched lock | Advisory IDs |
+|---|---|---|
+| rustls 0.23.44 | 0.23.46 | 2026-0346, 2026-0285, 2026-0347, 2026-0348, 2026-0349 |
+| rustls-webpki 0.103.15 | 0.103.16 | 2026-0382 |
+| webpki-root-certs 1.0.9 | 1.0.10 | 2026-0383 |
+| zip 4.6.1 | 9.3.0 | 2026-0429, 2026-0367, 2026-0368, 2026-0369 |
+
+Advisory IDs above use the `RUSTSEC-` prefix; the pinned official
+[database snapshot](https://github.com/RustSec/advisory-db/tree/6c5fedf8ff03c485ed674d8f941e0180f3f72d70/crates)
+contains affected ranges and upstream fixes. Desktop Tokio is also 1.53.3 for
+[RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html).
+The actual application calls `UpdaterExt::check`, `Update::download`, then
+`Update::install`; TLS/certificate verification is a runtime dependency. The
+Windows updater's ZIP extraction is also runtime code, after signature verification,
+not a build-only dependency. These are distinct from Python recording ZIP import.
+
+The compatible official
+[updater 2.14.1 release](https://github.com/tauri-apps/plugins-workspace/releases/tag/updater-v2.14.1)
+upgrades ZIP to v9; its
+[pinned manifest](https://github.com/tauri-apps/plugins-workspace/blob/128190689dbe59b59d344e01bf07b00862aa3791/plugins/updater/Cargo.toml)
+uses Tauri 2.12, Rust 1.90, and Apache-2.0/MIT. Its packaged VCS metadata matches
+that commit. We retain default updater features and use Cargo resolution, without
+a forced incompatible ZIP patch. Our callers do not destructure its changed
+Windows `Error::Extract` type. Package builds must still pass on Windows/macOS;
+this does not approve signed-update installation or a new release.
+
+The patched complete desktop lock has **zero vulnerabilities but still two
+warnings**, so strict cargo-audit still exits 1:
+
+- [glib 0.18.5 unsoundness](https://rustsec.org/advisories/RUSTSEC-2024-0429.html)
+  is reachable through GTK 0.18 in the Linux desktop runtime graph.
+- [proc-macro-error 1.0.4 maintenance warning](https://rustsec.org/advisories/RUSTSEC-2024-0370.html)
+  is in the Linux GTK/glib proc-macro build graph.
+
+The Windows MSVC, macOS ARM64 and macOS Intel cross-target Cargo graphs contain neither
+package. The qualification script checks their exact package/version absence in
+all three normal/build/dev graphs, and the native Windows, macOS ARM64 and Intel
+metadata checks must also pass. Only each runner's actual architecture is a
+native-host observation; the Linux job's trees remain cross-target observations.
+Any vulnerability, new warning, changed warning
+package/version, missing graph, or warning present in a supported graph fails.
+This is an evidenced platform qualification, not a clean whole-lock audit.
+Linux desktop remains unqualified: Tauri 2.12/WRY's GTK 0.18 constraints cannot
+select patched glib >=0.20 through a compatible lock update. Do not ship a Linux
+desktop bundle under the Windows/macOS result.
+
+Reproduce with the pinned tool and a current official database checkout:
+
+```sh
+cargo install cargo-audit --version 0.22.2 --locked
+git clone --depth 1 https://github.com/RustSec/advisory-db.git /tmp/rustsec-advisory-db
+python scripts/audit_rust_dependencies.py --database /tmp/rustsec-advisory-db
+```
