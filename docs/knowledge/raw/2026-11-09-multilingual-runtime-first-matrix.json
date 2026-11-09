@@ -1,0 +1,595 @@
+{
+  "id": "2026-11-09-multilingual-runtime-first-matrix",
+  "accessed": "2026-11-09",
+  "classification": "reproduced_bounded_real_public_read_speech_six_direction_runtime_coverage_with_one_target_failure_not_model_selection",
+  "tracking_issues": [
+    126,
+    127,
+    100,
+    158
+  ],
+  "sources": [
+    {
+      "kind": "measured_source",
+      "url": "https://github.com/JDeun/LangTextFlow/tree/ffa226f9432ffb4a771e761cab5c11a2cec1243a"
+    },
+    {
+      "kind": "pinned_public_data",
+      "url": "https://huggingface.co/datasets/google/fleurs/tree/fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+      "license": "CC-BY-4.0"
+    },
+    {
+      "kind": "primary_sentence_index_contract",
+      "url": "https://arxiv.org/html/2205.12446",
+      "section": "2.3"
+    },
+    {
+      "kind": "original_HF_TSV_index_to_id_builder",
+      "url": "https://huggingface.co/datasets/google/fleurs/blob/d74c1f182ca32a92215e33f39aa25543ae5a5647/fleurs.py"
+    },
+    {
+      "kind": "character_metric_implementation",
+      "url": "https://github.com/mjpost/sacrebleu/blob/v2.5.1/sacrebleu/metrics/chrf.py"
+    }
+  ],
+  "rights": "Licensed public source/reference text and model-generated output only; no private speech, WAV, model weights, application auth/settings database, or home paths published",
+  "measured_source_sha": "ffa226f9432ffb4a771e761cab5c11a2cec1243a",
+  "production_base_sha": "94334ae233c322e1c5eea35172fee8fcdd3ef88e",
+  "source_file_sha256": {
+    "scripts/evaluate_live_fleurs_translation.py": "05bde6f8237791d2c75b653a87559b600b78c06e8754d87f01fb25d97c05cab1",
+    "scripts/evaluate_fleurs_asr.py": "c62d66df11b43c3c35c3480438920f603c42ab9809bbfa7fff6df3bc856a4a6b",
+    "apps/server/langtextflow/asr/faster_whisper.py": "32c3504c7773e80c4d2d2706d0ada40c38b5d03d8cbe87757b8b9cf20e051ea4",
+    "apps/server/langtextflow/runtime.py": "9403cc1a602a3a399216fabb219ffd12534b038c7ae2503575595e02073f94ee",
+    "apps/server/langtextflow/pipeline.py": "b52619016b87df9466142e20786d86542bbf0a51f0552d4f40ebb0044de065ec",
+    "apps/server/langtextflow/benchmark.py": "8af86bc2e0e8396b0dc11876ed0c826a0098bc9238822c9c71b56e0040feaec1",
+    "apps/server/langtextflow/runtime_benchmark.py": "5510823168517f89f6967dc120e53da47a7bad3f604a3bb70cf9fd2f969f4bca",
+    "apps/server/langtextflow/translation/m2m100_ct2.py": "7d615f70357fe48cec175275ccdf99ac01beccdb7099a8737495c85f1ea57e51",
+    "apps/server/langtextflow/translation/m2m100_worker.py": "b8ed18a2f884b6f4e043c22e58d88d910420d6d37ad55046f9f381fedffb0887",
+    "apps/server/langtextflow/correction_benchmark.py": "e37b9ee557f67d6613bef0d391633434d12811e709b18cbc0e2661d6b4fe3b03",
+    "apps/server/langtextflow/correction_safety.py": "675a0d0ea05a816c17939082186ad543124bc2ae555b2a6408c1316364c2c613",
+    "uv.lock": "5a5e7d61d163b7cc7e2375297d7275727fbf14d3310873454aa4d06b8412db13"
+  },
+  "model_files": {
+    "asr": {
+      "base": {
+        "repository": "Systran/faster-whisper-base",
+        "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+        "license": "MIT",
+        "files": {
+          "model.bin": {
+            "sha256": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+            "bytes": 145217532
+          },
+          "config.json": {
+            "sha256": "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
+            "bytes": 2309
+          },
+          "tokenizer.json": {
+            "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+            "bytes": 2203239
+          },
+          "vocabulary.txt": {
+            "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+            "bytes": 459861
+          }
+        },
+        "metadata_sha256": "00ba2965133ff3806bee4702337fe830a2e1028850dbcefadf7bb20f7c9a6a80"
+      },
+      "small": {
+        "repository": "Systran/faster-whisper-small",
+        "revision": "536b0662742c02347bc0e980a01041f333bce120",
+        "license": "MIT",
+        "files": {
+          "model.bin": {
+            "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+            "bytes": 483546902
+          },
+          "config.json": {
+            "sha256": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
+            "bytes": 2370
+          },
+          "tokenizer.json": {
+            "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+            "bytes": 2203239
+          },
+          "vocabulary.txt": {
+            "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+            "bytes": 459861
+          }
+        },
+        "metadata_sha256": "b5192402c9ab7626ca09d95b113b0f33750f723d7b5376eed995ac7df973f4cb"
+      }
+    },
+    "m2m100": {
+      "model_id": "facebook/m2m100_418M",
+      "model_revision": "55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636",
+      "transport_revision": "18e406c615ef2991fa74d53734bf66b0a6b10cb4",
+      "files": {
+        "model/model.bin": {
+          "sha256": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+          "bytes": 490667752
+        },
+        "model/config.json": {
+          "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+          "bytes": 223
+        },
+        "model/shared_vocabulary.json": {
+          "sha256": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+          "bytes": 2796509
+        },
+        "tokenizer/tokenizer_config.json": {
+          "sha256": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+          "bytes": 298
+        },
+        "tokenizer/special_tokens_map.json": {
+          "sha256": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+          "bytes": 1140
+        },
+        "tokenizer/sentencepiece.bpe.model": {
+          "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+          "bytes": 2423393
+        },
+        "tokenizer/vocab.json": {
+          "sha256": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc",
+          "bytes": 3708092
+        }
+      }
+    }
+  },
+  "native_environment": {
+    "ctranslate2": "4.8.5",
+    "sentencepiece": "0.2.2",
+    "faster-whisper": "1.2.1",
+    "transformers": "5.22.1",
+    "tokenizers": "0.23.2",
+    "numpy": "2.5.3",
+    "psutil": "7.2.2"
+  },
+  "hardware": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "logical_cpus": 10,
+    "physical_memory": "16 GB",
+    "chip": "Apple M4",
+    "number_processors": "proc 10:4:6:0",
+    "machine_model": "Mac16,10",
+    "source": "system_profiler SPHardwareDataType; private serial/UUID/provisioning identifiers omitted"
+  },
+  "controls": {
+    "order": [
+      [
+        "base",
+        "ko"
+      ],
+      [
+        "small",
+        "en"
+      ],
+      [
+        "base",
+        "ja"
+      ],
+      [
+        "small",
+        "ko"
+      ],
+      [
+        "base",
+        "en"
+      ],
+      [
+        "small",
+        "ja"
+      ]
+    ],
+    "targets": {
+      "ko": [
+        "en",
+        "ja"
+      ],
+      "en": [
+        "ko",
+        "ja"
+      ],
+      "ja": [
+        "ko",
+        "en"
+      ]
+    },
+    "resource_profile": "low",
+    "cpu_threads_per_asr_and_mt": 2,
+    "not_total_host_core_quota": true,
+    "effective_postprocess_workers": 1,
+    "effective_parallel_targets": 1,
+    "chunk_seconds": 4,
+    "target_deadline_seconds": 20,
+    "worker_deadline_seconds": 30,
+    "per_arm_supervisor_seconds": 220,
+    "whole_run_seconds": 1200,
+    "no_correction_glossary_history_hint_reference_in_inference": true,
+    "scope": "Python CaptionRuntime/legacy isolated native M2M100, actual 100ms audio pacing, queues/persistence/hub; not Rust scheduler/network/browser/microphone"
+  },
+  "prompt": {
+    "static_context_title": "Licensed read-speech pilot",
+    "reference_text_supplied_to_inference": false,
+    "rolling_hypothesis_prompt": false
+  },
+  "parallel_reference_verification": {
+    "pinned_revision": "fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+    "text_rows_per_language": {
+      "ko": 382,
+      "en": 647,
+      "ja": 650
+    },
+    "common_test_sentence_id_count": 249,
+    "same_id_different_raw_text_per_language": {
+      "ko": [],
+      "en": [],
+      "ja": []
+    },
+    "selected_ids": [
+      1883,
+      1929,
+      1701
+    ],
+    "selection": "first recording ordinal in each pinned parquet; fixed before model output",
+    "topics": {
+      "1883": "bridge clearance15m, construction August2011, traffic opening March2017",
+      "1929": "Del Potro second-set advantage and6-6 tiebreak",
+      "1701": "goat domestication roughly10000years ago in Iran Zagros"
+    },
+    "qualification": "published human parallel read-speech references; no new independent bilingual or sermon review",
+    "private_preparation_sha256": {
+      "inspect_parallel_metadata.py": "2247f51a2fae9e65fca21d63fa2e53a374fa5421034b490294a429434abc2c1a",
+      "prepare_parallel_audio.py": "56bede55da6db69e15c8c694ba6cdcc4b427f4bcb89ae329d1fb55c84eb489d2",
+      "fleurs-README.md": "b18a8fe65e274bffaef8829fa213c5c6f83b05f19490511ba9733d8c75433d98",
+      "fleurs-builder-d74c1f1.py": "e46311079cba0e1d03d695337d7b2655af4f06cae6c7d521e8d8ff4a7180a616",
+      "ko_kr-text-metadata.json": "9daddb1e692879164b4c5b21d364a0d0742c30f0c30101cf79b0244db7df74dc",
+      "en_us-text-metadata.json": "d686d4b1fe252e7329eeb218ea7814ff73a9657c03adf5f7a27a3ee76cc48444",
+      "ja_jp-text-metadata.json": "986d6a6f97448f7442b3e523201220623c12a4a8b80e03232a0cedb587a2a8b6",
+      "parallel-metadata-summary.json": "939236938676e13e934edaa1cb1003ce4c464cfb369f6f9dd56734752d1cb4a6"
+    }
+  },
+  "fixture_record": {
+    "record": "2026-11-09-multilingual-fleurs-parallel-fixtures.json",
+    "sha256": "0ff532777e1a7c02b249240d908f80014f6eccd65af99ce5fc664ce5e584775a",
+    "adaptation": "none; original derived JSON already contains no private paths or audio"
+  },
+  "offline_analysis_record": {
+    "record": "2026-11-09-multilingual-runtime-offline-analysis.json",
+    "sha256": "eb013fb3d3ff5a1efaca7f50a8f255def1c51ff06e593bce3ef8b279a44f0ba4",
+    "adaptation": "none; original derived JSON already contains no private paths or audio"
+  },
+  "population": {
+    "unique_speech_clips": 9,
+    "unique_parallel_sentence_ids": 3,
+    "model_source_arms": 6,
+    "planned_target_direction_arm_results": 12,
+    "complete_target_results": 11,
+    "incomplete_target_results": 1,
+    "audio_playbacks": 18,
+    "committed_source_caption_segments_across_arms": 48,
+    "planned_caption_target_cells": 96,
+    "available_caption_target_cells": 95,
+    "failed_caption_target_cells": 1,
+    "denominator_note": "12 model/source/target cohort tracks each span3sentences; 96 cells are48 emitted source segments times2selected targets, not96 independent clips or sentences"
+  },
+  "all_source_and_target_numeric_arrays_preserved_in": "2026-11-09-multilingual-runtime-offline-analysis.json",
+  "numeric_interpretation": "ordered literal digit-token mismatch is not semantic error certification; punctuation6-6 vs6/6 or spelling-out numbers can differ legitimately",
+  "source_attribution_examples": {
+    "base_ko_1883": "2011→2021 already occurs in ASR and is inherited by target text; not attributed solely to MT",
+    "relation_to_own_history_pilot": "different runtime/title/connected corpus/newCT2; no causal comparison with frozen1fb OWN-history OFF/ON"
+  },
+  "output_text_for_independent_offline_recalculation": [
+    {
+      "arm": "arm-0-base-ko",
+      "source_hypothesis": "다름이 수직 간격은 15m 이며 공사는 2021년 8월에 마무리되었으며 해당 다리의 통행은 2017년 3월까지이다. 대우 포트로가 있을 테스트. 먼저 어드베티지를 얻었지만 6대 6이 된 후 다시 타입 브레이크가 필요했다. 염소 사육은 대략 1만 년 전에 일한 자그로 수산맥에서 시작한 것으로 보입니다.",
+      "target_hypotheses": {
+        "en": "The distance is 15 meters, and the building is It was completed in August 2021 and the passage of the foot was completed. until March 2017. Testing with Port. I got the advette first, but it was 6 to 6 and then again. I needed a type of breakout. Sheep breeding worked about 10,000 years ago It seems to have started in the shell.",
+        "ja": "建物の距離は15m、建物は 2021年8月、その足の通過が完了した。 2017年3月まで。 ポルトガルがテスト。 最初はアドベティジーを獲得したが、6対6になった後再び タイプブレイクが必要だった。 牛飼育は約1万年前の仕事だった。 サンタから始まったようです。"
+      },
+      "failed_target_events": []
+    },
+    {
+      "arm": "arm-1-small-en",
+      "source_hypothesis": "The vertical clearance under the bridge is 15 meters. was completed in August 2011. It didn't open to traffic until March 2000. 17 Early advantage in the second set but this is too required a tie break after re- 286 to 6 Goats seem to have been first domesticated roughly 10th of... years ago in the Zagros Mountains of Iran.",
+      "target_hypotheses": {
+        "ko": "다리 아래의 수직 청소는 15 미터입니다. 2011년 8월에 완료되었으며, 2000년 3월까지는 교통에 열리지 않았다. 두 번째 세트에서 초기 우위하지만 이것은 너무 필요한 사이프로크 후 다시- 286 - 6 고양이는 처음으로 약 10번째로 집주된 것처럼 보인다. 몇 년 전, 이란의 Zagros 산에서",
+        "ja": "橋の下の垂直清掃は15メートルです。 完成したのは2011年8月です。それは2000年3月まで交通に開かれていませんでした。 17位 初期の優位性は2番目のセットですが、これはまた、再開後のタイ・ブレイクが必要です。 286～6 牛は、最初に家畜化されたようだ約10番目に... イランのザグロス山脈で、"
+      },
+      "failed_target_events": [
+        {
+          "segment_id": "fw-00000003",
+          "original_text": "17",
+          "target_states": {
+            "ko": "failed",
+            "ja": "available"
+          },
+          "translations": {
+            "ja": "17位"
+          }
+        }
+      ]
+    },
+    {
+      "arm": "arm-2-base-ja",
+      "source_hypothesis": "発信したの情報空間は15m です。2011年8月2日し、2017年3月まで 開通しませんでした。 第二セットではデルポトルが、ちょまん 1から有意でしたが、6対6に追いつかれた後、また タイブレークが必要となりました 薬の価値 約1年前に始まりその中心は ジャグロス300セイグであったとされています",
+      "target_hypotheses": {
+        "ko": "정보가 전달되었는데, 정보가 15m 정도에요. 2011년 8월 2일, 2017년 3월까지 열리지 않았습니다. 두 번째 세트에서 델포틀은 조금씩 1에서 1로 격려되었지만 6에서 6로 추격되었을 때, 다시 티브레이크가 필요하다. 약의 가치 1년 전부터 시작된 이 중앙은 그럼에도 불구하고, 그들은 300 세그의 자그로스가 있다고 말한다.",
+        "en": "The information space is 15m. 2 August 2011 and until March 2017 I did not open. In the second set, Delphi is a little bit. I was a good one, but after 6 to 6 I was back. I needed a Tiber. The value of the medicine. It started about a year ago, and the center. It is said that Jagros was 300 seig."
+      },
+      "failed_target_events": []
+    },
+    {
+      "arm": "arm-3-small-ko",
+      "source_hypothesis": "다리미 수직 간격은 15m이며 공사는 2011년 8월에 마무리되었으며 해당 다리의 통행금 이 지지는 2017년 3월까지이다. 데이포트로가 2세트에... 그래서 먼저 어드베티지를 얻었지만 6대6이 된 후 다시 타이브레이크가 필요했다 염소 사육은 대략 1만 년 전에 일한... 오늘 자그로스 산맥에서 시작한 것으로 보입니다",
+      "target_hypotheses": {
+        "en": "The building is 15 meters and the building is In August 2011 the payment was completed. This support is until March 2017. DePorto is in 2 sets. I got the advette first, but it was 6 to 6 and then again. I needed Tiber. The cow’s cultivation worked about 10,000 years ago. It seems to have started today in the Jagros mountains.",
+        "ja": "建物の長さは15m、建物は 2011年8月、足の通行料が終了しました。 このサポートは2017年3月までです。 デフォルトは2セットで... 最初はアベティジーを獲得したが、6対6になった後、再び タイブレイクが必要だった。 牛飼育は約1万年前の仕事で、 今日は、ジャグロス山脈から始まったようです。"
+      },
+      "failed_target_events": []
+    },
+    {
+      "arm": "arm-4-base-en",
+      "source_hypothesis": "The vertical clearance under the bridge is 15 meters, construction... was completed in August 2011. It didn't open a traffic until March 2000. 17. Dale Poetra has- early advantage in the second set but this is to required a tie break after we Goads seem to have been first domesticated roughly 10th though. in years ago in the Zagros Mountains of Iran.",
+      "target_hypotheses": {
+        "ko": "다리 아래의 수직 청소는 15 미터이며, 건설... 2011년 8월에 완료되었으며, 2000년 3월까지는 교통이 열리지 않았다. 딜 詩(Dale Poetra) 두 번째 세트에서 초기 우위하지만 이것은 우리가 후에 타이 파이를 필요로합니다. 고드가 처음으로 약 10번째로 집주되었던 것 같다. 몇 년 전, 이란의 Zagros 산에서.",
+        "ja": "橋の下の垂直清掃は15メートル、建設... 2011年8月に完成しましたが、2000年3月まで交通が開かれていませんでした。 ダイル・ポエトラ(Dale Poetra) 初期の優位性は2番目にありますが、これが我々が後でタイ・パークを必要とする ゴードは、最初に約10番目に国内化されたようだ。 イランのザグロス山脈で、何年も前から"
+      },
+      "failed_target_events": []
+    },
+    {
+      "arm": "arm-5-small-ja",
+      "source_hypothesis": "走ったの情報空間は15m 2011年8月に春光市 2017年3月まで ご視聴ありがとうございました。 第2セットでは、テルポトロが序盤 本から有意でしたが、6対6に追いつかれた後、また このものやタイブレイクが必要となりました。 ヤギの価値 約1年万年前に始まり、その中心は 時間のザグロス300セーブであったとされています",
+      "target_hypotheses": {
+        "ko": "경주, 정보 공간은 15m 2011년 8월 봄광시 2017년 3월까지 비디오를 보셔서 감사합니다. 두 번째 세트에서 테르포트로는 첫 번째 세트를 차지한다. 책에서 흥미를 얻었지만 6-6에 따라 다시 쫓겨났다. 이걸 타이브레이크가 필요했어요. 염소의 가치 1년 전부터 시작되었는데, 그 중앙은 시간의 자그로스 300 사브가 있었다고 한다.",
+        "en": "The information space is 15m. Spring Light in August 2011. until March 2017 Thank you for your viewing. In the second set, Telpotro is in the first place. It was a good idea, but after 6 to 6 I was back. I needed this and the Tiber. The value of the bear. It started about a thousand years ago and the center of the It is said that the time was 300 saves."
+      },
+      "failed_target_events": []
+    }
+  ],
+  "quality_rejection_negative": {
+    "source_arm": "arm-1-small-en",
+    "original_source": "17",
+    "ko": "failed",
+    "ja": "17位",
+    "subsequent_ko_outputs": "available",
+    "strict_guard_relaxed": false,
+    "wire_error_code_captured": false,
+    "rejected_native_candidate_captured": false,
+    "same_native_pid_reuse_measured": false,
+    "interpretation": "numeric-only request failure consistent with strict source-copy guard; per-request worker error identity/PID was not captured"
+  },
+  "observability_limits": {
+    "process_tree_RSS": "unavailable/partial in all6arms because sandbox sysctl PID discovery raised PermissionError; parent RSS must not be treated as total co-resident memory",
+    "native_child_reap": {
+      "observed_at_utc": "2026-11-09 14:27:59 UTC",
+      "method": "ps -o pid,ppid,pgid -ax",
+      "parent_pids": [
+        78649,
+        78736,
+        78816,
+        78909,
+        79110,
+        79278
+      ],
+      "owned_parent_or_process_group_rows": [],
+      "all_owned_parent_and_group_ids_absent": true,
+      "scope": "Post-run OS process-group absence. Native M2M100 asyncio subprocess inherits each benchmark parent group; parent Popen.wait separately confirmed. Not a native child exit-code capture.",
+      "supervisor_correction": "Raw owned_descendants_absent=true was computed from an empty psutil observation set after sandbox sysctl PermissionError. Do not use it as a complete child-reaping proof.",
+      "memory_correction": "MemoryTracker process-tree discovery failed; retain partial/unavailable RSS fields. Parent RSS is not total native memory.",
+      "midrun_observed_group_rows": [
+        [
+          78909,
+          78642,
+          78909
+        ],
+        [
+          78912,
+          78909,
+          78909
+        ],
+        [
+          78927,
+          78909,
+          78909
+        ]
+      ],
+      "midrun_observation_scope": "Numbers observed via OS ps while arm3 ran. Child roles/exit codes were not captured; no claim of complete per-arm native PID enumeration.",
+      "host_overlap": "Sibling synthetic backend pytest suite was already running before first arm; completion notice received before 14:24:49 UTC. Early arms may overlap incidental synthetic test CPU load. No sibling native model or compile was reported during inference. No controlled ranking."
+    },
+    "start_timestamps": "analysis retains process.log birthtime immediately before Popen as approximate boundary and actual SQLite session.started_at/ended_at separately; exact OS spawn UTC was not captured",
+    "host_load": "Sibling synthetic pytest was already running at start, completion notice received before14:24:49UTC; early arm0/1 may overlap. No intentional other native model/GUI/compile overlap was reported. No controlled ranking."
+  },
+  "original_artifacts": {
+    "private_git_snapshot_after_native": "e7a4113",
+    "preserved_unchanged": true,
+    "manifest": [
+      {
+        "name": "arm-0-base-ko/live-benchmark.sqlite",
+        "sha256": "79b50f3d16009e5778ad8918880c85f61b301a6fc294b7c8920ceae7b61313c6"
+      },
+      {
+        "name": "arm-0-base-ko/live-interpretation-report.json",
+        "sha256": "50eaaf27526b10552127642b3b5cac5039f469e3cfa02f296d7ea4ac5fb2f471"
+      },
+      {
+        "name": "arm-0-base-ko/models.json",
+        "sha256": "c41f56daf651fbe1b08be25a095b90a24710b7e3fcfc9dbd8f386cb07b65ec77"
+      },
+      {
+        "name": "arm-0-base-ko/process.log",
+        "sha256": "d01aabeb906c74212a75da4b8e3c1e29355176c2e3f3a11c1d62fe8254037769"
+      },
+      {
+        "name": "arm-0-base-ko/supervisor.json",
+        "sha256": "c677a6a2664896ffc8f88522ecf82c2dd18098db6991afb1b665ba5bdb33b085"
+      },
+      {
+        "name": "arm-1-small-en/live-benchmark.sqlite",
+        "sha256": "3f721ad529fa5c940b6bb33f02925ea13c016895265cbc8670fa2197159c433a"
+      },
+      {
+        "name": "arm-1-small-en/live-interpretation-report.json",
+        "sha256": "40d879374808ffb0310293f8f7d1827f4fef9a20d5561bab3536afd8a10b4b29"
+      },
+      {
+        "name": "arm-1-small-en/models.json",
+        "sha256": "8d03a137795e84371583d153687eb30502f39bd17edaab1d926577041f1fc616"
+      },
+      {
+        "name": "arm-1-small-en/process.log",
+        "sha256": "3b10e3ef295c17a58f14bfc8be5a5c10e93d87f577d7fccfee081d2ae0d1d0b8"
+      },
+      {
+        "name": "arm-1-small-en/supervisor.json",
+        "sha256": "d17b992e6c3054cd1361fd62cbe9e30df8178c9267b4caa66ce12fb78b14b83a"
+      },
+      {
+        "name": "arm-2-base-ja/live-benchmark.sqlite",
+        "sha256": "006892d5ea49c5ce259bbe2a43cecdf1f99bf6950918861863fbb26720edbd80"
+      },
+      {
+        "name": "arm-2-base-ja/live-interpretation-report.json",
+        "sha256": "55afcb871f5fd525003ea875a3dbe80de3705190da45b832b38fa9ee34523842"
+      },
+      {
+        "name": "arm-2-base-ja/models.json",
+        "sha256": "c41f56daf651fbe1b08be25a095b90a24710b7e3fcfc9dbd8f386cb07b65ec77"
+      },
+      {
+        "name": "arm-2-base-ja/process.log",
+        "sha256": "9ba553b424ab0efdb5280656b73debf7d34ef3afd73fdd16bea64c26506835c3"
+      },
+      {
+        "name": "arm-2-base-ja/supervisor.json",
+        "sha256": "e1a0a60edef48c3bdc6406241bcbcc9eadf060d838191c58788a291b3337bbe2"
+      },
+      {
+        "name": "arm-3-small-ko/live-benchmark.sqlite",
+        "sha256": "549e0d2fef1e3e8f8b500f8dbb0c1ddbd8a7420252a3f44c86368b9adc076cf8"
+      },
+      {
+        "name": "arm-3-small-ko/live-interpretation-report.json",
+        "sha256": "1c12ae127f575f989c6d7d3a78c0443c7a984bf7d65fda87e80f4d94673b3a14"
+      },
+      {
+        "name": "arm-3-small-ko/models.json",
+        "sha256": "8d03a137795e84371583d153687eb30502f39bd17edaab1d926577041f1fc616"
+      },
+      {
+        "name": "arm-3-small-ko/process.log",
+        "sha256": "75f3bd53f24d05c4dfb84bf5457479b3b9b7dddb6ad0146b0e6a59365a413085"
+      },
+      {
+        "name": "arm-3-small-ko/supervisor.json",
+        "sha256": "44bdd991cbd53104aa5fd11043ba0ecd5dc69e22e3e80f4a74d10c8d28e06154"
+      },
+      {
+        "name": "arm-4-base-en/live-benchmark.sqlite",
+        "sha256": "51a0e0a3fa041c7d27f19ed9cc346b3f066ddb5cb2100a1c8aa71e0cbdc83ef1"
+      },
+      {
+        "name": "arm-4-base-en/live-interpretation-report.json",
+        "sha256": "d9fe810d1d0979f4f88640faebfc89a4b0eecfe2ef8b46aaaf675b0b7bc5feb4"
+      },
+      {
+        "name": "arm-4-base-en/models.json",
+        "sha256": "c41f56daf651fbe1b08be25a095b90a24710b7e3fcfc9dbd8f386cb07b65ec77"
+      },
+      {
+        "name": "arm-4-base-en/process.log",
+        "sha256": "72b43d77a838f24ca81cbaea21b34d8dd64744f92b32c2d7de62c67090d138af"
+      },
+      {
+        "name": "arm-4-base-en/supervisor.json",
+        "sha256": "1a2fbd988aaeaf2ef39a470ba100a5498aad237eb475ade06b56877cfd914af9"
+      },
+      {
+        "name": "arm-5-small-ja/live-benchmark.sqlite",
+        "sha256": "4ec1700a9e0acfb32d8c6dabebb3f8bc2b7e04532be1f73e25121dbfb7e531cc"
+      },
+      {
+        "name": "arm-5-small-ja/live-interpretation-report.json",
+        "sha256": "0e447764e9f2fb442c5c54807d1f57ec3e8093b71273ef1db6185affd7709b0f"
+      },
+      {
+        "name": "arm-5-small-ja/models.json",
+        "sha256": "8d03a137795e84371583d153687eb30502f39bd17edaab1d926577041f1fc616"
+      },
+      {
+        "name": "arm-5-small-ja/process.log",
+        "sha256": "9ed0e46173111ff2b121d69d4df1f4284183796d273c666dddaa1ef27d40545d"
+      },
+      {
+        "name": "arm-5-small-ja/supervisor.json",
+        "sha256": "4dd34b5940118e419515d8d899eeb876993632100da01d09a583fb0eb2ce2023"
+      },
+      {
+        "name": "offline-analysis.json",
+        "sha256": "eb013fb3d3ff5a1efaca7f50a8f255def1c51ff06e593bce3ef8b279a44f0ba4"
+      },
+      {
+        "name": "os-process-observation-supplement.json",
+        "sha256": "a32b3ca1bbb61be498d832e5a7027dc3012bcc65d64edc69e9c9a9446e650dfa"
+      },
+      {
+        "name": "plan.json",
+        "sha256": "82f21b999f59df3cb08fb59da1165791369afb03458177e4bf58898a3494f244"
+      },
+      {
+        "name": "supervisor-summary.json",
+        "sha256": "b3de6d1a961a37b9f97c95a00b2ec1ff0d0321f50056b253448db6d8ae0d3e55"
+      }
+    ],
+    "driver_sha256": "1be67fa0ec7b5d3f1b950c773e5b7a41fe8b252c278135d2035af406ef0d3638",
+    "offline_analyzer_sha256": "3f812eedafbb6327939609bcd9eab143ba5dc6423c780f2c11f3626543ee75bb",
+    "pre_native_failure": {
+      "status": "preflight_failed_before_any_child_or_model_load",
+      "driver_sha256": "1721b4a509ebaf8b21ff00a47295d54926145411eb2f994513a056e3a3a7ebde",
+      "error": "JSON roundtrip turns tuple arm order into lists; immutable prepared plan equality rejected",
+      "native_children_started": 0,
+      "source_sha": "ffa226f9432ffb4a771e761cab5c11a2cec1243a"
+    },
+    "original_plan_and_driver_preserved": true
+  },
+  "reproduction": {
+    "public_entrypoint": "python -m scripts.evaluate_live_fleurs_translation",
+    "source_checkout": "ffa226f9432ffb4a771e761cab5c11a2cec1243a",
+    "fixture_manifest_record": "2026-11-09-multilingual-fleurs-parallel-fixtures.json",
+    "fixture_reconstruction": "Use pinned parquet rows/ordinals listed in the manifest; existing write_pcm_wav converts source bytes to16k PCM16. Verify WAV/PCM/reference hashes before use. No raw audio is in Git.",
+    "flags": [
+      "--model base|small",
+      "--chunk-seconds 4",
+      "--max-drain-seconds 120",
+      "--source-language ko|en|ja",
+      "--target-languages OTHER_TWO",
+      "--translation-provider m2m100-ct2",
+      "--resource-profile low",
+      "--asr-cache-dir EXPLICIT_LOCAL_MANAGED_CACHE",
+      "--asr-model-dir EXPLICIT_VERIFIED_MODEL_DIR",
+      "--ct2-dir EXPLICIT_VERIFIED_CT2_DIR",
+      "--tokenizer-dir EXPLICIT_VERIFIED_TOKENIZER_DIR",
+      "--fixture-manifest LOCAL_PREPARED_PARALLEL_MANIFEST",
+      "--fixture-manifest-sha256 0ff532777e1a7c02b249240d908f80014f6eccd65af99ce5fc664ce5e584775a",
+      "--model-manifest LOCAL_WEIGHT_PROVENANCE_JSON",
+      "--output NEW_DURABLE_OUTPUT"
+    ],
+    "supervision": "Original private driver hashes and planned220s/arm1200swhole limits retained; choose a new owned output and verify actual process cleanup. Raw original psutil empty-observation booleans are not complete reap evidence.",
+    "private_driver_not_published_or_claimed_relocatable": true,
+    "new_native_run_to_publish": false
+  },
+  "field_ready": false,
+  "model_selection_or_default_change": false,
+  "limits": [
+    "9 public monolingual read clips/3 parallel sentence IDs, not 9 independent semantic topics",
+    "1 repeat per model/language, fixed order, no controlled statistical ranking",
+    "No language-ID, code-switch, sermon, noisy microphone, physical, long-event, Linux or optimal-default qualification",
+    "Targets selected together but native MT serialized by the product low profile; ASR and MT may overlap as in the app",
+    "Hub JSON observation excludes ASGI/network/browser paint; timestamps are adapter estimates",
+    "No isolated native component decode timer; telemetry values are changed-latest samples",
+    "Japanese WER uses whitespace tokens without word segmentation and is not used for ranking.",
+    "Character chrF2(word_order0) is not older synthetic mean-sentence chrF++ or semantic/theological correctness.",
+    "All source/target numeric mismatches and incomplete output remain visible; no score threshold is invented."
+  ]
+}

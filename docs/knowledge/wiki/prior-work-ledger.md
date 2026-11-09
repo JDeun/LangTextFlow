@@ -173,3 +173,31 @@ numeric/negation safety evidence would justify another experiment. This does not
 reject all rolling context or qualify live latency, code-switching, six directions,
 sermon semantics or hardware. Original private artifacts and earlier failures are
 preserved. #210/#211/#213/#158 remain open; product code and defaults are unchanged.
+
+## 2026-11-09 — first real multilingual dual-target matrix
+
+[Canonical interpretation](../../REAL_SPEECH_EVALUATION.md#2026-11-09-first-real-koenja-dual-target-runtime-matrix),
+[raw provenance/outputs](../raw/2026-11-09-multilingual-runtime-first-matrix.json),
+[exact parallel fixtures](../raw/2026-11-09-multilingual-fleurs-parallel-fixtures.json)
+and [offline scores](../raw/2026-11-09-multilingual-runtime-offline-analysis.json)
+record actual Python CaptionRuntime queues/SQLite/hub delivery with cached
+base/small and M2M100 at frozen `ffa226f`, CT2 4.8.5. This is distinct from older
+synthetic six-way text checks and the Qwen utterance-replay harness.
+
+Primary FLEURS index/builder evidence and pinned text-column checks establish
+the selected three KO/EN/JA parallel passage IDs. Six fresh source/model arms,
+each with both other targets selected, use nine recordings/18 playbacks. There
+are 96 emitted caption-target cells (95 available/1 failed), versus 12 corpus
+tracks (11 complete/1 incomplete); these are not independent clips. The small/EN
+numeric-only `17` request has KO failed, JA available and later KO output, with
+worker error identity/PID reuse unobserved. Source/target number mismatches,
+including base/KO ASR's `2011→2021`, remain visible.
+
+Character chrF2 uses published target passages and retains incomplete output;
+it is not synthetic chrF++, sermon semantics or a passing threshold. Japanese
+whitespace WER is not word-segmented. Process-tree memory/reap observations are
+partial; early synthetic pytest overlap and one arm per source/model prevent a
+controlled ranking. Reuse these fixed fixtures, failures and controls rather
+than presenting the same six-way matrix as a new result. A new experiment needs
+a distinct stated hypothesis. #126/#127/#100/#158 remain open; no model/default,
+language-ID, long-event, hardware or semantic promotion occurs.

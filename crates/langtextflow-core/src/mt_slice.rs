@@ -219,7 +219,8 @@ async fn run(
                 let candidate = reply.result.as_deref().filter(|text| {
                     !text.trim().is_empty()
                         && text.chars().count() <= 20_000
-                        && text.trim().to_lowercase() != job.source.trim().to_lowercase()
+                        && (text.trim().to_lowercase() != job.source.trim().to_lowercase()
+                            || text.trim().bytes().all(|byte| byte.is_ascii_digit()))
                         && !text.trim_start().starts_with(['{', '['])
                 });
                 if let Some(result) =
