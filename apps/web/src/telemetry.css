@@ -79,7 +79,7 @@
 }
 
 .provider-health strong {
-  color: #dce3e9;
+  color: var(--ltf-ink, #dce3e9);
   font-size: var(--ltf-type-meta);
   font-weight: 700;
 }
@@ -185,6 +185,14 @@
   color: #dce3e9;
   font-size: var(--ltf-type-label);
   font-variant-numeric: tabular-nums;
+}
+
+.telemetry-native-queues { grid-column: 1 / -1; }
+.telemetry-lane small {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: var(--ltf-type-meta);
+  line-height: var(--ltf-leading-body);
 }
 
 .telemetry-metric.warning {

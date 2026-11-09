@@ -8,6 +8,7 @@ use crate::correction_slice::{
 };
 use crate::mt_slice::{MtAdmission, MtDispatcher, MtOutcome, TranslationContext};
 use crate::source_context::SourceContext;
+use crate::telemetry::{JobOutcome, QueueTicket};
 use crate::{validate_reply, TaskKind, WorkerReply, WorkerRequest, WorkerStatus, PROTOCOL_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -148,6 +149,7 @@ pub(crate) struct MtJob {
     pub source: String,
     owner: Weak<Mutex<State>>,
     armed: bool,
+    pub(crate) metrics: Option<QueueTicket>,
 }
 
 pub(crate) struct CorrectionJob {
@@ -161,9 +163,27 @@ pub(crate) struct CorrectionJob {
     jobs: Vec<MtJob>,
     owner: Weak<Mutex<State>>,
     armed: bool,
+    pub(crate) metrics: Option<QueueTicket>,
 }
 
 impl CorrectionJob {
+    pub(crate) fn start_metrics(&mut self) {
+        if let Some(metrics) = &mut self.metrics {
+            metrics.start();
+        }
+    }
+    pub(crate) fn finish_metrics(&mut self, outcome: JobOutcome) {
+        let outcome = if self.cancelled.load(Ordering::Acquire) {
+            JobOutcome::Cancelled
+        } else if std::time::Instant::now() >= self.deadline {
+            JobOutcome::Expired
+        } else {
+            outcome
+        };
+        if let Some(metrics) = &mut self.metrics {
+            metrics.finish(outcome);
+        }
+    }
     pub(crate) fn record_progress(&self, deterministic: &str, attempted: bool) -> bool {
         let Some(owner) = self.owner.upgrade() else {
             return false;
@@ -188,6 +208,17 @@ impl CorrectionJob {
     }
 
     pub(crate) fn finish(&mut self, decision: CorrectionDecision) {
+        if let Some(metrics) = &mut self.metrics {
+            metrics.finish(if self.cancelled.load(Ordering::Acquire) {
+                JobOutcome::Cancelled
+            } else if std::time::Instant::now() >= self.deadline {
+                JobOutcome::Expired
+            } else if decision.provenance.method == "fallback" {
+                JobOutcome::Failed
+            } else {
+                JobOutcome::Succeeded
+            });
+        }
         self.armed = false;
         let Some(owner) = self.owner.upgrade() else {
             return;
@@ -245,6 +276,7 @@ impl CorrectionJob {
 
 impl Drop for CorrectionJob {
     fn drop(&mut self) {
+        self.finish_metrics(JobOutcome::Cancelled);
         if self.armed {
             self.finish(CorrectionDecision::fallback(
                 &self.source,
@@ -261,19 +293,44 @@ fn submit_translation(jobs: Vec<MtJob>, config: Option<&MtAdmission>) {
     if let Some(config) = config {
         for mut job in jobs {
             job.armed = true;
-            if let Ok(permit) = config.sender.try_reserve() {
-                if let Ok(payload) = serde_json::to_string(&serde_json::json!({
-                    "text": job.source, "context": config.context,
-                })) {
-                    job.request.payload = payload;
-                    permit.send(job);
+            match config.sender.try_reserve() {
+                Ok(permit) => {
+                    if let Ok(payload) = serde_json::to_string(&serde_json::json!({
+                        "text": job.source, "context": config.context,
+                    })) {
+                        job.request.payload = payload;
+                        job.metrics = Some(config.metrics.admit());
+                        permit.send(job);
+                    }
                 }
+                Err(error) => config.metrics.reject(matches!(
+                    error,
+                    tokio::sync::mpsc::error::TrySendError::Full(_)
+                )),
             }
         }
     }
 }
 
 impl MtJob {
+    pub(crate) fn start_metrics(&mut self) {
+        if let Some(metrics) = &mut self.metrics {
+            metrics.start();
+        }
+    }
+
+    pub(crate) fn finish_metrics(&mut self, outcome: JobOutcome) {
+        let outcome = if self.cancelled() {
+            JobOutcome::Cancelled
+        } else if std::time::Instant::now() >= self.deadline {
+            JobOutcome::Expired
+        } else {
+            outcome
+        };
+        if let Some(metrics) = &mut self.metrics {
+            metrics.finish(outcome);
+        }
+    }
     pub(crate) fn cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
@@ -399,6 +456,7 @@ impl AsrSession {
         state.correction = Some(CorrectionAdmission {
             sender: dispatcher.sender.clone(),
             options,
+            metrics: dispatcher.metrics.clone(),
         });
         Ok(())
     }
@@ -570,12 +628,43 @@ impl AsrSession {
             sender: dispatcher.sender.clone(),
             context,
             deadline_ms,
+            metrics: dispatcher.metrics.clone(),
         });
         Ok(())
     }
 
     pub fn observer_metrics(&self) -> ObserverMetrics {
         self.0.lock().unwrap().projection.metrics.clone()
+    }
+
+    pub(crate) fn source_metrics(&self) -> crate::telemetry::SourceMetrics {
+        let state = self.0.lock().unwrap();
+        crate::telemetry::SourceMetrics {
+            active_window: state.active.is_some(),
+            pending_corrections: state.pending_corrections.len(),
+            pending_targets: state.pending_targets.len(),
+        }
+    }
+
+    pub(crate) fn enable_metrics(&self) {
+        self.0.lock().unwrap().projection.telemetry = Some(tokio::sync::watch::channel(None).0);
+    }
+
+    pub(crate) fn publish_metrics(
+        &self,
+        sid: &str,
+        generation: u64,
+        frame: crate::caption_events::JsonFrame,
+    ) -> bool {
+        let state = self.0.lock().unwrap();
+        if state.session_id != sid || state.generation != generation {
+            return false;
+        }
+        let Some(sender) = &state.projection.telemetry else {
+            return false;
+        };
+        sender.send_replace(Some(frame));
+        true
     }
 
     pub fn pending_translation_targets(&self) -> usize {
@@ -993,6 +1082,7 @@ impl AsrSession {
                         source: event.text.clone(),
                         owner: Arc::downgrade(&self.0),
                         armed: false,
+                        metrics: None,
                     });
                 }
             }
@@ -1078,6 +1168,7 @@ impl AsrSession {
                     jobs: grouped.remove(&event.segment_id).unwrap_or_default(),
                     owner: Arc::downgrade(&self.0),
                     armed: false,
+                    metrics: None,
                 });
             }
         }
@@ -1086,7 +1177,16 @@ impl AsrSession {
         if let Some(config) = correction {
             for mut job in corrections {
                 job.armed = true;
-                let _ = config.sender.try_send(job);
+                match config.sender.try_reserve() {
+                    Ok(permit) => {
+                        job.metrics = Some(config.metrics.admit());
+                        permit.send(job);
+                    }
+                    Err(error) => config.metrics.reject(matches!(
+                        error,
+                        tokio::sync::mpsc::error::TrySendError::Full(_)
+                    )),
+                }
             }
         } else {
             submit_translation(jobs, translation.as_ref());
