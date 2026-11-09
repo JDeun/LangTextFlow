@@ -1,6 +1,7 @@
 //! Opt-in bounded native MT lane. Rust owns admission and publication, Python inference only.
 use crate::asr_slice::MtJob;
 use crate::supervision::{SupervisedWorker, WorkerError};
+use crate::telemetry::{JobOutcome, QueueTelemetry};
 use crate::{validate_reply, WorkerStatus};
 use futures_util::future::{select, Either};
 use serde::Serialize;
@@ -79,6 +80,7 @@ pub(crate) struct MtAdmission {
     pub sender: mpsc::Sender<MtJob>,
     pub context: TranslationContext,
     pub deadline_ms: u64,
+    pub metrics: QueueTelemetry,
 }
 
 pub(crate) enum MtOutcome {
@@ -91,6 +93,8 @@ pub(crate) enum MtOutcome {
 /// Jobs retain only weak caption authority; there is no session/task ownership cycle.
 pub struct MtDispatcher {
     pub(crate) sender: mpsc::Sender<MtJob>,
+    pub(crate) metrics: QueueTelemetry,
+    pub(crate) queue_capacity: usize,
     stop: watch::Sender<bool>,
     task: Option<JoinHandle<Result<(), &'static str>>>,
     slot: Arc<Semaphore>,
@@ -112,6 +116,8 @@ impl MtDispatcher {
         let task = tokio::spawn(run(program, args, slot.clone(), receiver, stopping));
         Ok(Self {
             sender,
+            metrics: QueueTelemetry::default(),
+            queue_capacity,
             stop,
             task: Some(task),
             slot,
@@ -171,11 +177,14 @@ async fn run(
             Either::Right((job, _)) => job,
         };
         let Some(mut job) = next else { break };
+        job.start_metrics();
         if job.cancelled() {
+            job.finish_metrics(JobOutcome::Cancelled);
             job.finish(MtOutcome::Failed);
             continue;
         }
         if Instant::now() >= job.deadline {
+            job.finish_metrics(JobOutcome::Expired);
             job.finish(MtOutcome::TimedOut);
             continue;
         }
@@ -184,6 +193,7 @@ async fn run(
             match SupervisedWorker::spawn(&program, &arguments, slot.clone()) {
                 Ok(spawned) => worker = Some(spawned),
                 Err(_) => {
+                    job.finish_metrics(JobOutcome::Failed);
                     job.finish(MtOutcome::Failed);
                     continue;
                 }
@@ -218,6 +228,7 @@ async fn run(
                 {
                     let result = result.to_owned();
                     worker = Some(returned);
+                    job.finish_metrics(JobOutcome::Succeeded);
                     job.finish(MtOutcome::Available(result));
                 } else if valid
                     && reply.status == WorkerStatus::Error
@@ -225,15 +236,23 @@ async fn run(
                 {
                     // Completed-output rejection fails only this target, not the healthy model.
                     worker = Some(returned);
+                    job.finish_metrics(JobOutcome::Failed);
                     job.finish(MtOutcome::Failed);
                 } else {
                     // Native/unknown errors and invalid identity or framing remain terminal.
                     let _ = returned.stop().await;
+                    job.finish_metrics(JobOutcome::Failed);
                     job.finish(MtOutcome::Failed);
                 }
             }
-            Err(WorkerError::Deadline) => job.finish(MtOutcome::TimedOut),
-            Err(_) => job.finish(MtOutcome::Failed),
+            Err(WorkerError::Deadline) => {
+                job.finish_metrics(JobOutcome::Expired);
+                job.finish(MtOutcome::TimedOut);
+            }
+            Err(_) => {
+                job.finish_metrics(JobOutcome::Failed);
+                job.finish(MtOutcome::Failed);
+            }
         }
     }
     receiver.close();

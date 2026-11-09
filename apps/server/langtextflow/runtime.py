@@ -33,7 +33,7 @@ from .post_event_archive import PostEventArchive
 from .recording_writer import SessionRecordingWriter
 from .session_repository import SessionRepository
 from .store import CaptionStore
-from .telemetry import EnergyVad, RealtimeMetrics, latency_ms
+from .telemetry import EnergyVad, RealtimeMetrics, RustAuthorityMetrics, latency_ms
 from .whisper_cache import managed_whisper_cache
 
 _JOIN_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -66,6 +66,7 @@ class CaptionRuntime:
         self._recording_result: dict | None = None
         self._audio_samples_received = 0
         self.metrics = RealtimeMetrics()
+        self._rust_metrics_view_at = time.monotonic()
         self._vad = EnergyVad(
             threshold_dbfs=self.settings.vad_threshold_dbfs,
             hangover_frames=self.settings.vad_hangover_frames,
@@ -387,28 +388,30 @@ class CaptionRuntime:
                 "last_failover_audio_ms",
                 None,
             )
-            self.metrics.asr_queue_depth = self.engine.queue_depth
-            self.metrics.asr_queue_capacity = self.engine.queue_capacity
-            self.metrics.asr_queue_high_watermark = max(
-                self.metrics.asr_queue_high_watermark,
-                self.engine.queue_depth,
-            )
+            if not self._rust_session:
+                self.metrics.asr_queue_depth = self.engine.queue_depth
+                self.metrics.asr_queue_capacity = self.engine.queue_capacity
+                self.metrics.asr_queue_high_watermark = max(
+                    self.metrics.asr_queue_high_watermark,
+                    self.engine.queue_depth,
+                )
         else:
             self.metrics.asr_provider = None
             self.metrics.asr_running = False
             self.metrics.asr_failure = None
             self.metrics.asr_queue_depth = 0
             self.metrics.asr_queue_capacity = 0
-        self.metrics.persistence_queue_depth = self._persistence_queue.qsize()
-        self.metrics.persistence_queue_capacity = self._persistence_queue.maxsize
-        self.metrics.persistence_queue_high_watermark = max(
-            self.metrics.persistence_queue_high_watermark,
-            self._persistence_queue.qsize(),
-        )
-        self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
-        self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
-        self.metrics.postprocess_queue_lag_p50_ms = self.pipeline.queue_lag_p50_ms
-        self.metrics.postprocess_queue_lag_p95_ms = self.pipeline.queue_lag_p95_ms
+        if not self._rust_session:
+            self.metrics.persistence_queue_depth = self._persistence_queue.qsize()
+            self.metrics.persistence_queue_capacity = self._persistence_queue.maxsize
+            self.metrics.persistence_queue_high_watermark = max(
+                self.metrics.persistence_queue_high_watermark,
+                self._persistence_queue.qsize(),
+            )
+            self.metrics.postprocess_queue_depth = self.pipeline.queue_depth
+            self.metrics.postprocess_queue_capacity = self.pipeline.queue_capacity
+            self.metrics.postprocess_queue_lag_p50_ms = self.pipeline.queue_lag_p50_ms
+            self.metrics.postprocess_queue_lag_p95_ms = self.pipeline.queue_lag_p95_ms
         self.metrics.websocket_clients = self.hub.client_count
         self.metrics.websocket_client_capacity = self.hub.max_clients
         self.metrics.websocket_clients_rejected = self.hub.clients_rejected
@@ -417,21 +420,26 @@ class CaptionRuntime:
         self.metrics.websocket_client_queue_high_watermark = (
             self.hub.client_queue_high_watermark
         )
-        self.metrics.postprocess_queue_high_watermark = max(
-            self.metrics.postprocess_queue_high_watermark,
-            self.pipeline.queue_depth,
-        )
-        self.metrics.postprocess_segments_dropped = self.pipeline.dropped_postprocess_segments
-        self.metrics.postprocess_segments_failed = self.pipeline.failed_postprocess_segments
-        self.metrics.postprocess_segments_expired = self.pipeline.expired_postprocess_segments
-        self.metrics.postprocess_duplicate_asr_events_dropped = (
-            self.pipeline.duplicate_asr_events_dropped
-        )
-        self.metrics.postprocess_revised_asr_events_rejected = (
-            self.pipeline.revised_asr_events_rejected
-        )
-        self.metrics.stale_asr_events_dropped = self.stale_asr_events_dropped
+        if not self._rust_session:
+            self.metrics.postprocess_queue_high_watermark = max(
+                self.metrics.postprocess_queue_high_watermark,
+                self.pipeline.queue_depth,
+            )
+            self.metrics.postprocess_segments_dropped = self.pipeline.dropped_postprocess_segments
+            self.metrics.postprocess_segments_failed = self.pipeline.failed_postprocess_segments
+            self.metrics.postprocess_segments_expired = self.pipeline.expired_postprocess_segments
+            self.metrics.postprocess_duplicate_asr_events_dropped = (
+                self.pipeline.duplicate_asr_events_dropped
+            )
+            self.metrics.postprocess_revised_asr_events_rejected = (
+                self.pipeline.revised_asr_events_rejected
+            )
+            self.metrics.stale_asr_events_dropped = self.stale_asr_events_dropped
         if self._rust_session:
+            self._apply_rust_metrics(
+                self.engine.metrics_view() if self.engine is not None
+                else self._cached_rust_metrics(),
+            )
             if self.engine is not None and getattr(self.engine, "correction_status", None):
                 self.state.correction_status = self.engine.correction_status
             if self.engine is not None and getattr(self.engine, "persistence_error", None):
@@ -439,6 +447,48 @@ class CaptionRuntime:
         else:
             self.state.correction_status = self.pipeline.correction_status
             self.state.translation_status = self.pipeline.status
+
+    def _cached_rust_metrics(self) -> RustAuthorityMetrics:
+        view = self.metrics.rust_authority or RustAuthorityMetrics(status="not_sampled")
+        if view.age_ms is None:
+            return view
+        age = view.age_ms + max(0., (time.monotonic() - self._rust_metrics_view_at) * 1000)
+        status = "stale" if view.status == "fresh" and age > 1500 else view.status
+        return view.model_copy(update={"age_ms": age, "status": status})
+
+    def _apply_rust_metrics(self, view: RustAuthorityMetrics) -> None:
+        self._rust_metrics_view_at = time.monotonic()
+        self.metrics.runtime_core = "rust"
+        self.metrics.rust_authority = view
+        for name in (
+            "asr_queue_depth", "asr_queue_capacity", "asr_queue_high_watermark",
+            "persistence_queue_depth", "persistence_queue_capacity",
+            "persistence_queue_high_watermark",
+            "persistence_events_dropped", "persistence_events_failed", "postprocess_queue_depth",
+            "postprocess_queue_capacity", "postprocess_queue_high_watermark",
+            "postprocess_queue_lag_p50_ms", "postprocess_queue_lag_p95_ms",
+            "postprocess_segments_dropped", "postprocess_segments_failed",
+            "postprocess_segments_expired",
+            "postprocess_duplicate_asr_events_dropped", "postprocess_revised_asr_events_rejected",
+            "stale_asr_events_dropped",
+        ):
+            setattr(self.metrics, name, None)
+        sample = view.sample
+        if sample is None or view.status not in {"fresh", "final"}:
+            return
+        self.metrics.asr_queue_depth = sample.ingress.queue_depth
+        self.metrics.asr_queue_capacity = sample.ingress.queue_capacity
+        self.metrics.asr_queue_high_watermark = sample.ingress.queue_high_watermark
+        queues = [queue for queue in (sample.correction, sample.translation) if queue is not None]
+        self.metrics.postprocess_queue_depth = sum(queue.queued + queue.active for queue in queues)
+        self.metrics.postprocess_queue_capacity = sum(queue.capacity + 1 for queue in queues)
+        # Distinct job populations have no exact combined peak/percentile or segment count.
+        if sample.history is not None:
+            self.metrics.persistence_queue_depth = sample.history.queue_depth
+            self.metrics.persistence_queue_capacity = sample.history.queue_capacity
+            self.metrics.persistence_queue_high_watermark = sample.history.queue_high_watermark
+            self.metrics.persistence_events_dropped = sample.history.dropped
+            self.metrics.persistence_events_failed = sample.history.write_errors
 
     def metrics_snapshot(self) -> RealtimeMetrics:
         self._refresh_queue_metrics()
@@ -698,6 +748,8 @@ class CaptionRuntime:
                 first_error = exc
             if getattr(engine, "persistence_error", None):
                 state.persistence_error = engine.persistence_error
+            if self._rust_session:
+                self._apply_rust_metrics(engine.metrics_view())
         self._rust_relay_generation = None
 
         try:
