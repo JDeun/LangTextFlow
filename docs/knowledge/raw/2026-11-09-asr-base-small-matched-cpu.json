@@ -1,0 +1,1118 @@
+{
+  "id": "2026-11-09-asr-base-small-matched-cpu",
+  "accessed": "2026-11-09",
+  "classification": "locally_reproduced_native_source_only_ko_chunk_decode_not_field_qualification",
+  "sources": [
+    {
+      "kind": "frozen_product_source",
+      "url": "https://github.com/JDeun/LangTextFlow/tree/1fb5e24e136ce891b8f03c323f5a8c0f1b7ea6d5"
+    },
+    {
+      "kind": "dataset",
+      "url": "https://huggingface.co/datasets/google/fleurs/tree/fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+      "license": "CC-BY-4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "kind": "official_model_metadata",
+      "url": "https://huggingface.co/api/models/Systran/faster-whisper-base/revision/ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66?blobs=true",
+      "license": "MIT"
+    },
+    {
+      "kind": "official_model_metadata",
+      "url": "https://huggingface.co/api/models/Systran/faster-whisper-small/revision/536b0662742c02347bc0e980a01041f333bce120?blobs=true",
+      "license": "MIT"
+    }
+  ],
+  "source_sha": "1fb5e24e136ce891b8f03c323f5a8c0f1b7ea6d5",
+  "source_file_sha256": {
+    "apps/server/langtextflow/asr/faster_whisper.py": "32c3504c7773e80c4d2d2706d0ada40c38b5d03d8cbe87757b8b9cf20e051ea4",
+    "apps/server/langtextflow/inference_worker.py": "8a7a0bee5350f3a4efd3f38af939ae5628584e7f45e410839f2d68d6784cfd6a",
+    "apps/server/langtextflow/benchmark.py": "8af86bc2e0e8396b0dc11876ed0c826a0098bc9238822c9c71b56e0040feaec1",
+    "scripts/evaluate_fleurs_asr.py": "74fc0f98fbeaeff308988739ad15e8b26a234e3914b63d39bb9e44837aede85a"
+  },
+  "execution": {
+    "method": "FasterWhisperStreamingAsrEngine._load_model_sync then _transcribe_chunk_sync",
+    "order": [
+      "base",
+      "small",
+      "small",
+      "base"
+    ],
+    "window_order_by_arm": [
+      [
+        4,
+        8
+      ],
+      [
+        4,
+        8
+      ],
+      [
+        8,
+        4
+      ],
+      [
+        8,
+        4
+      ]
+    ],
+    "fresh_os_child_per_arm": true,
+    "source_tree_clean_before_and_after": true,
+    "settings": {
+      "cpu_threads": 2,
+      "num_workers": 1,
+      "device": "cpu",
+      "compute_type": "int8",
+      "beam_size": 1,
+      "vad_filter": true,
+      "condition_on_previous_text": false,
+      "initial_prompt": "ASR prototype",
+      "glossary": [],
+      "mt": "none",
+      "native_random_seed": "product default; not overridden"
+    },
+    "versions": {
+      "faster-whisper": "1.2.1",
+      "ctranslate2": "4.8.2",
+      "numpy": "2.5.3",
+      "onnxruntime": "1.30.0",
+      "tokenizers": "0.23.2",
+      "datasets": "5.1.0",
+      "pyarrow": "26.0.0",
+      "huggingface-hub": "1.31.0",
+      "soundfile": "0.13.1",
+      "fsspec": "2026.7.0",
+      "python": "3.12.13"
+    },
+    "host": {
+      "system": "Darwin",
+      "release": "25.6.0",
+      "machine": "arm64",
+      "logical_cpus": 10
+    },
+    "intentional_other_native_model_inference_overlapped": false,
+    "incidental_host_load_controlled": false
+  },
+  "fixtures": {
+    "dataset": "google/fleurs",
+    "revision": "fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+    "language": "ko_kr",
+    "split": "test",
+    "license": "CC-BY-4.0",
+    "selection": "first_8_eligible_in_first_40; duration_0.25_to_20s; no_outcome_filter",
+    "samples": [
+      {
+        "selection_index": 0,
+        "dataset_index": 0,
+        "id": 1883,
+        "sample_count": 199680,
+        "duration_seconds": 12.48,
+        "reference_sha256": "43bfc7a075316874093774ee53f17d93f43bf285b68fd94ec27e880621f1f886",
+        "sha256_pcm16": "6aaa41029964099abe32008ef17ec538aa71aa480cc01568f6d64a65b25b30ab",
+        "sha256_wav": "353bd463b9f51b720bd7f557d4be03cf33ee98e2649036852843c5afab3135de"
+      },
+      {
+        "selection_index": 1,
+        "dataset_index": 1,
+        "id": 1929,
+        "sample_count": 172800,
+        "duration_seconds": 10.8,
+        "reference_sha256": "373ac49b10ef4c07784658fbf08626d2fc369709a4b944ced4fefbfee1dbb429",
+        "sha256_pcm16": "34d0749db9623cff365eeab9b9b4ec01f70975d930d9d423830547fdfe1075e9",
+        "sha256_wav": "e89334cbfb68636ee4f241bdc2a7202381369f688ab1c4f72e59e85462c329e3"
+      },
+      {
+        "selection_index": 2,
+        "dataset_index": 2,
+        "id": 1701,
+        "sample_count": 143040,
+        "duration_seconds": 8.94,
+        "reference_sha256": "2bccc51caa723842a33e02a7fd825e77735d07457d2829273da3d5e22079e730",
+        "sha256_pcm16": "8a9b23044c204ac5f197864b802de716dcd639d798ed270767229fb9010807e5",
+        "sha256_wav": "af2a14495f334f046717862360f7d01ee5bebc255fccf07b2f67d901cdfe8a86"
+      },
+      {
+        "selection_index": 3,
+        "dataset_index": 3,
+        "id": 2000,
+        "sample_count": 200640,
+        "duration_seconds": 12.54,
+        "reference_sha256": "b321da905a3af03fae3ef5b9ac5b11e546fd5832a3e3d888d9f17bf749ea67be",
+        "sha256_pcm16": "acc572c50f5c947b2bd6ad86c2416e9b9718b039b94df58ad0824df42648606d",
+        "sha256_wav": "15a40fc6a83f641cfaa150631122bbf1d7f485058942875c47f89b8802b21c04"
+      },
+      {
+        "selection_index": 4,
+        "dataset_index": 4,
+        "id": 1801,
+        "sample_count": 193920,
+        "duration_seconds": 12.12,
+        "reference_sha256": "f4c5b242f0ffd50735dbed5eaa8292208e6eb5f37af5ce502406a5120654c758",
+        "sha256_pcm16": "c83e9a4e04910478213480399b4a21247ef27c7b2040c748aa29d68252847727",
+        "sha256_wav": "f9e383f6f4ff247f41cd8bff5d0c9d36e711104893b0fc3f82265f3a3c2e171c"
+      },
+      {
+        "selection_index": 5,
+        "dataset_index": 5,
+        "id": 1662,
+        "sample_count": 158400,
+        "duration_seconds": 9.9,
+        "reference_sha256": "4dc08dc598afb71dea5783bbb022ff64223ec7b8cfa44e35856d98e9d3c506c5",
+        "sha256_pcm16": "4b3a5803a8e24f7930bb000bf2cefb4bcdf3a3d82d68e952e8ffba56ff9443d8",
+        "sha256_wav": "648e1abb1ba68d3a9bdbbf978305825d0cb09a62de0a18b12fa37d36cebdc7f7"
+      },
+      {
+        "selection_index": 6,
+        "dataset_index": 6,
+        "id": 1705,
+        "sample_count": 217920,
+        "duration_seconds": 13.62,
+        "reference_sha256": "365e0a0c92db82eff8a6274c334007ce616cb9f1e8459d5aa569e7da228bb6ba",
+        "sha256_pcm16": "61912c4999025db13c9893c3a4b19cf5790fa0dd9c8a2816548f4d898a2c809e",
+        "sha256_wav": "e7e8649280e735632f275618b9f4806ca28d2f39c69c89319ac6c37a78dfaed1"
+      },
+      {
+        "selection_index": 7,
+        "dataset_index": 7,
+        "id": 1959,
+        "sample_count": 112320,
+        "duration_seconds": 7.02,
+        "reference_sha256": "cba91a1ba7d7ac7aabd4e9920b3b3469b509b323795204de9ce53dc2c2d3db2d",
+        "sha256_pcm16": "e449cc62bd3a0f4a765951a03e99cdf8a67c766842935f3866e83964ee11f502",
+        "sha256_wav": "23c9033f5ac828230033c2abd990c25f4679db01638731905f792294fafe43d0"
+      }
+    ],
+    "total_audio_seconds": 87.42,
+    "preparation_notes": [
+      "License API singleton list normalized before audio; initial sandbox DNS failure retried with network permission. No native inference occurred in preparation."
+    ]
+  },
+  "model_files": {
+    "base": {
+      "repository": "Systran/faster-whisper-base",
+      "revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+      "license": "MIT",
+      "files": {
+        "model.bin": {
+          "sha256": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+          "bytes": 145217532
+        },
+        "config.json": {
+          "sha256": "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
+          "bytes": 2309
+        },
+        "tokenizer.json": {
+          "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+          "bytes": 2203239
+        },
+        "vocabulary.txt": {
+          "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+          "bytes": 459861
+        }
+      },
+      "metadata_sha256": "00ba2965133ff3806bee4702337fe830a2e1028850dbcefadf7bb20f7c9a6a80"
+    },
+    "small": {
+      "repository": "Systran/faster-whisper-small",
+      "revision": "536b0662742c02347bc0e980a01041f333bce120",
+      "license": "MIT",
+      "files": {
+        "model.bin": {
+          "sha256": "3e305921506d8872816023e4c273e75d2419fb89b24da97b4fe7bce14170d671",
+          "bytes": 483546902
+        },
+        "config.json": {
+          "sha256": "b55496ac7940a7ae47d2c01eab40edfd8701feec1229d9cce3b40014383fb828",
+          "bytes": 2370
+        },
+        "tokenizer.json": {
+          "sha256": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+          "bytes": 2203239
+        },
+        "vocabulary.txt": {
+          "sha256": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+          "bytes": 459861
+        }
+      },
+      "metadata_sha256": "b5192402c9ab7626ca09d95b113b0f33750f723d7b5376eed995ac7df973f4cb"
+    }
+  },
+  "original_artifacts": {
+    "run_id": "run-20261109T121118-79c189",
+    "plan_sha256": "43b7a2b3e9c408a97ecb0f9d3442c7d4f2fa4d5d305e7514ed8397e49d5bdc13",
+    "summary_sha256": "fc0ee443a94eee9ae52a224d6a4cb5f94c36c0ba610128652ed7f6bd1245cfed",
+    "fixture_manifest_sha256": "6eda82b6710c949031d541fcd296f3c406e598fbf3517f63beb25dd0066edb21",
+    "verified_comparison_sha256": "a3e4bf4d2148f562af93b65b2ae0201d928f9dec3fa5b8c59a5bdbce35456bbc",
+    "executed_private_driver_sha256": "f9fb1e01c897ecab167e7c76fabead9c4c682a12799fc744a92342086b557593",
+    "arm_reports": [
+      {
+        "arm": 0,
+        "model": "base",
+        "pid": 45751,
+        "returncode": 0,
+        "report": "arm-0-base/arm.json",
+        "report_sha256": "be362e007cc440442cf776fc93a42d27d6486458c90c4f5ece95e7cf3d9d5de7"
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "pid": 45996,
+        "returncode": 0,
+        "report": "arm-1-small/arm.json",
+        "report_sha256": "77f433142747ec70f7a84e2e9c0ce4841f2b73de48efa6832bcac5eefaa7b52d"
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "pid": 46494,
+        "returncode": 0,
+        "report": "arm-2-small/arm.json",
+        "report_sha256": "72f5efc3ae14d12e65a739947fa1009e02518b533f188f30fb25a4cfeeab2d2a"
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "pid": 47000,
+        "returncode": 0,
+        "report": "arm-3-base/arm.json",
+        "report_sha256": "f31caf9fff48e93ea64099e340f89f49dee5b8efb4836a463cec0f989c70578f"
+      }
+    ],
+    "storage": "Durable private originals retained; relative names/hashes identify receipts, not public audio downloads."
+  },
+  "reproduction": {
+    "companion": "2026-11-09-asr-matched-reproduction.py",
+    "companion_sha256": "d8157ea2f80a4c08a8c178c1b8e01736c1abe5e29a96ae4ead107facb1714083",
+    "adaptation": "Only module docstring and ROOT/REPO/SMALL local path bindings changed; remaining AST identical.",
+    "companion_produced_original_native_results": false,
+    "validation": "shared-product fake-contract selfcheck only; no extra native rerun",
+    "environment": {
+      "LTF_ASR_FROZEN_SOURCE": "clean checkout at source_sha",
+      "LTF_ASR_EVIDENCE": "new writable directory outside Git, with pinned API receipts/base files",
+      "LTF_ASR_SMALL_MODEL": "local complete small snapshot at the recorded revision"
+    },
+    "commands": [
+      "python <companion> selfcheck",
+      "python <companion> prepare",
+      "python <companion> run"
+    ],
+    "required_api_receipts": [
+      "official-base-files-ebe41f7.json",
+      "official-small-files-536b066.json",
+      "official-fleurs-fdd74f7.json"
+    ],
+    "api_receipts_note": "Fetch the two pinned model metadata source URLs and https://huggingface.co/api/datasets/google/fleurs/revision/fdd74f7cdf01fc7641ab3072b6a38d364b3667f6 into those names.",
+    "local_base_directory": "<LTF_ASR_EVIDENCE>/models/base-ebe41f70",
+    "model_fetch_note": "Explicitly retrieve all four files from each official /resolve/<revision>/<filename> URL. Preparation checks all hashes and official Git/LFS metadata; native arms are offline."
+  },
+  "results": {
+    "unique_clip_count": 8,
+    "eligible_clip_windows": 64,
+    "scored_clip_windows": 64,
+    "failed_clip_windows": 0,
+    "empty_hypotheses": 0,
+    "arms": [
+      {
+        "arm": 0,
+        "model": "base",
+        "pid": 45751,
+        "started_at": "2026-11-09T12:11:19.430726+00:00",
+        "ended_at": "2026-11-09T12:11:51.417808+00:00",
+        "load_seconds": 0.6269195005297661,
+        "process_lifetime_peak_rss_mib": 584.671875,
+        "loadavg_start": [
+          2.875,
+          3.99755859375,
+          4.1455078125
+        ],
+        "loadavg_end": [
+          6.140625,
+          4.5791015625,
+          4.3447265625
+        ],
+        "policies": {
+          "4": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.246975,
+            "macro_wer": 0.4846625,
+            "decode_seconds_total_including_failed_calls": 17.984739126637578,
+            "mean_clip_decode_rtf": 0.2104486438193596,
+            "p95_chunk_decode_ms": 1516.0346254706383,
+            "chunks": 27,
+            "timestamp_retry_count": 2,
+            "estimated_segments": 10
+          },
+          "8": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.212825,
+            "macro_wer": 0.45285,
+            "decode_seconds_total_including_failed_calls": 13.340085209347308,
+            "mean_clip_decode_rtf": 0.14921727196088216,
+            "p95_chunk_decode_ms": 2177.9341669753194,
+            "chunks": 15,
+            "timestamp_retry_count": 0,
+            "estimated_segments": 4
+          }
+        },
+        "original_report_sha256": "be362e007cc440442cf776fc93a42d27d6486458c90c4f5ece95e7cf3d9d5de7"
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "pid": 45996,
+        "started_at": "2026-11-09T12:11:52.519183+00:00",
+        "ended_at": "2026-11-09T12:13:30.397719+00:00",
+        "load_seconds": 1.1483709588646889,
+        "process_lifetime_peak_rss_mib": 1255.234375,
+        "loadavg_start": [
+          6.140625,
+          4.5791015625,
+          4.3447265625
+        ],
+        "loadavg_end": [
+          7.50830078125,
+          5.30078125,
+          4.63623046875
+        ],
+        "policies": {
+          "4": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.14435,
+            "macro_wer": 0.45105,
+            "decode_seconds_total_including_failed_calls": 58.374776748009026,
+            "mean_clip_decode_rtf": 0.6719819193804827,
+            "p95_chunk_decode_ms": 2990.069250576198,
+            "chunks": 27,
+            "timestamp_retry_count": 0,
+            "estimated_segments": 4
+          },
+          "8": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.1051875,
+            "macro_wer": 0.4308125,
+            "decode_seconds_total_including_failed_calls": 38.31794979143888,
+            "mean_clip_decode_rtf": 0.43421849335378104,
+            "p95_chunk_decode_ms": 3354.3087923899293,
+            "chunks": 15,
+            "timestamp_retry_count": 0,
+            "estimated_segments": 4
+          }
+        },
+        "original_report_sha256": "77f433142747ec70f7a84e2e9c0ce4841f2b73de48efa6832bcac5eefaa7b52d"
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "pid": 46494,
+        "started_at": "2026-11-09T12:13:31.420856+00:00",
+        "ended_at": "2026-11-09T12:15:09.567091+00:00",
+        "load_seconds": 0.9801152916625142,
+        "process_lifetime_peak_rss_mib": 1190.34375,
+        "loadavg_start": [
+          7.50830078125,
+          5.30078125,
+          4.63623046875
+        ],
+        "loadavg_end": [
+          6.32958984375,
+          5.28955078125,
+          4.68994140625
+        ],
+        "policies": {
+          "4": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.14881250000000001,
+            "macro_wer": 0.45105,
+            "decode_seconds_total_including_failed_calls": 59.458133288659155,
+            "mean_clip_decode_rtf": 0.6903716016354926,
+            "p95_chunk_decode_ms": 3616.4569165557623,
+            "chunks": 27,
+            "timestamp_retry_count": 0,
+            "estimated_segments": 4
+          },
+          "8": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.1051875,
+            "macro_wer": 0.4308125,
+            "decode_seconds_total_including_failed_calls": 37.67124400194734,
+            "mean_clip_decode_rtf": 0.42637124558108724,
+            "p95_chunk_decode_ms": 3184.710707515478,
+            "chunks": 15,
+            "timestamp_retry_count": 0,
+            "estimated_segments": 4
+          }
+        },
+        "original_report_sha256": "72f5efc3ae14d12e65a739947fa1009e02518b533f188f30fb25a4cfeeab2d2a"
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "pid": 47000,
+        "started_at": "2026-11-09T12:15:10.563203+00:00",
+        "ended_at": "2026-11-09T12:15:40.029314+00:00",
+        "load_seconds": 0.4107669163495302,
+        "process_lifetime_peak_rss_mib": 629.640625,
+        "loadavg_start": [
+          6.32958984375,
+          5.28955078125,
+          4.68994140625
+        ],
+        "loadavg_end": [
+          5.65966796875,
+          5.22802734375,
+          4.68701171875
+        ],
+        "policies": {
+          "4": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.246975,
+            "macro_wer": 0.4846625,
+            "decode_seconds_total_including_failed_calls": 17.799928163178265,
+            "mean_clip_decode_rtf": 0.20918303324814563,
+            "p95_chunk_decode_ms": 1568.580917082727,
+            "chunks": 27,
+            "timestamp_retry_count": 2,
+            "estimated_segments": 10
+          },
+          "8": {
+            "eligible": 8,
+            "scored": 8,
+            "failed": 0,
+            "empty_hypotheses": 0,
+            "macro_cer": 0.2224375,
+            "macro_wer": 0.4762875,
+            "decode_seconds_total_including_failed_calls": 11.22669916599989,
+            "mean_clip_decode_rtf": 0.1263184921797572,
+            "p95_chunk_decode_ms": 1195.2342493459582,
+            "chunks": 15,
+            "timestamp_retry_count": 0,
+            "estimated_segments": 4
+          }
+        },
+        "original_report_sha256": "f31caf9fff48e93ea64099e340f89f49dee5b8efb4836a463cec0f989c70578f"
+      }
+    ],
+    "paired_clip_quality": [
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.1786,
+        "wer": 0.5
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.381,
+        "wer": 0.7333
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.2353,
+        "wer": 0.4545
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.2115,
+        "wer": 0.3125
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.1887,
+        "wer": 0.6
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0714,
+        "wer": 0.2
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.3191,
+        "wer": 0.5385
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.3902,
+        "wer": 0.5385
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.1607,
+        "wer": 0.5
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.1667,
+        "wer": 0.6667
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.6765,
+        "wer": 0.5455
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.1154,
+        "wer": 0.1875
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.1321,
+        "wer": 0.4667
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0952,
+        "wer": 0.3333
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.234,
+        "wer": 0.5385
+      },
+      {
+        "arm": 0,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.122,
+        "wer": 0.3846
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.125,
+        "wer": 0.5
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.1905,
+        "wer": 0.6667
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.2059,
+        "wer": 0.5455
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.0769,
+        "wer": 0.25
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.1509,
+        "wer": 0.4
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0952,
+        "wer": 0.4
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.2128,
+        "wer": 0.5385
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.0976,
+        "wer": 0.3077
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.125,
+        "wer": 0.5
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.0714,
+        "wer": 0.6
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.0294,
+        "wer": 0.4545
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.1346,
+        "wer": 0.3125
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.0755,
+        "wer": 0.3333
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0952,
+        "wer": 0.4
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.2128,
+        "wer": 0.5385
+      },
+      {
+        "arm": 1,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.0976,
+        "wer": 0.3077
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.1607,
+        "wer": 0.5
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.1905,
+        "wer": 0.6667
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.2059,
+        "wer": 0.5455
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.0769,
+        "wer": 0.25
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.1509,
+        "wer": 0.4
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0952,
+        "wer": 0.4
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.2128,
+        "wer": 0.5385
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 4,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.0976,
+        "wer": 0.3077
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.125,
+        "wer": 0.5
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.0714,
+        "wer": 0.6
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.0294,
+        "wer": 0.4545
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.1346,
+        "wer": 0.3125
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.0755,
+        "wer": 0.3333
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0952,
+        "wer": 0.4
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.2128,
+        "wer": 0.5385
+      },
+      {
+        "arm": 2,
+        "model": "small",
+        "window_seconds": 8,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.0976,
+        "wer": 0.3077
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.1786,
+        "wer": 0.5
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.381,
+        "wer": 0.7333
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.2353,
+        "wer": 0.4545
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.2115,
+        "wer": 0.3125
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.1887,
+        "wer": 0.6
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0714,
+        "wer": 0.2
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.3191,
+        "wer": 0.5385
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 4,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.3902,
+        "wer": 0.5385
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1883,
+        "status": "ok",
+        "cer": 0.1607,
+        "wer": 0.5
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1929,
+        "status": "ok",
+        "cer": 0.1667,
+        "wer": 0.6667
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1701,
+        "status": "ok",
+        "cer": 0.6765,
+        "wer": 0.5455
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 2000,
+        "status": "ok",
+        "cer": 0.1923,
+        "wer": 0.375
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1801,
+        "status": "ok",
+        "cer": 0.1321,
+        "wer": 0.4667
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1662,
+        "status": "ok",
+        "cer": 0.0952,
+        "wer": 0.3333
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1705,
+        "status": "ok",
+        "cer": 0.234,
+        "wer": 0.5385
+      },
+      {
+        "arm": 3,
+        "model": "base",
+        "window_seconds": 8,
+        "id": 1959,
+        "status": "ok",
+        "cer": 0.122,
+        "wer": 0.3846
+      }
+    ]
+  },
+  "metric_definitions": {
+    "cer_wer": "Existing benchmark.quality_metrics; NFKC/casefold/space normalization, character CER excludes spaces, WER uses whitespace; each clip rounded to four decimals before macro mean over eight clips.",
+    "repeats": "Two repetitions per model/window, eight unique clips rather than sixteen independent observations.",
+    "timing": "PCM16-to-float conversion plus synchronous product decode, VAD and retries; excludes model load, queueing, pacing and display",
+    "rtf": "Mean of per-clip (sum chunk decode+conversion seconds / clip audio seconds).",
+    "p95": "Nearest-rank across 27 four-second or 15 eight-second chunks per arm; tail durations differ and it is not live latency.",
+    "load_seconds": "Fresh-process model initialization measured separately after hashing files; filesystem cache warmth not controlled.",
+    "memory": "one child process lifetime high-water through scoring before final serialization; not process-tree, co-resident MT or physical-device fit; Darwin ru_maxrss is bytes, converted by /1048576 to MiB.",
+    "timing_recovery": "Counters are retry attempts, not word alignment; estimated segment flags also include bounded VAD-tail normalization."
+  },
+  "limits": [
+    "KO read speech only, not sermon/domain semantics or six directions",
+    "synchronous native decode, not runtime queues or browser/live caption latency",
+    "same host; incidental development/system load is uncontrolled",
+    "OS filesystem/model cache warmth is not equalized; ABBA is only drift mitigation",
+    "process high-water RSS, not process-tree or physical 4/8GB qualification",
+    "no model/default promotion or optimal combination claim",
+    "Not a controlled before/after against historical hosted CI: different synchronous harness/context/environment, no caption queue/dedup/pacing path.",
+    "Lower small-model CER on this cohort trades against more decode time/RSS; no default/model promotion or optimal combination selection.",
+    "The previous thirty-minute failure and six-failed-target recovery receipts remain unchanged and unqualified.",
+    "Execution success and nonempty transcripts do not establish acceptable Korean word or sermon semantic accuracy."
+  ]
+}
