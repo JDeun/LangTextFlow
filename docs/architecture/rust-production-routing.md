@@ -49,7 +49,8 @@ checkpoint verification, inferred word alignment or historical rewrite is added.
 | Inference context | Immutable ≤48KiB UTF-8 JSON snapshot, validated before source transition; the existing 128KiB worker envelope remains unchanged |
 | Audio/control | One-byte tag + little-endian u32 length; audio ≤1MiB and float32-aligned; end/stop have zero payload |
 | Control queue | One pending command; excess/malformed input closes authority admission before payload allocation |
-| Control output | ≤1KiB JSON replies; one queued writer operation; one-second async write confirmation |
+| Control output | ≤1KiB ready/ACK/stopped lines; one queued writer operation; one-second async write confirmation |
+| Native metrics | ≤4KiB including newline; 250ms coalesced watch value; one typed final pipe frame before stopped, without enlarging ACKs |
 | Parent ACK | Session ID, generation and ordered sequence checked; ≤15s startup reply / ≤15s + max(configured correction, target budget) exchange |
 | Correction | One supervised Python child, four queued jobs and one active job; immutable shared context; source publication never awaits it |
 | Observer | Existing loopback-only random port, private random token, exact internal Origin; bounded handshake/client/FIFO/write limits |
@@ -209,6 +210,54 @@ Blocking filesystem/kernel calls retain the existing writer's cancellation limit
 
 ## Enable, verify and roll back
 
+### Rust measurements in the existing metrics API
+
+`/api/v1/metrics` retains the current API and adds a typed `rust_authority` sample.
+Its session/generation, increasing sequence, UTC sample time and local receipt age
+identify the measurement. Readiness requires metrics protocol version 1, so a
+stale helper binary fails explicitly. Missing, stale (over 1500ms), unavailable,
+fresh and final samples remain distinct. A repeated sequence cannot renew
+freshness; conflicting repeated data, another session/generation, unknown fields,
+non-finite or out-of-range values fail closed. Final receipt age keeps advancing
+after the engine is removed. `final` means the last measurement, not model quality;
+`stop_error` separately identifies an unconfirmed/failed stop.
+
+The Rust owner samples independently from native inference. One watch value per
+authority coalesces metrics for the existing authenticated private observer;
+metrics never enter the caption FIFO or allocate caption serials. A reconnect
+receives the existing caption snapshot and latest metrics. The owned sampler is
+stopped/joined before cleanup; after child/history/observer cleanup, exactly one
+bounded final metrics frame precedes the stopped ACK. Unexpected parent EOF does
+not guarantee a final public sample: the bridge exposes unavailable last-known
+data rather than claiming an empty healthy queue. No transcript, context, model,
+filesystem path, endpoint, token or arbitrary provider error enters the frame.
+
+Queue statistics describe **jobs**, not semantic quality or speech segments.
+Correction and target-translation lanes each retain at most 512 dequeued-job wait
+values, with independent nearest-rank p50/p95 and sample counts. No observations means null.
+`queued` counts admitted, not-yet-started jobs (including a dequeue handoff);
+`capacity` is the configured FIFO and one additional execution slot bounds each
+lane. The legacy postprocess depth/capacity therefore represents active plus
+queued jobs. Unadmitted overflow/unavailable counts remain separate; admitted jobs
+end once as succeeded, failed, expired or cancelled. These are validated leaf
+execution outcomes; generation/revision and final publication guards still decide
+whether a result can update a caption.
+An MT queue wait starts at correction handoff; it is not total source-to-target
+latency. The original target deadline still includes the correction wait, and
+the source's separately reported pending-target count includes deferred jobs.
+
+PCM and history queue values map to their actual Rust owners. Legacy combined
+postprocess peaks/percentiles and segment counters remain null because independent
+job populations cannot truthfully supply them. Python relay-client and browser
+receipt counters retain their own boundary; the private Rust observer has separate
+statistics. UI unknown values display a dash, and benchmark collection leaves an
+unobserved peak null instead of inventing zero. Diagnostics serialize the same
+typed data. Counters are bounded to JavaScript-safe integers; rings and snapshot
+memory remain bounded. Snapshots read independent owners, not a transaction across
+all counters; observed queue high-watermarks are not RSS or hardware qualification.
+
+### Start and rollback
+
 Build with the existing pinned toolchain and prepare approved local caches first:
 
 ```sh
@@ -253,8 +302,7 @@ certify physical microphone capture or frozen application packaging.
 
 ## Required remaining work
 
-AUTO/failover parity, complete Rust queue/latency
-telemetry in the existing metrics API, desktop/frozen binary bundling and lifecycle,
+AUTO/failover parity, desktop/frozen binary bundling and lifecycle,
 native app capture/recording validation and
 reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.

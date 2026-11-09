@@ -300,7 +300,41 @@ export interface VibeVoiceLifecycleState {
   log_tail: string[];
 }
 
+export interface RustQueueMetrics {
+  queued: number;
+  capacity: number;
+  active: number;
+  high: number;
+  admitted: number;
+  succeeded: number;
+  failed: number;
+  expired: number;
+  cancelled: number;
+  overflow: number;
+  unavailable: number;
+  wait_samples: number;
+  wait_p50_ms: number | null;
+  wait_p95_ms: number | null;
+}
+
+export interface RustAuthorityMetrics {
+  status: "not_sampled" | "fresh" | "stale" | "final" | "unavailable";
+  age_ms: number | null;
+  sample: {
+    session_id: string;
+    session_generation: number;
+    sequence: number;
+    sampled_at: string;
+    final: boolean;
+    stop_error: string | null;
+    correction: RustQueueMetrics | null;
+    translation: RustQueueMetrics | null;
+  } | null;
+}
+
 export interface RealtimeMetrics {
+  runtime_core?: "python" | "rust";
+  rust_authority?: RustAuthorityMetrics | null;
   audio_frames_received: number;
   audio_bytes_received: number;
   audio_duration_ms: number;
@@ -314,30 +348,31 @@ export interface RealtimeMetrics {
   asr_failover_count: number;
   asr_last_failover_reason: string | null;
   asr_last_failover_audio_ms: number | null;
-  asr_queue_depth: number;
-  asr_queue_capacity: number;
-  asr_queue_high_watermark: number;
-  persistence_queue_depth: number;
-  persistence_queue_capacity: number;
-  persistence_queue_high_watermark: number;
-  persistence_events_dropped: number;
-  persistence_events_failed: number;
-  postprocess_queue_depth: number;
-  postprocess_queue_capacity: number;
-  postprocess_queue_lag_p50_ms: number;
-  postprocess_queue_lag_p95_ms: number;
+  asr_queue_depth: number | null;
+  asr_queue_capacity: number | null;
+  asr_queue_high_watermark: number | null;
+  persistence_queue_depth: number | null;
+  persistence_queue_capacity: number | null;
+  persistence_queue_high_watermark: number | null;
+  persistence_events_dropped: number | null;
+  persistence_events_failed: number | null;
+  postprocess_queue_depth: number | null;
+  postprocess_queue_capacity: number | null;
+  postprocess_queue_lag_p50_ms: number | null;
+  postprocess_queue_lag_p95_ms: number | null;
   websocket_clients: number;
   websocket_client_capacity: number;
   websocket_clients_rejected: number;
   websocket_overflow_evictions: number;
   websocket_send_failures: number;
   websocket_client_queue_high_watermark: number;
-  postprocess_queue_high_watermark: number;
-  postprocess_segments_dropped: number;
-  postprocess_segments_failed: number;
-  postprocess_segments_expired: number;
-  postprocess_duplicate_asr_events_dropped: number;
-  stale_asr_events_dropped: number;
+  postprocess_queue_high_watermark: number | null;
+  postprocess_segments_dropped: number | null;
+  postprocess_segments_failed: number | null;
+  postprocess_segments_expired: number | null;
+  postprocess_duplicate_asr_events_dropped: number | null;
+  postprocess_revised_asr_events_rejected?: number | null;
+  stale_asr_events_dropped: number | null;
   last_asr_lag_ms: number | null;
   last_correction_latency_ms: number | null;
   last_translation_latency_ms: number | null;
