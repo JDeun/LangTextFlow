@@ -74,6 +74,8 @@ class Native:
         prefix = kwargs["target_prefix"][0][0]
         candidate = "synthetic-" + prefix[2:-2]
         if mode == "oversized" and inputs[0][0] == "원문": candidate = "x" * 20001
+        if mode == "empty-output" and inputs[0][0] == "원문": candidate = ""
+        if mode == "json-output" and inputs[0][0] == "원문": candidate = "{{untrusted-output}}"
         if mode == "source-copy" and prefix == "__en__" and inputs[0][0] == "2010...":
             candidate = "2010..."
         if mode == "prefix-error": prefix = "__invalid__"
@@ -163,7 +165,9 @@ async def test_native_failure_is_terminal_identity_bound_and_private(tmp_path, m
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mode", ["source-copy", "oversized", "glossary-miss"])
+@pytest.mark.parametrize("mode", [
+    "source-copy", "oversized", "empty-output", "json-output", "glossary-miss",
+])
 async def test_completed_output_rejection_keeps_actual_rust_worker_for_peer_and_next_request(
     tmp_path, mode,
 ):
@@ -202,6 +206,7 @@ async def test_legacy_parent_reuses_actual_first_party_worker_after_numeric_sour
     from langtextflow.translation.base import TranslationError
 
     command, marker = child_command(tmp_path, "source-copy", legacy=True)
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
     monkeypatch.setattr(mt, "worker_command", lambda *args: command)
     provider = mt.M2M100CT2Translator(model_dir=str(tmp_path), tokenizer_dir=str(tmp_path))
     try:

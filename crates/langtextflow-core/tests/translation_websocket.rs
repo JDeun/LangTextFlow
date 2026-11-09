@@ -268,7 +268,8 @@ fn request_rejection_preserves_source_peer_target_and_healthy_worker_pid() {
         assert_eq!(rejected["translations"], json!({"ja":"translated-ja"}));
         assert!(rejected["translation_provenance"].get("en").is_none());
         publish(&session, "healthy", 1, "ko", "healthy");
-        let frames = until_commit(&mut socket, "rs-2-0").await;
+        let source = receive(&mut socket).await;
+        let frames = until_commit(&mut socket, source["segment_id"].as_str().unwrap()).await;
         assert_eq!(frames.last().unwrap()["translation_states"], json!({"en":"available", "ja":"available"}));
         let records = fixture.records();
         let pids = records.iter().map(|row| row["pid"].as_u64().unwrap()).collect::<std::collections::HashSet<_>>();
@@ -298,7 +299,8 @@ fn malformed_or_unknown_rejection_remains_terminal_and_cannot_publish() {
             assert_eq!(frames.last().unwrap()["translation_states"]["en"], "failed");
             assert_eq!(frames.last().unwrap()["translations"], json!({}));
             publish(&session, "next", 1, "ko", "healthy");
-            until_commit(&mut socket, "rs-2-0").await;
+            let source = receive(&mut socket).await;
+            until_commit(&mut socket, source["segment_id"].as_str().unwrap()).await;
             let records = fixture.records();
             assert_eq!(records.iter().filter(|row| row.get("text").is_none()).count(), 2, "{text}");
             let pids = records.iter().filter(|row| row.get("text").is_some()).map(|row| row["pid"].as_u64().unwrap()).collect::<std::collections::HashSet<_>>();

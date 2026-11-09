@@ -34,9 +34,21 @@ configured weights have independently verified identity or semantic quality.
 Translation applies the production source-language/preset/enabled glossary scope.
 Missing required terms fail the target instead of rewriting the translation.
 Target prefix, empty/source-copy/JSON-like output and the existing 20000-character
-translation bound are checked by the shared decoder. Native/glossary/cache
-failures return the request identity with `translation_worker_failed`, then exit;
-paths, source terms, provider details and tracebacks stay out of public errors.
+translation bound are checked by the shared decoder. A completed output rejected
+for these text checks or a missing required glossary term raises the existing
+`TranslationError` subtype `TranslationRejected`. It returns the request identity
+with `status=error`, `result=null`, `error=translation_rejected`, then keeps the
+model for the peer target and later captions. This is still a failed target:
+numeric source copies such as `2010...` are never published as translations.
+The legacy protocol uses exactly `{id,error}` for this same fixed rejection code;
+successful legacy responses remain exactly `{id,text}`.
+
+Native/model/cache errors and invalid target prefixes return the request identity
+with `translation_worker_failed`, then exit. Invalid framing/identity, unknown
+errors and extra response fields remain terminal at the parent. Neither protocol
+exposes paths, rejected output, source terms, provider details or tracebacks in
+the rejection frame. Cancellation/timeouts still require owned kill/reap before
+replacement; a rejection never retries the failed target automatically.
 
 Both v1 JSONL frames are capped at 128KiB including newline. The native owner uses
 one pending request slot in Rust mode; overflow/invalid framing terminates it.
@@ -48,7 +60,7 @@ restart using the existing Rust supervisor. The worker does not treat its
 
 Regression tests exercise the shipped worker and shared native adapter with only
 external native libraries replaced by synthetic fixtures. They cover all six
-directions, identity, one-time load/reuse, scoped glossary, native failure,
+directions, identity, one-time load/reuse after output rejection, scoped glossary, native failure,
 oversized/invalid ingress, parent EOF during blocked work and the existing Python
 ready ACK. These are protocol/lifecycle tests, not six-direction model scores.
 Actual cached-model execution and later Rust end-to-end measurements must retain
