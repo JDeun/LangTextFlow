@@ -30,6 +30,13 @@ for line in sys.stdin:
     reply = {key:req[key] for key in ('protocol_version','request_id','session_id','session_generation','segment_id','source_revision')}
     failed = text == 'FAIL' and target == 'ko'
     reply.update(status='error' if failed else 'ok',result=None if failed else 'translated-'+target,error='private-fixture-error' if failed else None)
+    if text.startswith('2010') and target == 'en':
+        reply.update(status='error',result=None,error='translation_rejected')
+        if text == '2010-WRONG': reply['request_id'] = 'wrong'
+        if text == '2010-EXTRA': reply['extra'] = 'untrusted'
+        if text == '2010-UNKNOWN': reply['error'] = 'translation_unknown'
+        if text == '2010-RESULT': reply['result'] = 'must-not-publish'
+        if text == '2010-MISSING': del reply['result']
     if text == 'WRONG': reply['request_id'] = 'wrong'
     print(json.dumps(reply), flush=True)
     if failed: sys.exit(1)
@@ -239,6 +246,71 @@ fn independent_target_failure_preserves_source_good_target_and_reconnect() {
         assert_eq!(slot.available_permits(), 1);
         server.stop().await.unwrap();
     });
+}
+
+#[test]
+fn request_rejection_preserves_source_peer_target_and_healthy_worker_pid() {
+    runtime().block_on(async {
+        let fixture = Fixture::new();
+        let slot = worker_slot();
+        let dispatcher = fixture.dispatcher(4, slot.clone());
+        let session = AsrSession::default();
+        let token = session.start_observed("quality", "ko", &["en".into(), "ja".into()]).unwrap();
+        enable(&session, &dispatcher, 2000);
+        let server = ObserverServer::bind(session.clone(), 0, ORIGIN).await.unwrap();
+        let mut socket = connect(&server, &token).await;
+        receive(&mut socket).await;
+        publish(&session, "numeric", 1, "ko", "2010...");
+        let frames = until_commit(&mut socket, "rs-1-0").await;
+        let rejected = frames.last().unwrap();
+        assert_eq!(rejected["original_text"], "2010...");
+        assert_eq!(rejected["text"], "2010...");
+        assert_eq!(rejected["translation_states"], json!({"en":"failed", "ja":"available"}));
+        assert_eq!(rejected["translations"], json!({"ja":"translated-ja"}));
+        assert!(rejected["translation_provenance"].get("en").is_none());
+        publish(&session, "healthy", 1, "ko", "healthy");
+        let source = receive(&mut socket).await;
+        let frames = until_commit(&mut socket, source["segment_id"].as_str().unwrap()).await;
+        assert_eq!(frames.last().unwrap()["translation_states"], json!({"en":"available", "ja":"available"}));
+        let records = fixture.records();
+        let pids = records.iter().map(|row| row["pid"].as_u64().unwrap()).collect::<std::collections::HashSet<_>>();
+        assert_eq!(pids.len(), 1, "request rejection must not restart a healthy child");
+        assert_eq!(records.iter().filter(|row| row.get("text").is_none()).count(), 1);
+        dispatcher.stop().await.unwrap();
+        assert_eq!(slot.available_permits(), 1);
+        server.stop().await.unwrap();
+    });
+}
+
+#[test]
+fn malformed_or_unknown_rejection_remains_terminal_and_cannot_publish() {
+    for text in ["2010-WRONG", "2010-EXTRA", "2010-UNKNOWN", "2010-RESULT", "2010-MISSING"] {
+        runtime().block_on(async {
+            let fixture = Fixture::new();
+            let slot = worker_slot();
+            let dispatcher = fixture.dispatcher(4, slot.clone());
+            let session = AsrSession::default();
+            let token = session.start_observed("bad-error", "ko", &["en".into()]).unwrap();
+            enable(&session, &dispatcher, 2000);
+            let server = ObserverServer::bind(session.clone(), 0, ORIGIN).await.unwrap();
+            let mut socket = connect(&server, &token).await;
+            receive(&mut socket).await;
+            publish(&session, "bad", 1, "ko", text);
+            let frames = until_commit(&mut socket, "rs-1-0").await;
+            assert_eq!(frames.last().unwrap()["translation_states"]["en"], "failed");
+            assert_eq!(frames.last().unwrap()["translations"], json!({}));
+            publish(&session, "next", 1, "ko", "healthy");
+            let source = receive(&mut socket).await;
+            until_commit(&mut socket, source["segment_id"].as_str().unwrap()).await;
+            let records = fixture.records();
+            assert_eq!(records.iter().filter(|row| row.get("text").is_none()).count(), 2, "{text}");
+            let pids = records.iter().filter(|row| row.get("text").is_some()).map(|row| row["pid"].as_u64().unwrap()).collect::<std::collections::HashSet<_>>();
+            assert_eq!(pids.len(), 2, "{text}: later work requires a separately reaped replacement");
+            dispatcher.stop().await.unwrap();
+            assert_eq!(slot.available_permits(), 1);
+            server.stop().await.unwrap();
+        });
+    }
 }
 
 #[test]

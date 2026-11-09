@@ -10,6 +10,7 @@ import threading
 from ..models import MAX_TRANSCRIPT_TEXT_CHARS, SessionContext
 from ..parent_pipe import read_parent_pipe
 from ..worker_ipc import IDENTITY_KEYS, MAX_FRAME_BYTES, validate_inference_request
+from .base import TranslationRejected
 from .m2m100_ct2 import (
     IPC_LIMIT,
     SUPPORTED_LANGUAGES,
@@ -107,11 +108,19 @@ def main(args: list[str] | None = None) -> None:
                 ):
                     raise ValueError("local translation cache is incomplete")
                 prepared = provider._prepare_sync()
-            candidate = provider._translate_sync(
-                text, source, target, *prepared,
-            )
+            try:
+                candidate = provider._translate_sync(text, source, target, *prepared)
+                if rust_protocol:
+                    provider._check_glossary(candidate, text, source, target, context)
+            except TranslationRejected:
+                if rust_protocol:
+                    response = {**identity, "status": "error", "result": None,
+                                "error": "translation_rejected"}
+                else:
+                    response = {"id": request["id"], "error": "translation_rejected"}
+                print(json.dumps(response), file=output, flush=True)
+                continue
             if rust_protocol:
-                provider._check_glossary(candidate, text, source, target, context)
                 response = json.dumps({**identity, "status": "ok", "result": candidate,
                                        "error": None}, ensure_ascii=False)
             else:
