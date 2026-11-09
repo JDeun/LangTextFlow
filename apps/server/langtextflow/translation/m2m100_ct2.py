@@ -323,13 +323,11 @@ class M2M100CT2Translator(Translator):
     @staticmethod
     def _check_glossary(candidate: str, text: str, source: str, target: str,
                         context: SessionContext) -> None:
-        for entry, required in relevant_glossary(
+        for _, required in relevant_glossary(
             context, text, target, source_language=source,
         ):
             if not _mentioned(candidate, required):
-                raise TranslationRejected(
-                    f"Local M2M100 glossary term not preserved: {entry.term}"
-                )
+                raise TranslationRejected("Local M2M100 glossary term not preserved")
 
     async def _translate_rpc(self, text: str, source: str, target: str) -> str:
         generation = self._generation

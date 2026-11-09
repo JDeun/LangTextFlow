@@ -36,6 +36,7 @@ for line in sys.stdin:
         if text == '2010-EXTRA': reply['extra'] = 'untrusted'
         if text == '2010-UNKNOWN': reply['error'] = 'translation_unknown'
         if text == '2010-RESULT': reply['result'] = 'must-not-publish'
+        if text == '2010-MISSING': del reply['result']
     if text == 'WRONG': reply['request_id'] = 'wrong'
     print(json.dumps(reply), flush=True)
     if failed: sys.exit(1)
@@ -283,7 +284,7 @@ fn request_rejection_preserves_source_peer_target_and_healthy_worker_pid() {
 
 #[test]
 fn malformed_or_unknown_rejection_remains_terminal_and_cannot_publish() {
-    for text in ["2010-WRONG", "2010-EXTRA", "2010-UNKNOWN", "2010-RESULT"] {
+    for text in ["2010-WRONG", "2010-EXTRA", "2010-UNKNOWN", "2010-RESULT", "2010-MISSING"] {
         runtime().block_on(async {
             let fixture = Fixture::new();
             let slot = worker_slot();

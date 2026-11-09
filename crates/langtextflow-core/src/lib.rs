@@ -57,7 +57,9 @@ pub struct WorkerReply {
     pub segment_id: String,
     pub source_revision: u64,
     pub status: WorkerStatus,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub result: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub error: Option<String>,
 }
 
