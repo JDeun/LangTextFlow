@@ -28,9 +28,14 @@ for line in sys.stdin:
     if text == 'QUEUED-SLOW': time.sleep(.2)
     if text == 'REVISION': time.sleep(.4)
     reply = {key:req[key] for key in ('protocol_version','request_id','session_id','session_generation','segment_id','source_revision')}
+    if json.loads(req['payload']).get('mode') == 'prepare':
+        reply.update(status='ok',result='ready',error=None)
+        print(json.dumps(reply),flush=True)
+        continue
     failed = text == 'FAIL' and target == 'ko'
     reply.update(status='error' if failed else 'ok',result=None if failed else 'translated-'+target,error='private-fixture-error' if failed else None)
     if text in ('17', 'COPY-ME', '０１７'): reply['result'] = text
+    if text == 'DEMO': reply['result'] = '[EN demo] DEMO'
     if text.startswith('2010') and target == 'en':
         reply.update(status='error',result=None,error='translation_rejected')
         if text == '2010-WRONG': reply['request_id'] = 'wrong'
@@ -199,6 +204,63 @@ async fn wait_inference(fixture: &Fixture, text: &str) {
 }
 
 #[test]
+fn configured_general_provider_keeps_own_policy_provenance_and_healthy_rejections() {
+    use langtextflow_core::source_context::SourceContext;
+    use langtextflow_core::translation_provider::{TranslationOptions, TranslationProvider};
+    use langtextflow_core::{TaskKind, WorkerRequest};
+    runtime().block_on(async {
+        let fixture = Fixture::new();
+        let slot = worker_slot();
+        let (_parent, parent_closed) = tokio::sync::watch::channel(false);
+        let prepare = WorkerRequest {
+            protocol_version: 1, request_id: "prepare".into(), session_id: "general".into(),
+            session_generation: 1, segment_id: "prepare".into(), source_revision: 1,
+            task_kind: TaskKind::Translation, source_language: "ko".into(),
+            target_language: Some("en".into()), deadline_ms: 2000, payload: String::new(),
+        };
+        let provider = TranslationProvider::new(TranslationOptions {
+            provider: "demo".into(), url: "http://owned.invalid/private".into(),
+            model: "deterministic-demo".into(), api_key: "synthetic-secret".into(),
+            timeout_seconds: 1., requested_model: None,
+            configured_model: Some("deterministic-demo".into()),
+        }, SourceContext { reference_text: "r".repeat(5000), ..SourceContext::default() }).unwrap();
+        let dispatcher = MtDispatcher::start_prepared(
+            std::env::var("LTF_WORKER_PYTHON").unwrap_or_else(|_| "python3".into()),
+            vec!["-u".into(), "-c".into(), CHILD.into(), fixture.log().to_string_lossy().into()],
+            slot.clone(), provider, prepare, parent_closed,
+        ).await.unwrap();
+        assert!(dispatcher.available());
+        let session = AsrSession::default();
+        let token = session.start_observed("general", "ko", &["en".into()]).unwrap();
+        enable(&session, &dispatcher, 2000);
+        let server = ObserverServer::bind(session.clone(), 0, ORIGIN).await.unwrap();
+        let mut socket = connect(&server, &token).await;
+        receive(&mut socket).await;
+        for (index, (text, expected)) in [
+            ("COPY-ME", "available"), ("DEMO", "available"),
+            ("2010...", "failed"), ("healthy", "available"),
+        ].iter().enumerate() {
+            publish(&session, &format!("chunk-{index}"), 1, "ko", text);
+            let first = receive(&mut socket).await;
+            let frames = until_commit(&mut socket, first["segment_id"].as_str().unwrap()).await;
+            assert_eq!(frames.last().unwrap()["translation_states"]["en"], *expected);
+            for frame in [&first, frames.last().unwrap()] {
+                assert_eq!(frame["translation_provenance"]["en"]["provider"], "demo");
+                assert_eq!(frame["translation_provenance"]["en"]["configured_model"], "deterministic-demo");
+                assert!(frame["translation_provenance"]["en"]["verified_model"].is_null());
+                assert!(!frame.to_string().contains("synthetic-secret"));
+                assert!(!frame.to_string().contains("owned.invalid"));
+            }
+            assert!(dispatcher.available());
+        }
+        assert_eq!(fixture.records().iter().filter(|row| row.get("text").is_none()).count(), 1);
+        dispatcher.stop().await.unwrap();
+        assert_eq!(slot.available_permits(), 1);
+        server.stop().await.unwrap();
+    });
+}
+
+#[test]
 fn independent_target_failure_preserves_source_good_target_and_reconnect() {
     runtime().block_on(async {
         let fixture = Fixture::new();
@@ -318,7 +380,8 @@ fn request_rejection_preserves_source_peer_target_and_healthy_worker_pid() {
         assert_eq!(rejected["text"], "2010...");
         assert_eq!(rejected["translation_states"], json!({"en":"failed", "ja":"available"}));
         assert_eq!(rejected["translations"], json!({"ja":"translated-ja"}));
-        assert!(rejected["translation_provenance"].get("en").is_none());
+        assert_eq!(rejected["translation_provenance"]["en"]["provider"], "m2m100-ct2");
+        assert!(rejected["translation_provenance"]["en"]["verified_model"].is_null());
         publish(&session, "healthy", 1, "ko", "healthy");
         let source = receive(&mut socket).await;
         let frames = until_commit(&mut socket, source["segment_id"].as_str().unwrap()).await;

@@ -571,6 +571,12 @@ impl AsrSession {
             context,
             deadline_ms,
         });
+        state
+            .projection
+            .config
+            .as_mut()
+            .unwrap()
+            .translation_identity = Some(dispatcher.identity.clone());
         Ok(())
     }
 
