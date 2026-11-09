@@ -1,4 +1,4 @@
-from .base import TranslationError, Translator
+from .base import TranslationError, TranslationRejected, Translator
 from .demo import DemoTranslator
 from .m2m100_ct2 import M2M100CT2Translator
 from .ollama import OllamaTranslator
@@ -10,5 +10,6 @@ __all__ = [
     "OllamaTranslator",
     "OpenAICompatibleTranslator",
     "TranslationError",
+    "TranslationRejected",
     "Translator",
 ]

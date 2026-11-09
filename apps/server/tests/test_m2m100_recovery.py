@@ -86,7 +86,7 @@ def reaped(worker):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["2010...", "CRASH", "HANG"])
+@pytest.mark.parametrize("failure", ["CRASH", "HANG"])
 async def test_next_caption_recovers_terminal_native_owner_once_for_concurrent_targets(
     recovering_provider, failure,
 ):
@@ -114,7 +114,7 @@ async def test_stop_during_recovery_load_fences_active_and_waiting_targets(recov
     provider, path = recovering_provider
     await provider.prepare()
     with pytest.raises(TranslationError):
-        await translate(provider, "2010...")
+        await translate(provider, "CRASH")
     (path / "load-hang").touch()
     active = asyncio.create_task(translate(provider))
     await wait_load(path, 2)
@@ -142,7 +142,7 @@ async def test_repeated_cancel_during_recovery_reaps_and_cannot_revive_after_sto
     provider, path = recovering_provider
     await provider.prepare()
     with pytest.raises(TranslationError):
-        await translate(provider, "2010...")
+        await translate(provider, "CRASH")
     (path / "load-hang").touch()
     pending = asyncio.create_task(translate(provider))
     await wait_load(path, 2)
@@ -172,7 +172,7 @@ async def test_stop_while_recovery_waits_for_old_reap_prevents_new_spawn(
     await provider.prepare()
     original = provider._worker
     with pytest.raises(TranslationError):
-        await translate(provider, "2010...")
+        await translate(provider, "CRASH")
     entered, release = asyncio.Event(), asyncio.Event()
     close = original.close
 
@@ -207,7 +207,7 @@ async def test_concurrent_targets_share_one_failed_recovery_attempt_then_later_c
     provider, path = recovering_provider
     await provider.prepare()
     with pytest.raises(TranslationError):
-        await translate(provider, "2010...")
+        await translate(provider, "CRASH")
     (path / "load-error").touch()
     try:
         for wave in range(2):

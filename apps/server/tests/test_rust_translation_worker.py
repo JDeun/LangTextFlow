@@ -37,7 +37,7 @@ def test_contract_rejects_invalid_or_unneeded_context_before_native_load(patch):
         validate_rust_request({**request(), **patch})
 
 
-async def child(tmp_path, mode="normal", *, legacy=False):
+def child_command(tmp_path, mode="normal", *, legacy=False):
     marker = tmp_path / "native-stage"
     for name in ("model.bin", "config.json", "tokenizer_config.json",
                  "sentencepiece.bpe.model", "vocab.json"):
@@ -72,7 +72,13 @@ class Native:
         if mode == "infer-hang": time.sleep(120)
         if mode == "infer-error": raise ValueError("private-path-credential-secret")
         prefix = kwargs["target_prefix"][0][0]
-        candidate = "x" * 20001 if mode == "oversized" else "synthetic-" + prefix[2:-2]
+        candidate = "synthetic-" + prefix[2:-2]
+        if mode == "oversized" and inputs[0][0] == "원문": candidate = "x" * 20001
+        if mode == "empty-output" and inputs[0][0] == "원문": candidate = ""
+        if mode == "json-output" and inputs[0][0] == "원문": candidate = "{{untrusted-output}}"
+        if mode == "source-copy" and prefix == "__en__" and inputs[0][0] == "2010...":
+            candidate = "2010..."
+        if mode == "prefix-error": prefix = "__invalid__"
         return [types.SimpleNamespace(hypotheses=[[prefix, candidate]])]
 class NativeModule(types.ModuleType):
     def __getattr__(self, name):
@@ -86,8 +92,13 @@ from langtextflow.translation.m2m100_worker import main
 main()
 ''', encoding="utf-8")
     arguments = [] if legacy else ["--rust-protocol"]
+    return [sys.executable, str(fixture), *arguments, str(tmp_path), str(tmp_path), "2"], marker
+
+
+async def child(tmp_path, mode="normal", *, legacy=False):
+    command, marker = child_command(tmp_path, mode, legacy=legacy)
     process = await asyncio.create_subprocess_exec(
-        sys.executable, str(fixture), *arguments, str(tmp_path), str(tmp_path), "2",
+        *command,
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
@@ -134,7 +145,7 @@ async def test_actual_worker_reuses_native_model_all_six_directions_and_v1_ident
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [
-    "load-error", "infer-error", "oversized", "glossary-miss", "missing-cache",
+    "load-error", "infer-error", "prefix-error", "missing-cache",
 ])
 async def test_native_failure_is_terminal_identity_bound_and_private(tmp_path, mode):
     process, marker = await child(tmp_path, mode)
@@ -151,6 +162,72 @@ async def test_native_failure_is_terminal_identity_bound_and_private(tmp_path, m
             assert not marker.exists()
     finally:
         await stop(process)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [
+    "source-copy", "oversized", "empty-output", "json-output", "glossary-miss",
+])
+async def test_completed_output_rejection_keeps_actual_rust_worker_for_peer_and_next_request(
+    tmp_path, mode,
+):
+    process, marker = await child(tmp_path, mode)
+    try:
+        context = {"glossary": [{"term": "원문", "translations": {"en": "required"}}]}
+        value = request(text="2010..." if mode == "source-copy" else "원문",
+                        context=context if mode == "glossary-miss" else {})
+        await send(process, value)
+        assert await receive(process) == {
+            **{key: value[key] for key in IDENTITY_KEYS}, "status": "error",
+            "result": None, "error": "translation_rejected",
+        }
+        pid = process.pid
+        for target in ("ja", "en"):
+            value = request(target=target, text="healthy", context={})
+            await send(process, value)
+            reply = await receive(process)
+            assert reply["status"] == "ok" and reply["result"] == "synthetic-" + target
+            assert process.pid == pid and process.returncode is None
+        assert marker.read_text().splitlines().count("load") == 1
+        assert marker.read_text().splitlines().count("infer") == 3
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 2) == 0
+        assert await process.stderr.read() == b""
+    finally:
+        await stop(process)
+
+
+@pytest.mark.asyncio
+async def test_legacy_parent_reuses_actual_first_party_worker_after_numeric_source_copy(
+    tmp_path, monkeypatch,
+):
+    from langtextflow.models import SessionContext
+    from langtextflow.translation import m2m100_ct2 as mt
+    from langtextflow.translation.base import TranslationError
+
+    command, marker = child_command(tmp_path, "source-copy", legacy=True)
+    monkeypatch.setenv("PYTHONPATH", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setattr(mt, "worker_command", lambda *args: command)
+    provider = mt.M2M100CT2Translator(model_dir=str(tmp_path), tokenizer_dir=str(tmp_path))
+    try:
+        await provider.prepare()
+        owner = provider._worker
+        pid = owner.process.pid
+        with pytest.raises(TranslationError):
+            await provider.translate("2010...", source_language="ko", target_language="en",
+                                     context=SessionContext())
+        outputs = await asyncio.gather(*[
+            provider.translate("healthy", source_language="ko", target_language=target,
+                               context=SessionContext()) for target in ("ja", "en")
+        ])
+        assert outputs == ["synthetic-ja", "synthetic-en"]
+        assert provider._worker is owner and owner.ready and owner.process.pid == pid
+        assert owner.process.returncode is None
+        assert marker.read_text().splitlines().count("load") == 1
+        assert marker.read_text().splitlines().count("infer") == 3
+    finally:
+        await provider.close()
+    assert owner.process.returncode is not None and owner._released
 
 
 @pytest.mark.asyncio
