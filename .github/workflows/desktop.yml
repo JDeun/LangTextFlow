@@ -94,8 +94,15 @@ jobs:
       - name: Verify locked Rust desktop shell
         if: ${{ !inputs.native_m2m100_import_probe || inputs.native_m2m100_prepare }}
         working-directory: apps/desktop/src-tauri
+        shell: bash
         run: |
           cargo check --locked
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            # Tauri's lib unit tests need the v6 controls manifest too (upstream #13419).
+            export CARGO_ENCODED_RUSTFLAGS="$(printf '%s\037%s\037%s\037%s' \
+              '-C' 'link-arg=/MANIFEST:EMBED' '-C' \
+              "link-arg=/MANIFESTDEPENDENCY:type='win32' name='Microsoft.Windows.Common-Controls' version='6.0.0.0' processorArchitecture='*' publicKeyToken='6595b64144ccf1df' language='*'")"
+          fi
           cargo test --locked --lib
       - name: Build unsigned desktop bundle
         if: ${{ !inputs.native_m2m100_import_probe || inputs.native_m2m100_prepare }}

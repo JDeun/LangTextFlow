@@ -227,6 +227,11 @@ Signed release overlays retain the real key/endpoint and normal signature checks
 no placeholder key or endpoint is inserted for unsigned startup. Plugin setup is
 tested with Tauri's test runtime, while an actual GUI launch/quit remains separate
 from frozen-backend smoke and successful bundle compilation.
+On Windows, these lib unit tests also need the Common-Controls v6 manifest
+([upstream issue](https://github.com/tauri-apps/tauri/issues/13419)). The test step
+adds MSVC manifest linker arguments through its process-local encoded rustflags.
+The subsequent packaging step retains Tauri's normal application manifest;
+the workaround does not replace its DPI, execution-level or OS declarations.
 
 Reproduce with the pinned tool and a current official database checkout:
 
