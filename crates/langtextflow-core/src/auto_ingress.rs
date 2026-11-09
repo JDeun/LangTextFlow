@@ -5,6 +5,7 @@ use crate::auto_asr::{
 };
 use crate::pcm_ingress::{AsrChildren, Input, PcmIngress, PcmInput, Spool, WINDOW_SAMPLES};
 use crate::source_context::SourceContext;
+use futures_util::future::{select, Either};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -152,9 +153,14 @@ async fn consume(
             if input.session.audio_generation(&input.source)? != owner.generation {
                 return Err("stale_audio_generation");
             }
-            let next = tokio::select! {
-                next = receiver.recv() => Some(next),
-                _ = tokio::time::sleep(Duration::from_millis(10)) => None,
+            let next = match select(
+                Box::pin(receiver.recv()),
+                Box::pin(tokio::time::sleep(Duration::from_millis(10))),
+            )
+            .await
+            {
+                Either::Left((next, _)) => Some(next),
+                Either::Right(_) => None,
             };
             match next {
                 Some(Some(Input::Frame(frame))) => {
@@ -481,6 +487,118 @@ impl Owner {
                 return Err("audio_drain_timeout");
             }
             tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auto_asr::StreamOptions;
+
+    const WHISPER: &str = r#"
+import json,sys
+serial=0
+for line in sys.stdin:
+ r=json.loads(line);p=json.loads(r['payload'])
+ out={k:r[k] for k in ('protocol_version','request_id','session_id','session_generation','segment_id','source_revision')}
+ if p.get('mode')=='prepare': result={'asr_protocol_version':1,'prepared':True,'sample_rate':16000}
+ else:
+  serial+=1
+  if sys.argv[1]=='fail' and serial==2:
+   out.update(status='error',result=None,error='fixed');print(json.dumps(out),flush=True);continue
+  count=p['end_sample']-p['start_sample']
+  result={'sample_rate':16000,'sample_count':count,'segments':[{'text':'Alpha source' if serial==1 else 'Beta source','start_seconds':0.,'end_seconds':count/16000,'estimated_timestamps':False}]}
+ out.update(status='ok',result=json.dumps(result),error=None);print(json.dumps(out),flush=True)
+"#;
+    const STREAM: &str = r#"
+import json,sys
+sample=0
+for line in sys.stdin:
+ r=json.loads(line);p=json.loads(r['payload']);start=sample
+ out={k:r[k] for k in ('protocol_version','request_id','session_id','session_generation','segment_id','source_revision')}
+ if p['mode']=='append':
+  if sample:
+   out.update(status='error',result=None,error='fixed');print(json.dumps(out),flush=True);continue
+  sample=p['end_sample']
+ b={'stream_protocol_version':1,'candidate_epoch':p['candidate_epoch'],'sample_rate':16000,'chunk_seconds':4.,'start_sample':start,'transmitted_samples':sample,'messages':[{'text':'Alpha source','audio_end_sample':sample}] if p['mode']=='append' else [],'done':p['mode']=='finish'}
+ out.update(status='ok',result=json.dumps(b),error=None);print(json.dumps(out),flush=True)
+"#;
+
+    #[test]
+    fn actual_owned_children_replay_fences_duplicates_and_failed_candidate_never_publishes() {
+        let python = std::env::var("LTF_WORKER_PYTHON").unwrap_or_else(|_| "python3".into());
+        for fail in [false, true] {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let session = AsrSession::default();
+                    let credential = session
+                        .start_observed("auto-replay", "en", &["ko".into()])
+                        .unwrap();
+                    session
+                        .configure_context("en", SourceContext::default())
+                        .unwrap();
+                    session.configured_asr_model(Some("small".into())).unwrap();
+                    let slot = Arc::new(Semaphore::new(1));
+                    let options = AutoOptions {
+                        sidecar: Some(StreamOptions {
+                            program: python.clone(),
+                            args: vec!["-u".into(), "-c".into(), STREAM.into()],
+                            endpoint: "http://127.0.0.1:8001".into(),
+                            context_info: String::new(),
+                        }),
+                        whisper_ready: true,
+                        low_resource: false,
+                        replay_ms: 8000,
+                        health_ms: 1000,
+                        startup_ms: 5000,
+                        queue_frames: 3,
+                    };
+                    let owner = start(
+                        session.clone(),
+                        "en",
+                        options,
+                        &python,
+                        &["-u", "-c", WHISPER, if fail { "fail" } else { "ok" }],
+                        slot.clone(),
+                        &std::env::temp_dir(),
+                    )
+                    .await
+                    .unwrap();
+                    let input = owner.input();
+                    input.feed(&vec![0; WINDOW_SAMPLES * 4]).await.unwrap();
+                    input.feed(&vec![0; WINDOW_SAMPLES * 4]).await.unwrap();
+                    let result = owner.finish().await;
+                    assert_eq!(result.is_err(), fail);
+                    assert_eq!(slot.available_permits(), 1);
+                let path = credential.path();
+                let token = path.split("token=").nth(1).unwrap();
+                    let mut observer = session.subscribe_observer(token).unwrap();
+                    let snapshot: serde_json::Value =
+                        serde_json::from_str(observer.receiver.frames.try_recv().unwrap().get())
+                            .unwrap();
+                    let segments = snapshot["segments"].as_array().unwrap();
+                    assert_eq!(segments.len(), if fail { 1 } else { 2 });
+                    assert_eq!(segments[0]["original_text"], "Alpha source");
+                    assert_eq!(segments[0]["asr_provenance"]["provider"], "vibevoice");
+                    if !fail {
+                        assert_eq!(segments[1]["original_text"], "Beta source");
+                        assert_eq!(segments[1]["start_ms"], 4000);
+                        assert_eq!(segments[1]["end_ms"], 8000);
+                        assert_eq!(segments[1]["asr_provenance"]["auto_generation"], 1);
+                        assert_eq!(
+                            segments[1]["asr_provenance"]["replay_prefix_samples"],
+                            128000
+                        );
+                        let metrics = input.metrics();
+                        assert_eq!(metrics.queue_capacity, 3);
+                        assert_eq!(metrics.accepted_samples, metrics.processed_samples);
+                        assert_eq!(session.source_metrics().failover_count, Some(1));
+                    }
+                });
         }
     }
 }

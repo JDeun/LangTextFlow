@@ -88,7 +88,10 @@ sys.modules['numpy'] = types.SimpleNamespace(
 class Model:
     def __init__(self, path, **kwargs):
         assert kwargs['local_files_only'] is True
-        assert kwargs['cpu_threads'] == 2
+        if mode == 'auto-threads':
+            assert 'cpu_threads' not in kwargs and 'num_workers' not in kwargs
+        else:
+            assert kwargs['cpu_threads'] == 2 and kwargs['num_workers'] == 1
         marker.write_text('load')
         if mode == 'load-hang': time.sleep(120)
         if mode == 'load-error': raise ValueError('private-checkpoint-secret')
@@ -118,7 +121,8 @@ from langtextflow.inference_worker import main
 main()
 ''')
     process = await asyncio.create_subprocess_exec(
-        sys.executable, str(wrapper), str(model), str(tmp_path), "2",
+        sys.executable, str(wrapper), str(model), str(tmp_path),
+        "auto" if mode == "auto-threads" else "2",
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
@@ -126,7 +130,7 @@ main()
     return process, marker
 
 
-@pytest.mark.parametrize("mode", ["normal", "descriptor-clone", "load-error"])
+@pytest.mark.parametrize("mode", ["normal", "descriptor-clone", "load-error", "auto-threads"])
 async def test_actual_inference_worker_native_path_and_quiet_error(tmp_path, mode):
     path = tmp_path / "fixture.wav"
     wav(path)

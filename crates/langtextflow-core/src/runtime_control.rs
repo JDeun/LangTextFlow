@@ -51,6 +51,10 @@ struct Config {
     asr: Worker,
     #[serde(default)]
     auto_asr: Option<crate::auto_asr::AutoOptions>,
+    #[serde(default = "default_startup_ms")]
+    asr_startup_ms: u64,
+    #[serde(default = "default_queue_frames")]
+    audio_queue_frames: usize,
     #[serde(default)]
     asr_model_identity: Option<String>,
     mt: Option<Worker>,
@@ -59,6 +63,13 @@ struct Config {
     context: SourceContext,
     #[serde(default)]
     correction: Option<Correction>,
+}
+
+fn default_startup_ms() -> u64 {
+    120_000
+}
+fn default_queue_frames() -> usize {
+    crate::pcm_ingress::QUEUE_FRAMES
 }
 
 #[derive(Deserialize)]
@@ -166,6 +177,8 @@ pub fn run_stdio() -> Result<(), &'static str> {
             .auto_asr
             .as_ref()
             .is_some_and(|options| !options.valid())
+        || !(1..=600_000).contains(&config.asr_startup_ms)
+        || !(1..=crate::pcm_ingress::QUEUE_FRAMES).contains(&config.audio_queue_frames)
         || config.mt.as_ref().is_some_and(|mt| !mt.valid())
         || config.correction.as_ref().is_some_and(|correction| {
             !correction.worker.valid() || correction.options.validate().is_err()
@@ -311,26 +324,35 @@ async fn serve(
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>();
-    let started = if let Some(options) = config.auto_asr {
-        crate::auto_ingress::start(
-            session.clone(),
-            &config.source_language,
-            options,
-            &config.asr.program,
-            &args,
-            asr_slot.clone(),
-            &config.spool_directory,
-        )
-        .await
-    } else {
-        PcmIngress::start(
-            session.clone(),
-            &config.source_language,
-            &config.asr.program,
-            &args,
-            asr_slot.clone(),
-            &config.spool_directory,
-        )
+    let startup = async {
+        if let Some(options) = config.auto_asr {
+            crate::auto_ingress::start(
+                session.clone(),
+                &config.source_language,
+                options,
+                &config.asr.program,
+                &args,
+                asr_slot.clone(),
+                &config.spool_directory,
+            )
+            .await
+        } else {
+            PcmIngress::start_prepared(
+                session.clone(),
+                &config.source_language,
+                &config.asr.program,
+                &args,
+                asr_slot.clone(),
+                &config.spool_directory,
+                config.asr_startup_ms,
+                config.audio_queue_frames,
+            )
+            .await
+        }
+    };
+    let started = match select(Box::pin(startup), Box::pin(parent_closed.changed())).await {
+        Either::Left((result, _)) => result,
+        Either::Right(_) => Err("control_parent_closed"),
     };
     let mut ingress = match started {
         Ok(ingress) => Some(ingress),
@@ -374,6 +396,8 @@ async fn serve(
         &output,
         json!({"type":"ready", "protocol_version":1,
         "metrics_protocol_version":1,
+        "sample_rate":input.sample_rate(), "queue_capacity":input.metrics().queue_capacity,
+        "active_provider":session.source_metrics().active_provider.unwrap_or("faster-whisper"),
         "session_id":config.session_id,"session_generation":generation,
         "port":observer.address().port(), "observer_path":credential.path(),
         "correction_available":correction.as_ref().is_some_and(|owner| owner.available),

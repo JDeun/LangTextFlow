@@ -297,6 +297,10 @@ pub struct WhisperClient {
 }
 
 impl WhisperClient {
+    pub(crate) fn into_worker(mut self) -> Result<SupervisedWorker, &'static str> {
+        self.worker.take().ok_or("asr_whisper_closed")
+    }
+
     pub async fn open(
         program: &str,
         args: &[&str],

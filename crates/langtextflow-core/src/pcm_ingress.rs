@@ -66,6 +66,7 @@ pub struct PcmInput {
     pub(crate) generation: u64,
     pub(crate) source: String,
     capacity: usize,
+    sample_rate: u32,
     max_samples: u64,
 }
 
@@ -110,6 +111,7 @@ impl PcmInput {
                 generation,
                 source: source.into(),
                 capacity,
+                sample_rate,
                 max_samples: MAX_SOURCE_CHUNKS as u64 * 4 * u64::from(sample_rate),
             },
             receiver,
@@ -185,6 +187,10 @@ impl PcmInput {
         metrics.queue_capacity = self.capacity;
         metrics
     }
+
+    pub(crate) fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
 }
 
 /// One owner for input, native child and private spool; no production route selects it.
@@ -196,6 +202,37 @@ pub struct PcmIngress {
 }
 
 impl PcmIngress {
+    pub(crate) async fn start_prepared(
+        session: AsrSession,
+        source: &str,
+        program: &str,
+        args: &[&str],
+        slot: Arc<Semaphore>,
+        temporary_parent: &Path,
+        startup_ms: u64,
+        capacity: usize,
+    ) -> Result<Self, &'static str> {
+        let (sid, generation, _) = session.auto_source_scope(source)?;
+        let (input, receiver) = PcmInput::channel(session, source, SAMPLE_RATE, capacity)?;
+        let mut client = crate::auto_asr::WhisperClient::spawn(
+            program, args, &sid, generation, source, 1, slot,
+        )?;
+        let reaped = AsrChildren::default();
+        reaped.track(client.reaped.clone())?;
+        let spool = Spool::new(temporary_parent, reaped.clone())?;
+        let root = spool.root.clone();
+        if let Err(error) = client
+            .prepare(Instant::now() + Duration::from_millis(startup_ms))
+            .await
+        {
+            client.stop().await?;
+            return Err(error);
+        }
+        let worker = client.into_worker()?;
+        let task = tokio::spawn(consume(input.clone(), receiver, worker, spool));
+        Ok(Self::owned(input, task, reaped, root))
+    }
+
     pub(crate) fn owned(
         input: PcmInput,
         task: JoinHandle<Result<(), &'static str>>,

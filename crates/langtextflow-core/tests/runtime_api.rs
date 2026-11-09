@@ -25,6 +25,7 @@ fn current_python_api_routes_capture_to_rust_and_reads_its_canonical_history() {
             "-m",
             "pytest",
             "-q",
+            "-x",
             "apps/server/tests/test_rust_runtime_bridge.py",
         ])
         .current_dir(root)

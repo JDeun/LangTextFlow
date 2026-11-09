@@ -697,7 +697,7 @@ mod tests {
             let engine = || connection.query_row("SELECT engine FROM sessions WHERE session_id='history-session'", [], |r| r.get::<_, String>(0)).unwrap();
             assert_eq!(engine(), "vibevoice");
             sink.enqueue(frame(event(1, 1, "stable", "source")));
-            assert!(writer.flush().await.is_err());
+            assert!(!writer.flush().await.unwrap().complete);
             sink.engine_changed("faster-whisper");
             let _ = writer.flush().await;
             let report = writer.stop().await.unwrap();

@@ -48,12 +48,15 @@ import json,sys
 for line in sys.stdin:
     req=json.loads(line)
     chunk=json.loads(req['payload'])
-    count=chunk['end_sample']-chunk['start_sample']
     reply={k:req[k] for k in ('protocol_version','request_id','session_id',
                              'session_generation','segment_id','source_revision')}
-    result={'sample_count':count,'sample_rate':16000,'segments':[{
-        'start_seconds':0.,'end_seconds':count/16000,
-        'text':'Original English source','estimated_timestamps':False}]}
+    if chunk.get('mode')=='prepare':
+        result={'asr_protocol_version':1,'prepared':True,'sample_rate':16000}
+    else:
+        count=chunk['end_sample']-chunk['start_sample']
+        result={'sample_count':count,'sample_rate':16000,'segments':[{
+            'start_seconds':0.,'end_seconds':count/16000,
+            'text':'Original English source','estimated_timestamps':False}]}
     reply.update(status='ok',result=json.dumps(result),error=None)
     print(json.dumps(reply),flush=True)
 """
@@ -105,7 +108,7 @@ def assert_recordings(client, runtime, sid, expected):
 
 
 @pytest.mark.parametrize("change", [
-    {"engine": "auto"}, {"correction_provider": "unsupported"},
+    {"engine": "vibevoice"}, {"correction_provider": "unsupported"},
     {"translation_provider": "ollama"}, {"translation_model": "path/private"},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
@@ -120,7 +123,7 @@ async def test_rust_refusal_happens_before_history_bootstrap(tmp_path):
     database = tmp_path / "must-not-create.db"
     runtime = CaptionRuntime(Settings(runtime_core="rust", database_path=str(database)))
     with pytest.raises(ValueError, match="Rust rollout requires"):
-        await runtime.start(StartSessionRequest(engine="auto"))
+        await runtime.start(StartSessionRequest(engine="vibevoice"))
     assert not runtime._initialized and not database.exists()
 
 
@@ -254,7 +257,7 @@ def test_existing_http_capture_audience_history_and_restart_with_rust_authority(
                 }
                 # Preserve the active microphone across invalid configuration.
                 invalid = client.post(
-                    "/api/v1/session/start", json=_REQUEST | {"engine": "auto"},
+                    "/api/v1/session/start", json=_REQUEST | {"engine": "vibevoice"},
                 )
                 assert invalid.status_code == 400
                 assert runtime.engine is bridge and runtime.state.session_id == sid
@@ -405,7 +408,9 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
         client.portal.call(admitted)
     assert client.post("/api/v1/session/stop").status_code == 200
     records = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()]
-    asr = [value for value in records if value["task_kind"] == "asr"]
+    asr_requests = [value for value in records if value["task_kind"] == "asr"]
+    assert json.loads(asr_requests[0]["payload"]) == {"asr_protocol_version": 1, "mode": "prepare"}
+    asr = [value for value in asr_requests if json.loads(value["payload"]).get("mode") != "prepare"]
     mt = [value for value in records if value["task_kind"] == "translation"]
     assert len(asr) == 1 and len(mt) == 2
     assert json.loads(asr[0]["payload"])["context"] == expected
@@ -861,7 +866,20 @@ def test_parent_loss_and_invalid_framing_reap_occupied_child_and_spool(
 
     client, runtime = rust_api
     marker = tmp_path / "owned-child.pid"
-    native = "import os,sys,time;open(sys.argv[1],'w').write(str(os.getpid()));time.sleep(30)"
+    native = """
+import json,os,sys,time
+open(sys.argv[1],'w').write(str(os.getpid()))
+for line in sys.stdin:
+    req=json.loads(line)
+    if json.loads(req['payload']).get('mode')!='prepare':
+        time.sleep(30)
+        continue
+    reply={k:req[k] for k in ('protocol_version','request_id','session_id',
+                             'session_generation','segment_id','source_revision')}
+    reply.update(status='ok',error=None,result=json.dumps({
+        'asr_protocol_version':1,'prepared':True,'sample_rate':16000}))
+    print(json.dumps(reply),flush=True)
+"""
 
     def commands(self, request):
         # Standard-library fixture runs its actual owned interpreter on Windows,
@@ -1033,7 +1051,8 @@ def test_rust_recording_storage_failure_never_stops_caption_authority(
     client.portal.call(runtime.end_audio)
     saved = client.get("/api/v1/captions").json()
     assert saved and saved[0]["committed"] and saved[0]["translation_states"]["ko"] == "available"
-    assert runtime.engine is bridge and bridge.running
+    assert runtime.engine is bridge and not bridge.running
+    assert bridge._process.returncode is None  # Caption/history owner survives input EOF.
     assert client.post("/api/v1/session/stop").status_code == 200
     assert runtime.archive.recordings(sid) == []
     assert not list(runtime.archive.audio_root.glob("*.partial"))

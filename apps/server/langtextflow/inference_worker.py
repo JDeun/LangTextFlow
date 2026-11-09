@@ -99,7 +99,9 @@ def infer(engine: FasterWhisperStreamingAsrEngine, request: dict, chunk: dict) -
 
 def main(args: list[str] | None = None) -> None:
     args = sys.argv[1:] if args is None else args
-    if len(args) != 3 or not args[2].isdigit() or not 1 <= int(args[2]) <= 16:
+    if (len(args) != 3 or (args[2] != "auto" and (
+        not args[2].isdigit() or not 1 <= int(args[2]) <= 16
+    ))):
         raise SystemExit(2)
     output = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     with open(os.devnull, "w") as silent:
@@ -132,7 +134,8 @@ def main(args: list[str] | None = None) -> None:
         raise RuntimeError("worker must not publish caption events")
 
     engine = FasterWhisperStreamingAsrEngine(
-        unused_publish, model=args[0], cache_dir=args[1], cpu_threads=int(args[2]),
+        unused_publish, model=args[0], cache_dir=args[1],
+        cpu_threads=None if args[2] == "auto" else int(args[2]),
         device="cpu", compute_type="int8", allow_download=False,
     )
     threading.Thread(target=read_requests, daemon=True).start()
