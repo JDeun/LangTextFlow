@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 from types import SimpleNamespace
 
 import pytest
@@ -59,6 +60,30 @@ def test_direct_rust_child_rejects_inner_bootloader_and_unbundled_helper():
         smoke.direct_asr([rows[0], {**rows[1], "ppid": 8}])
     with pytest.raises(smoke.SmokeFailure, match="bundle"):
         smoke.direct_asr([{**rows[0], "exe": "/external/langtextflow-runtime"}, rows[1]])
+
+
+@pytest.mark.parametrize("valid", [True, False])
+def test_process_graph_is_preserved_before_assertion_without_private_fields(valid):
+    rows = processes()
+    rows[1]["args"] += ["--rust-protocol", "/private/model", "token-secret"]
+    if not valid:
+        rows.append({**rows[1], "pid": 12, "ppid": 11})
+    owned = SimpleNamespace(snapshot=lambda: rows)
+    log = StringIO()
+    if valid:
+        smoke.recorded_direct_asr(owned, log)
+    else:
+        with pytest.raises(smoke.SmokeFailure, match="inner"):
+            smoke.recorded_direct_asr(owned, log)
+    graph = json.loads(log.getvalue())["processes"]
+    assert len(graph) == len(rows)
+    assert all(set(row) == {"pid", "ppid", "created", "exe_basename",
+                            "fixed_worker_flags", "runtime_from_bundle"} for row in graph)
+    assert graph[0]["runtime_from_bundle"] is True
+    assert graph[1]["runtime_from_bundle"] is False
+    assert graph[1]["fixed_worker_flags"] == ["--asr-inference-worker", "--rust-protocol"]
+    assert "/owned" not in log.getvalue() and "/private" not in log.getvalue()
+    assert "token-secret" not in log.getvalue() and "args" not in log.getvalue()
 
 
 class FakeError(Exception):

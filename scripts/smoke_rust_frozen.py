@@ -235,6 +235,25 @@ def direct_asr(rows: list[dict]) -> tuple[dict, dict]:
     return runtime, worker
 
 
+def recorded_direct_asr(owned: Owned, graph_log) -> tuple[dict, dict]:
+    rows = owned.snapshot()
+    flags = {"--asr-inference-worker", "--correction-worker", "--m2m100-worker",
+             "--rust-protocol"}
+    graph = []
+    for row in rows:
+        path = Path(row["exe"])
+        graph.append({"pid": row["pid"], "ppid": row["ppid"], "created": row["created"],
+                      "exe_basename": path.name,
+                      "fixed_worker_flags": sorted(flags.intersection(row["args"])),
+                      "runtime_from_bundle": path.name in {
+                          "langtextflow-runtime", "langtextflow-runtime.exe"}
+                      and path.parent.name == "runtime"
+                      and any(part.startswith("_MEI") for part in path.parts)})
+    graph_log.write(json.dumps({"processes": graph}) + "\n")
+    graph_log.flush()  # Preserve the failing graph before any ownership assertion.
+    return direct_asr(rows)
+
+
 def environment(root: Path) -> dict[str, str]:
     # The fixture cannot inherit operator/cloud/model settings from the caller.
     env = {key: value for key, value in os.environ.items()
@@ -325,12 +344,14 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
                 "LANGTEXTFLOW_MAX_SEGMENTS": "100"})
     opener = build_opener(ProxyHandler({}), NoRedirect())
     log = (root / "backend.log").open("xb")
+    graph_log = (root / "backend-process-graph.log").open("x", encoding="utf-8")
     try:
         process = subprocess.Popen([str(binary)], cwd=root, env=env,
                                    stdout=log, stderr=subprocess.STDOUT,
                                    start_new_session=os.name == "posix")
     except BaseException:
         log.close()
+        graph_log.close()
         raise
     owned = Owned(process, api)
 
@@ -366,12 +387,12 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
                 "context": {"title": "Frozen idle wiring", "audience_access": False},
             })
             require(state.get("running") is True and bool(state.get("session_id")), "start_failed")
-            runtime, worker = direct_asr(owned.snapshot())
+            runtime, worker = recorded_direct_asr(owned, graph_log)
             # Idle observation catches a detached inner bootloader/early exit;
             # actual Python/model readiness still needs the separate native proof.
             idle_until = time.monotonic() + 2
             while time.monotonic() < idle_until:
-                current_runtime, current_worker = direct_asr(owned.snapshot())
+                current_runtime, current_worker = recorded_direct_asr(owned, graph_log)
                 require(current_runtime["pid"] == runtime["pid"]
                         and current_worker["pid"] == worker["pid"], "idle_worker_replaced")
                 time.sleep(.1)
@@ -399,6 +420,7 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
             owned.cleanup()
         finally:
             log.close()
+            graph_log.close()
 
 
 def main(binary_path: Path, output_receipt: Path) -> dict:
