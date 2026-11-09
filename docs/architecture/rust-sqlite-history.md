@@ -1,6 +1,8 @@
 # Rust canonical-event SQLite history boundary
 
 Status: opt-in implemented persistence slice; production application routing is unchanged.
+Later [opt-in application wiring](rust-production-routing.md) connects this writer
+through existing APIs while keeping Python as the default/rollback runtime.
 The required Rust-authoritative core target under issues #344/#154 still needs the
 remaining audio/correction/routing/rollback integration. This slice does not approve
 a model, physical device, release or field deployment.
