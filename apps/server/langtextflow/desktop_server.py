@@ -156,6 +156,16 @@ async def _serve_desktop(app: Any, *, host: str, port: int) -> None:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    if len(sys.argv) > 1 and sys.argv[1] == "--asr-inference-worker":
+        from langtextflow.inference_worker import main as inference_worker
+
+        inference_worker(sys.argv[2:])
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "--correction-worker":
+        from langtextflow.correction_worker import main as correction_worker
+
+        correction_worker(sys.argv[2:])
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "--m2m100-prepare-worker":
         from langtextflow.m2m100_prepare_worker import main as prepare_worker
 

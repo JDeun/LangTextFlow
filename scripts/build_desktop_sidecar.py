@@ -15,12 +15,13 @@ WEB_DIST = ROOT / "apps" / "web" / "dist"
 
 def _target_triple() -> str:
     configured = os.environ.get("TAURI_TARGET_TRIPLE", "").strip()
-    if configured:
-        return configured
     result = subprocess.run(["rustc", "-vV"], check=True, capture_output=True, text=True)
     for line in result.stdout.splitlines():
         if line.startswith("host: "):
-            return line.removeprefix("host: ").strip()
+            host = line.removeprefix("host: ").strip()
+            if configured and configured != host:
+                raise RuntimeError("frozen Python sidecar requires the native Rust host target")
+            return host
     raise RuntimeError("unable to determine Rust target triple")
 
 
@@ -47,6 +48,15 @@ def main() -> None:
     work_dir.mkdir(parents=True, exist_ok=True)
     spec_dir.mkdir(parents=True, exist_ok=True)
 
+    subprocess.run([
+        "cargo", "+1.90.0", "build", "--locked", "--release",
+        "--manifest-path", str(ROOT / "crates" / "Cargo.toml"),
+        "--bin", "langtextflow-runtime", "--target", triple,
+    ], check=True, cwd=ROOT)
+    suffix = ".exe" if sys.platform == "win32" else ""
+    runtime = ROOT / "crates" / "target" / triple / "release" / f"langtextflow-runtime{suffix}"
+    if not runtime.is_file():
+        raise RuntimeError("Rust runtime was not produced for the desktop target")
     data_separator = ";" if sys.platform == "win32" else ":"
     command = [
         sys.executable,
@@ -61,6 +71,8 @@ def main() -> None:
         str(ROOT / "apps" / "server"),
         "--add-data",
         f"{WEB_DIST}{data_separator}web-dist",
+        "--add-binary",
+        f"{runtime}{data_separator}runtime",
         "--collect-submodules",
         "uvicorn",
         "--collect-all",
@@ -78,7 +90,6 @@ def main() -> None:
     ]
     subprocess.run(command, check=True, cwd=ROOT)
 
-    suffix = ".exe" if sys.platform == "win32" else ""
     built = dist_dir / f"{name}{suffix}"
     if not built.is_file():
         raise RuntimeError(f"desktop sidecar was not produced: {built}")
