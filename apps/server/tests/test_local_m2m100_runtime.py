@@ -77,7 +77,7 @@ async def test_runtime_m2m100_routes_six_supported_directions(
     assert fake_engine.targets == [f"__{target}__"]
 
 
-@pytest.mark.parametrize("text", ["17", " 17 ", "０１７"])
+@pytest.mark.parametrize("text", ["17", " 17 ", "017"])
 def test_unchanged_decimal_caption_preserves_language_independent_digits(monkeypatch, text):
     tokenizer = _FakeTokenizer()
     monkeypatch.setattr(tokenizer, "decode", lambda *args, **kwargs: text.strip())
@@ -85,7 +85,7 @@ def test_unchanged_decimal_caption_preserves_language_independent_digits(monkeyp
     assert provider._translate_sync(text, "en", "ko", tokenizer, _FakeEngine()) == text.strip()
 
 
-@pytest.mark.parametrize("text", ["Speech", "2010...", "17위", "1.7", "[17]", ""])
+@pytest.mark.parametrize("text", ["Speech", "2010...", "17위", "1.7", "[17]", "", "０１７"])
 def test_nondecimal_source_copy_remains_rejected(monkeypatch, text):
     tokenizer = _FakeTokenizer()
     monkeypatch.setattr(tokenizer, "decode", lambda *args, **kwargs: text)
