@@ -458,6 +458,11 @@ impl AsrSession {
             .checked_add(1)
             .filter(|value| *value < (1_u64 << 53))
             .ok_or("generation_exhausted")?;
+        let options = state
+            .correction
+            .as_ref()
+            .map(|config| config.options.clone());
+        state.projection.cancel_pending(options.as_ref())?;
         if let Some(active) = &state.active {
             active.cancelled.store(true, Ordering::Release);
         }
@@ -484,7 +489,16 @@ impl AsrSession {
     }
 
     pub fn stop(&self) {
+        let _ = self.stop_checked();
+    }
+
+    pub fn stop_checked(&self) -> Result<(), &'static str> {
         let mut state = self.0.lock().unwrap();
+        let options = state
+            .correction
+            .as_ref()
+            .map(|config| config.options.clone());
+        let finalized = state.projection.cancel_pending(options.as_ref());
         if let Some(active) = &state.active {
             active.cancelled.store(true, Ordering::Release);
         }
@@ -505,6 +519,7 @@ impl AsrSession {
             pending.cancelled.store(true, Ordering::Release);
         }
         state.projection.reset(None);
+        finalized
     }
 
     /// Explicit prototype opt-in, before source admission. The dispatcher owns
@@ -1043,7 +1058,7 @@ impl AsrSession {
                 });
             }
         }
-        state.projection.apply(prepared);
+        state.projection.apply(prepared)?;
         drop(state);
         if let Some(config) = correction {
             for mut job in corrections {

@@ -482,6 +482,62 @@ def test_cancel_during_optional_prepare_does_not_start_asr_after_parent_eof(
     client.portal.call(scenario)
 
 
+def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
+    rust_api, monkeypatch, tmp_path,
+):
+    from langtextflow import rust_runtime
+    from langtextflow.asr.base import AsrEngineError
+
+    client, runtime = rust_api
+    correction_pid = tmp_path / "correction.pid"
+    mt_started = tmp_path / "mt-started"
+    worker_command = rust_runtime._python_worker
+    sleeper = (
+        "import json,os,sys,time\nfor line in sys.stdin:\n"
+        f"    open({str(correction_pid)!r},'w').write(str(os.getpid()))\n"
+        "    time.sleep(30)\n"
+    )
+
+    def worker(module, args):
+        if module == "langtextflow.correction_worker":
+            return {"program": getattr(sys, "_base_executable", None) or sys.executable,
+                    "args": ["-u", "-c", sleeper]}
+        return worker_command(module, args)
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                {"program": sys.executable, "args": ["-u", "-c",
+                 f"open({str(mt_started)!r},'w').write('started')\n" + _MT]})
+
+    monkeypatch.setattr(rust_runtime, "_python_worker", worker)
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST)
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+    with client.websocket_connect("/ws/captions") as captions:
+        assert captions.receive_json()["type"] == "snapshot"
+
+        async def scenario():
+            await runtime.feed_audio(struct.pack("<f", .1) * 64000)
+            async with asyncio.timeout(3):
+                while not correction_pid.exists():
+                    await asyncio.sleep(.005)
+            bridge = runtime.engine
+            bridge._process.stdin.close()
+            await asyncio.wait_for(bridge._process.wait(), 8)
+            await asyncio.wait_for(bridge._reader, 2)
+            with pytest.raises(AsrEngineError):
+                await runtime.stop()
+            assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+
+        client.portal.call(scenario)
+    saved = client.get(f"/api/v1/history/{sid}/captions").json()
+    assert saved[0]["committed"] and saved[0]["stage"] == "committed"
+    assert saved[0]["text"] == saved[0]["original_text"] == "Original English source"
+    assert saved[0]["translation_states"] == {"ko": "failed", "ja": "failed"}
+    assert not mt_started.exists() and not _pid_alive(int(correction_pid.read_text()))
+
+
 def test_rust_history_failure_does_not_block_source_and_later_stop_ends_session(rust_api):
     client, runtime = rust_api
     state = client.post("/api/v1/session/start", json=_REQUEST).json()

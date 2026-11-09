@@ -391,7 +391,9 @@ async fn serve(
     }
     // Revoke on parent loss, but retain accepted final results for explicit stop.
     if *parent_closed.borrow() || failure.is_some() {
-        session.stop();
+        if session.stop_checked().is_err() {
+            failure.get_or_insert("source_finalize_failed");
+        }
     }
     if let Some(owner) = ingress.take() {
         let _ = owner.cancel().await;

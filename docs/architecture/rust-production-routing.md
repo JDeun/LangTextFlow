@@ -25,7 +25,8 @@ and per-client hub are UI relay mirrors; they neither transform source text nor
 create new caption revisions. Rust event timestamps/provenance survive unchanged.
 
 The supported subset is cached CPU/int8 faster-whisper in four-second windows,
-KO/EN/JA source with one or two distinct targets, no correction, no recording,
+KO/EN/JA source with one or two distinct targets, deterministic correction with
+optional explicitly selected Ollama correction, no recording,
 any existing preset with source-scoped glossary/hotwords and ASR context hints,
 and none or cached M2M100 CT2 MT. Display/audience settings remain available.
 Unsupported combinations, frozen mode, incompatible chunk/VAD/device settings
@@ -50,7 +51,8 @@ checkpoint verification, inferred word alignment or historical rewrite is added.
 | Audio/control | One-byte tag + little-endian u32 length; audio ≤1MiB and float32-aligned; end/stop have zero payload |
 | Control queue | One pending command; excess/malformed input closes authority admission before payload allocation |
 | Control output | ≤1KiB JSON replies; one queued writer operation; one-second async write confirmation |
-| Parent ACK | Session ID, generation and ordered sequence checked; ≤15s startup reply / ≤15s + configured target deadline exchange |
+| Parent ACK | Session ID, generation and ordered sequence checked; ≤15s startup reply / ≤15s + max(configured correction, target budget) exchange |
+| Correction | One supervised Python child, four queued jobs and one active job; immutable shared context; source publication never awaits it |
 | Observer | Existing loopback-only random port, private random token, exact internal Origin; bounded handshake/client/FIFO/write limits |
 | PCM / MT / history | Existing [PCM bounds](rust-continuous-pcm-ingress.md), [MT scheduler](rust-mt-scheduling-prototype.md), [SQLite writer](rust-sqlite-history.md) |
 
@@ -77,7 +79,7 @@ No user transcript or remote code becomes executable code.
 
 One Rust process lease spans startup, capture and owned stop. New starts wait for
 prior source cleanup. Parent EOF interrupts blocked feed/drain, revokes authority,
-cancels/reaps ASR/MT, removes its owned private spool and ends the history writer.
+cancels/reaps ASR/correction/MT, removes its owned private spool and ends the history writer.
 Explicit stop drains within existing budgets, ends SQLite at observed stop and
 reports cleanup before exit. A nonreading parent cannot block the reactor with
 stdout: a process-owned std writer thread has a bounded async confirmation; on
@@ -94,7 +96,7 @@ stop waiter is cancelled. A new Python start cannot bypass an unconfirmed Rust
 lease; rollback requires clean stop or a server restart.
 
 The bridge captures the existing title/presenter, the ASR-consumed description
-prefix (1000 characters) and reference excerpt (1200), explicit operator hotwords,
+prefix (1000 characters) and reference excerpt (3000), explicit operator hotwords,
 preset, and enabled glossary entries matching the actual source language and
 preset. The full original API/session context is retained in existing Python
 state/history; inference-prefix extraction does not rewrite it. Rust installs this
@@ -109,9 +111,64 @@ faster-whisper prompt and `asr_hotwords(source_language=...)` implementation as 
 Python runtime. Explicit hotwords retain their existing operator-defined scope;
 disabled, wrong-preset or wrong-source glossary hints do not apply. MT receives
 only preset/glossary and uses the unchanged relevance and fail-closed term guard.
+ASR still consumes only the first 1200 reference characters; optional correction
+uses the existing 3000-character excerpt. Sharing the larger captured excerpt
+does not widen the ASR prompt or mutate the archived full context.
 Titles, presenters and references are ASR hints, not evidence of model accuracy.
-Deterministic alias correction is still a separate required arbitration lane;
-this transport does not implement it or relabel raw source as corrected.
+
+## Source-first correction arbitration
+
+The product Rust route enables the existing deterministic corrector even when the
+optional correction provider is `none`, matching Python behavior. Rust publishes
+raw STABLE first and then admits correction without blocking ASR or observer
+publication. The Python correction worker evaluates only identity-bound immutable
+leaves: the existing `DeterministicCorrector` and, when selected, the existing
+`OllamaConstrainedCorrector` with its candidate safety validator. It neither owns
+captions nor constructs provenance, commits, revisions or database writes.
+
+Rust chooses the deterministic result, accepted LLM candidate or fallback and
+publishes CORRECTED with the existing typed `CorrectionProvenance`. Raw
+`original_text` and ASR sample-clock provenance remain unchanged. A failed/hung
+LLM retains an already completed deterministic result. When the deterministic
+worker itself cannot complete or its bounded queue is full, raw text survives as
+an explicit fallback with no claimed deterministic change or LLM application.
+The shared lexical safety checks are not complete semantic certification.
+
+Each source retains the same MT jobs and absolute target deadlines captured before
+correction queue admission. Correction wait/load/inference consumes that original
+budget; handing the selected text to MT never renews it. Each target still fails
+independently. Without MT, selected targets stay `unsupported` and the source
+reaches COMMITTED only after correction terminates. Stages advance through
+STABLE → CORRECTED → TRANSLATED → COMMITTED (TRANSLATED is omitted without MT).
+Snapshots, reconnect and SQLite use those same canonical events and correction
+metadata; the Python relay does not rerun correction or overwrite original text.
+
+Nonterminal canonical records have a separate 512-frame / 16MiB encoded-byte
+limit, including a transient 256-result ASR batch. This is a serialized-data
+bound, not a process RSS limit. Completion removes those records. The live view
+stays at 100 captions / 1MiB: rolled-off pending correction/MT still updates
+history and per-ID versions, without reappearing in the view or allocating an
+observer publication serial that could leave the relay waiting for a missing
+frame. Stop/restart and parent EOF terminalize retained raw/known-corrected source
+and fail only pending targets before revocation, preserving successful targets
+without launching more inference. Cancellation may move STABLE directly to
+COMMITTED with explicit raw fallback. Normal stop retains its relay ACK barrier;
+unexpected EOF does not promise delivery to a disconnected observer.
+
+Generation/revision checks and cancellation fence both correction publication and
+MT handoff. Jobs hold weak authority and share immutable context through `Arc`,
+avoiding an owner cycle or per-segment glossary copies before bounded admission.
+Armed queue/owner fallback occurs outside the authority mutex. End/stop counts
+pending correction even without MT, drains within configured budgets and confirms
+the child's own reap signal. Replacing a shared slot cannot change that signal.
+
+Optional Ollama preparation is bounded to three seconds and degrades to
+deterministic correction when unavailable. Parent EOF during that preparation
+cleans existing owners before an ASR child/spool can start. Endpoint/model options
+travel only in private stdin frames, not command-line arguments, events or errors.
+HTTP uses the existing bounded, no-proxy/no-redirect provider path. The separately
+owned Ollama server may continue inference/cache models after its HTTP caller
+disconnects; reaping the Python leaf does not prove external model unload.
 
 SQLite lock/full/write/queue failures mark the archive incomplete without gating
 source or MT publication. Rust history metrics propagate in control ACKs and final
@@ -150,10 +207,14 @@ Context tests additionally exercise actual API→Rust→ASR/MT child transport f
 presets and KO/EN/JA source scope, immutable capture, oversized pre-transition
 refusal, revision/restart fencing, and the shipped Python workers with synthetic
 external native libraries for prompt/hotword and all-six-direction glossary guards.
+Correction regressions additionally exercise actual leaf processes and fake HTTP,
+raw-first observation, chosen-text MT handoff, unchanged original/SQLite metadata,
+queue overflow, deadline consumption, revision fencing, hang/failure fallback,
+reconnect, parent EOF during HTTP/prepare and per-child reap with shared-slot reuse.
 
 ## Required remaining work
 
-Deterministic and optional model correction, AUTO/failover parity, complete Rust queue/latency
+AUTO/failover parity, complete Rust queue/latency
 telemetry in the existing metrics API, independent recording parity,
 desktop/frozen binary bundling and lifecycle, native app capture validation and
 reviewed gradual default cutover/rollback remain **required**. This supported

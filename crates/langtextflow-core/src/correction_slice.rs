@@ -33,12 +33,21 @@ impl CorrectionOptions {
             || !self.timeout_seconds.is_finite()
             || !(0.1..=120.).contains(&self.timeout_seconds)
             || self.public_model.as_ref().is_some_and(|model| {
-                model.is_empty()
+                model
+                    .as_bytes()
+                    .first()
+                    .is_none_or(|byte| !byte.is_ascii_alphanumeric())
                     || model.len() > 200
                     || model.starts_with('.')
                     || model.contains("..")
                     || model.contains(":/")
                     || model.split('/').count() > 2
+                    || model.split('/').any(str::is_empty)
+                    || (model.as_bytes().get(1) == Some(&b':')
+                        && model.as_bytes()[0].is_ascii_alphabetic())
+                    || ["sk-", "hf_", "ghp_", "github_pat_", "xoxb-", "xoxp-"]
+                        .iter()
+                        .any(|prefix| model.starts_with(*prefix))
                     || std::path::Path::new(model).is_dir()
                     || !model
                         .bytes()
@@ -48,6 +57,33 @@ impl CorrectionOptions {
             return Err("invalid_correction_options");
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn public_model_identity_cannot_publish_locations_endpoints_or_token_prefixes() {
+        let mut options = CorrectionOptions {
+            provider: "ollama".into(),
+            url: "http://127.0.0.1".into(),
+            model: "configured:tag".into(),
+            timeout_seconds: 1.,
+            public_model: Some("configured:tag".into()),
+        };
+        assert!(options.validate().is_ok());
+        for value in [
+            "/private-missing",
+            "C:private",
+            "https://host/model",
+            "hf_synthetic_token",
+            "../secret",
+        ] {
+            options.public_model = Some(value.into());
+            assert!(options.validate().is_err());
+        }
     }
 }
 

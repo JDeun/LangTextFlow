@@ -37,7 +37,7 @@ _CONTEXT_LIMIT = 48 * 1024
 
 def _source_context(request: StartSessionRequest) -> dict:
     context = request.context
-    # These are exactly the fields consumed by the existing ASR prompt and MT
+    # These are exactly the fields consumed by existing ASR/LLM prompts and MT
     # guard. Preserve explicit hotwords; glossary hints require actual source.
     snapshot = {
         "title": context.title, "presenter": context.presenter,
@@ -77,9 +77,9 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or request.translation_provider not in {"none", "m2m100-ct2"}
             or request.record_audio or request.translation_model
             or (request.correction_model and request.correction_provider != "ollama")
-            or not .1 <= settings.correction_timeout_seconds <= 120
+            or not 0 < settings.correction_timeout_seconds <= 120
             or (request.correction_provider == "ollama" and (
-                len(settings.ollama_url) > 4096
+                len(settings.ollama_url.encode()) > 4096
                 or not 1 <= len(request.correction_model or settings.ollama_correction_model) <= 200
             ))
             or request.source_language not in {"ko", "en", "ja"}
@@ -170,7 +170,7 @@ class RustRuntimeBridge(AsrEngine):
             "url": self.settings.ollama_url if request.correction_provider != "none" else "",
             "model": ((request.correction_model or self.settings.ollama_correction_model)
                       if request.correction_provider != "none" else "unused"),
-            "timeout_seconds": self.settings.correction_timeout_seconds,
+            "timeout_seconds": max(self.settings.correction_timeout_seconds, .1),
         }
         self.correction_status = CorrectionStatus(
             enabled=request.correction_provider != "none", provider=request.correction_provider,
