@@ -21,7 +21,7 @@ import time
 from contextlib import suppress
 from pathlib import Path
 from urllib.error import URLError
-from urllib.request import ProxyHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 FRAME_LIMIT = 128 * 1024
 IDENTITY = ("protocol_version", "request_id", "session_id", "session_generation",
@@ -30,6 +30,11 @@ IDENTITY = ("protocol_version", "request_id", "session_id", "session_generation"
 
 class SmokeFailure(RuntimeError):
     pass
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise SmokeFailure("loopback_redirect_forbidden")
 
 
 def require(condition: bool, category: str) -> None:
@@ -252,10 +257,15 @@ def worker_probe(binary: Path, root: Path, env: dict, api, kind: str) -> dict:
         payload = {"text": text, "context": {}}
     else:
         arguments = ["--correction-worker"]
-    process = subprocess.Popen([str(binary), *arguments], cwd=root, env=env,
-                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, bufsize=0,
-                               start_new_session=os.name == "posix")
+    log = (root / f"worker-{kind}.stderr.log").open("xb")
+    try:
+        process = subprocess.Popen([str(binary), *arguments], cwd=root, env=env,
+                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=log, bufsize=0,
+                                   start_new_session=os.name == "posix")
+    except BaseException:
+        log.close()
+        raise
     owned = Owned(process, api)
     try:
         owned.snapshot()
@@ -279,10 +289,13 @@ def worker_probe(binary: Path, root: Path, env: dict, api, kind: str) -> dict:
                 "exit_code": process.returncode, "observed_processes": len(owned.seen),
                 "ownership_observations": owned.observations, "owned_processes_absent": True}
     finally:
-        owned.cleanup()
-        if process.stdin and not process.stdin.closed:
-            process.stdin.close()
-        process.stdout.close()
+        try:
+            owned.cleanup()
+        finally:
+            log.close()
+            if process.stdin and not process.stdin.closed:
+                process.stdin.close()
+            process.stdout.close()
 
 
 def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
@@ -299,10 +312,15 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
                 "LANGTEXTFLOW_FASTER_WHISPER_COMPUTE_TYPE": "int8",
                 "LANGTEXTFLOW_FASTER_WHISPER_CHUNK_SECONDS": "4",
                 "LANGTEXTFLOW_MAX_SEGMENTS": "100"})
-    opener = build_opener(ProxyHandler({}))
-    process = subprocess.Popen([str(binary)], cwd=root, env=env,
-                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               start_new_session=os.name == "posix")
+    opener = build_opener(ProxyHandler({}), NoRedirect())
+    log = (root / "backend.log").open("xb")
+    try:
+        process = subprocess.Popen([str(binary)], cwd=root, env=env,
+                                   stdout=log, stderr=subprocess.STDOUT,
+                                   start_new_session=os.name == "posix")
+    except BaseException:
+        log.close()
+        raise
     owned = Owned(process, api)
 
     def request(path, payload=None):
@@ -366,15 +384,27 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
                 "valid_model_assets_supplied": False, "model_load_or_recognition_proven": False,
                 "owned_processes_absent": True, "observations": owned.observations}
     finally:
-        owned.cleanup()
+        try:
+            owned.cleanup()
+        finally:
+            log.close()
 
 
 def main(binary_path: Path, output_receipt: Path) -> dict:
+    output_receipt.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Reserve before any process or fixture is created. A second invocation
+        # cannot overwrite either an earlier receipt or a concurrent attempt.
+        output = output_receipt.open("x", encoding="utf-8")
+    except FileExistsError:
+        raise SmokeFailure("receipt_already_exists") from None
     report = {"status": "failed", "scope": "frozen protocol and start-idle wiring only",
               "field_ready": False, "valid_models_supplied": False, "model_quality_test": False,
-              "probes": [], "stage": "preflight"}
-    scratch = Path(tempfile.mkdtemp(prefix="ltf-rust-frozen-smoke-"))
+              "probes": [], "stage": "preflight", "evidence_visibility": "private"}
+    scratch = None
     try:
+        scratch = Path(tempfile.mkdtemp(prefix="rust-frozen-smoke-", dir=output_receipt.parent))
+        report["private_fixture"] = scratch.name
         require(binary_path.is_file(), "binary_missing")
         with binary_path.open("rb") as stream:
             report["binary_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -389,14 +419,17 @@ def main(binary_path: Path, output_receipt: Path) -> dict:
     except Exception as exc:
         report["error_category"] = str(exc) if isinstance(exc, SmokeFailure) else type(exc).__name__
     finally:
-        try:
-            shutil.rmtree(scratch)
-        except OSError:
-            report["status"] = "failed"
-            report["scratch_cleanup_error"] = True
-        output_receipt.parent.mkdir(parents=True, exist_ok=True)
-        output_receipt.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-                                  encoding="utf-8")
+        if scratch is not None:
+            report["private_log_files"] = sorted(path.name for path in scratch.glob("*.log"))
+            if report["status"] == "passed":
+                try:
+                    shutil.rmtree(scratch)
+                except OSError:
+                    report["status"] = "failed"
+                    report["scratch_cleanup_error"] = True
+            report["private_fixture_retained"] = scratch.exists()
+        with output:
+            output.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     return report
 
 

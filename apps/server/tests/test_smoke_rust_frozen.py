@@ -153,14 +153,33 @@ def test_unobservable_host_writes_failed_receipt_before_any_target_spawn(tmp_pat
     assert json.loads(output.read_text()) == result
 
 
-def test_failure_replaces_old_success_receipt_and_does_not_hide_limits(tmp_path, monkeypatch):
+def test_existing_receipt_is_preserved_before_fixture_or_process_creation(tmp_path, monkeypatch):
     binary = tmp_path / "fixture-binary"
     binary.write_bytes(b"not executed")
     output = tmp_path / "receipt.json"
-    output.write_text('{"status":"passed","stale":true}')
-    monkeypatch.setattr(smoke, "process_api", lambda: object())
+    original = '{"status":"passed","original":true}'
+    output.write_text(original)
+    monkeypatch.setattr(smoke, "process_api", lambda: pytest.fail("must not observe or spawn"))
+    monkeypatch.setattr(smoke.tempfile, "mkdtemp",
+                        lambda **kw: pytest.fail("must not create fixture"))
+    with pytest.raises(smoke.SmokeFailure, match="receipt_already_exists"):
+        smoke.main(binary, output)
+    assert output.read_text() == original
 
-    def reject(*args):
+
+def test_failed_fixture_keeps_private_sqlite_logs_and_success_removes_only_its_own(
+    tmp_path, monkeypatch,
+):
+    binary = tmp_path / "fixture-binary"
+    binary.write_bytes(b"not executed")
+    output = tmp_path / "failed.json"
+    monkeypatch.setattr(smoke, "process_api", lambda: object())
+    monkeypatch.setattr(smoke.subprocess, "Popen",
+                        lambda *a, **kw: pytest.fail("fake contracts only"))
+
+    def reject(binary, root, env, api, kind):
+        (root / "smoke.sqlite").write_bytes(b"owned fixture diagnostic")
+        (root / "worker-correction.stderr.log").write_text("private endpoint/path detail")
         raise smoke.SmokeFailure("worker_identity_mismatch")
 
     monkeypatch.setattr(smoke, "worker_probe", reject)
@@ -168,4 +187,23 @@ def test_failure_replaces_old_success_receipt_and_does_not_hide_limits(tmp_path,
     assert result["status"] == "failed" and result["stage"] == "correction"
     assert result["error_category"] == "worker_identity_mismatch"
     assert result["valid_models_supplied"] is result["model_quality_test"] is False
-    assert "stale" not in json.loads(output.read_text())
+    fixture = tmp_path / result["private_fixture"]
+    assert result["evidence_visibility"] == "private" and result["private_fixture_retained"]
+    assert fixture.parent == tmp_path and fixture.is_dir()
+    assert (fixture / "smoke.sqlite").read_bytes() == b"owned fixture diagnostic"
+    assert (fixture / "worker-correction.stderr.log").read_text() == "private endpoint/path detail"
+    assert "endpoint/path" not in output.read_text() and str(tmp_path) not in output.read_text()
+
+    monkeypatch.setattr(smoke, "worker_probe", lambda *args: {"status": "passed"})
+    monkeypatch.setattr(smoke, "backend_probe", lambda *args: {"status": "passed"})
+    passed = smoke.main(binary, tmp_path / "passed.json")
+    assert passed["status"] == "passed" and not passed["private_fixture_retained"]
+    assert passed["private_fixture"] != result["private_fixture"]
+    assert not (tmp_path / passed["private_fixture"]).exists()
+    assert fixture.is_dir()  # A later successful attempt cannot remove the failed evidence.
+
+
+def test_loopback_redirects_cannot_send_smoke_requests_elsewhere():
+    with pytest.raises(smoke.SmokeFailure, match="redirect_forbidden"):
+        smoke.NoRedirect().redirect_request(None, None, 307, "redirect", {},
+                                             "https://unapproved.invalid/receive")
