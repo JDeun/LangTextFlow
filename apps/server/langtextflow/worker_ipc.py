@@ -11,6 +11,7 @@ import sys
 PROTOCOL_VERSION = 1
 MAX_FRAME_BYTES = 128 * 1024  # Includes the newline; matches the Rust transport.
 TASK_KINDS = {"asr", "translation", "correction"}
+SUPPORTED_LANGUAGES = frozenset({"ko", "en", "ja", "zh", "es", "fr", "de", "it", "pt", "ru"})
 IDENTITY_KEYS = (
     "protocol_version", "request_id", "session_id", "session_generation",
     "segment_id", "source_revision",
@@ -27,14 +28,14 @@ def validate_inference_request(request: object, task_kind: str) -> None:
             or request["protocol_version"] != PROTOCOL_VERSION
             or task_kind not in TASK_KINDS or request["task_kind"] != task_kind
             or not isinstance(request["source_language"], str)
-            or request["source_language"] not in {"ko", "en", "ja"}
+            or request["source_language"] not in SUPPORTED_LANGUAGES
             or type(request["deadline_ms"]) is not int
             or not 1 <= request["deadline_ms"] <= 120_000):
         raise ValueError("unsupported_request")
     target = request["target_language"]
     if ((task_kind in {"asr", "correction"} and target is not None)
             or (task_kind == "translation" and (
-                not isinstance(target, str) or target not in {"ko", "en", "ja"}
+                not isinstance(target, str) or target not in SUPPORTED_LANGUAGES
                 or target == request["source_language"]))):
         raise ValueError("unsupported_request")
     for key in ("request_id", "session_id", "segment_id"):

@@ -21,6 +21,9 @@ from .m2m100_ct2 import (
 
 def validate_rust_request(request: object) -> tuple[str, SessionContext]:
     validate_inference_request(request, "translation")
+    if (request["source_language"] not in SUPPORTED_LANGUAGES
+            or request["target_language"] not in SUPPORTED_LANGUAGES):
+        raise ValueError("unsupported_local_translation_pair")
     payload = json.loads(request["payload"])
     if (not isinstance(payload, dict) or set(payload) != {"text", "context"}
             or not isinstance(payload["text"], str)
