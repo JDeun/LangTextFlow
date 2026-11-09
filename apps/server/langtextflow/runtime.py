@@ -598,6 +598,7 @@ class CaptionRuntime:
             if active_provider:
                 await self._provider_changed(str(active_provider))
             self.state.audio_sample_rate = engine.sample_rate
+            self._refresh_queue_metrics()
             if request.record_audio:
                 # Recording is optional: storage failure must never prevent captions.
                 if self.state.persistence_error is not None:
@@ -785,7 +786,10 @@ class CaptionRuntime:
             "session_id": state.session_id, "session_running": state.running,
             "available": bool(state.running and self.engine is not None
                               and self.engine.accepts_audio and state.persistence_error is None
-                              and not self._rust_session),
+                              and (not self._rust_session or (
+                                  self.engine.running and self.engine.failure is None
+                                  and self.engine.persistence_error is None
+                              ))),
             "phase": "error" if error and writer is not None else self._recording_phase,
             "active": writer is not None, "error": error,
             "start_offset_ms": writer.start_offset_ms if writer else None,
@@ -797,8 +801,6 @@ class CaptionRuntime:
     ) -> dict:
         if action not in {"start", "stop"}:
             raise ValueError("unsupported recording action")
-        if self._rust_session and action == "start":
-            raise ValueError("recording parity requires the Python runtime during Rust rollout")
         if self._recording_control is not None and not self._recording_control.done():
             raise SessionChangedError("recording transition in progress; refresh before retrying")
         cancelled = cancelled if cancelled is not None else ThreadEvent()
