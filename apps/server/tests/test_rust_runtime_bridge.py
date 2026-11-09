@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import io
 import json
 import os
 import sqlite3
@@ -9,11 +11,13 @@ import struct
 import subprocess
 import sys
 import time
+import wave
 from contextlib import asynccontextmanager
 from threading import BoundedSemaphore
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -21,7 +25,9 @@ from langtextflow import main
 from langtextflow.config import Settings
 from langtextflow.glossary_repository import GlossaryRepository
 from langtextflow.models import StartSessionRequest, TranscriptEvent
+from langtextflow.post_event_api import install_post_event_routes
 from langtextflow.project_glossary_repository import ProjectGlossaryRepository
+from langtextflow.recording_api import install_recording_routes
 from langtextflow.runtime import CaptionRuntime
 from langtextflow.rust_runtime import (
     RustRuntimeBridge,
@@ -62,8 +68,42 @@ for line in sys.stdin:
 """
 
 
+@pytest.fixture
+def rust_recording_api(rust_api, monkeypatch):
+    client, runtime = rust_api
+    # Production media routes capture their runtime/archive at installation.
+    bound = FastAPI()
+    install_recording_routes(bound, runtime, main._require_operator)
+    shutdown = install_post_event_routes(
+        bound, runtime, runtime.archive, runtime.settings, main._require_operator,
+    )
+    monkeypatch.setattr(main.app.router, "routes", [*bound.routes, *main.app.routes])
+    try:
+        yield client, runtime
+    finally:
+        client.portal.call(shutdown)
+
+
+def assert_recordings(client, runtime, sid, expected):
+    rows = runtime.archive.recordings(sid)
+    assert len(rows) == len(expected)
+    for row, (pcm16, offset) in zip(rows, expected, strict=True):
+        response = client.get(
+            f"/api/v1/history/{sid}/recordings/{row['recording_id']}/audio",
+        )
+        assert response.status_code == 200, response.text
+        assert hashlib.sha256(response.content).hexdigest() == row["sha256"]
+        with wave.open(io.BytesIO(response.content), "rb") as wav:
+            assert (wav.getframerate(), wav.getnchannels(), wav.getsampwidth()) == (16000, 1, 2)
+            assert wav.readframes(wav.getnframes()) == pcm16
+        assert row["start_offset_ms"] == offset
+        assert row["duration_seconds"] == len(pcm16) / 2 / 16000
+        assert row["status"] == "completed" and row["finalized_at"] == row["created_at"]
+    return rows
+
+
 @pytest.mark.parametrize("change", [
-    {"engine": "auto"}, {"record_audio": True}, {"correction_provider": "ollama"},
+    {"engine": "auto"}, {"correction_provider": "ollama"},
     {"translation_provider": "ollama"}, {"translation_model": "path/private"},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
@@ -211,7 +251,7 @@ def test_existing_http_capture_audience_history_and_restart_with_rust_authority(
                 }
                 # Preserve the active microphone across invalid configuration.
                 invalid = client.post(
-                    "/api/v1/session/start", json=_REQUEST | {"record_audio": True},
+                    "/api/v1/session/start", json=_REQUEST | {"engine": "auto"},
                 )
                 assert invalid.status_code == 400
                 assert runtime.engine is bridge and runtime.state.session_id == sid
@@ -589,3 +629,112 @@ def test_parent_loss_and_invalid_framing_reap_occupied_child_and_spool(
         assert runtime._rust_slot._value == (0 if termination == "nonreading_control" else 1)
 
     client.portal.call(scenario)
+
+
+def test_rust_opt_in_recording_matches_websocket_pcm_and_retains_private_asset_ownership(
+    rust_recording_api,
+):
+    client, runtime = rust_recording_api
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "translation_provider": "none", "record_audio": True,
+    })
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+    bridge = runtime.engine
+    assert client.get("/api/v1/session/recording").json()["active"]
+    frames = [(16, -.5, -16384), (160, 0, 0), (1024, .25, 8192), (480, 1, 32767)]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        assert captions.receive_json()["type"] == "snapshot"
+        assert audio.receive_json()["type"] == "audio_config"
+        for count, value, _ in frames:
+            audio.send_bytes(struct.pack("<f", value) * count)
+        audio.send_text("end")
+        event = captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+    assert client.post("/api/v1/session/stop").status_code == 200
+    expected = b"".join(struct.pack("<h", value) * count for count, _, value in frames)
+    rows = assert_recordings(client, runtime, sid, [(expected, 0)])
+    assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+    assert runtime._persistence_task is None and runtime.pipeline.queue_depth == 0
+    assert runtime.history.get_session(sid).ended_at is not None
+    assert not list(runtime.archive.audio_root.glob("*.partial"))
+    next_session = client.post("/api/v1/session/start", json=_REQUEST)
+    assert next_session.status_code == 200
+    assert client.get("/api/v1/session/recording").json()["active"] is False
+    wrong = client.get(
+        f"/api/v1/history/{next_session.json()['session_id']}/recordings/"
+        f"{rows[0]['recording_id']}/audio",
+    )
+    assert wrong.status_code == 404
+
+
+def test_rust_late_record_stop_resume_uses_received_pcm_clock_without_caption_restart(
+    rust_recording_api,
+):
+    client, runtime = rust_recording_api
+    assert client.post("/api/v1/session/start", json=_REQUEST).status_code == 200
+    sid, bridge = runtime.state.session_id, runtime.engine
+    url = "/api/v1/session/recording"
+    control = {"expected_session_id": sid}
+    def feed(count, value):
+        client.portal.call(runtime.feed_audio, struct.pack("<f", value) * count)
+    feed(16017, .25)
+    first_offset = 16017 * 1000 / 16000
+    first = client.post(f"{url}/start", json=control)
+    assert first.status_code == 200 and first.json()["start_offset_ms"] == first_offset
+    assert client.post(f"{url}/stop", json={"expected_session_id": "stale"}).status_code == 409
+    feed(8000, -.5)
+    assert client.post(f"{url}/stop", json=control).status_code == 200
+    assert runtime.state.running and runtime.engine is bridge and bridge.running
+    feed(4001, 0)
+    with pytest.raises(ValueError):
+        client.portal.call(runtime.feed_audio, struct.pack("<f", float("nan")))
+    second_offset = (16017 + 8000 + 4001) * 1000 / 16000
+    second = client.post(f"{url}/start", json=control)
+    assert second.status_code == 200 and second.json()["start_offset_ms"] == second_offset
+    feed(12000, .75)
+    assert client.post(f"{url}/stop", json=control).status_code == 200
+    assert runtime.engine is bridge and bridge.running
+    assert_recordings(client, runtime, sid, [
+        (struct.pack("<h", -16384) * 8000, first_offset),
+        (struct.pack("<h", 24575) * 12000, second_offset),
+    ])
+    client.portal.call(runtime.end_audio)
+    assert client.post("/api/v1/session/stop").status_code == 200
+
+
+@pytest.mark.parametrize("failure", ["open", "overflow"])
+def test_rust_recording_storage_failure_never_stops_caption_authority(
+    rust_recording_api, monkeypatch, failure,
+):
+    from langtextflow.recording_writer import SessionRecordingWriter
+
+    client, runtime = rust_recording_api
+    assert client.post("/api/v1/session/start", json=_REQUEST).status_code == 200
+    sid, bridge = runtime.state.session_id, runtime.engine
+    if failure == "open":
+        def fail(_):
+            raise OSError("private storage /path/token must not escape")
+        monkeypatch.setattr(SessionRecordingWriter, "_open", fail)
+    response = client.post("/api/v1/session/recording/start", json={"expected_session_id": sid})
+    if failure == "open":
+        assert response.status_code == 503 and "/path" not in response.text
+    else:
+        assert response.status_code == 200
+        # Do not stall a native thread: queue pressure is produced on its owning loop.
+        async def overflow():
+            writer = runtime._recorder
+            for _ in range(writer._queue.maxsize + 1):
+                writer.offer(struct.pack("<f", .25))
+        client.portal.call(overflow)
+    client.portal.call(runtime.feed_audio, struct.pack("<f", .25) * 64000)
+    client.portal.call(runtime.end_audio)
+    saved = client.get("/api/v1/captions").json()
+    assert saved and saved[0]["committed"] and saved[0]["translation_states"]["ko"] == "available"
+    assert runtime.engine is bridge and bridge.running
+    assert client.post("/api/v1/session/stop").status_code == 200
+    assert runtime.archive.recordings(sid) == []
+    assert not list(runtime.archive.audio_root.glob("*.partial"))
+    assert not list(runtime.archive.audio_root.glob("*.wav"))
