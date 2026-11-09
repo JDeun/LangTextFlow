@@ -7,7 +7,7 @@ from difflib import SequenceMatcher
 
 import httpx
 
-from .correction_safety import numeric_tokens
+from .correction_safety import numeric_tokens, protected_tokens
 from .models import SessionContext
 from .prompt_safety import (
     MAX_CORRECTION_RESPONSE_CHARS,
@@ -146,7 +146,7 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
             raise CorrectionError("Ollama correction response must be a JSON object")
 
         candidate = str(parsed.get("corrected_text", "")).strip()
-        return validate_constrained_candidate(text, candidate)
+        return validate_constrained_candidate(text, candidate, source_language=source_language)
 
     @staticmethod
     def build_messages(
@@ -256,7 +256,9 @@ class OllamaConstrainedCorrector(ConstrainedCorrector):
         return "\n".join(lines)
 
 
-def validate_constrained_candidate(original: str, candidate: str) -> str:
+def validate_constrained_candidate(
+    original: str, candidate: str, *, source_language: str = "ko",
+) -> str:
     """Reject output that looks like translation, summarization, or factual rewriting."""
 
     original = original.strip()
@@ -272,6 +274,10 @@ def validate_constrained_candidate(original: str, candidate: str) -> str:
     candidate_numbers = numeric_tokens(candidate)
     if candidate_numbers != original_numbers:
         raise CorrectionError("correction candidate changed numeric tokens")
+    # This lexical count guard does not prove clause scope or semantic equivalence.
+    if (protected_tokens(original, source_language)[1]
+            != protected_tokens(candidate, source_language)[1]):
+        raise CorrectionError("correction candidate changed protected negation tokens")
 
     original_compact = _SPACE_PATTERN.sub("", original)
     candidate_compact = _SPACE_PATTERN.sub("", candidate)

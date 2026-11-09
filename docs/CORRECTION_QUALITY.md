@@ -93,6 +93,15 @@ source와 reference가 다르면 `needs_change=true`입니다. correction 결과
 
 전체 CER가 낮아도 장절 `3:16 → 3:18`, 숫자 `15 → 50`, 부정 `아닙니다 → 입니다` 같은 오류는 릴리스 차단 사유가 될 수 있습니다.
 
+제품 LLM 후보 검사는 실제 소스 언어를 공유 lexical guard에 전달하고,
+KO/EN/JA에서 인식한 부정 표지 개수가 바뀌면 후보를 거절해 deterministic 결과를
+유지합니다. 한국어 `-지 마`, `-지 마라`, `-지 마세요`는 띄어쓰기 없이 쓰인 경우도
+인식하며, `마음`·`마라톤`을 이 금지 표현으로 세지 않습니다. 같은 표지는 operator
+alias 검사에도 적용됩니다. 이 검사는 부정의 문장 내 위치나 의미 보존 전체를
+증명하지 않으며, 같은 개수의 표지를 다른 절로 옮기는 등의 오류는 별도 의미 검토가
+필요합니다. 인식된 표지가 0개인 corpus는 부정 보존율을 입증하지 않습니다.
+기존 고정 source/scorer 보고서는 소급 변경하지 않습니다.
+
 ### Runtime / degraded mode
 
 - mean / p50 / p95 / max correction latency
