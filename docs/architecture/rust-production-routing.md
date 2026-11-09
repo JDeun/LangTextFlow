@@ -26,14 +26,13 @@ create new caption revisions. Rust event timestamps/provenance survive unchanged
 
 The supported subset is cached CPU/int8 faster-whisper in four-second windows,
 KO/EN/JA source with one or two distinct targets, deterministic correction with
-optional explicitly selected Ollama correction, no recording,
+optional explicitly selected Ollama correction and independent audio recording,
 any existing preset with source-scoped glossary/hotwords and ASR context hints,
 and none or cached M2M100 CT2 MT. Display/audience settings remain available.
 Unsupported combinations, frozen mode, incompatible chunk/VAD/device settings
 and a missing executable are refused **before database initialization or live
 session mutation**. There is no silent fallback or omitted requested feature.
 The fixed 100-segment live projection is also checked against server configuration.
-Starting recording separately is also refused and recording availability is false.
 Unavailable cached model/runtime initialization can still fail a valid start;
 that failed attempt is ended through existing bootstrap cleanup.
 
@@ -179,6 +178,35 @@ SQLite lock/full/write/queue failures mark the archive incomplete without gating
 source or MT publication. Rust history metrics propagate in control ACKs and final
 stop state. Python does not overwrite Rust's observed `ended_at` on normal stop.
 
+## Independent recording ownership
+
+The existing opt-in `record_audio` setting and separate recording start/stop APIs
+reuse the API-owned `SessionRecordingWriter`, private recording routes and durable
+recording journal. Rust remains the sole caption/revision/history authority;
+recording does not start the Python caption pipeline or its persistence queue.
+This is source-mode media parity, not complete migration of media control to Rust.
+
+Recording requires a running audio-input session with an available persisted
+history owner. Failed source startup, lost native authority or unavailable Rust
+history cannot open a new recording. A later history error disables new recording
+admission; an already owned media file still receives normal independent cleanup.
+Disk/open/queue failures stop only recording, leaving caption admission and
+publication independent. Public audience events contain no audio file or path.
+
+The received valid PCM sample clock supplies exact start offsets, including audio
+before recording and gaps between recordings. The media sink receives validated
+PCM before native admission, preserving the existing received-audio contract even
+when native caption processing rejects a later frame. Recording stop does not end
+the source. Cancelled HTTP controls retain their independent open/finalize owner;
+a replacement source waits until those operations close their file descriptors.
+Source stop, including cleanup after unexpected parent EOF, finalizes owned media
+even when native stop reports failure. EOF disables recording availability; an
+already open file remains owned until existing source/recording stop cleanup.
+Existing WAV header close/flush/fsync/hash, journal reservation,
+atomic promotion, session ownership checks and interrupted-promotion recovery are
+unchanged. Finalized timestamps retain the observed journal time, not restart time.
+Blocking filesystem/kernel calls retain the existing writer's cancellation limits.
+
 ## Enable, verify and roll back
 
 Build with the existing pinned toolchain and prepare approved local caches first:
@@ -216,12 +244,18 @@ Correction regressions additionally exercise actual leaf processes and fake HTTP
 raw-first observation, chosen-text MT handoff, unchanged original/SQLite metadata,
 queue overflow, deadline consumption, revision fencing, hang/failure fallback,
 reconnect, parent EOF during HTTP/prepare and per-child reap with shared-slot reuse.
+Recording regressions use the same real Rust API path with synthetic inference,
+actual PCM/WAV bytes, hashes and SQLite: automatic and late start, stop/resume
+offsets, private asset ownership, failed startup/history admission, disk/queue
+failure isolation, cancelled HTTP controls, EOF finalization and journal recovery.
+They complement the existing independent writer/route/security tests and do not
+certify physical microphone capture or frozen application packaging.
 
 ## Required remaining work
 
 AUTO/failover parity, complete Rust queue/latency
-telemetry in the existing metrics API, independent recording parity,
-desktop/frozen binary bundling and lifecycle, native app capture validation and
+telemetry in the existing metrics API, desktop/frozen binary bundling and lifecycle,
+native app capture/recording validation and
 reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.
 Real six-direction/two-target semantics, aligned timing, long native soak/latency,
