@@ -751,7 +751,12 @@ microphone or independently aligned word timing is measured. Paced feed+drain+
 shutdown RTF is 1.0052–1.0803; this is not isolated native inference RTF. Runtime
 stage values are changed-latest telemetry samples, not every native call.
 Timestamp recoveries by execution order are 1/0/0/0/3/0, with zero observed
-out-of-range final segments. No inference was rerun for scoring/publication.
+out-of-range final segments. The local six-arm matrix was not rerun for offline
+scoring/publication. Separately, the existing PR-path-triggered
+[CI run42637966381](https://github.com/JDeun/LangTextFlow/actions/runs/42637966381)
+executed three real KO clips with tiny/30s at PR head `9780fed`; it is a separate
+Linux ASR smoke, not another local matrix arm or an absence of CI inference.
+Later PR synchronizations may trigger that existing smoke again.
 
 Process-tree RSS is **unavailable/partial in all arms** because sandbox PID
 discovery raised `PermissionError`; parent RSS is not total co-resident memory.
