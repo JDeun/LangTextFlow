@@ -199,8 +199,10 @@ PCM before native admission, preserving the existing received-audio contract eve
 when native caption processing rejects a later frame. Recording stop does not end
 the source. Cancelled HTTP controls retain their independent open/finalize owner;
 a replacement source waits until those operations close their file descriptors.
-Source stop and unexpected parent EOF finalize owned media even when native stop
-reports failure. Existing WAV header close/flush/fsync/hash, journal reservation,
+Source stop, including cleanup after unexpected parent EOF, finalizes owned media
+even when native stop reports failure. EOF disables recording availability; an
+already open file remains owned until existing source/recording stop cleanup.
+Existing WAV header close/flush/fsync/hash, journal reservation,
 atomic promotion, session ownership checks and interrupted-promotion recovery are
 unchanged. Finalized timestamps retain the observed journal time, not restart time.
 Blocking filesystem/kernel calls retain the existing writer's cancellation limits.
