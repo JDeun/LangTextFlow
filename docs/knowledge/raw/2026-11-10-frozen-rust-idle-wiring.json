@@ -1,0 +1,64 @@
+{
+  "classification": "reproduced",
+  "observed_at_utc": "2026-11-09T16:16:51Z",
+  "scope": "Mac ARM64 frozen worker protocol and start-idle ownership only",
+  "source_url": "https://github.com/JDeun/LangTextFlow/pull/454",
+  "source_commit": "700600abefa989dead3c4c9bd7143ef8fe6d121c",
+  "rights": "Project-generated model-free evidence; no speech or valid model assets supplied",
+  "issues": [154, 344, 224],
+  "command": ".venv/bin/python scripts/smoke_rust_frozen.py apps/desktop/src-tauri/binaries/langtextflow-server-aarch64-apple-darwin <new-private-receipt.json>",
+  "software": {
+    "python": "3.12.13",
+    "pyinstaller": "6.22.3",
+    "ctranslate2": "4.8.5",
+    "faster_whisper": "1.2.1",
+    "sentencepiece": "0.2.2",
+    "transformers": "5.22.1",
+    "psutil": "7.2.2"
+  },
+  "positive": {
+    "exit_code": 0,
+    "binary_sha256": "69dc8d66195c85500a10717db4c8b827f362a73992b1e91198d18b05a0224f89",
+    "private_receipt_sha256": "5edc0fd3249b8f7f096288dc5769aa02760faeec26929960ffc2ed22ccfde564",
+    "private_build_log_sha256": "f2d60c449ef4cf6b7eb6a7b40992d4f222e68fda5d59545a998087f9778c6737",
+    "worker_controls": [
+      "correction: two UTF-8 deterministic replies with strict request identities; EOF and exit 0",
+      "ASR: invalid WAV returns the generic ASR failure with strict identity; exit 1",
+      "MT: absent cache returns the generic translation failure with strict identity; exit 1"
+    ],
+    "backend_cycles": 2,
+    "per_cycle": [
+      "distinct session ID and running start response",
+      "one bundled Rust process and one direct ASR child, no ASR inner child",
+      "same worker ownership repeatedly observed for two idle seconds",
+      "stop returns nonrunning; Rust and ASR confirmed absent with PID/create-time fences",
+      "SQLite session ended_at is nonnull"
+    ],
+    "backend_shutdown_exit_code": 0,
+    "all_observed_owned_processes_absent": true,
+    "embedded_notices": ["licenses/LICENSE", "licenses/THIRD_PARTY_NOTICES.md"]
+  },
+  "preserved_negative": {
+    "source_commit": "9a73429d685a5b8c2385f472e740ed710fc2d39e",
+    "pyinstaller": "6.22.2",
+    "binary_sha256": "1dc62616e9a8d26f64cc6cd25af1a85f43dbde5abd5e8bfea60dcc522e82443b",
+    "third_private_receipt_sha256": "b979a1207decd64a06af3f93eea3bb9c4a52e2ef6e06741651a56ea9662fde86",
+    "result": "Worker controls passed; backend ownership assertion failed. The preserved graph contained the frozen backend and bundled Rust, with no ASR worker observed.",
+    "worker_stderr_during_backend_start": "not captured; production supervisor discards it",
+    "upstream_source": "https://github.com/pyinstaller/pyinstaller/blob/v6.22.2/bootloader/src/pyi_security.c",
+    "upstream_fix": "https://github.com/pyinstaller/pyinstaller/issues/9513",
+    "upstream_changelog": "https://pyinstaller.org/en/stable/CHANGES.html",
+    "interpretation": "The immediate-parent executable equality check conflicts with a native Rust owner between frozen instances. The upstream patch supports intermixed nested subprocesses. The new build also integrates recording parity and bundle notices; this is not a single-variable dependency benchmark."
+  },
+  "common_embedded_rust_resource_sha256": "cd4f991c0faef5dae9e41538b707b8506b876d9e30e2a51046f379d2e0e4d990",
+  "limitations": [
+    "No audio fed and no valid model assets; successful model loading or recognition is unproven.",
+    "ASR process spawn is not a prepared-model handshake in this source revision.",
+    "No translation or correction model quality, real microphone, in-flight inference cancellation, Windows execution, GUI, signing or updater qualification.",
+    "Positive fixture logs are removed by the smoke after confirmed success; the private receipt and negative fixture logs remain.",
+    "Existing project/core notices are included; a complete release license inventory or SBOM is not approved."
+  ],
+  "model_promoted": false,
+  "default_runtime_changed": false,
+  "release_qualified": false
+}

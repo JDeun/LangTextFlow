@@ -88,6 +88,10 @@ the Rust worker owner. The project license and existing Rust third-party notices
 are embedded under `licenses/`; this is not a complete release SBOM or license
 review. The external frozen smoke records actual process ownership and lifecycle;
 its model-free checks do not qualify model loading, real audio or signed releases.
+The [Mac ARM64 receipt](../knowledge/raw/2026-11-10-frozen-rust-idle-wiring.json)
+records passing worker controls and two owned start/stop/restart cycles at source
+`700600a`, alongside the earlier failed PyInstaller 6.22.2 attempt. Windows and
+actual cached-model execution remain separate acceptance checks.
 
 One Rust process lease spans startup, capture and owned stop. New starts wait for
 prior source cleanup. Parent EOF interrupts blocked feed/drain, revokes authority,
