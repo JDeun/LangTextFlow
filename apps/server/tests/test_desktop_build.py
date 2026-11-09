@@ -52,6 +52,10 @@ def test_packaged_runtime_is_built_and_embedded_before_publishing_sidecar(
             separator = ";" if platform == "win32" else ":"
             assert runtime.is_file()
             assert command[command.index("--add-binary") + 1] == f"{runtime}{separator}runtime"
+            data = [command[i + 1] for i, value in enumerate(command) if value == "--add-data"]
+            assert f"{tmp_path / 'LICENSE'}{separator}licenses" in data
+            assert (f"{tmp_path / 'crates/langtextflow-core/THIRD_PARTY_NOTICES.md'}"
+                    f"{separator}licenses") in data
             dist = Path(command[command.index("--distpath") + 1])
             (dist / f"langtextflow-server{suffix}").write_bytes(b"frozen backend")
 
