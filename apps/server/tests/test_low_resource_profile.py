@@ -1,6 +1,7 @@
 """CPU-only low-resource runtime: no accidental 7B startup, consistent preflight."""
 from __future__ import annotations
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -13,6 +14,7 @@ from langtextflow.preflight import (
     PreflightCheck,
     _blocking_checks,
     _recommended_configuration,
+    run_preflight,
 )
 from langtextflow.runtime import CaptionRuntime
 
@@ -134,3 +136,42 @@ def test_operator_selecting_low_profile_works_without_environment_variable(tmp_p
 def test_bad_per_session_resource_profile_is_rejected() -> None:
     with pytest.raises(ValidationError):
         StartSessionRequest(resource_profile="unverified")
+
+
+@pytest.mark.parametrize("engine,profile,server_profile,probes", [
+    ("auto", "low", "standard", 0), ("auto", "standard", "low", 0),
+    ("auto", "standard", "standard", 1), ("vibevoice", "low", "low", 1),
+])
+async def test_full_preflight_low_auto_never_requests_sidecar_configuration(
+    monkeypatch, engine, profile, server_profile, probes,
+):
+    requests = []
+    original_client = httpx.AsyncClient
+
+    def respond(request):
+        requests.append(str(request.url))
+        if request.url.host == "sidecar.test":
+            return httpx.Response(200, json={"sample_rate": 48000, "chunk_seconds": 2.})
+        return httpx.Response(200, json={"models": [], "data": []})
+
+    def client(*args, **kwargs):
+        return original_client(*args, transport=httpx.MockTransport(respond), **kwargs)
+
+    monkeypatch.setattr("langtextflow.preflight.httpx.AsyncClient", client)
+    monkeypatch.setattr(
+        "langtextflow.preflight._nvidia_check", lambda: check("nvidia", CheckStatus.INFO),
+    )
+    monkeypatch.setattr("langtextflow.preflight._faster_whisper_checks", lambda *args: [
+        check("faster-whisper", CheckStatus.READY),
+        check("faster-whisper-model", CheckStatus.READY),
+    ])
+    monkeypatch.setattr("langtextflow.preflight._memory_gb", lambda: 16.)
+    monkeypatch.setattr("langtextflow.preflight._disk_free_gb", lambda *_: 10.)
+    report = await run_preflight(Settings(
+        _env_file=None, resource_profile=server_profile, vibevoice_url="http://sidecar.test",
+        ollama_url="http://ollama.test", openai_compatible_url="http://compatible.test/v1",
+    ), engine=engine, resource_profile=profile, translation_provider="none")
+    assert sum("sidecar.test" in url for url in requests) == probes
+    sidecar = next(c for c in report.checks if c.id == "vibevoice")
+    assert sidecar.status is (CheckStatus.READY if probes else CheckStatus.INFO)
+    assert report.ready

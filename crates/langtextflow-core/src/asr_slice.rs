@@ -129,11 +129,47 @@ struct State {
     context: Option<Arc<SourceContext>>,
     correction: Option<CorrectionAdmission>,
     pending_corrections: HashMap<String, PendingTarget>,
+    auto_scope: Option<AutoScope>,
+}
+
+#[derive(Default)]
+struct AutoScope {
+    epoch: u64,
+    provider: Option<&'static str>,
+    selected_provider: Option<&'static str>,
+    generation: u64,
+    failovers: u64,
+    reason: Option<crate::auto_asr::FailoverReason>,
+    rate: u32,
+    origin: u64,
+    replay: u64,
+    active_window: bool,
+}
+
+pub(crate) struct AutoSource {
+    pub mapped: crate::auto_asr::MappedText,
+    pub timestamp_basis: &'static str,
+    pub chunk_start: Option<u64>,
+    pub chunk_end: u64,
 }
 
 struct AcceptedChunk {
     events: Vec<SourceEvent>,
     committed: bool,
+}
+
+enum SourceProjection {
+    Whisper(AudioChunk),
+    Auto(Vec<crate::caption_events::AsrProvenance>),
+}
+
+struct SourceCompletion {
+    chunk_id: String,
+    revision: u64,
+    events: Vec<SourceEvent>,
+    projection: SourceProjection,
+    deadline: std::time::Instant,
+    cancelled: Option<Arc<AtomicBool>>,
 }
 
 struct PendingTarget {
@@ -433,6 +469,7 @@ impl Default for AsrSession {
             context: None,
             correction: None,
             pending_corrections: HashMap::new(),
+            auto_scope: None,
         })))
     }
 }
@@ -553,6 +590,7 @@ impl AsrSession {
         }
         state.translation = None;
         state.context = None;
+        state.auto_scope = None;
         state.correction = None;
         for pending in state
             .pending_corrections
@@ -584,6 +622,10 @@ impl AsrSession {
             active.cancelled.store(true, Ordering::Release);
         }
         state.session_id.clear();
+        if let Some(scope) = &mut state.auto_scope {
+            scope.provider = None;
+            scope.active_window = false;
+        }
         state.revisions.clear();
         state.accepted.clear();
         for pending in state.pending_targets.drain().map(|(_, value)| value) {
@@ -646,9 +688,14 @@ impl AsrSession {
     pub(crate) fn source_metrics(&self) -> crate::telemetry::SourceMetrics {
         let state = self.0.lock().unwrap();
         crate::telemetry::SourceMetrics {
-            active_window: state.active.is_some(),
+            active_window: state.active.is_some()
+                || state.auto_scope.as_ref().is_some_and(|s| s.active_window),
             pending_corrections: state.pending_corrections.len(),
             pending_targets: state.pending_targets.len(),
+            active_provider: state.auto_scope.as_ref().and_then(|s| s.provider),
+            auto_generation: state.auto_scope.as_ref().map(|s| s.generation),
+            failover_count: state.auto_scope.as_ref().map(|s| s.failovers),
+            last_failover_reason: state.auto_scope.as_ref().and_then(|s| s.reason),
         }
     }
 
@@ -706,6 +753,260 @@ impl AsrSession {
             .ok_or("observed_session_required")?
             .configured_asr_model = model;
         Ok(())
+    }
+
+    pub(crate) fn auto_source_scope(
+        &self,
+        source: &str,
+    ) -> Result<(String, u64, Arc<SourceContext>), &'static str> {
+        let state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || state
+                .projection
+                .config
+                .as_ref()
+                .is_none_or(|c| c.source_language != source)
+        {
+            return Err("auto_source_scope");
+        }
+        Ok((
+            state.session_id.clone(),
+            state.generation,
+            state.context.clone().ok_or("auto_source_context")?,
+        ))
+    }
+
+    // Retire before awaiting the outgoing child. Provider epochs never reset
+    // caption/session generations or cancel already accepted correction/MT.
+    pub(crate) fn begin_auto_candidate(
+        &self,
+        generation: u64,
+        epoch: u64,
+    ) -> Result<(), &'static str> {
+        let mut state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || state.generation != generation
+            || epoch == 0
+            || epoch > (1 << 53) - 1
+            || state.active.is_some()
+            || state.auto_scope.as_ref().is_some_and(|s| epoch <= s.epoch)
+            || (state.auto_scope.is_none() && !state.revisions.is_empty())
+        {
+            return Err("stale_auto_candidate");
+        }
+        let scope = state.auto_scope.get_or_insert_with(Default::default);
+        scope.epoch = epoch;
+        scope.provider = None;
+        scope.active_window = false;
+        Ok(())
+    }
+
+    pub(crate) fn activate_auto_candidate(
+        &self,
+        generation: u64,
+        epoch: u64,
+        provider: &'static str,
+        clock: &crate::auto_asr::AutoClock,
+        reason: Option<crate::auto_asr::FailoverReason>,
+    ) -> Result<(), &'static str> {
+        let mut state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || state.generation != generation
+            || !matches!(provider, "vibevoice" | "faster-whisper")
+            || !(8000..=192000).contains(&clock.sample_rate)
+            || (provider == "faster-whisper" && clock.sample_rate != 16000)
+        {
+            return Err("auto_source_provider");
+        }
+        let scope = state
+            .auto_scope
+            .as_mut()
+            .filter(|s| s.epoch == epoch)
+            .ok_or("stale_auto_candidate")?;
+        let selection_valid = match scope.selected_provider {
+            None => {
+                clock.generation == 0
+                    && clock.origin_samples == 0
+                    && clock.replay_prefix_samples == 0
+            }
+            Some("vibevoice") => {
+                provider == "faster-whisper" && clock.generation == 1 && reason.is_some()
+            }
+            _ => false,
+        };
+        if !selection_valid
+            || scope.provider.is_some()
+            || (scope.rate != 0 && scope.rate != clock.sample_rate)
+            || clock.generation > 1
+            || clock.generation < scope.generation
+        {
+            return Err("auto_source_clock");
+        }
+        if clock.generation > scope.generation {
+            scope.failovers += 1;
+            scope.reason = reason;
+        }
+        scope.provider = Some(provider);
+        scope.selected_provider = Some(provider);
+        scope.generation = clock.generation;
+        scope.rate = clock.sample_rate;
+        scope.origin = clock.origin_samples;
+        scope.replay = clock.replay_prefix_samples;
+        if let Some(history) = &state.projection.history {
+            history.engine_changed(provider);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn auto_window(
+        &self,
+        generation: u64,
+        epoch: u64,
+        active: bool,
+    ) -> Result<(), &'static str> {
+        let mut state = self.0.lock().unwrap();
+        if state.session_id.is_empty() || state.generation != generation {
+            return Err("stale_auto_candidate");
+        }
+        let scope = state
+            .auto_scope
+            .as_mut()
+            .filter(|s| s.epoch == epoch)
+            .ok_or("stale_auto_candidate")?;
+        scope.active_window = active;
+        Ok(())
+    }
+
+    pub(crate) fn auto_unavailable(&self, generation: u64, epoch: u64) {
+        let mut state = self.0.lock().unwrap();
+        if state.generation == generation {
+            if let Some(scope) = state.auto_scope.as_mut().filter(|s| s.epoch == epoch) {
+                scope.provider = None;
+                scope.active_window = false;
+            }
+        }
+    }
+
+    pub(crate) fn accept_auto_sources(
+        &self,
+        generation: u64,
+        epoch: u64,
+        id: &str,
+        sources: Vec<AutoSource>,
+        deadline: std::time::Instant,
+    ) -> Result<Vec<SourceEvent>, &'static str> {
+        let mut state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || state.generation != generation
+            || id.is_empty()
+            || id.len() > 128
+            || sources.len() > 256
+            || std::time::Instant::now() >= deadline
+        {
+            return Err("stale_auto_source");
+        }
+        let scope = state
+            .auto_scope
+            .as_ref()
+            .filter(|s| s.epoch == epoch)
+            .ok_or("stale_auto_candidate")?;
+        let provider = scope.provider.ok_or("auto_provider_unavailable")?;
+        let model = if provider == "faster-whisper" {
+            state
+                .projection
+                .config
+                .as_ref()
+                .and_then(|c| c.configured_asr_model.clone())
+        } else {
+            None
+        };
+        if state.revisions.contains_key(id) || state.accepted.contains_key(id) {
+            return Err("stale_revision");
+        }
+        if state.revisions.len() >= crate::caption_events::MAX_PUBLIC_IDS {
+            return Err("segment_capacity");
+        }
+        let source_id = state.serial.checked_add(1).ok_or("request_id_exhausted")?;
+        let mut events = Vec::new();
+        let mut origins = Vec::new();
+        for (index, source) in sources.into_iter().enumerate() {
+            // Integer-millisecond provider bounds plus a fractional replay
+            // origin may differ by one millisecond after round-to-even.
+            let limit = ((scope.origin as f64 + source.chunk_end as f64) * 1000.
+                / scope.rate as f64)
+                .round_ties_even() as u64;
+            if source.chunk_end == 0
+                || source.chunk_end > (1 << 53) / 1000
+                || source
+                    .chunk_start
+                    .is_some_and(|start| start >= source.chunk_end)
+                || source.mapped.text.trim().is_empty()
+                || source.mapped.text.chars().count() > 20000
+                || source.mapped.start_ms > source.mapped.end_ms
+                || source.mapped.end_ms > limit + 1
+                || (provider == "vibevoice"
+                    && (source.timestamp_basis != "sequence_estimated"
+                        || source.chunk_start.is_some()))
+                || (provider == "faster-whisper"
+                    && (!matches!(
+                        source.timestamp_basis,
+                        "sample_clock_native_hint" | "sample_clock_estimated"
+                    ) || source.chunk_start.is_none()))
+            {
+                return Err("invalid_auto_source");
+            }
+            origins.push(crate::caption_events::AsrProvenance {
+                provider,
+                configured_model: model.clone(),
+                verified_model: None,
+                model_revision: None,
+                timestamp_basis: source.timestamp_basis,
+                sample_rate: scope.rate,
+                audio_chunk_start_sample: source.chunk_start,
+                audio_chunk_end_sample: source.chunk_end,
+                auto_generation: Some(scope.generation),
+                timeline_offset_samples: Some(scope.origin),
+                replay_prefix_samples: Some(scope.replay),
+                overlap_trimmed: source.mapped.overlap_trimmed,
+            });
+            events.push(SourceEvent {
+                session_id: state.session_id.clone(),
+                session_generation: generation,
+                segment_id: format!("rs-{source_id}-{index}"),
+                source_revision: 1,
+                source_language: state
+                    .projection
+                    .config
+                    .as_ref()
+                    .ok_or("observed_session_required")?
+                    .source_language
+                    .clone(),
+                stage: "stable",
+                text: source.mapped.text,
+                start_ms: source.mapped.start_ms,
+                end_ms: source.mapped.end_ms,
+                timestamp_basis: source.timestamp_basis,
+            });
+        }
+        state.serial = source_id;
+        state.revisions.insert(
+            id.into(),
+            SegmentVersion {
+                revision: 1,
+                source_id,
+            },
+        );
+        self.publish_sources(
+            state,
+            SourceCompletion {
+                chunk_id: id.into(),
+                revision: 1,
+                events,
+                projection: SourceProjection::Auto(origins),
+                deadline,
+                cancelled: None,
+            },
+        )
     }
 
     pub(crate) fn authorize_observer(&self, token: &str) -> bool {
@@ -871,6 +1172,9 @@ impl AsrSession {
         let mut state = self.0.lock().unwrap();
         if state.session_id.is_empty() {
             return Err("no_session");
+        }
+        if state.auto_scope.is_some() {
+            return Err("auto_source_owner_required");
         }
         if binding.is_some_and(|bound| {
             bound.generation != state.generation || std::time::Instant::now() >= bound.deadline
@@ -1048,14 +1352,50 @@ impl AsrSession {
                 },
             });
         }
-        let prepared = state.projection.prepare(
-            &state.session_id,
-            state.generation,
-            &admitted.chunk,
-            &events,
-            state.translation.is_some(),
-            state.correction.is_some(),
-        )?;
+        self.publish_sources(
+            state,
+            SourceCompletion {
+                chunk_id: admitted.request.segment_id.clone(),
+                revision,
+                events,
+                projection: SourceProjection::Whisper(admitted.chunk.clone()),
+                deadline: admitted.deadline,
+                cancelled: Some(admitted.cancelled.clone()),
+            },
+        )
+    }
+
+    fn publish_sources(
+        &self,
+        mut state: std::sync::MutexGuard<'_, State>,
+        batch: SourceCompletion,
+    ) -> Result<Vec<SourceEvent>, &'static str> {
+        let SourceCompletion {
+            chunk_id,
+            revision,
+            events,
+            projection,
+            deadline,
+            cancelled,
+        } = batch;
+        let prepared = match &projection {
+            SourceProjection::Whisper(chunk) => state.projection.prepare(
+                &state.session_id,
+                state.generation,
+                chunk,
+                &events,
+                state.translation.is_some(),
+                state.correction.is_some(),
+            )?,
+            SourceProjection::Auto(origins) => state.projection.prepare_asr(
+                &state.session_id,
+                state.generation,
+                &events,
+                origins,
+                state.translation.is_some(),
+                state.correction.is_some(),
+            )?,
+        };
         let translation = state.translation.clone();
         let correction = state.correction.clone();
         let published_at = std::time::Instant::now();
@@ -1095,14 +1435,17 @@ impl AsrSession {
         }
         // Parsing/projection may itself consume the remaining budget. This is
         // the linearization point; no result is stored after cancel/expiry.
-        if admitted.cancelled.load(Ordering::Acquire) {
+        if cancelled
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Acquire))
+        {
             return Err("cancelled");
         }
-        if std::time::Instant::now() >= admitted.deadline {
+        if std::time::Instant::now() >= deadline {
             return Err("deadline_expired");
         }
         state.accepted.insert(
-            admitted.request.segment_id.clone(),
+            chunk_id.clone(),
             AcceptedChunk {
                 events: if (translation.is_none() && correction.is_none()) || events.is_empty() {
                     Vec::new()
@@ -1116,7 +1459,7 @@ impl AsrSession {
             state.pending_targets.insert(
                 job.request.request_id.clone(),
                 PendingTarget {
-                    chunk_id: admitted.request.segment_id.clone(),
+                    chunk_id: chunk_id.clone(),
                     public_id: job.request.segment_id.clone(),
                     cancelled: job.cancelled.clone(),
                 },
@@ -1158,7 +1501,7 @@ impl AsrSession {
                 state.pending_corrections.insert(
                     request.request_id.clone(),
                     PendingTarget {
-                        chunk_id: admitted.request.segment_id.clone(),
+                        chunk_id: chunk_id.clone(),
                         public_id: event.segment_id.clone(),
                         cancelled: cancelled.clone(),
                     },
@@ -1198,6 +1541,252 @@ impl AsrSession {
             submit_translation(jobs, translation.as_ref());
         }
         Ok(events)
+    }
+}
+
+#[cfg(test)]
+mod auto_authority_tests {
+    use super::*;
+    use crate::auto_asr::{AutoClock, FailoverReason, MappedText};
+
+    fn setup(rate: u32) -> (AsrSession, AutoClock, String, u64) {
+        let session = AsrSession::default();
+        let credential = session
+            .start_observed("auto-session", "en", &["ko".into(), "ja".into()])
+            .unwrap();
+        session
+            .configure_context("en", SourceContext::default())
+            .unwrap();
+        session.configured_asr_model(Some("small".into())).unwrap();
+        let generation = session.audio_generation("en").unwrap();
+        session.begin_auto_candidate(generation, 1).unwrap();
+        let mut clock = AutoClock::default();
+        clock.candidate(rate, 0, 0, 0).unwrap();
+        session
+            .activate_auto_candidate(generation, 1, "vibevoice", &clock, None)
+            .unwrap();
+        (
+            session,
+            clock,
+            credential.path().split("token=").nth(1).unwrap().into(),
+            generation,
+        )
+    }
+
+    fn source(text: &str, start: u64, end: u64, rate: u64) -> AutoSource {
+        AutoSource {
+            mapped: MappedText {
+                text: text.into(),
+                start_ms: start,
+                end_ms: end,
+                overlap_trimmed: false,
+            },
+            timestamp_basis: "sequence_estimated",
+            chunk_start: None,
+            chunk_end: end * rate / 1000,
+        }
+    }
+
+    fn snapshot(session: &AsrSession, token: &str) -> serde_json::Value {
+        let mut observer = session.subscribe_observer(token).unwrap();
+        serde_json::from_str(observer.receiver.frames.try_recv().unwrap().get()).unwrap()
+    }
+
+    #[test]
+    fn sidecar_clock_model_privacy_and_retired_candidate_or_session_are_authoritative() {
+        let (session, _clock, token, generation) = setup(48000);
+        session
+            .accept_auto_sources(
+                generation,
+                1,
+                "first",
+                vec![source("Original source", 0, 25, 48000)],
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap();
+        let frame = snapshot(&session, &token);
+        let event = &frame["segments"][0];
+        assert_eq!(event["original_text"], "Original source");
+        assert_eq!(event["asr_provenance"]["provider"], "vibevoice");
+        assert_eq!(event["asr_provenance"]["sample_rate"], 48000);
+        assert_eq!(
+            event["asr_provenance"]["timestamp_basis"],
+            "sequence_estimated"
+        );
+        assert!(event["asr_provenance"]["configured_model"].is_null());
+        assert!(event["asr_provenance"]["audio_chunk_start_sample"].is_null());
+        assert_eq!(event["asr_provenance"]["audio_chunk_end_sample"], 1200);
+        session.begin_auto_candidate(generation, 2).unwrap();
+        assert!(session
+            .accept_auto_sources(
+                generation,
+                1,
+                "late",
+                vec![source("Late source", 25, 50, 48000)],
+                std::time::Instant::now() + std::time::Duration::from_secs(2)
+            )
+            .is_err());
+        let mut incompatible = AutoClock::default();
+        incompatible.candidate(16000, 1, 0, 0).unwrap();
+        assert!(session
+            .activate_auto_candidate(
+                generation,
+                2,
+                "faster-whisper",
+                &incompatible,
+                Some(FailoverReason::ProviderFailed)
+            )
+            .is_err());
+        session
+            .start_observed("new-session", "en", &["ko".into()])
+            .unwrap();
+        assert!(session
+            .accept_auto_sources(
+                generation,
+                2,
+                "late-session",
+                vec![],
+                std::time::Instant::now() + std::time::Duration::from_secs(2)
+            )
+            .is_err());
+        assert!(!session.authorize_observer(&token));
+    }
+
+    #[test]
+    fn failover_preserves_originals_native_hint_and_distinct_provider_local_replay_scope() {
+        let (session, mut clock, token, generation) = setup(16000);
+        session
+            .accept_auto_sources(
+                generation,
+                1,
+                "old",
+                vec![source("First source", 0, 1000, 16000)],
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap();
+        session.begin_auto_candidate(generation, 2).unwrap();
+        clock.candidate(16000, 1, 8000, 8000).unwrap();
+        session
+            .activate_auto_candidate(
+                generation,
+                2,
+                "faster-whisper",
+                &clock,
+                Some(FailoverReason::ProviderClosed),
+            )
+            .unwrap();
+        session
+            .accept_auto_sources(
+                generation,
+                2,
+                "new",
+                vec![AutoSource {
+                    mapped: MappedText {
+                        text: "Next source".into(),
+                        start_ms: 1000,
+                        end_ms: 1500,
+                        overlap_trimmed: true,
+                    },
+                    timestamp_basis: "sample_clock_native_hint",
+                    chunk_start: Some(0),
+                    chunk_end: 16000,
+                }],
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .unwrap();
+        let frame = snapshot(&session, &token);
+        assert_eq!(frame["segments"][0]["original_text"], "First source");
+        let provenance = &frame["segments"][1]["asr_provenance"];
+        assert_eq!(provenance["provider"], "faster-whisper");
+        assert_eq!(provenance["configured_model"], "small");
+        assert!(provenance["verified_model"].is_null() && provenance["model_revision"].is_null());
+        assert_eq!(provenance["auto_generation"], 1);
+        assert_eq!(provenance["timeline_offset_samples"], 8000);
+        assert_eq!(provenance["replay_prefix_samples"], 8000);
+        assert_eq!(provenance["audio_chunk_start_sample"], 0);
+        assert_eq!(provenance["timestamp_basis"], "sample_clock_native_hint");
+        assert_eq!(provenance["overlap_trimmed"], true);
+        assert_eq!(session.source_metrics().failover_count, Some(1));
+    }
+
+    #[test]
+    fn provider_selection_is_one_way_and_initial_generation_cannot_claim_replay() {
+        let (session, mut clock, _, generation) = setup(16000);
+        assert!(session
+            .activate_auto_candidate(generation, 1, "vibevoice", &clock, None)
+            .is_err());
+        session.begin_auto_candidate(generation, 2).unwrap();
+        assert!(session
+            .activate_auto_candidate(generation, 2, "vibevoice", &clock, None)
+            .is_err());
+        clock.candidate(16000, 1, 0, 0).unwrap();
+        session
+            .activate_auto_candidate(
+                generation,
+                2,
+                "faster-whisper",
+                &clock,
+                Some(FailoverReason::ProviderFailed),
+            )
+            .unwrap();
+        session.begin_auto_candidate(generation, 3).unwrap();
+        assert!(session
+            .activate_auto_candidate(generation, 3, "vibevoice", &clock, None)
+            .is_err());
+        assert!(session
+            .activate_auto_candidate(
+                generation,
+                3,
+                "faster-whisper",
+                &clock,
+                Some(FailoverReason::ProviderFailed)
+            )
+            .is_err());
+        let fresh = AsrSession::default();
+        fresh.start_observed("fresh", "en", &["ko".into()]).unwrap();
+        fresh
+            .configure_context("en", SourceContext::default())
+            .unwrap();
+        let generation = fresh.audio_generation("en").unwrap();
+        fresh.begin_auto_candidate(generation, 1).unwrap();
+        assert!(fresh
+            .activate_auto_candidate(generation, 1, "faster-whisper", &clock, None)
+            .is_err());
+    }
+
+    #[test]
+    fn short_sidecar_sources_can_cross_whisper_window_capacity_without_payload_retention() {
+        let (session, _clock, token, generation) = setup(48000);
+        for index in 0..MAX_SOURCE_CHUNKS + 2 {
+            session
+                .accept_auto_sources(
+                    generation,
+                    1,
+                    &format!("sidecar-{index}"),
+                    vec![source(
+                        "source",
+                        index as u64 * 2000,
+                        (index as u64 + 1) * 2000,
+                        48000,
+                    )],
+                    std::time::Instant::now() + std::time::Duration::from_secs(2),
+                )
+                .unwrap();
+        }
+        let state = session.0.lock().unwrap();
+        assert_eq!(state.revisions.len(), MAX_SOURCE_CHUNKS + 2);
+        assert!(state
+            .accepted
+            .values()
+            .all(|c| c.committed && c.events.capacity() == 0));
+        drop(state);
+        assert_eq!(
+            snapshot(&session, &token)["segments"]
+                .as_array()
+                .unwrap()
+                .len(),
+            100
+        );
     }
 }
 
