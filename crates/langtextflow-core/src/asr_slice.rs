@@ -363,6 +363,37 @@ impl AsrSession {
         self.0.lock().unwrap().pending_targets.len()
     }
 
+    pub(crate) fn publication_serial(&self) -> u64 {
+        self.0.lock().unwrap().projection.serial
+    }
+
+    pub(crate) fn configured_asr_model(&self, model: Option<String>) -> Result<(), &'static str> {
+        if model.as_ref().is_some_and(|model| {
+            model.is_empty()
+                || model.len() > 200
+                || model.starts_with('.')
+                || std::path::Path::new(model).is_dir()
+                || model.split('/').count() > 2
+                || model.split('/').any(|part| part.is_empty() || part == "..")
+                || !model
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"-._/".contains(&c))
+        }) {
+            return Err("private_model_identity");
+        }
+        let mut state = self.0.lock().unwrap();
+        if !state.revisions.is_empty() {
+            return Err("model_identity_requires_fresh_session");
+        }
+        state
+            .projection
+            .config
+            .as_mut()
+            .ok_or("observed_session_required")?
+            .configured_asr_model = model;
+        Ok(())
+    }
+
     pub(crate) fn authorize_observer(&self, token: &str) -> bool {
         self.0.lock().unwrap().projection.authorized(token)
     }
