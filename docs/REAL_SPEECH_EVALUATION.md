@@ -23,7 +23,7 @@ The workflow installs pinned optional dataset readers and application extras, re
 
 No aggressive minimum accuracy threshold is imposed before a baseline is established. A missing transcript or failed provider **does** fail the job.
 
-For local development, install `uv sync --locked --extra whisper --extra benchmark`, then `uv pip install "datasets==4.4.1" "soundfile==0.13.1"`, and run:
+For local development, install `uv sync --locked --extra whisper --extra benchmark`, then `uv pip install "datasets==5.1.0" "fsspec==2026.7.0" "soundfile==0.13.1"` to match the workflow's dataset readers, and run:
 
 ```bash
 uv run --no-sync python scripts/evaluate_fleurs_asr.py \
