@@ -172,6 +172,36 @@ async def test_glossary_validation_preserves_production_source_preset_and_enable
         await stop(process)
 
 
+@pytest.mark.parametrize("source,target", [
+    ("ko", "en"), ("ko", "ja"), ("en", "ko"),
+    ("en", "ja"), ("ja", "ko"), ("ja", "en"),
+])
+async def test_six_direction_preset_glossary_positive_and_fail_closed_native_worker(
+    tmp_path, source, target,
+):
+    process, _ = await child(tmp_path)
+    entry = {"term": "source term", "source_language": source,
+             "translations": {target: "synthetic-" + target}, "presets": ["church"]}
+    irrelevant = {**entry, "translations": {target: "must-not-be-required"}}
+    context = {"preset": "church", "glossary": [
+        entry, {**irrelevant, "source_language": "ja" if source != "ja" else "en"},
+        {**irrelevant, "enabled": False}, {**irrelevant, "presets": ["conference"]},
+    ]}
+    try:
+        await send(process, request(source, target, text="source term", context=context))
+        reply = await receive(process)
+        assert reply["status"] == "ok" and reply["result"] == "synthetic-" + target
+        await send(process, request(source, target, text="source term", context={
+            "preset": "church", "glossary": [irrelevant],
+        }))
+        reply = await receive(process)
+        assert reply["status"] == "error" and reply["error"] == "translation_worker_failed"
+        assert await asyncio.wait_for(process.wait(), 2) == 1
+        assert await process.stderr.read() == b""
+    finally:
+        await stop(process)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode,stage", [("load-hang", "load"), ("infer-hang", "infer")])
 async def test_parent_eof_terminates_actual_worker_during_native_work(tmp_path, mode, stage):

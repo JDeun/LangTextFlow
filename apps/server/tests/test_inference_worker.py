@@ -77,8 +77,14 @@ class Model:
         if mode == 'load-hang': time.sleep(120)
         if mode == 'load-error': raise ValueError('private-checkpoint-secret')
     def transcribe(self, audio, **kwargs):
-        assert kwargs['language'] == 'ko' and kwargs['vad_filter'] is True
-        assert kwargs['initial_prompt'] == 'ASR prototype' and kwargs['hotwords'] is None
+        assert kwargs['vad_filter'] is True
+        if mode.startswith('context-'):
+            assert kwargs['language'] == mode.split('-')[1]
+            assert kwargs['initial_prompt'] == 'Source title | Presenter | Description | Reference'
+            assert kwargs['hotwords'] == 'explicit, source-term, source alias'
+        else:
+            assert kwargs['language'] == 'ko'
+            assert kwargs['initial_prompt'] == 'ASR prototype' and kwargs['hotwords'] is None
         marker.write_text('infer')
         if mode == 'infer-hang': time.sleep(120)
         segment = types.SimpleNamespace(start=0.0, end=0.1, text='synthetic source')
@@ -133,6 +139,52 @@ async def test_actual_inference_worker_native_path_and_quiet_error(tmp_path, mod
         if process.returncode is None:
             process.kill()
             await process.wait()
+
+
+@pytest.mark.parametrize("source", ["ko", "en", "ja"])
+@pytest.mark.parametrize("preset", ["general", "church"])
+async def test_shipped_asr_worker_uses_source_scoped_context_with_native_decoder(
+    tmp_path, source, preset,
+):
+    path = tmp_path / "fixture.wav"
+    wav(path)
+    process, _ = await fake_native_process(tmp_path, "context-" + source)
+    value = request(path)
+    value["source_language"] = source
+    chunk = json.loads(value["payload"])
+    good = {"term": "source-term", "source_language": source, "aliases": ["source alias"]}
+    chunk["context"] = {
+        "title": "Source title", "presenter": "Presenter", "description": "Description",
+        "reference_text": "Reference", "preset": preset, "hotwords": ["explicit"],
+        "glossary": [good, {**good, "term": "wrong-source", "aliases": ["wrong alias"],
+                            "source_language": "ja" if source != "ja" else "en"},
+                     {**good, "term": "disabled", "enabled": False},
+                     {**good, "term": "wrong-preset", "presets": ["lecture"]}],
+    }
+    value["payload"] = json.dumps(chunk)
+    try:
+        process.stdin.write((json.dumps(value) + "\n").encode())
+        await process.stdin.drain()
+        reply = json.loads(await asyncio.wait_for(process.stdout.readline(), 3))
+        assert reply["status"] == "ok" and "source-term" not in reply["result"]
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 2) == 0
+        assert await process.stderr.read() == b""
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+
+@pytest.mark.parametrize("context", [
+    {"hotwords": ["x" * 161]}, {"unknown": "private"}, {"glossary": [{"term": ""}]},
+    {"description": "x" * (48 * 1024)},
+], ids=["hotword-limit", "unknown-field", "invalid-glossary", "transport-limit"])
+def test_invalid_asr_context_is_rejected_before_model_or_pcm_read(tmp_path, context):
+    value = request(tmp_path / "does-not-exist.wav")
+    value["payload"] = json.dumps({**json.loads(value["payload"]), "context": context})
+    with pytest.raises(ValueError):
+        validate_request(value)
 
 
 @pytest.mark.parametrize("mode,stage", [("load-hang", "load"), ("infer-hang", "infer")])

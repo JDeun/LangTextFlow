@@ -23,7 +23,12 @@ from langtextflow.glossary_repository import GlossaryRepository
 from langtextflow.models import StartSessionRequest, TranscriptEvent
 from langtextflow.project_glossary_repository import ProjectGlossaryRepository
 from langtextflow.runtime import CaptionRuntime
-from langtextflow.rust_runtime import RustRuntimeBridge, _python_worker, validate_rust_request
+from langtextflow.rust_runtime import (
+    RustRuntimeBridge,
+    _python_worker,
+    _source_context,
+    validate_rust_request,
+)
 
 _ORIGIN = {"origin": "http://localhost:5173"}
 _REQUEST = {
@@ -60,8 +65,6 @@ for line in sys.stdin:
 @pytest.mark.parametrize("change", [
     {"engine": "auto"}, {"record_audio": True}, {"correction_provider": "ollama"},
     {"translation_provider": "ollama"}, {"translation_model": "path/private"},
-    {"context": {"preset": "church"}}, {"context": {"hotwords": ["preserve me"]}},
-    {"context": {"reference_text": "private context"}},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
     binary = tmp_path / "runtime"
@@ -274,6 +277,103 @@ def test_rust_audio_route_keeps_operator_origin_and_session_guards(rust_api):
             pass
         assert error.value.code == code
     assert runtime.state.session_id == state["session_id"] and runtime.state.running
+
+
+def test_oversized_context_refused_before_transition_keeps_existing_audio(rust_api):
+    client, runtime = rust_api
+    state = client.post("/api/v1/session/start", json=_REQUEST).json()
+    bridge = runtime.engine
+    with client.websocket_connect("/ws/audio") as audio:
+        assert audio.receive_json()["type"] == "audio_config"
+        context = {"glossary": [{
+            "term": f"term-{index}", "source_language": "en",
+            "translations": {"ko": "x" * 2000},
+        } for index in range(30)]}
+        response = client.post("/api/v1/session/start", json=_REQUEST | {"context": context})
+        assert response.status_code == 400 and "48KiB" in response.text
+        assert runtime.engine is bridge and runtime.state.session_id == state["session_id"]
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        async def admitted():
+            async with asyncio.timeout(3):
+                while runtime._audio_samples_received < 1600:
+                    await asyncio.sleep(.005)
+
+        client.portal.call(admitted)
+    assert client.post("/api/v1/session/stop").status_code == 200
+
+
+@pytest.mark.parametrize("source,preset", [
+    ("ko", "church"), ("en", "conference"), ("ja", "lecture"), ("ko", "general"),
+])
+def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
+    rust_api, monkeypatch, tmp_path, source, preset,
+):
+    client, runtime = rust_api
+    marker = tmp_path / "inference-context.jsonl"
+    record = (f"with open({str(marker)!r},'a',encoding='utf-8') as log: "
+              "log.write(json.dumps(req,ensure_ascii=True)+'\\n')\n")
+
+    def commands(self, request):
+        python = getattr(sys, "_base_executable", None) or sys.executable
+        asr = _ASR.replace("    chunk=json.loads", "    " + record + "    chunk=json.loads")
+        mt = _MT.replace("    reply={k:req[k]", "    " + record + "    reply={k:req[k]")
+        return ({"program": python, "args": ["-u", "-c", asr]},
+                {"program": python, "args": ["-u", "-c", mt]})
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    entry = {"term": "Original", "source_language": source, "aliases": ["source alias"],
+             "translations": {"en": "required-en", "ko": "required-ko", "ja": "required-ja"},
+             "presets": [preset]}
+    request = _REQUEST | {
+        "source_language": source,
+        "target_languages": [language for language in ("en", "ko", "ja") if language != source],
+        "context": {
+            "title": "Source title", "presenter": "Presenter", "preset": preset,
+            "description": "d" * 2000, "reference_text": "r" * 2000,
+            "hotwords": ["explicit", "Original"],
+            "glossary": [entry, {**entry, "term": "wrong-source",
+                                 "source_language": "ja" if source != "ja" else "en"},
+                         {**entry, "term": "disabled", "enabled": False},
+                         {**entry, "term": "wrong-preset", "presets": [
+                             "conference" if preset != "conference" else "lecture",
+                         ]}],
+        },
+    }
+    started = client.post("/api/v1/session/start", json=request)
+    assert started.status_code == 200, started.text
+    expected = _source_context(StartSessionRequest(
+        **(request | {"context": runtime.state.context.model_dump(mode="json")}),
+    ))
+    # A later edit of mutable Python metadata cannot alter Rust's captured input.
+    runtime.state.context.hotwords.append("late mutation")
+    runtime.state.context.glossary.clear()
+    with client.websocket_connect("/ws/audio") as audio:
+        assert audio.receive_json()["type"] == "audio_config"
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        async def admitted():
+            async with asyncio.timeout(3):
+                while runtime._audio_samples_received < 1600:
+                    await asyncio.sleep(.005)
+
+        client.portal.call(admitted)
+    assert client.post("/api/v1/session/stop").status_code == 200
+    records = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()]
+    asr = [value for value in records if value["task_kind"] == "asr"]
+    mt = [value for value in records if value["task_kind"] == "translation"]
+    assert len(asr) == 1 and len(mt) == 2
+    assert json.loads(asr[0]["payload"])["context"] == expected
+    assert expected["description"] == "d" * 1000 and expected["reference_text"] == "r" * 1200
+    assert "late mutation" not in expected["hotwords"]
+    assert all(entry["source_language"] == source for entry in expected["glossary"])
+    assert "wrong-source" not in [entry["term"] for entry in expected["glossary"]]
+    for value in mt:
+        assert value["source_language"] == source
+        assert json.loads(value["payload"])["context"] == {
+            "preset": preset, "glossary": expected["glossary"],
+        }
+    assert runtime._rust_slot._value == 1
 
 
 def test_rust_history_failure_does_not_block_source_and_later_stop_ends_session(rust_api):

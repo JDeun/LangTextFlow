@@ -8,6 +8,7 @@ pub mod mt_slice;
 pub mod observer_ws;
 pub mod pcm_ingress;
 pub mod runtime_control;
+pub mod source_context;
 pub mod supervision;
 pub mod transport;
 

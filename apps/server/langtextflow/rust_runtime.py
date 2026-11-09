@@ -19,13 +19,33 @@ from websockets.asyncio.client import connect
 
 from .asr.base import AsrEngine, AsrEngineError
 from .config import Settings
-from .models import StartSessionRequest, TranscriptEvent
+from .models import GlossaryEntry, StartSessionRequest, TranscriptEvent
 from .whisper_cache import WHISPER_REPOSITORIES, managed_whisper_cache, resolve_whisper_model
 
 _ERROR = "Rust runtime unavailable; stop the session and check local runtime setup."
 _ORIGIN = "http://127.0.0.1"
 _MAX_FRAME = 1024 * 1024
 _CONTROL_BUDGET = 15.0
+_CONTEXT_LIMIT = 48 * 1024
+
+
+def _source_context(request: StartSessionRequest) -> dict:
+    context = request.context
+    # These are exactly the fields consumed by the existing ASR prompt and MT
+    # guard. Preserve explicit hotwords; glossary hints require actual source.
+    snapshot = {
+        "title": context.title, "presenter": context.presenter,
+        "description": context.description[:1000],
+        "reference_text": context.reference_excerpt(1200),
+        "preset": context.preset.value, "hotwords": list(context.hotwords),
+        "glossary": [entry.model_dump(mode="json", include=set(GlossaryEntry.model_fields))
+                     for entry in context.glossary
+                     if entry.enabled and entry.applies_to(context.preset)
+                     and entry.source_language == request.source_language],
+    }
+    if len(json.dumps(snapshot, ensure_ascii=False).encode()) > _CONTEXT_LIMIT:
+        raise ValueError("Rust inference context exceeds the 48KiB transport limit")
+    return snapshot
 
 
 def _python_worker(module: str, args: list[str]) -> dict:
@@ -43,13 +63,10 @@ def _python_worker(module: str, args: list[str]) -> dict:
 
 
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
-    context = request.context
     if (getattr(sys, "frozen", False) or request.engine != "faster-whisper"
             or request.correction_provider != "none"
             or request.translation_provider not in {"none", "m2m100-ct2"}
-            or request.record_audio or context.preset.value != "general"
-            or context.hotwords or context.glossary or context.reference_text
-            or context.description or request.translation_model or request.correction_model
+            or request.record_audio or request.translation_model or request.correction_model
             or request.source_language not in {"ko", "en", "ja"}
             or any(lang not in {"ko", "en", "ja"} for lang in request.target_languages)
             or len(request.target_languages) > 2
@@ -59,10 +76,11 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or settings.max_segments != 100
             or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
         raise ValueError(
-            "Rust rollout requires source-mode CPU/int8 faster-whisper, general context "
-            "without terminology/references, no correction/recording, and none or M2M100 MT; "
+            "Rust rollout requires source-mode CPU/int8 faster-whisper, "
+            "no correction/recording, and none or M2M100 MT; "
             "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
         )
+    _source_context(request)  # Reject an oversized snapshot before replacing a live source.
     binary = Path(settings.rust_runtime_binary).expanduser()
     if (not settings.rust_runtime_binary or not binary.is_file()
             or not os.access(binary, os.X_OK)):
@@ -130,6 +148,7 @@ class RustRuntimeBridge(AsrEngine):
 
     async def start(self, request: StartSessionRequest) -> None:
         validate_rust_request(self.settings, request)
+        context = _source_context(request)
         if not self.session_id:
             raise AsrEngineError(_ERROR)
         try:
@@ -152,10 +171,11 @@ class RustRuntimeBridge(AsrEngine):
                 "database_path": str(Path(self.settings.database_path).resolve()),
                 "spool_directory": tempfile.gettempdir(), "asr": asr, "mt": mt,
                 "asr_model_identity": self._configured_model(request),
+                "context": context,
                 "translation_deadline_ms": round(
                     self.settings.translation_target_timeout_seconds * 1000,
                 ),
-            }, ensure_ascii=True).encode() + b"\n"
+            }, ensure_ascii=False).encode() + b"\n"
             if len(config) > 64 * 1024:
                 raise AsrEngineError(_ERROR)
             self._process = await asyncio.create_subprocess_exec(
