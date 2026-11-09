@@ -1,5 +1,6 @@
-//! Canonical source and independent-target events. No correction or production cutover.
+//! Canonical source, correction and independent-target events; no default cutover.
 use crate::asr_slice::{AudioChunk, SourceEvent};
+use crate::correction_slice::{CorrectionDecision, CorrectionOptions, CorrectionProvenance};
 use crate::history::{HistorySink, Invalidation};
 use serde::Serialize;
 use serde_json::value::RawValue;
@@ -12,6 +13,9 @@ pub const MAX_OBSERVERS: usize = 16;
 pub const OBSERVER_QUEUE: usize = 8;
 pub const MAX_SNAPSHOT_BYTES: usize = 1024 * 1024;
 const MAX_VISIBLE_SEGMENTS: usize = 100;
+// Includes a transient 256-segment ASR reply plus the bounded correction/MT lanes.
+const MAX_PENDING_SEGMENTS: usize = 512;
+const MAX_PENDING_BYTES: usize = 16 * 1024 * 1024;
 const MAX_PUBLIC_IDS: usize = 128 * 256;
 const SNAPSHOT_OVERHEAD: usize = 2048;
 const JS_MAX: u64 = (1 << 53) - 1;
@@ -101,7 +105,7 @@ struct CaptionEvent {
     end_ms: u64,
     speaker: Option<String>,
     confidence: Option<f64>,
-    correction: Option<String>,
+    correction: Option<CorrectionProvenance>,
     committed: bool,
     emitted_at: String,
     session_id: String,
@@ -125,6 +129,8 @@ pub struct ProjectedFrame {
     serial: u64,
     start_ms: u64,
     event: CaptionEvent,
+    deterministic_text: Option<String>,
+    llm_attempted: bool,
 }
 
 pub struct ObserverReceiver {
@@ -153,6 +159,8 @@ pub(crate) struct CaptionProjection {
     pub(crate) config: Option<ObservedConfig>,
     latest: VecDeque<ProjectedFrame>,
     latest_bytes: usize,
+    pending: HashMap<String, ProjectedFrame>,
+    pending_bytes: usize,
     versions: HashMap<String, u64>,
     pub(crate) serial: u64,
     next_client: u64,
@@ -168,6 +176,8 @@ impl CaptionProjection {
         self.close_observers();
         self.latest.clear();
         self.latest_bytes = 0;
+        self.pending.clear();
+        self.pending_bytes = 0;
         self.versions.clear();
         self.serial = 0;
         self.metrics.snapshot_evictions = 0;
@@ -194,6 +204,7 @@ impl CaptionProjection {
         chunk: &AudioChunk,
         sources: &[SourceEvent],
         translating: bool,
+        correcting: bool,
     ) -> Result<Vec<ProjectedFrame>, &'static str> {
         let Some(config) = &self.config else {
             return Ok(Vec::new());
@@ -211,7 +222,7 @@ impl CaptionProjection {
         let mut serial = self.serial;
         for source in sources {
             let previous = self.versions.get(&source.segment_id).copied().unwrap_or(0);
-            let stages: &[(&str, u64, bool)] = if translating {
+            let stages: &[(&str, u64, bool)] = if translating || correcting {
                 &[("stable", 1, false)]
             } else {
                 &[("stable", 1, false), ("committed", 2, true)]
@@ -280,6 +291,7 @@ impl CaptionProjection {
                 prepared.push(Self::frame(event)?);
             }
         }
+        self.check_pending_limits(&prepared)?;
         Ok(prepared)
     }
 
@@ -296,7 +308,27 @@ impl CaptionProjection {
             serial: event.serial,
             start_ms: event.start_ms,
             event,
+            deterministic_text: None,
+            llm_attempted: false,
         })
+    }
+
+    pub(crate) fn correction_progress(
+        &mut self,
+        id: &str,
+        revision: u64,
+        deterministic: &str,
+        attempted: bool,
+    ) -> bool {
+        let Some(frame) = self.pending.get_mut(id) else {
+            return false;
+        };
+        if frame.event.source_revision != revision || frame.event.stage != "stable" {
+            return false;
+        }
+        frame.deterministic_text = Some(deterministic.into());
+        frame.llm_attempted |= attempted;
+        true
     }
 
     pub(crate) fn target(
@@ -308,8 +340,13 @@ impl CaptionProjection {
         deadline: std::time::Instant,
         cancelled: &std::sync::atomic::AtomicBool,
     ) -> Result<(), &'static str> {
-        let Some(previous) = self.latest.iter().find(|frame| frame.id == id) else {
-            return Ok(()); // Bounded live-view eviction does not recreate history.
+        let visible = self.latest.iter().any(|frame| frame.id == id);
+        let Some(previous) = self
+            .pending
+            .get(id)
+            .or_else(|| self.latest.iter().find(|frame| frame.id == id))
+        else {
+            return Ok(());
         };
         if previous.event.source_revision != revision
             || previous.event.committed
@@ -323,11 +360,14 @@ impl CaptionProjection {
             .checked_add(1)
             .filter(|v| *v <= JS_MAX)
             .ok_or("version_exhausted")?;
-        event.serial = self
-            .serial
-            .checked_add(1)
-            .filter(|v| *v <= JS_MAX)
-            .ok_or("serial_exhausted")?;
+        event.serial = if visible {
+            self.serial
+                .checked_add(1)
+                .filter(|v| *v <= JS_MAX)
+                .ok_or("serial_exhausted")?
+        } else {
+            self.serial
+        };
         let status = match outcome {
             crate::mt_slice::MtOutcome::Available(text) => {
                 event.translations.insert(target.into(), text);
@@ -353,6 +393,8 @@ impl CaptionProjection {
             .all(|value| *value != "pending");
         event.stage = if event.committed {
             "committed"
+        } else if event.correction.is_some() {
+            "translated"
         } else {
             "stable"
         };
@@ -374,16 +416,169 @@ impl CaptionProjection {
                 prepared = Self::frame(event)?;
             }
         }
-        self.apply(vec![prepared]);
+        self.apply_updates(vec![prepared], visible)?;
         Ok(())
     }
 
-    pub(crate) fn apply(&mut self, prepared: Vec<ProjectedFrame>) {
+    pub(crate) fn corrected(
+        &mut self,
+        id: &str,
+        revision: u64,
+        mut decision: CorrectionDecision,
+        options: &CorrectionOptions,
+        deadline: std::time::Instant,
+        cancelled: &std::sync::atomic::AtomicBool,
+        translating: bool,
+    ) -> Result<Option<String>, &'static str> {
+        let visible = self.latest.iter().any(|frame| frame.id == id);
+        let Some(previous) = self
+            .pending
+            .get(id)
+            .or_else(|| self.latest.iter().find(|frame| frame.id == id))
+        else {
+            return Ok(None);
+        };
+        if previous.event.source_revision != revision
+            || previous.event.committed
+            || previous.event.stage != "stable"
+            || cancelled.load(std::sync::atomic::Ordering::Acquire)
+        {
+            return Err("stale_correction");
+        }
+        if decision.provenance.method == "fallback" {
+            if let Some(deterministic) = &previous.deterministic_text {
+                decision = CorrectionDecision::fallback(
+                    &previous.event.original_text,
+                    deterministic,
+                    options,
+                    previous.llm_attempted || decision.provenance.llm_attempted,
+                    decision
+                        .provenance
+                        .fallback_reason
+                        .unwrap_or("correction provider unavailable"),
+                );
+            }
+        }
+        let mut event = previous.event.clone();
+        event.version = self.versions[&event.segment_id]
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("version_exhausted")?;
+        event.serial = if visible {
+            self.serial
+                .checked_add(1)
+                .filter(|v| *v <= JS_MAX)
+                .ok_or("serial_exhausted")?
+        } else {
+            self.serial
+        };
+        event.stage = "corrected";
+        event.text = decision.text;
+        event.correction = Some(decision.provenance);
+        event.emitted_at = OffsetDateTime::now_utc()
+            .format(&Rfc3339)
+            .map_err(|_| "clock_format")?;
+        let prepared = Self::frame(event)?;
+        let text = prepared.event.text.clone();
+        let mut frames = vec![prepared];
+        if !translating {
+            let mut committed = frames[0].event.clone();
+            committed.version = committed
+                .version
+                .checked_add(1)
+                .filter(|v| *v <= JS_MAX)
+                .ok_or("version_exhausted")?;
+            if visible {
+                committed.serial = committed
+                    .serial
+                    .checked_add(1)
+                    .filter(|v| *v <= JS_MAX)
+                    .ok_or("serial_exhausted")?;
+            }
+            committed.stage = "committed";
+            committed.committed = true;
+            frames.push(Self::frame(committed)?);
+        }
+        if cancelled.load(std::sync::atomic::Ordering::Acquire) {
+            return Err("stale_correction");
+        }
+        if std::time::Instant::now() >= deadline
+            && frames[0].event.correction.as_ref().unwrap().method != "fallback"
+        {
+            let event = &frames[0].event;
+            let attempted = event.correction.as_ref().unwrap().llm_attempted;
+            let fallback = CorrectionDecision::fallback(
+                &event.original_text,
+                if attempted {
+                    &decision.deterministic_text
+                } else {
+                    &event.original_text
+                },
+                options,
+                attempted,
+                if attempted {
+                    "correction timed out; using deterministic result"
+                } else {
+                    "correction provider unavailable"
+                },
+            );
+            return self.corrected(
+                id,
+                revision,
+                fallback,
+                options,
+                deadline,
+                cancelled,
+                translating,
+            );
+        }
+        self.apply_updates(frames, visible)?;
+        Ok(Some(text))
+    }
+
+    fn check_pending_limits(&self, prepared: &[ProjectedFrame]) -> Result<(), &'static str> {
+        let extra = prepared.iter().filter(|frame| !frame.event.committed);
+        if self.pending.len()
+            + extra
+                .clone()
+                .filter(|frame| !self.pending.contains_key(&frame.id))
+                .count()
+            > MAX_PENDING_SEGMENTS
+            || self.pending_bytes + extra.map(|frame| frame.raw.get().len()).sum::<usize>()
+                > MAX_PENDING_BYTES
+        {
+            return Err("pending_caption_capacity");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn apply(&mut self, prepared: Vec<ProjectedFrame>) -> Result<(), &'static str> {
+        self.apply_updates(prepared, true)
+    }
+
+    fn apply_updates(
+        &mut self,
+        prepared: Vec<ProjectedFrame>,
+        visible: bool,
+    ) -> Result<(), &'static str> {
+        self.check_pending_limits(&prepared)?;
         for frame in prepared {
             if let Some(history) = &self.history {
                 history.enqueue(frame.raw.clone());
             }
             self.versions.insert(frame.id.clone(), frame.event.version);
+            if let Some(old) = self.pending.remove(&frame.id) {
+                self.pending_bytes -= old.raw.get().len();
+            }
+            if !frame.event.committed {
+                self.pending_bytes += frame.raw.get().len();
+                self.pending.insert(frame.id.clone(), frame.clone());
+            }
+            // Rolled-off pending sources still finish in SQLite. They allocate
+            // no public serial and cannot resurrect in the bounded live view.
+            if !visible {
+                continue;
+            }
             if let Some(position) = self.latest.iter().position(|old| old.id == frame.id) {
                 self.latest_bytes -= self.latest.remove(position).unwrap().raw.get().len();
             }
@@ -398,6 +593,59 @@ impl CaptionProjection {
             }
             self.broadcast(frame.raw);
         }
+        Ok(())
+    }
+
+    pub(crate) fn cancel_pending(
+        &mut self,
+        options: Option<&CorrectionOptions>,
+    ) -> Result<(), &'static str> {
+        let mut pending = self.pending.values().cloned().collect::<Vec<_>>();
+        pending.sort_by(|left, right| (left.start_ms, &left.id).cmp(&(right.start_ms, &right.id)));
+        for previous in pending {
+            let visible = self.latest.iter().any(|frame| frame.id == previous.id);
+            let mut event = previous.event;
+            event.version = self.versions[&event.segment_id]
+                .checked_add(1)
+                .filter(|v| *v <= JS_MAX)
+                .ok_or("version_exhausted")?;
+            event.serial = if visible {
+                self.serial
+                    .checked_add(1)
+                    .filter(|v| *v <= JS_MAX)
+                    .ok_or("serial_exhausted")?
+            } else {
+                self.serial
+            };
+            event.stage = "committed";
+            event.committed = true;
+            for state in event.translation_states.values_mut() {
+                if *state == "pending" {
+                    *state = "failed";
+                }
+            }
+            if event.correction.is_none() {
+                if let Some(options) = options {
+                    let fallback = CorrectionDecision::fallback(
+                        &event.original_text,
+                        previous
+                            .deterministic_text
+                            .as_deref()
+                            .unwrap_or(&event.text),
+                        options,
+                        previous.llm_attempted,
+                        "correction provider unavailable",
+                    );
+                    event.text = fallback.text;
+                    event.correction = Some(fallback.provenance);
+                }
+            }
+            event.emitted_at = OffsetDateTime::now_utc()
+                .format(&Rfc3339)
+                .map_err(|_| "clock_format")?;
+            self.apply_updates(vec![Self::frame(event)?], visible)?;
+        }
+        Ok(())
     }
 
     fn broadcast(&mut self, raw: JsonFrame) {
@@ -450,6 +698,11 @@ impl CaptionProjection {
         }
         self.latest_bytes = retained.iter().map(|frame| frame.raw.get().len()).sum();
         self.latest = retained;
+        for id in ids {
+            if let Some(old) = self.pending.remove(id) {
+                self.pending_bytes -= old.raw.get().len();
+            }
+        }
         self.serial = serial;
         // Existing snapshot schema is authoritative for removal. Keep per-ID
         // version history even when an obsolete/evicted event is not visible.
@@ -583,9 +836,10 @@ mod tests {
                     },
                     &[source],
                     true,
+                    false,
                 )
                 .unwrap();
-            projection.apply(prepared);
+            projection.apply(prepared).unwrap();
             projection
                 .target(
                     "rs-1-0",
@@ -622,5 +876,60 @@ mod tests {
             assert_eq!(event.version, 3);
             assert!(event.committed);
         }
+    }
+
+    #[test]
+    fn nonterminal_history_cache_has_count_and_encoded_byte_bounds_and_is_released_on_cancel() {
+        let chunk = AudioChunk {
+            wav_path: "synthetic.wav".into(),
+            start_sample: 0,
+            end_sample: 16000,
+            sample_rate: 16000,
+        };
+        let sources = |offset: usize, text: &str| {
+            (0..256)
+                .map(|index| SourceEvent {
+                    session_id: "session".into(),
+                    session_generation: 1,
+                    segment_id: format!("rs-cap-{}", offset + index),
+                    source_revision: 1,
+                    source_language: "en".into(),
+                    stage: "stable",
+                    text: text.into(),
+                    start_ms: 0,
+                    end_ms: 1000,
+                    timestamp_basis: "sample_clock_native_hint",
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut projection = CaptionProjection::default();
+        let (config, _) = ObservedConfig::new("en", &["ko".into()]).unwrap();
+        projection.reset(Some(config));
+        for offset in [0, 256] {
+            let frames = projection
+                .prepare("session", 1, &chunk, &sources(offset, "short"), true, false)
+                .unwrap();
+            projection.apply(frames).unwrap();
+        }
+        assert_eq!(projection.pending.len(), MAX_PENDING_SEGMENTS);
+        assert!(projection
+            .prepare("session", 1, &chunk, &sources(512, "short"), true, false)
+            .is_err());
+        projection.cancel_pending(None).unwrap();
+        assert!(projection.pending.is_empty() && projection.pending_bytes == 0);
+        assert!(projection.latest.len() <= 100 && projection.latest_bytes <= MAX_SNAPSHOT_BYTES);
+        let (config, _) = ObservedConfig::new("en", &["ko".into()]).unwrap();
+        projection.reset(Some(config));
+        let long = "x".repeat(20_000);
+        let frames = projection
+            .prepare("session", 1, &chunk, &sources(0, &long), true, false)
+            .unwrap();
+        projection.apply(frames).unwrap();
+        assert!(projection.pending_bytes > MAX_PENDING_BYTES / 2);
+        assert!(projection
+            .prepare("session", 1, &chunk, &sources(256, &long), true, false)
+            .is_err());
+        projection.cancel_pending(None).unwrap();
+        assert_eq!(projection.pending_bytes, 0);
     }
 }

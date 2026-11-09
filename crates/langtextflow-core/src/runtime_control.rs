@@ -1,11 +1,13 @@
 //! Private owned-parent control transport; the existing observer owns caption output.
 use crate::asr_slice::AsrSession;
+use crate::correction_slice::{leaf_request, CorrectionDispatcher, CorrectionOptions};
 use crate::history::HistoryWriter;
 use crate::mt_slice::MtDispatcher;
 use crate::observer_ws::ObserverServer;
 use crate::pcm_ingress::{PcmIngress, FRAME_LIMIT};
 use crate::source_context::SourceContext;
 use crate::supervision::worker_slot;
+use crate::{TaskKind, WorkerRequest, PROTOCOL_VERSION};
 use futures_util::future::{select, Either};
 use serde::Deserialize;
 use serde_json::json;
@@ -52,6 +54,15 @@ struct Config {
     translation_deadline_ms: u64,
     #[serde(default)]
     context: SourceContext,
+    #[serde(default)]
+    correction: Option<Correction>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Correction {
+    worker: Worker,
+    options: CorrectionOptions,
 }
 
 enum Command {
@@ -135,6 +146,9 @@ pub fn run_stdio() -> Result<(), &'static str> {
         || config.session_id.len() > 64
         || !config.asr.valid()
         || config.mt.as_ref().is_some_and(|mt| !mt.valid())
+        || config.correction.as_ref().is_some_and(|correction| {
+            !correction.worker.valid() || correction.options.validate().is_err()
+        })
         || config.database_path.is_empty()
         || config.database_path.len() > 4096
         || config.spool_directory.as_os_str().len() > 4096
@@ -183,6 +197,9 @@ async fn serve(
     let generation = session.audio_generation(&config.source_language)?;
     session.configured_asr_model(config.asr_model_identity)?;
     session.configure_context(&config.source_language, config.context.clone())?;
+    let correction_budget = config.correction.as_ref().map_or(0, |correction| {
+        (correction.options.timeout_seconds * 1000.).round() as u64
+    });
     let mut history = HistoryWriter::open(
         &config.database_path,
         &config.session_id,
@@ -207,6 +224,65 @@ async fn serve(
         None
     };
     let observer = ObserverServer::bind(session.clone(), 0, ORIGIN).await?;
+    let correction = if *parent_closed.borrow() {
+        None
+    } else if let Some(configured) = config.correction {
+        let request = WorkerRequest {
+            protocol_version: PROTOCOL_VERSION,
+            request_id: "correction-prepare".into(),
+            session_id: config.session_id.clone(),
+            session_generation: generation,
+            segment_id: "prepare".into(),
+            source_revision: 1,
+            task_kind: TaskKind::Correction,
+            source_language: config.source_language.clone(),
+            target_language: None,
+            deadline_ms: 3000,
+            payload: String::new(),
+        };
+        let prepare = leaf_request(
+            &request,
+            "prepare",
+            "",
+            &config.context,
+            &configured.options,
+        );
+        let dispatcher = CorrectionDispatcher::start(
+            configured.worker.program,
+            configured.worker.args,
+            configured.options.clone(),
+            prepare,
+            worker_slot(),
+        )
+        .await?;
+        session.enable_correction(&dispatcher, configured.options)?;
+        Some(dispatcher)
+    } else {
+        None
+    };
+    // An optional prepare may suspend across parent EOF. Do not start a fresh
+    // ASR child or spool after that cancellation; confirm existing owners first.
+    if *parent_closed.borrow() {
+        session.stop();
+        let mut error = None;
+        if let Some(owner) = correction {
+            if owner.stop().await.is_err() {
+                error = Some("correction_reap_unconfirmed");
+            }
+        }
+        if let Some(owner) = mt {
+            if owner.stop().await.is_err() {
+                error = Some("translation_reap_unconfirmed");
+            }
+        }
+        if let Some(writer) = &mut history {
+            if writer.stop().await.is_err() {
+                error = Some("history_stop_unconfirmed");
+            }
+        }
+        let _ = observer.stop().await;
+        return error.map_or(Ok(()), Err);
+    }
     let asr_slot = worker_slot();
     let started = PcmIngress::start(
         session.clone(),
@@ -229,6 +305,9 @@ async fn serve(
             if let Some(mt) = mt {
                 let _ = mt.stop().await;
             }
+            if let Some(correction) = correction {
+                let _ = correction.stop().await;
+            }
             if let Some(writer) = &mut history {
                 let _ = writer.stop().await;
             }
@@ -247,6 +326,7 @@ async fn serve(
         json!({"type":"ready", "protocol_version":1,
         "session_id":config.session_id,"session_generation":generation,
         "port":observer.address().port(), "observer_path":credential.path(),
+        "correction_available":correction.as_ref().is_some_and(|owner| owner.available),
         "history_available":history_attached}),
     )
     .await
@@ -272,8 +352,10 @@ async fn serve(
                         owner.finish().await?;
                     }
                     let deadline = Instant::now()
-                        + Duration::from_millis(config.translation_deadline_ms + 250);
-                    while session.pending_translation_targets() > 0 {
+                        + Duration::from_millis(
+                            config.translation_deadline_ms.max(correction_budget) + 250,
+                        );
+                    while session.pending_postprocessing() > 0 {
                         if Instant::now() >= deadline {
                             return Err("translation_drain_timeout");
                         }
@@ -309,10 +391,17 @@ async fn serve(
     }
     // Revoke on parent loss, but retain accepted final results for explicit stop.
     if *parent_closed.borrow() || failure.is_some() {
-        session.stop();
+        if session.stop_checked().is_err() {
+            failure.get_or_insert("source_finalize_failed");
+        }
     }
     if let Some(owner) = ingress.take() {
         let _ = owner.cancel().await;
+    }
+    if let Some(dispatcher) = correction {
+        if let Err(error) = dispatcher.stop().await {
+            failure.get_or_insert(error);
+        }
     }
     if let Some(dispatcher) = mt {
         if let Err(error) = dispatcher.stop().await {
