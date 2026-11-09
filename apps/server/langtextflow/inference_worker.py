@@ -48,6 +48,14 @@ def validate_request(request: object) -> dict:
     return chunk
 
 
+def is_prepare(request: object) -> bool:
+    validate_inference_request(request, "asr")
+    payload = json.loads(request["payload"])
+    return (isinstance(payload, dict) and set(payload) == {"asr_protocol_version", "mode"}
+            and type(payload["asr_protocol_version"]) is int
+            and payload["asr_protocol_version"] == 1 and payload["mode"] == "prepare")
+
+
 def read_pcm(chunk: dict) -> bytes:
     # Bound file size and each read independently; no raw audio crosses JSONL.
     fd = os.open(chunk["wav_path"], os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
@@ -133,9 +141,15 @@ def main(args: list[str] | None = None) -> None:
         identity = {"protocol_version": PROTOCOL_VERSION, "request_id": "", "session_id": "",
                     "session_generation": 0, "segment_id": "", "source_revision": 0}
         try:
-            chunk = validate_request(request)
+            prepare = is_prepare(request)
+            chunk = None if prepare else validate_request(request)
             identity = {key: request[key] for key in IDENTITY_KEYS}
-            result = infer(engine, request, chunk)
+            if prepare:
+                if engine._model is None:
+                    engine._model = engine._load_model_sync()
+                result = {"asr_protocol_version": 1, "prepared": True, "sample_rate": 16_000}
+            else:
+                result = infer(engine, request, chunk)
             reply = {**identity, "status": "ok",
                      "result": json.dumps(result, ensure_ascii=False), "error": None}
             frame = (json.dumps(reply, ensure_ascii=False, allow_nan=False) + "\n").encode()

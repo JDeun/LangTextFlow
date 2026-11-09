@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import ssl
 import struct
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,12 +13,14 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-from langtextflow.asr_stream_worker import read_pcm, validate
+from langtextflow.asr_stream_worker import StreamLeaf, read_pcm, validate
 from langtextflow.inference_worker import validate_request as validate_whisper
 from langtextflow.rust_runtime import _python_worker
 
 
 def request(mode, **options):
+    if mode in {"poll", "finish"}:
+        options = {"sample_rate": 16000, "start_sample": 1600, "end_sample": 1600} | options
     return {
         "protocol_version": 1, "request_id": "stream-r1", "session_id": "session",
         "session_generation": 3, "segment_id": "candidate", "source_revision": 1,
@@ -59,6 +62,31 @@ def test_stream_descriptor_requires_exact_regular_pcm_file(tmp_path, mode):
                              end_sample=5 if mode == "wrong-size" else 4, sample_rate=48000))
     with pytest.raises((ValueError, OSError)):
         read_pcm(value)
+
+
+async def test_stream_tls_uses_verified_explicit_trust_without_environment_overrides(monkeypatch):
+    from test_vibevoice import FakeHttpClient, FakeWebSocket
+
+    monkeypatch.setenv("SSL_CERT_FILE", "/missing-private-certificate")
+    monkeypatch.setenv("SSL_CERT_DIR", "/missing-private-certificates")
+    socket = FakeWebSocket()
+
+    async def connect(url, **options):
+        assert url == "wss://asr.example.com/v1/stream" and options["proxy"] is None
+        assert options["ssl"].verify_mode == ssl.CERT_REQUIRED
+        assert options["ssl"].check_hostname
+        return socket
+
+    monkeypatch.setattr("langtextflow.asr_stream_worker.httpx.AsyncClient", FakeHttpClient)
+    monkeypatch.setattr("langtextflow.asr_stream_worker.NoRedirectConnect", connect)
+    leaf = StreamLeaf()
+    try:
+        result = await leaf.handle(request(
+            "open", endpoint="https://asr.example.com", context_info="",
+        ))
+        assert result["sample_rate"] == 16000
+    finally:
+        await leaf.close()
 
 
 @asynccontextmanager
@@ -161,13 +189,14 @@ async def test_actual_stream_leaf_persistent_descriptor_batches_and_48k_clock(
             result = json.loads(reply["result"])
             assert result["transmitted_samples"] == (i + 1) * 1200
             texts.extend(result["messages"])
-        finished = json.loads((await exchange(process, request("finish")))["result"])
+        tail = {"sample_rate": 48000, "start_sample": 2400, "end_sample": 2400}
+        finished = json.loads((await exchange(process, request("finish", **tail)))["result"])
         texts.extend(finished["messages"])
         for _ in range(100):
             if finished["done"]:
                 break
             await asyncio.sleep(.01)
-            finished = json.loads((await exchange(process, request("poll")))["result"])
+            finished = json.loads((await exchange(process, request("poll", **tail)))["result"])
             texts.extend(finished["messages"])
         assert finished["done"]
         assert [m["text"] for m in texts] == ["日本語の原文", "日本語の原文", "最後の文"]

@@ -45,7 +45,7 @@ def validate(request: object) -> dict:
     mode = value["mode"]
     extra = ({"endpoint", "context_info"} if mode == "open" else
              {"pcm_path", "start_sample", "end_sample", "sample_rate"}
-             if mode == "append" else set())
+             if mode == "append" else {"start_sample", "end_sample", "sample_rate"})
     if mode not in {"open", "append", "poll", "finish"} or set(value) != required | extra:
         raise ValueError("invalid_stream_request")
     if mode == "open":
@@ -54,12 +54,17 @@ def validate(request: object) -> dict:
                 or not isinstance(context, str) or len(context.encode()) > 48 * 1024):
             raise ValueError("invalid_stream_options")
         vibevoice_ws_url(endpoint)
+    if mode != "open" and (
+        any(type(value[k]) is not int for k in ("start_sample", "end_sample", "sample_rate"))
+        or not 8000 <= value["sample_rate"] <= 192000
+        or not 0 <= value["start_sample"] <= value["end_sample"] <= MAX_SAMPLE
+        or (value["end_sample"] - value["start_sample"]) * 4 > MAX_PCM_BYTES
+        or (mode != "append" and value["start_sample"] != value["end_sample"])
+    ):
+        raise ValueError("invalid_stream_pcm")
     if mode == "append" and (
         not isinstance(value["pcm_path"], str) or not 1 <= len(value["pcm_path"]) <= 4096
-        or any(type(value[k]) is not int for k in ("start_sample", "end_sample", "sample_rate"))
-        or not 8000 <= value["sample_rate"] <= 192000
-        or not 0 <= value["start_sample"] < value["end_sample"] <= MAX_SAMPLE
-        or (value["end_sample"] - value["start_sample"]) * 4 > MAX_PCM_BYTES
+        or value["start_sample"] == value["end_sample"]
     ):
         raise ValueError("invalid_stream_pcm")
     return value
@@ -158,9 +163,12 @@ class StreamLeaf:
                     or not math.isfinite(seconds) or not .05 <= seconds <= 60):
                 raise ValueError("invalid_stream_configuration")
             self.sample_rate, self.chunk_seconds = rate, float(seconds)
+            tls = ({"ssl": httpx.create_ssl_context(trust_env=False)}
+                   if endpoint.lower().startswith("https://") else {})
             self.socket = await NoRedirectConnect(
                 vibevoice_ws_url(endpoint), proxy=None, max_size=MAX_PCM_BYTES,
                 max_queue=1, write_limit=4096, open_timeout=10, close_timeout=1,
+                **tls,
             )
             await self.socket.send(json.dumps({
                 "context_info": value["context_info"] or None,
@@ -170,10 +178,11 @@ class StreamLeaf:
         else:
             if identity != self.identity or value["candidate_epoch"] != self.epoch:
                 raise ValueError("stale_stream_candidate")
+            if (value["sample_rate"] != self.sample_rate
+                    or value["start_sample"] != self.transmitted_samples):
+                raise ValueError("invalid_stream_interval")
             if value["mode"] == "append":
-                if (self.ended or self.done or self.failure
-                        or value["sample_rate"] != self.sample_rate
-                        or value["start_sample"] != self.transmitted_samples):
+                if self.ended or self.done or self.failure:
                     raise ValueError("invalid_stream_interval")
                 pcm = read_pcm(value)
                 # A receiver may run during flow control. Observe the completed

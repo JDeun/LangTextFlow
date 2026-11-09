@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from langtextflow.inference_worker import read_pcm, validate_request
+from langtextflow.inference_worker import is_prepare, read_pcm, validate_request
 
 
 def request(path: Path) -> dict:
@@ -49,6 +49,21 @@ def test_inference_worker_pcm_range_is_bounded_and_exact(tmp_path):
         read_pcm({**chunk, "end_sample": 1601})
     with pytest.raises(ValueError, match="invalid_audio_descriptor"):
         validate_request({**request(path), "payload": json.dumps({**chunk, "end_sample": 0})})
+
+
+def test_whisper_prepare_is_distinct_from_the_legacy_wav_contract(tmp_path):
+    value = request(tmp_path / "no-audio.wav")
+    value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
+    assert is_prepare(value)
+    with pytest.raises(ValueError, match="invalid_audio_descriptor"):
+        validate_request(value)  # The legacy worker schema cannot mistake this for ASR output.
+    for payload in ({"asr_protocol_version": True, "mode": "prepare"},
+                    {"asr_protocol_version": 1, "mode": "other"},
+                    {"asr_protocol_version": 1, "mode": "prepare", "wav_path": "untrusted"}):
+        value["payload"] = json.dumps(payload)
+        assert not is_prepare(value)
+        with pytest.raises(ValueError):
+            validate_request(value)
 
 
 async def fake_native_process(tmp_path, mode, *, reference="Reference"):
@@ -137,6 +152,45 @@ async def test_actual_inference_worker_native_path_and_quiet_error(tmp_path, mod
             assert reply["status"] == "error" and reply["error"] == "asr_worker_failed"
             assert await asyncio.wait_for(process.wait(), 2) == 1
         assert await process.stderr.read() == b""
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+
+@pytest.mark.parametrize("mode", ["normal", "load-error", "load-hang"])
+async def test_actual_whisper_prepare_loads_without_audio_or_inference_and_eof_is_owned(
+    tmp_path, mode,
+):
+    process, marker = await fake_native_process(tmp_path, mode)
+    value = request(tmp_path / "absent-audio.wav")
+    value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
+    try:
+        process.stdin.write((json.dumps(value) + "\n").encode())
+        await process.stdin.drain()
+        if mode == "load-hang":
+            async with asyncio.timeout(3):
+                while not marker.exists():
+                    await asyncio.sleep(.01)
+            assert marker.read_text() == "load"
+            process.stdin.close()
+            assert await asyncio.wait_for(process.wait(), 3) == 0
+            assert await process.stdout.read() == b""
+        else:
+            reply = json.loads(await asyncio.wait_for(process.stdout.readline(), 3))
+            assert reply["request_id"] == value["request_id"]
+            if mode == "normal":
+                assert json.loads(reply["result"]) == {
+                    "asr_protocol_version": 1, "prepared": True, "sample_rate": 16000,
+                }
+                assert marker.read_text() == "load"  # Native transcribe wasn't invoked.
+                process.stdin.close()
+                assert await asyncio.wait_for(process.wait(), 3) == 0
+            else:
+                assert reply["error"] == "asr_worker_failed" and reply["result"] is None
+                assert await asyncio.wait_for(process.wait(), 3) == 1
+        assert await process.stderr.read() == b""
+        assert not (tmp_path / "absent-audio.wav").exists()
     finally:
         if process.returncode is None:
             process.kill()
