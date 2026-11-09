@@ -26,8 +26,8 @@ create new caption revisions. Rust event timestamps/provenance survive unchanged
 
 The supported subset is cached CPU/int8 faster-whisper in four-second windows,
 KO/EN/JA source with one or two distinct targets, no correction, no recording,
-general context without glossary/hotwords/references/description, and none or
-cached M2M100 CT2 MT. Display title/presenter/audience settings remain available.
+any existing preset with source-scoped glossary/hotwords and ASR context hints,
+and none or cached M2M100 CT2 MT. Display/audience settings remain available.
 Unsupported combinations, frozen mode, incompatible chunk/VAD/device settings
 and a missing executable are refused **before database initialization or live
 session mutation**. There is no silent fallback or omitted requested feature.
@@ -46,6 +46,7 @@ checkpoint verification, inferred word alignment or historical rewrite is added.
 | Boundary | Bound / contract |
 |---|---|
 | Bootstrap | One UTF-8 JSON line, 64KiB including newline; strict Rust fields; executable/argument/path bounds |
+| Inference context | Immutable ≤48KiB UTF-8 JSON snapshot, validated before source transition; the existing 128KiB worker envelope remains unchanged |
 | Audio/control | One-byte tag + little-endian u32 length; audio ≤1MiB and float32-aligned; end/stop have zero payload |
 | Control queue | One pending command; excess/malformed input closes authority admission before payload allocation |
 | Control output | ≤1KiB JSON replies; one queued writer operation; one-second async write confirmation |
@@ -92,6 +93,26 @@ refuse pending source cleanup and quarantined ownership, including after the HTT
 stop waiter is cancelled. A new Python start cannot bypass an unconfirmed Rust
 lease; rollback requires clean stop or a server restart.
 
+The bridge captures the existing title/presenter, the ASR-consumed description
+prefix (1000 characters) and reference excerpt (1200), explicit operator hotwords,
+preset, and enabled glossary entries matching the actual source language and
+preset. The full original API/session context is retained in existing Python
+state/history; inference-prefix extraction does not rewrite it. Rust installs this
+snapshot once under the authority lock before source admission. Source revisions
+keep the same inputs, stop/restart clears them, and an MT context cannot replace
+the captured preset/glossary. Oversized snapshots are rejected rather than dropping
+relevant hints or interrupting an existing session.
+
+Each immutable ASR descriptor carries that snapshot. The shipped Python worker
+validates the existing `SessionContext` before PCM/model loading and calls the same
+faster-whisper prompt and `asr_hotwords(source_language=...)` implementation as the
+Python runtime. Explicit hotwords retain their existing operator-defined scope;
+disabled, wrong-preset or wrong-source glossary hints do not apply. MT receives
+only preset/glossary and uses the unchanged relevance and fail-closed term guard.
+Titles, presenters and references are ASR hints, not evidence of model accuracy.
+Deterministic alias correction is still a separate required arbitration lane;
+this transport does not implement it or relabel raw source as corrected.
+
 SQLite lock/full/write/queue failures mark the archive incomplete without gating
 source or MT publication. Rust history metrics propagate in control ACKs and final
 stop state. Python does not overwrite Rust's observed `ended_at` on normal stop.
@@ -125,10 +146,14 @@ restart, Python rollback, pre-mutation refusal, startup/stop cancellation, EOF,
 oversized declared frames, nonreading control output, private-spool/reap and
 write-failure/later-stop behavior. These tests perform no model download or native
 model inference, and do not certify microphone hardware or real model quality.
+Context tests additionally exercise actual API→Rust→ASR/MT child transport for all
+presets and KO/EN/JA source scope, immutable capture, oversized pre-transition
+refusal, revision/restart fencing, and the shipped Python workers with synthetic
+external native libraries for prompt/hotword and all-six-direction glossary guards.
 
 ## Required remaining work
 
-Correction/context/hotword and AUTO/failover parity, complete Rust queue/latency
+Deterministic and optional model correction, AUTO/failover parity, complete Rust queue/latency
 telemetry in the existing metrics API, independent recording parity,
 desktop/frozen binary bundling and lifecycle, native app capture validation and
 reviewed gradual default cutover/rollback remain **required**. This supported

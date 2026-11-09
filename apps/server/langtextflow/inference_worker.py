@@ -28,10 +28,17 @@ from .worker_ipc import (
 def validate_request(request: object) -> dict:
     validate_inference_request(request, "asr")
     chunk = json.loads(request["payload"])
-    if not isinstance(chunk, dict) or set(chunk) != {
-        "wav_path", "start_sample", "end_sample", "sample_rate",
-    }:
+    required = {"wav_path", "start_sample", "end_sample", "sample_rate"}
+    if (not isinstance(chunk, dict) or not required <= set(chunk)
+            or set(chunk) - required - {"context"}):
         raise ValueError("invalid_audio_descriptor")
+    if "context" in chunk:
+        context = chunk["context"]
+        if (not isinstance(context, dict) or not set(context) <= {
+            "title", "presenter", "description", "reference_text", "preset", "hotwords", "glossary",
+        } or len(json.dumps(context, ensure_ascii=False).encode()) > 48 * 1024):
+            raise ValueError("invalid_asr_context")
+        SessionContext.model_validate(context)  # Validate before PCM/native loading.
     if (not isinstance(chunk["wav_path"], str) or not 1 <= len(chunk["wav_path"]) <= 4096
             or type(chunk["sample_rate"]) is not int or chunk["sample_rate"] != 16_000
             or any(type(chunk[key]) is not int for key in ("start_sample", "end_sample"))
@@ -71,7 +78,7 @@ def infer(engine: FasterWhisperStreamingAsrEngine, request: dict, chunk: dict) -
         # The shared request model requires a target even for ASR-only decode;
         # no translator is created or invoked by this worker.
         target_languages=["ko" if request["source_language"] == "en" else "en"],
-        context=SessionContext(title="ASR prototype"),
+        context=SessionContext.model_validate(chunk.get("context", {"title": "ASR prototype"})),
     ))
     return {
         "sample_count": chunk["end_sample"] - chunk["start_sample"], "sample_rate": 16_000,

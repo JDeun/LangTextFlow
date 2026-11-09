@@ -1,9 +1,10 @@
 //! Private owned-parent control transport; the existing observer owns caption output.
 use crate::asr_slice::AsrSession;
 use crate::history::HistoryWriter;
-use crate::mt_slice::{MtDispatcher, TranslationContext};
+use crate::mt_slice::MtDispatcher;
 use crate::observer_ws::ObserverServer;
 use crate::pcm_ingress::{PcmIngress, FRAME_LIMIT};
+use crate::source_context::SourceContext;
 use crate::supervision::worker_slot;
 use futures_util::future::{select, Either};
 use serde::Deserialize;
@@ -49,6 +50,8 @@ struct Config {
     asr_model_identity: Option<String>,
     mt: Option<Worker>,
     translation_deadline_ms: u64,
+    #[serde(default)]
+    context: SourceContext,
 }
 
 enum Command {
@@ -179,6 +182,7 @@ async fn serve(
     )?;
     let generation = session.audio_generation(&config.source_language)?;
     session.configured_asr_model(config.asr_model_identity)?;
+    session.configure_context(&config.source_language, config.context.clone())?;
     let mut history = HistoryWriter::open(
         &config.database_path,
         &config.session_id,
@@ -195,10 +199,7 @@ async fn serve(
         let dispatcher = MtDispatcher::start(worker.program, worker.args, 4, worker_slot())?;
         session.enable_translation(
             &dispatcher,
-            TranslationContext {
-                preset: "general".into(),
-                glossary: vec![],
-            },
+            config.context.translation(),
             config.translation_deadline_ms,
         )?;
         Some(dispatcher)
