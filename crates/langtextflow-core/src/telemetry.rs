@@ -298,7 +298,8 @@ impl MetricsSampler {
         if let Some(mut task) = self.task.take() {
             match tokio::time::timeout(Duration::from_secs(1), &mut task).await {
                 Ok(Ok(result)) => result?,
-                _ => {
+                Ok(Err(_)) => return Err("metrics_owner_failed"),
+                Err(_) => {
                     task.abort();
                     let _ = task.await;
                     return Err("metrics_stop_unconfirmed");
@@ -332,6 +333,237 @@ impl Drop for MetricsSampler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::asr_slice::{AsrResult, AudioChunk, InferredSegment};
+    use crate::observer_ws::ObserverServer;
+    use crate::{WorkerReply, WorkerStatus};
+    use futures_util::StreamExt;
+    use serde_json::{json, Value};
+    use tokio::net::TcpStream;
+    use tokio_tungstenite::{client_async, tungstenite::client::IntoClientRequest};
+
+    fn frame(sid: &str, generation: u64, sequence: u64) -> MetricsFrame {
+        MetricsFrame {
+            kind: "metrics",
+            session_id: sid.into(),
+            session_generation: generation,
+            sequence,
+            sampled_at: "2026-11-10T00:00:00Z".into(),
+            final_sample: false,
+            stop_error: None,
+            ingress: IngressMetrics {
+                queue_capacity: 8,
+                ..Default::default()
+            },
+            source: SourceMetrics {
+                active_window: false,
+                pending_corrections: 0,
+                pending_targets: 0,
+            },
+            correction: None,
+            translation: None,
+            history: None,
+            observer: ObserverMetrics::default(),
+        }
+    }
+
+    #[test]
+    fn every_maximal_field_still_fits_one_four_kib_metrics_line() {
+        let mut frame = frame(&"\0".repeat(128), MAX_COUNT, MAX_COUNT);
+        frame.sampled_at = "9999-12-31T23:59:59.123456789+00:00".into();
+        let queue = QueueSnapshot {
+            queued: 16,
+            capacity: 16,
+            active: 1,
+            high: 17,
+            admitted: MAX_COUNT,
+            succeeded: MAX_COUNT,
+            failed: MAX_COUNT,
+            expired: MAX_COUNT,
+            cancelled: MAX_COUNT,
+            overflow: MAX_COUNT,
+            unavailable: MAX_COUNT,
+            wait_samples: 512,
+            wait_p50_ms: Some(1_234_567.8901234567),
+            wait_p95_ms: Some(1_234_567.8901234567),
+        };
+        frame.correction = Some(queue.clone());
+        frame.translation = Some(queue);
+        frame.ingress = IngressMetrics {
+            accepted_frames: MAX_COUNT,
+            accepted_samples: MAX_COUNT,
+            processed_samples: MAX_COUNT,
+            decoded_windows: MAX_COUNT,
+            empty_windows: MAX_COUNT,
+            queue_depth: 8,
+            queue_capacity: 8,
+            queue_high_watermark: 8,
+            backpressure_events: MAX_COUNT,
+            clipped_samples: MAX_COUNT,
+            rms_dbfs: Some(-99.12345678901235),
+            voice_active: true,
+            failure: Some("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        };
+        frame.history = Some(HistoryMetrics {
+            accepted: MAX_COUNT,
+            persisted: MAX_COUNT,
+            stale: MAX_COUNT,
+            invalidated: MAX_COUNT,
+            dropped: MAX_COUNT,
+            write_errors: MAX_COUNT,
+            complete: false,
+            stopped: true,
+            error: Some("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+            queue_depth: Some(32),
+            queue_capacity: 32,
+            queue_high_watermark: 32,
+        });
+        frame.observer = ObserverMetrics {
+            capacity_rejections: MAX_COUNT,
+            queue_evictions: MAX_COUNT,
+            send_timeouts: MAX_COUNT,
+            snapshot_evictions: MAX_COUNT,
+            connected: 8,
+        };
+        frame.source.pending_corrections = 512;
+        frame.source.pending_targets = 1024;
+        frame.stop_error = Some("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+        let size = frame.raw().unwrap().get().len() + 1;
+        assert!(
+            size > 1024 && size <= METRICS_BYTES,
+            "bounded maximal-field line: {size}"
+        );
+    }
+
+    #[test]
+    fn coalesced_actual_observer_never_uses_caption_fifo_or_serial_and_reconnect_is_fenced() {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let session = AsrSession::default();
+                let credential = session
+                    .start_observed("owner", "en", &["ko".into()])
+                    .unwrap();
+                session.enable_metrics();
+                let server = ObserverServer::bind(session.clone(), 0, "http://127.0.0.1")
+                    .await
+                    .unwrap();
+                async fn connect(
+                    server: &ObserverServer,
+                    path: &str,
+                ) -> tokio_tungstenite::WebSocketStream<TcpStream> {
+                    let mut request = format!("ws://{}{}", server.address(), path)
+                        .into_client_request()
+                        .unwrap();
+                    request
+                        .headers_mut()
+                        .insert("Origin", "http://127.0.0.1".parse().unwrap());
+                    client_async(request, TcpStream::connect(server.address()).await.unwrap())
+                        .await
+                        .unwrap()
+                        .0
+                }
+                async fn next(socket: &mut tokio_tungstenite::WebSocketStream<TcpStream>) -> Value {
+                    let value = tokio::time::timeout(Duration::from_secs(3), socket.next())
+                        .await
+                        .unwrap()
+                        .unwrap()
+                        .unwrap();
+                    serde_json::from_str(value.to_text().unwrap()).unwrap()
+                }
+                let mut socket = connect(&server, &credential.path()).await;
+                assert_eq!(next(&mut socket).await["type"], "snapshot");
+                // The observer deliberately does not read during a thousand samples.
+                for sequence in 1..=1000 {
+                    assert!(session.publish_metrics(
+                        "owner",
+                        1,
+                        frame("owner", 1, sequence).raw().unwrap()
+                    ));
+                }
+                assert_eq!(session.publication_serial(), 0);
+                assert_eq!(session.observer_metrics().queue_evictions, 0);
+                let admission = session
+                    .admit(
+                        "source",
+                        1,
+                        "en",
+                        AudioChunk {
+                            wav_path: "synthetic.wav".into(),
+                            start_sample: 0,
+                            end_sample: 16000,
+                            sample_rate: 16000,
+                        },
+                        1000,
+                    )
+                    .unwrap();
+                let request = admission.request();
+                let reply = WorkerReply {
+                    protocol_version: 1,
+                    request_id: request.request_id.clone(),
+                    session_id: request.session_id.clone(),
+                    session_generation: 1,
+                    segment_id: request.segment_id.clone(),
+                    source_revision: 1,
+                    status: WorkerStatus::Ok,
+                    error: None,
+                    result: Some(
+                        serde_json::to_string(&AsrResult {
+                            sample_count: 16000,
+                            sample_rate: 16000,
+                            segments: vec![InferredSegment {
+                                start_seconds: 0.,
+                                end_seconds: 1.,
+                                text: "Owned source".into(),
+                                estimated_timestamps: false,
+                            }],
+                        })
+                        .unwrap(),
+                    ),
+                };
+                session.finish(&admission, Some(&reply)).unwrap();
+                loop {
+                    let value = next(&mut socket).await;
+                    if value["type"] == "transcript" && value["committed"] == true {
+                        assert_eq!(value["original_text"], "Owned source");
+                        break;
+                    }
+                }
+                assert_eq!(session.publication_serial(), 2);
+                let mut reconnect = connect(&server, &credential.path()).await;
+                let snapshot = next(&mut reconnect).await;
+                assert_eq!(snapshot["serial"], 2);
+                assert_eq!(snapshot["segments"][0]["text"], "Owned source");
+                assert_eq!(next(&mut reconnect).await["sequence"], 1000);
+                let new = session
+                    .start_observed("replacement", "en", &["ko".into()])
+                    .unwrap();
+                session.enable_metrics();
+                assert!(!session.publish_metrics(
+                    "owner",
+                    1,
+                    frame("owner", 1, 1001).raw().unwrap()
+                ));
+                assert!(session.publish_metrics(
+                    "replacement",
+                    2,
+                    frame("replacement", 2, 1).raw().unwrap()
+                ));
+                let mut replacement = connect(&server, &new.path()).await;
+                assert_eq!(next(&mut replacement).await["segments"], json!([]));
+                let metrics = next(&mut replacement).await;
+                assert_eq!(
+                    (
+                        metrics["session_generation"].as_u64(),
+                        metrics["sequence"].as_u64()
+                    ),
+                    (Some(2), Some(1))
+                );
+                server.stop().await.unwrap();
+                session.stop();
+            });
+    }
     #[test]
     fn queue_population_is_exact_once_and_wait_ring_is_bounded() {
         let queue = QueueTelemetry::default();

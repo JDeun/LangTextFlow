@@ -39,7 +39,8 @@ class RustQueueMetrics(_StrictMetrics):
     def population(self):
         terminal = self.succeeded + self.failed + self.expired + self.cancelled
         if (self.queued + self.active > self.capacity + 1 or self.high > self.capacity + 1
-                or self.high < self.queued or self.admitted != terminal + self.queued + self.active
+                or self.high < self.queued or self.high > self.admitted
+                or self.admitted != terminal + self.queued + self.active
                 or self.wait_samples > self.admitted):
             raise ValueError("invalid job population")
         if self.wait_samples == 0:
@@ -110,6 +111,13 @@ class RustMetricsFrame(_StrictMetrics):
     translation: RustQueueMetrics | None
     history: RustHistoryMetrics | None
     observer: RustObserverMetrics
+
+    @field_validator("session_id")
+    @classmethod
+    def bounded_session(cls, value: str) -> str:
+        if len(value.encode()) > 128:
+            raise ValueError("metrics session is too long")
+        return value
 
     @field_validator("sampled_at")
     @classmethod

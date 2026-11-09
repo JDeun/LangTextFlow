@@ -632,6 +632,92 @@ def test_parent_eof_preserves_known_llm_attempt_and_deterministic_result_but_not
         assert url not in json.dumps(event)
 
 
+def test_actual_metrics_observes_native_jobs_not_idle_python_queues_and_preserves_final_reset(
+    rust_api, monkeypatch,
+):
+    from langtextflow import rust_runtime
+
+    client, runtime = rust_api
+    original_worker = rust_runtime._python_worker
+    correction = """
+import json,sys
+for line in sys.stdin:
+    request=json.loads(line); payload=json.loads(request['payload'])
+    reply={key:request[key] for key in ('protocol_version','request_id','session_id',
+                                      'session_generation','segment_id','source_revision')}
+    reply.update(status='ok',result=payload['text'],error=None)
+    print(json.dumps(reply),flush=True)
+"""
+
+    def worker(module, args):
+        if module == "langtextflow.correction_worker":
+            return {"program": getattr(sys, "_base_executable", None) or sys.executable,
+                    "args": ["-u", "-c", correction]}
+        return original_worker(module, args)
+
+    def commands(self, request):
+        mt = _MT.replace("import json,sys", "import json,sys,time").replace(
+            "    failed=", "    time.sleep(1.5)\n    failed=",
+        )
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                {"program": sys.executable, "args": ["-u", "-c", mt]})
+
+    monkeypatch.setattr(rust_runtime, "_python_worker", worker)
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    runtime.settings.translation_target_timeout_seconds = 2
+    runtime.settings.correction_timeout_seconds = 2
+    first = client.post("/api/v1/session/start", json=_REQUEST)
+    assert first.status_code == 200, first.text
+    first_sid = first.json()["session_id"]
+
+    async def feed():
+        for _ in range(3):
+            await runtime.feed_audio(struct.pack("<f", .1) * 64000)
+
+    client.portal.call(feed)
+    deadline = time.monotonic() + 5
+    while True:
+        data = client.get("/api/v1/metrics").json()
+        native = data["rust_authority"]
+        sample = native["sample"]
+        if (native["status"] == "fresh" and sample["translation"]["active"] == 1
+                and sample["translation"]["overflow"] > 0):
+            break
+        assert time.monotonic() < deadline, data
+        time.sleep(.01)
+    assert data["runtime_core"] == "rust" and data["postprocess_queue_depth"] > 0
+    assert runtime.pipeline.queue_depth == 0 and runtime._persistence_queue.qsize() == 0
+    assert data["postprocess_segments_failed"] is None
+    assert data["postprocess_queue_lag_p95_ms"] is None
+    assert sample["correction"]["wait_samples"] > 0
+    assert data["websocket_clients"] == 0 and sample["observer"]["connected"] == 1
+    assert "Original English source" not in json.dumps(data)
+    assert sample["session_id"] == first_sid and sample["session_generation"] == 1
+    assert client.post("/api/v1/session/stop").status_code == 200
+    final = client.get("/api/v1/metrics").json()
+    assert final["rust_authority"]["status"] == "final"
+    last = final["rust_authority"]["sample"]
+    assert last["session_id"] == first_sid and last["sequence"] > sample["sequence"]
+    assert last["final"] and last["stop_error"] is None and last["history"]["stopped"]
+    assert last["translation"]["expired"] > 0
+    assert last["translation"]["queued"] == last["translation"]["active"] == 0
+    assert final["asr_queue_depth"] == final["postprocess_queue_depth"] == 0
+    assert last["ingress"]["accepted_samples"] == last["ingress"]["processed_samples"] == 192000
+    second = client.post("/api/v1/session/start", json=_REQUEST)
+    assert second.status_code == 200, second.text
+    second_sid = second.json()["session_id"]
+    assert second_sid != first_sid
+    reset = client.get("/api/v1/metrics").json()["rust_authority"]
+    assert reset["status"] in {"not_sampled", "fresh"}
+    if reset["sample"] is not None:
+        assert reset["sample"]["session_id"] == second_sid
+        assert reset["sample"]["translation"]["admitted"] == 0
+        assert reset["sample"]["translation"]["wait_p95_ms"] is None
+    assert client.post("/api/v1/session/stop").status_code == 200
+    latest = client.get("/api/v1/metrics").json()["rust_authority"]
+    assert latest["sample"]["session_id"] == second_sid
+
+
 def test_rust_history_failure_does_not_block_source_and_later_stop_ends_session(rust_api):
     client, runtime = rust_api
     state = client.post("/api/v1/session/start", json=_REQUEST).json()

@@ -66,6 +66,7 @@ class CaptionRuntime:
         self._recording_result: dict | None = None
         self._audio_samples_received = 0
         self.metrics = RealtimeMetrics()
+        self._rust_metrics_view_at = time.monotonic()
         self._vad = EnergyVad(
             threshold_dbfs=self.settings.vad_threshold_dbfs,
             hangover_frames=self.settings.vad_hangover_frames,
@@ -437,7 +438,7 @@ class CaptionRuntime:
         if self._rust_session:
             self._apply_rust_metrics(
                 self.engine.metrics_view() if self.engine is not None
-                else self.metrics.rust_authority or RustAuthorityMetrics(status="not_sampled"),
+                else self._cached_rust_metrics(),
             )
             if self.engine is not None and getattr(self.engine, "correction_status", None):
                 self.state.correction_status = self.engine.correction_status
@@ -447,7 +448,16 @@ class CaptionRuntime:
             self.state.correction_status = self.pipeline.correction_status
             self.state.translation_status = self.pipeline.status
 
+    def _cached_rust_metrics(self) -> RustAuthorityMetrics:
+        view = self.metrics.rust_authority or RustAuthorityMetrics(status="not_sampled")
+        if view.age_ms is None:
+            return view
+        age = view.age_ms + max(0., (time.monotonic() - self._rust_metrics_view_at) * 1000)
+        status = "stale" if view.status == "fresh" and age > 1500 else view.status
+        return view.model_copy(update={"age_ms": age, "status": status})
+
     def _apply_rust_metrics(self, view: RustAuthorityMetrics) -> None:
+        self._rust_metrics_view_at = time.monotonic()
         self.metrics.runtime_core = "rust"
         self.metrics.rust_authority = view
         for name in (
