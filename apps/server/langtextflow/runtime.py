@@ -22,9 +22,11 @@ from .models import (
     AudienceSessionView,
     AudioStreamInfo,
     CaptionStage,
+    CorrectionStatus,
     SessionState,
     StartSessionRequest,
     TranscriptEvent,
+    TranslationStatus,
 )
 from .pipeline import CaptionPipeline
 from .post_event_archive import PostEventArchive
@@ -75,6 +77,9 @@ class CaptionRuntime:
         ] = asyncio.Queue(maxsize=1024)
         self._persistence_task: asyncio.Task[None] | None = None
         self._lifecycle_lock = asyncio.Lock()
+        self._rust_slot = asyncio.Semaphore(1)
+        self._rust_session = False
+        self._rust_relay_generation: object | None = None
         self._initialized = False
         self._recording_recovery_stop = ThreadEvent()
         self._recording_recovery_task: asyncio.Task[None] | None = None
@@ -200,6 +205,9 @@ class CaptionRuntime:
         # Each client owns a bounded FIFO sender. Never await a network write
         # while holding the ASR->source-caption processing path.
         self.hub.enqueue(event)
+        if self._rust_session:
+            # This is only a UI mirror. Rust has already arbitrated/persisted the event.
+            return
         session_id = self.state.session_id
         if not session_id or self._persistence_task is None:
             self._refresh_queue_metrics()
@@ -323,6 +331,11 @@ class CaptionRuntime:
         self._refresh_queue_metrics()
 
     def _build_engine(self, request: StartSessionRequest) -> AsrEngine:
+        if self.settings.runtime_core == "rust":
+            from .rust_runtime import RustRuntimeBridge, validate_rust_request
+
+            validate_rust_request(self.settings, request)
+            return RustRuntimeBridge(self._publish, self.settings, self._rust_slot)
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         if request.engine == "mock":
             return MockStreamingAsrEngine(self.pipeline.ingest)
@@ -418,8 +431,12 @@ class CaptionRuntime:
             self.pipeline.revised_asr_events_rejected
         )
         self.metrics.stale_asr_events_dropped = self.stale_asr_events_dropped
-        self.state.correction_status = self.pipeline.correction_status
-        self.state.translation_status = self.pipeline.status
+        if self._rust_session:
+            if self.engine is not None and getattr(self.engine, "persistence_error", None):
+                self.state.persistence_error = self.engine.persistence_error
+        else:
+            self.state.correction_status = self.pipeline.correction_status
+            self.state.translation_status = self.pipeline.status
 
     def metrics_snapshot(self) -> RealtimeMetrics:
         self._refresh_queue_metrics()
@@ -439,7 +456,13 @@ class CaptionRuntime:
         self, request: StartSessionRequest, *,
         before_transition: Callable[[], Awaitable[None]] | None = None,
     ) -> SessionState:
+        if self.settings.runtime_core == "rust":
+            from .rust_runtime import validate_rust_request
+
+            validate_rust_request(self.settings, request)
         await self._await_source_stop()
+        if self._rust_slot.locked() and self.engine is None:
+            raise AsrEngineError("Rust cleanup unconfirmed; restart the server before retrying")
         await self.initialize()
         # Validate before stopping a running session: an invalid project must not
         # interrupt a live event or create an unassigned session by accident.
@@ -455,6 +478,13 @@ class CaptionRuntime:
         generation = object()
 
         async def publish_from_this_session(event: TranscriptEvent) -> None:
+            if self._rust_session and self._rust_relay_generation is generation:
+                # Explicit Rust stop drains final events before revoking this relay;
+                # the next session waits for that owned cleanup, as on Python stop.
+                await self._publish(event)
+                if "available" in event.translation_states.values():
+                    self.state.translation_status.available = True
+                return
             if self._active_generation is not generation:
                 self.stale_asr_events_dropped += 1
                 return
@@ -480,6 +510,8 @@ class CaptionRuntime:
             await before_transition()
         if self.state.running:
             await self._stop_unlocked()
+        self._rust_session = self.settings.runtime_core == "rust"
+        self._rust_relay_generation = generation if self._rust_session else None
         self._active_generation = generation
         self.store.clear()
         await self.hub.close_all(reason="caption session starting")
@@ -489,7 +521,8 @@ class CaptionRuntime:
         )
         try:
             async with asyncio.timeout_at(start_deadline):
-                await self.pipeline.start(request)
+                if not self._rust_session:
+                    await self.pipeline.start(request)
         except (Exception, asyncio.CancelledError):
             # A failed session never authorizes its ASR callbacks to publish.
             self._active_generation = None
@@ -521,8 +554,12 @@ class CaptionRuntime:
             recording_enabled=request.record_audio,
             collect_audience_metrics=request.collect_audience_metrics,
             recording_error=None,
-            correction_status=self.pipeline.correction_status,
-            translation_status=self.pipeline.status,
+            correction_status=(CorrectionStatus() if self._rust_session
+                               else self.pipeline.correction_status),
+            translation_status=(TranslationStatus(
+                enabled=request.translation_provider != "none",
+                provider=request.translation_provider,
+            ) if self._rust_session else self.pipeline.status),
             persistence_error=None,
             started_at=datetime.now(UTC),
         )
@@ -544,7 +581,10 @@ class CaptionRuntime:
                 await asyncio.to_thread(persist_session)
             except Exception:
                 self.state.persistence_error = _PERSISTENCE_FAILURE
-            self._start_persistence_worker()
+            if self._rust_session:
+                engine.session_id = state.session_id
+            else:
+                self._start_persistence_worker()
             try:
                 async with asyncio.timeout_at(start_deadline):
                     await engine.start(request)
@@ -567,6 +607,7 @@ class CaptionRuntime:
         except (Exception, asyncio.CancelledError):
             self.state.running = False
             self._active_generation = None
+            self._rust_relay_generation = None
             creation_cancelled.set()
             self.engine = None
             recorder, self._recorder = self._recorder, None
@@ -631,6 +672,15 @@ class CaptionRuntime:
         if self._source_stop is not None and not self._source_stop.done():
             await asyncio.shield(self._source_stop)
 
+    @property
+    def source_cleanup_pending(self) -> bool:
+        return self._source_stop is not None and not self._source_stop.done()
+
+    @property
+    def model_work_active(self) -> bool:
+        return (self.state.running or self.engine is not None
+                or self.source_cleanup_pending or self._rust_slot.locked())
+
     async def _finish_source_stop(
         self, state: SessionState, was_running: bool, session_id: str | None,
         engine: AsrEngine | None, finalizer: asyncio.Task | None,
@@ -643,6 +693,9 @@ class CaptionRuntime:
                 await engine.stop()
             except Exception as exc:
                 first_error = exc
+            if getattr(engine, "persistence_error", None):
+                state.persistence_error = engine.persistence_error
+        self._rust_relay_generation = None
 
         try:
             await self.pipeline.stop()
@@ -658,7 +711,7 @@ class CaptionRuntime:
         if finalizer is not None:
             await asyncio.shield(finalizer)
 
-        if was_running and session_id:
+        if was_running and session_id and not self._rust_session:
             try:
                 await asyncio.to_thread(self.history.mark_ended, session_id)
             except Exception:
@@ -729,7 +782,8 @@ class CaptionRuntime:
         return {
             "session_id": state.session_id, "session_running": state.running,
             "available": bool(state.running and self.engine is not None
-                              and self.engine.accepts_audio and state.persistence_error is None),
+                              and self.engine.accepts_audio and state.persistence_error is None
+                              and not self._rust_session),
             "phase": "error" if error and writer is not None else self._recording_phase,
             "active": writer is not None, "error": error,
             "start_offset_ms": writer.start_offset_ms if writer else None,
@@ -741,6 +795,8 @@ class CaptionRuntime:
     ) -> dict:
         if action not in {"start", "stop"}:
             raise ValueError("unsupported recording action")
+        if self._rust_session and action == "start":
+            raise ValueError("recording parity requires the Python runtime during Rust rollout")
         if self._recording_control is not None and not self._recording_control.done():
             raise SessionChangedError("recording transition in progress; refresh before retrying")
         cancelled = cancelled if cancelled is not None else ThreadEvent()

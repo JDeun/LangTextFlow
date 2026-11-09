@@ -7,6 +7,8 @@ pub mod history;
 pub mod mt_slice;
 pub mod observer_ws;
 pub mod pcm_ingress;
+pub mod runtime_control;
+pub mod source_context;
 pub mod supervision;
 pub mod transport;
 
@@ -48,6 +50,7 @@ pub enum WorkerStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WorkerReply {
     pub protocol_version: u16,
     pub request_id: String,
@@ -56,7 +59,9 @@ pub struct WorkerReply {
     pub segment_id: String,
     pub source_revision: u64,
     pub status: WorkerStatus,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub result: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
     pub error: Option<String>,
 }
 

@@ -4,6 +4,7 @@ use crate::caption_events::{
     CaptionProjection, ObservedConfig, ObserverCredential, ObserverMetrics, ObserverReceiver,
 };
 use crate::mt_slice::{MtAdmission, MtDispatcher, MtOutcome, TranslationContext};
+use crate::source_context::SourceContext;
 use crate::{validate_reply, TaskKind, WorkerReply, WorkerRequest, WorkerStatus, PROTOCOL_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -121,6 +122,7 @@ struct State {
     projection: CaptionProjection,
     translation: Option<MtAdmission>,
     pending_targets: HashMap<String, PendingTarget>,
+    context: Option<SourceContext>,
 }
 
 struct AcceptedChunk {
@@ -243,11 +245,34 @@ impl Default for AsrSession {
             projection: CaptionProjection::default(),
             translation: None,
             pending_targets: HashMap::new(),
+            context: None,
         })))
     }
 }
 
 impl AsrSession {
+    /// Capture once before admission; source revisions cannot change inference inputs.
+    pub fn configure_context(
+        &self,
+        source: &str,
+        context: SourceContext,
+    ) -> Result<(), &'static str> {
+        context.validate()?;
+        let mut state = self.0.lock().unwrap();
+        if state.context.is_some()
+            || !state.revisions.is_empty()
+            || !state
+                .projection
+                .config
+                .as_ref()
+                .is_some_and(|config| config.source_language == source)
+        {
+            return Err("source_context_scope");
+        }
+        state.context = Some(context);
+        Ok(())
+    }
+
     /// Opt-in after Python history bootstrap, before the first source admission.
     pub fn attach_history(&self, sink: crate::history::HistorySink) -> Result<(), &'static str> {
         let mut state = self.0.lock().unwrap();
@@ -308,6 +333,7 @@ impl AsrSession {
             pending.cancelled.store(true, Ordering::Release);
         }
         state.translation = None;
+        state.context = None;
         state.session_id = session_id.into();
         state.revisions.clear();
         state.accepted.clear();
@@ -328,6 +354,7 @@ impl AsrSession {
             pending.cancelled.store(true, Ordering::Release);
         }
         state.translation = None;
+        state.context = None;
         state.projection.reset(None);
     }
 
@@ -347,6 +374,11 @@ impl AsrSession {
         if state.projection.config.is_none() || !state.revisions.is_empty() {
             return Err("translation_requires_new_observed_session");
         }
+        if state.context.as_ref().is_some_and(|snapshot| {
+            context.preset != snapshot.preset || context.glossary != snapshot.glossary
+        }) {
+            return Err("translation_context_scope");
+        }
         state.translation = Some(MtAdmission {
             sender: dispatcher.sender.clone(),
             context,
@@ -361,6 +393,37 @@ impl AsrSession {
 
     pub fn pending_translation_targets(&self) -> usize {
         self.0.lock().unwrap().pending_targets.len()
+    }
+
+    pub(crate) fn publication_serial(&self) -> u64 {
+        self.0.lock().unwrap().projection.serial
+    }
+
+    pub(crate) fn configured_asr_model(&self, model: Option<String>) -> Result<(), &'static str> {
+        if model.as_ref().is_some_and(|model| {
+            model.is_empty()
+                || model.len() > 200
+                || model.starts_with('.')
+                || std::path::Path::new(model).is_dir()
+                || model.split('/').count() > 2
+                || model.split('/').any(|part| part.is_empty() || part == "..")
+                || !model
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || b"-._/".contains(&c))
+        }) {
+            return Err("private_model_identity");
+        }
+        let mut state = self.0.lock().unwrap();
+        if !state.revisions.is_empty() {
+            return Err("model_identity_requires_fresh_session");
+        }
+        state
+            .projection
+            .config
+            .as_mut()
+            .ok_or("observed_session_required")?
+            .configured_asr_model = model;
+        Ok(())
     }
 
     pub(crate) fn authorize_observer(&self, token: &str) -> bool {
@@ -564,6 +627,13 @@ impl AsrSession {
         } else {
             chunk.clone()
         };
+        #[derive(Serialize)]
+        struct Payload<'a> {
+            #[serde(flatten)]
+            chunk: &'a AudioChunk,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            context: Option<&'a SourceContext>,
+        }
         let request = WorkerRequest {
             protocol_version: PROTOCOL_VERSION,
             request_id: format!("r{}", state.serial),
@@ -575,7 +645,11 @@ impl AsrSession {
             source_language: source_language.into(),
             target_language: None,
             deadline_ms,
-            payload: serde_json::to_string(&file_chunk).map_err(|_| "invalid_payload")?,
+            payload: serde_json::to_string(&Payload {
+                chunk: &file_chunk,
+                context: state.context.as_ref(),
+            })
+            .map_err(|_| "invalid_payload")?,
         };
         let cancelled = Arc::new(AtomicBool::new(false));
         state.active = Some(Active {

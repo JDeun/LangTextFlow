@@ -20,6 +20,7 @@ pub type JsonFrame = Arc<RawValue>;
 pub struct ObservedConfig {
     pub source_language: String,
     pub targets: Vec<String>,
+    pub(crate) configured_asr_model: Option<String>,
     token: String,
 }
 
@@ -57,6 +58,7 @@ impl ObservedConfig {
             Self {
                 source_language: source.into(),
                 targets: targets.to_vec(),
+                configured_asr_model: None,
                 token: token.clone(),
             },
             ObserverCredential(token),
@@ -152,7 +154,7 @@ pub(crate) struct CaptionProjection {
     latest: VecDeque<ProjectedFrame>,
     latest_bytes: usize,
     versions: HashMap<String, u64>,
-    serial: u64,
+    pub(crate) serial: u64,
     next_client: u64,
     subscribers: HashMap<u64, Subscriber>,
     pub(crate) metrics: ObserverMetrics,
@@ -249,7 +251,7 @@ impl CaptionProjection {
                         .collect(),
                     asr_provenance: AsrProvenance {
                         provider: "faster-whisper",
-                        configured_model: None,
+                        configured_model: config.configured_asr_model.clone(),
                         verified_model: None,
                         model_revision: None,
                         timestamp_basis: source.timestamp_basis,

@@ -11,7 +11,7 @@ use tokio::sync::{mpsc, watch, Semaphore};
 use tokio::task::JoinHandle;
 
 const MAX_CONTEXT_BYTES: usize = 64 * 1024;
-struct ContextBytes(usize);
+pub(crate) struct ContextBytes(pub(crate) usize);
 
 impl std::io::Write for ContextBytes {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
@@ -218,8 +218,15 @@ async fn run(
                     let result = result.to_owned();
                     worker = Some(returned);
                     job.finish(MtOutcome::Available(result));
+                } else if valid
+                    && reply.status == WorkerStatus::Error
+                    && reply.error.as_deref() == Some("translation_rejected")
+                {
+                    // Completed-output rejection fails only this target, not the healthy model.
+                    worker = Some(returned);
+                    job.finish(MtOutcome::Failed);
                 } else {
-                    // Error replies are terminal in the shipped native owner.
+                    // Native/unknown errors and invalid identity or framing remain terminal.
                     let _ = returned.stop().await;
                     job.finish(MtOutcome::Failed);
                 }

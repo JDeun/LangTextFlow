@@ -1,0 +1,378 @@
+"""Private transport to Rust authority; Python only mirrors canonical events.
+
+This source-mode rollout deliberately rejects unsupported feature combinations.
+Inference, network/cloud fallbacks and model provisioning are never added here.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import struct
+import sys
+import sysconfig
+import tempfile
+from contextlib import suppress
+from pathlib import Path
+
+from websockets.asyncio.client import connect
+
+from .asr.base import AsrEngine, AsrEngineError
+from .config import Settings
+from .models import GlossaryEntry, StartSessionRequest, TranscriptEvent
+from .whisper_cache import WHISPER_REPOSITORIES, managed_whisper_cache, resolve_whisper_model
+
+_ERROR = "Rust runtime unavailable; stop the session and check local runtime setup."
+_ORIGIN = "http://127.0.0.1"
+_MAX_FRAME = 1024 * 1024
+_CONTROL_BUDGET = 15.0
+_CONTEXT_LIMIT = 48 * 1024
+
+
+def _source_context(request: StartSessionRequest) -> dict:
+    context = request.context
+    # These are exactly the fields consumed by the existing ASR prompt and MT
+    # guard. Preserve explicit hotwords; glossary hints require actual source.
+    snapshot = {
+        "title": context.title, "presenter": context.presenter,
+        "description": context.description[:1000],
+        "reference_text": context.reference_excerpt(1200),
+        "preset": context.preset.value, "hotwords": list(context.hotwords),
+        "glossary": [entry.model_dump(mode="json", include=set(GlossaryEntry.model_fields))
+                     for entry in context.glossary
+                     if entry.enabled and entry.applies_to(context.preset)
+                     and entry.source_language == request.source_language],
+    }
+    size = 0
+    for chunk in json.JSONEncoder(ensure_ascii=False).iterencode(snapshot):
+        size += len(chunk.encode())
+        if size > _CONTEXT_LIMIT:
+            raise ValueError("Rust inference context exceeds the 48KiB transport limit")
+    return snapshot
+
+
+def _python_worker(module: str, args: list[str]) -> dict:
+    if sys.platform == "win32" and sys.prefix != sys.base_prefix:
+        # Windows venv python.exe redirects to a second PID. Own the base
+        # interpreter directly while loading the same trusted venv site files.
+        bootstrap = (
+            "import runpy,site,sys;site.addsitedir(sys.argv.pop(1));"
+            "name=sys.argv.pop(1);runpy.run_module(name,run_name='__main__')"
+        )
+        return {"program": sys._base_executable, "args": [
+            "-S", "-c", bootstrap, sysconfig.get_path("purelib"), module, *args,
+        ]}
+    return {"program": sys.executable, "args": ["-m", module, *args]}
+
+
+def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
+    if (getattr(sys, "frozen", False) or request.engine != "faster-whisper"
+            or request.correction_provider != "none"
+            or request.translation_provider not in {"none", "m2m100-ct2"}
+            or request.record_audio or request.translation_model or request.correction_model
+            or request.source_language not in {"ko", "en", "ja"}
+            or any(lang not in {"ko", "en", "ja"} for lang in request.target_languages)
+            or len(request.target_languages) > 2
+            or settings.faster_whisper_device not in {"auto", "cpu"}
+            or settings.faster_whisper_compute_type not in {"default", "int8"}
+            or settings.faster_whisper_chunk_seconds != 4
+            or settings.max_segments != 100
+            or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
+        raise ValueError(
+            "Rust rollout requires source-mode CPU/int8 faster-whisper, "
+            "no correction/recording, and none or M2M100 MT; "
+            "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
+        )
+    _source_context(request)  # Reject an oversized snapshot before replacing a live source.
+    binary = Path(settings.rust_runtime_binary).expanduser()
+    if (not settings.rust_runtime_binary or not binary.is_file()
+            or not os.access(binary, os.X_OK)):
+        raise ValueError("configure a built Rust runtime binary before selecting Rust")
+
+
+class RustRuntimeBridge(AsrEngine):
+    """One native runtime lease, private command pipe and authorized observer relay."""
+
+    def __init__(self, publish, settings: Settings, slot: asyncio.Semaphore) -> None:
+        super().__init__(publish)
+        self.settings = settings
+        self.slot = slot
+        self.session_id: str | None = None
+        self._process: asyncio.subprocess.Process | None = None
+        self._reader: asyncio.Task | None = None
+        self._cleanup: asyncio.Task | None = None
+        self._pending: asyncio.Task | None = None
+        self._command_lock = asyncio.Lock()
+        self._observed = asyncio.Condition()
+        self._serial = 0
+        self._sequence = 0
+        self._running = False
+        self._failure: str | None = None
+        self._leased = False
+        self._mt_slot = None
+        self._ready = False
+        self._configured = False
+        self._stopped = False
+        self._stopping = False
+        self.persistence_error: str | None = None
+
+    running = property(lambda self: self._running)
+    accepts_audio = property(lambda self: True)
+    sample_rate = property(lambda self: 16_000)
+    queue_capacity = property(lambda self: 8)
+    failure = property(lambda self: self._failure)
+
+    def _worker_commands(self, request: StartSessionRequest) -> tuple[dict, dict | None]:
+        low = self.settings.resource_profile == "low" or request.resource_profile == "low"
+        model = (self.settings.low_resource_whisper_model if low
+                 else self.settings.faster_whisper_model)
+        cache = str(managed_whisper_cache(self.settings.model_cache_dir))
+        # Resolve before starting a process; this shared lookup is local-only.
+        model_path = str(resolve_whisper_model(model, cache))
+        asr = _python_worker("langtextflow.inference_worker", [
+            model_path, cache,
+            str(self.settings.low_resource_cpu_threads),
+        ])
+        mt = None
+        if request.translation_provider == "m2m100-ct2":
+            from .local_mt_preflight import local_m2m100_check
+            from .m2m100_cache import m2m100_cache_paths
+            from .preflight import CheckStatus
+
+            if local_m2m100_check(self.settings).status is not CheckStatus.READY:
+                raise AsrEngineError(_ERROR)
+            model_dir, tokenizer_dir = m2m100_cache_paths(self.settings)
+            mt = _python_worker("langtextflow.translation.m2m100_worker", [
+                "--rust-protocol",
+                str(model_dir), str(tokenizer_dir),
+                str(self.settings.local_m2m100_cpu_threads),
+            ])
+        return asr, mt
+
+    async def start(self, request: StartSessionRequest) -> None:
+        validate_rust_request(self.settings, request)
+        context = _source_context(request)
+        if not self.session_id:
+            raise AsrEngineError(_ERROR)
+        try:
+            await asyncio.wait_for(self.slot.acquire(), timeout=0.05)
+        except TimeoutError as exc:
+            raise AsrEngineError(_ERROR) from exc
+        self._leased = True
+        try:
+            if request.translation_provider == "m2m100-ct2":
+                from .translation.m2m100_ct2 import _CHILD_SLOT
+
+                if not _CHILD_SLOT.acquire(blocking=False):
+                    raise AsrEngineError(_ERROR)
+                self._mt_slot = _CHILD_SLOT
+            asr, mt = await asyncio.to_thread(self._worker_commands, request)
+            config = json.dumps({
+                "protocol_version": 1, "session_id": self.session_id,
+                "source_language": request.source_language,
+                "target_languages": request.target_languages,
+                "database_path": str(Path(self.settings.database_path).resolve()),
+                "spool_directory": tempfile.gettempdir(), "asr": asr, "mt": mt,
+                "asr_model_identity": self._configured_model(request),
+                "context": context,
+                "translation_deadline_ms": round(
+                    self.settings.translation_target_timeout_seconds * 1000,
+                ),
+            }, ensure_ascii=False).encode() + b"\n"
+            if len(config) > 64 * 1024:
+                raise AsrEngineError(_ERROR)
+            self._process = await asyncio.create_subprocess_exec(
+                str(Path(self.settings.rust_runtime_binary).expanduser().resolve()),
+                stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL, limit=4096,
+            )
+            self._configured = True
+            self._process.stdin.write(config)
+            await self._process.stdin.drain()
+            ready = await self._reply("ready")
+            if (ready.get("protocol_version") != 1
+                    or type(ready.get("port")) is not int or not 1 <= ready["port"] <= 65535
+                    or not isinstance(ready.get("observer_path"), str)
+                    or not ready["observer_path"].startswith("/ws/observer?token=")
+                    or len(ready["observer_path"]) != len("/ws/observer?token=") + 64
+                    or any(c not in "0123456789abcdef" for c in ready["observer_path"][-64:])):
+                raise AsrEngineError(_ERROR)
+            self._ready = True
+            if ready.get("history_available") is not True:
+                self.persistence_error = "Rust history unavailable; archive may be incomplete."
+            # Endpoint derives solely from a bounded integer port; no redirects,
+            # ambient proxies, external URLs or credentials enter this route.
+            socket = await connect(
+                f"ws://127.0.0.1:{ready['port']}{ready['observer_path']}",
+                origin=_ORIGIN, proxy=None, open_timeout=3, close_timeout=1,
+                max_size=_MAX_FRAME, max_queue=8, write_limit=4096,
+            )
+            self._reader = asyncio.create_task(self._relay(socket), name="rust-caption-relay")
+            self._running = True
+        except asyncio.CancelledError:
+            with suppress(Exception):
+                await self.stop()
+            raise
+        except Exception as exc:
+            await self.stop()
+            raise AsrEngineError(_ERROR) from exc
+
+    def _configured_model(self, request: StartSessionRequest) -> str | None:
+        low = self.settings.resource_profile == "low" or request.resource_profile == "low"
+        model = (self.settings.low_resource_whisper_model if low
+                 else self.settings.faster_whisper_model)
+        # Local directories take precedence in the shared resolver. A public
+        # alias describes configuration only; verified checkpoint stays unknown.
+        if not Path(model).expanduser().is_dir() and (
+            model in WHISPER_REPOSITORIES or model in WHISPER_REPOSITORIES.values()
+        ):
+            return model
+        return None
+
+    async def _reply(self, kind: str, budget: float = _CONTROL_BUDGET) -> dict:
+        if self._process is None:
+            raise AsrEngineError(_ERROR)
+        raw = await asyncio.wait_for(self._process.stdout.readline(), budget)
+        if not raw or len(raw) > 1024:
+            raise AsrEngineError(_ERROR)
+        reply = json.loads(raw)
+        if (not isinstance(reply, dict) or reply.get("type") != kind
+                or reply.get("session_id") != self.session_id
+                or type(reply.get("session_generation")) is not int
+                or reply.get("session_generation") != 1):
+            raise AsrEngineError(_ERROR)
+        return reply
+
+    async def _relay(self, socket) -> None:
+        try:
+            async with socket:
+                async for raw in socket:
+                    frame = json.loads(raw)
+                    if (frame.get("session_id") != self.session_id
+                            or type(frame.get("session_generation")) is not int
+                            or frame.get("session_generation") != 1
+                            or type(frame.get("serial")) is not int
+                            or not 0 <= frame["serial"] < 2**53
+                            or frame["serial"] < self._serial):
+                        raise AsrEngineError(_ERROR)
+                    if frame.get("type") == "transcript":
+                        await self.publish(TranscriptEvent.model_validate(frame))
+                    elif frame.get("type") == "snapshot":
+                        # No source revisions are accepted from this audio route;
+                        # initial snapshot is empty. Reconnect never invents events.
+                        if frame.get("segments"):
+                            raise AsrEngineError(_ERROR)
+                    else:
+                        raise AsrEngineError(_ERROR)
+                    async with self._observed:
+                        self._serial = frame["serial"]
+                        self._observed.notify_all()
+        except Exception:
+            if not self._stopping:
+                self._failure = _ERROR
+        finally:
+            self._running = False
+            if not self._stopping:
+                self._failure = _ERROR
+                if self._process is not None:
+                    self._process.stdin.close()
+
+    async def _command(self, tag: int, frame: bytes = b"") -> None:
+        if self._process is None or self._failure or self._process.returncode is not None:
+            raise AsrEngineError(_ERROR)
+        async with self._command_lock:
+            if self._pending is not None:
+                await asyncio.shield(self._pending)
+            # Once pipe bytes are written, the exchange has one owned ACK reader.
+            # A browser disconnect cannot cancel it and corrupt the next command.
+            self._pending = asyncio.create_task(self._exchange(tag, frame))
+            self._pending.add_done_callback(
+                lambda task: None if task.cancelled() else task.exception(),
+            )
+            await asyncio.shield(self._pending)
+
+    async def _exchange(self, tag: int, frame: bytes) -> None:
+        try:
+            self._sequence += 1
+            self._process.stdin.write(struct.pack("<BI", tag, len(frame)) + frame)
+            budget = _CONTROL_BUDGET + self.settings.translation_target_timeout_seconds
+            async with asyncio.timeout(budget):
+                await self._process.stdin.drain()
+                reply = await self._reply("ack", budget)
+                if (type(reply.get("sequence")) is not int
+                        or reply.get("sequence") != self._sequence
+                        or type(reply.get("serial")) is not int
+                        or not 0 <= reply["serial"] < 2**53):
+                    raise AsrEngineError(_ERROR)
+                if not reply.get("history") or reply["history"].get("complete") is not True:
+                    self.persistence_error = "Rust history incomplete; inspect local storage."
+                async with self._observed:
+                    await self._observed.wait_for(lambda: self._serial >= reply["serial"])
+        except (Exception, asyncio.CancelledError):
+            self._failure = _ERROR
+            if self._process.stdin is not None:
+                self._process.stdin.close()
+            raise
+
+    async def feed_audio(self, pcm_f32le: bytes) -> None:
+        if not self._running or not 0 < len(pcm_f32le) <= _MAX_FRAME or len(pcm_f32le) % 4:
+            raise AsrEngineError(_ERROR)
+        await self._command(1, pcm_f32le)
+
+    async def end_audio(self) -> None:
+        await self._command(2)
+
+    async def stop(self) -> None:
+        if self._cleanup is None:
+            self._cleanup = asyncio.create_task(self._finish(), name="rust-runtime-stop-owner")
+            self._cleanup.add_done_callback(
+                lambda task: None if task.cancelled() else task.exception(),
+            )
+        await asyncio.shield(self._cleanup)
+
+    async def _finish(self) -> None:
+        process = self._process
+        self._stopping = True
+        try:
+            if process is not None:
+                if self._ready and not self._failure and process.returncode is None:
+                    try:
+                        await self._command(3)
+                        stopped = await self._reply("stopped")
+                        self._stopped = stopped.get("error") is None
+                        history = stopped.get("history")
+                        if not history or history.get("complete") is not True:
+                            self.persistence_error = (
+                                "Rust history incomplete; inspect local storage."
+                            )
+                    except Exception:
+                        self._failure = _ERROR
+                process.stdin.close()
+                try:
+                    await asyncio.wait_for(process.wait(), 8)
+                except TimeoutError:
+                    process.kill()
+                    await asyncio.wait_for(process.wait(), 3)
+                    self._failure = _ERROR
+                if process.returncode != 0:
+                    self._failure = _ERROR
+                else:
+                    # The shipped host exits zero after confirmed owned cleanup,
+                    # including EOF cancellation, not merely after its parent exits.
+                    self._stopped = True
+        finally:
+            self._running = False
+            if self._reader is not None:
+                self._reader.cancel()
+                with suppress(asyncio.CancelledError):
+                    await self._reader
+            # A crashed/forcibly killed authority cannot confirm descendant reap.
+            # Keep its shared lease quarantined instead of oversubscribing native workers.
+            if self._leased and (not self._configured or self._stopped):
+                self._leased = False
+                self.slot.release()
+                if self._mt_slot is not None:
+                    self._mt_slot.release()
+                    self._mt_slot = None
+        if self._failure:
+            raise AsrEngineError(_ERROR)
