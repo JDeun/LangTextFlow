@@ -203,8 +203,8 @@ export function TelemetryPanel({ apiUrl, running }: TelemetryPanelProps) {
         <small>{audienceCopy.detail}</small>
       </div>
       {error && <div className="telemetry-empty">{error}</div>}
-      {native && <div className="telemetry-empty" data-testid="native-metrics-status" role="status">
-        {copy.rustTelemetry}: {nativeStatus}
+      {native && <div className="telemetry-empty" data-testid="native-metrics-status">
+        <span role="status">{copy.rustTelemetry}: {nativeStatus}</span>
         {native.age_ms !== null && <> · {copy.sampleAge} {milliseconds(native.age_ms)}</>}
       </div>}
       {persistenceError && (
