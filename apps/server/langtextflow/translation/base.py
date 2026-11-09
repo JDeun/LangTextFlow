@@ -7,6 +7,10 @@ class TranslationError(RuntimeError):
     """A translation provider is unavailable or returned an invalid result."""
 
 
+class TranslationRejected(TranslationError):
+    """Completed inference failed output validation; the native worker remains usable."""
+
+
 class Translator(ABC):
     provider: str
     model: str | None = None

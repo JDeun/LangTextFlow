@@ -16,7 +16,7 @@ from threading import BoundedSemaphore, Lock
 from typing import Any
 
 from ..models import MAX_TRANSCRIPT_TEXT_CHARS, MAX_TRANSLATION_TEXT_CHARS, SessionContext
-from .base import TranslationError, Translator
+from .base import TranslationError, TranslationRejected, Translator
 from .glossary_selection import _mentioned, relevant_glossary
 
 SUPPORTED_LANGUAGES = frozenset({"ko", "en", "ja"})
@@ -118,13 +118,20 @@ class _M2M100Worker:
                     self.process.stdin.write(message.encode("utf-8"))
                     await self.process.stdin.drain()
                     result = await self._read()
+                    if (set(result) == {"id", "error"}
+                            and type(result["id"]) is int and result["id"] == request_id
+                            and result["error"] == "translation_rejected"):
+                        raise TranslationRejected("Local M2M100 translated caption rejected")
                     candidate = result.get("text")
-                    if (type(result.get("id")) is not int or result.get("id") != request_id
+                    if (set(result) != {"id", "text"}
+                            or type(result.get("id")) is not int or result.get("id") != request_id
                             or not isinstance(candidate, str)
                             or not candidate.strip()
                             or len(candidate) > MAX_TRANSLATION_TEXT_CHARS):
                         raise TranslationError("Invalid local M2M100 translation response")
                     return candidate
+            except TranslationRejected:
+                raise
             except BaseException:
                 await self.close()
                 raise
@@ -320,7 +327,7 @@ class M2M100CT2Translator(Translator):
             context, text, target, source_language=source,
         ):
             if not _mentioned(candidate, required):
-                raise TranslationError(
+                raise TranslationRejected(
                     f"Local M2M100 glossary term not preserved: {entry.term}"
                 )
 
@@ -369,7 +376,7 @@ class M2M100CT2Translator(Translator):
             if (not candidate or len(candidate) > MAX_TRANSLATION_TEXT_CHARS
                     or candidate.casefold() == text.strip().casefold()
                     or candidate.startswith(("{", "["))):
-                raise TranslationError("Local M2M100 returned an invalid translated caption")
+                raise TranslationRejected("Local M2M100 returned an invalid translated caption")
             return candidate
 
     async def close(self) -> None:

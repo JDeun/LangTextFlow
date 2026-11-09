@@ -109,6 +109,15 @@ for line in sys.stdin:
         continue
     if mode == "wrong-id":
         request["id"] += 1
+    if mode.startswith("rejection-"):
+        response = {"id": request["id"], "error": "translation_rejected"}
+        if mode == "rejection-wrong-id": response["id"] += 1
+        if mode == "rejection-bool-id": response["id"] = True
+        if mode == "rejection-unknown": response["error"] = "unknown_rejection"
+        if mode == "rejection-extra": response["extra"] = "must-not-be-accepted"
+        if mode == "rejection-text": response["text"] = "must-not-publish"
+        print(json.dumps(response), flush=True)
+        continue
     print(json.dumps({"id": request["id"], "text": "verified-" + request["target"]}), flush=True)
 ''', encoding="utf-8")
     mode = ["normal"]
@@ -136,6 +145,26 @@ async def wait_file(path: Path):
 async def translate(provider, text="source"):
     return await provider.translate(text, source_language="en", target_language="ko",
                                     context=SessionContext())
+
+
+@pytest.mark.parametrize("bad", ["wrong-id", "bool-id", "unknown", "extra", "text"])
+async def test_malformed_request_rejection_is_fatal_and_later_call_recovers(
+    process_provider, bad,
+):
+    factory, mode, _ = process_provider
+    mode[0] = "rejection-" + bad
+    provider = factory()
+    try:
+        await provider.prepare()
+        owner = provider._worker
+        with pytest.raises(TranslationError):
+            await translate(provider)
+        assert owner.process.returncode is not None and owner._released and not owner.ready
+        mode[0] = "normal"
+        assert await translate(provider) == "verified-ko"
+        assert provider._worker is not owner
+    finally:
+        await provider.close()
 
 
 def assert_reaped(worker):
