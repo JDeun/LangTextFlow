@@ -77,7 +77,7 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
     if (getattr(sys, "frozen", False) or request.engine != "faster-whisper"
             or request.correction_provider not in {"none", "ollama"}
             or request.translation_provider not in {"none", "m2m100-ct2"}
-            or request.record_audio or request.translation_model
+            or request.translation_model
             or (request.correction_model and request.correction_provider != "ollama")
             or not 0 < settings.correction_timeout_seconds <= 120
             or (request.correction_provider == "ollama" and (
@@ -94,7 +94,7 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
         raise ValueError(
             "Rust rollout requires source-mode CPU/int8 faster-whisper, "
-            "none or Ollama correction, no recording, and none or M2M100 MT; "
+            "none or Ollama correction, and none or M2M100 MT; "
             "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
         )
     _source_context(request)  # Reject an oversized snapshot before replacing a live source.
