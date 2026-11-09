@@ -1,0 +1,146 @@
+{
+  "schema_version": 1,
+  "dataset": "google/fleurs",
+  "revision": "fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+  "license": "CC-BY-4.0",
+  "license_url": "https://creativecommons.org/licenses/by/4.0/",
+  "common_sentence_ids": [
+    1883,
+    1929,
+    1701
+  ],
+  "selection": "first pinned parquet recording per selected sentence ID, not based on model output",
+  "parallelism": {
+    "paper_url": "https://arxiv.org/html/2205.12446",
+    "section": "2.3",
+    "builder_url": "https://huggingface.co/datasets/google/fleurs/blob/d74c1f182ca32a92215e33f39aa25543ae5a5647/fleurs.py",
+    "source": "paper integer sentence index; builder TSV first-column id retained; pinned parquet repeated-id raw-text consistency checked",
+    "metadata_summary_sha256": "939236938676e13e934edaa1cb1003ce4c464cfb369f6f9dd56734752d1cb4a6",
+    "target_references": "published human n-way translations; no church-specific or independent new bilingual review"
+  },
+  "cohorts": {
+    "ko": [
+      {
+        "id": 1883,
+        "source_language": "ko",
+        "parquet_row_index": 0,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/ko_kr/test-00000-of-00001.parquet",
+        "duration_seconds": 12.48,
+        "source_audio_sha256": "e6bc095e55046de927d7c937f036f96ebb506570648ad9ae7c6576febfc4746a",
+        "wav_path": "ko-1883-row-0.wav",
+        "sha256_wav": "353bd463b9f51b720bd7f557d4be03cf33ee98e2649036852843c5afab3135de",
+        "sha256_pcm16": "6aaa41029964099abe32008ef17ec538aa71aa480cc01568f6d64a65b25b30ab",
+        "reference": "다리 밑 수직 간격은 15미터이며, 공사는 2011년 8월에 마무리되었으며, 해당 다리의 통행금지는 2017년 3월까지이다.",
+        "reference_sha256": "43bfc7a075316874093774ee53f17d93f43bf285b68fd94ec27e880621f1f886"
+      },
+      {
+        "id": 1929,
+        "source_language": "ko",
+        "parquet_row_index": 1,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/ko_kr/test-00000-of-00001.parquet",
+        "duration_seconds": 10.8,
+        "source_audio_sha256": "a5a400dda19a17f0ceb0c4a2542387ae376e3f0518ba0f9769564402df55affd",
+        "wav_path": "ko-1929-row-1.wav",
+        "sha256_wav": "e89334cbfb68636ee4f241bdc2a7202381369f688ab1c4f72e59e85462c329e3",
+        "sha256_pcm16": "34d0749db9623cff365eeab9b9b4ec01f70975d930d9d423830547fdfe1075e9",
+        "reference": "델 포트로가 2세트에서 먼저 어드밴티지를 얻었지만 6 대 6이 된 후 다시 타이 브레이크가 필요했다.",
+        "reference_sha256": "373ac49b10ef4c07784658fbf08626d2fc369709a4b944ced4fefbfee1dbb429"
+      },
+      {
+        "id": 1701,
+        "source_language": "ko",
+        "parquet_row_index": 2,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/ko_kr/test-00000-of-00001.parquet",
+        "duration_seconds": 8.94,
+        "source_audio_sha256": "989020dedbda7fa529b0b4e876f236e79b25a2915d093e23de94c8456e72b7b4",
+        "wav_path": "ko-1701-row-2.wav",
+        "sha256_wav": "af2a14495f334f046717862360f7d01ee5bebc255fccf07b2f67d901cdfe8a86",
+        "sha256_pcm16": "8a9b23044c204ac5f197864b802de716dcd639d798ed270767229fb9010807e5",
+        "reference": "염소 사육은 대략 일만 년 전에 이란의 자그로스산맥에서 시작한 것으로 보입니다.",
+        "reference_sha256": "2bccc51caa723842a33e02a7fd825e77735d07457d2829273da3d5e22079e730"
+      }
+    ],
+    "en": [
+      {
+        "id": 1883,
+        "source_language": "en",
+        "parquet_row_index": 438,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/en_us/test-00000-of-00001.parquet",
+        "duration_seconds": 9.84,
+        "source_audio_sha256": "e7c1dc209b17c25f82040cf12e06eea934422392c712f993378f68f26f08e26a",
+        "wav_path": "en-1883-row-438.wav",
+        "sha256_wav": "2d926b3d478435af54338448e4152432e09686fc71136adde36cd70cdd5ee084",
+        "sha256_pcm16": "3ecb5f5c9f604af3cc726c0c516d446b0dbc1db10496d35b284290a08cd9f2bc",
+        "reference": "The vertical clearance under the bridge is 15 meters. Construction was completed in August 2011, it didn't open to traffic until March 2017.",
+        "reference_sha256": "bef00d5ad9ccd1027da4b585bd5bb8f4f5ab66489846c1cdf18f317e4471121b"
+      },
+      {
+        "id": 1929,
+        "source_language": "en",
+        "parquet_row_index": 382,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/en_us/test-00000-of-00001.parquet",
+        "duration_seconds": 8.1,
+        "source_audio_sha256": "a6dcde9f0e0d9defc1e986604154d8c755e6e108f9c1653160a5f059cf7eb58b",
+        "wav_path": "en-1929-row-382.wav",
+        "sha256_wav": "c1e6b63962e3a4236320cd3d7b5e5688c152b61272bad608688694553cc0442c",
+        "sha256_pcm16": "66636b7a31dd51126f3a22c96cfa1c65edbd4fb8379267f5cf255a4934898433",
+        "reference": "Del Potro had the early advantage in the second set, but this too required a tie break after reaching 6-6.",
+        "reference_sha256": "d0b9fb173366d67ee5d3ccfb12436f74ab9a004caa17bfee30d2bb9c6770c044"
+      },
+      {
+        "id": 1701,
+        "source_language": "en",
+        "parquet_row_index": 42,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/en_us/test-00000-of-00001.parquet",
+        "duration_seconds": 10.62,
+        "source_audio_sha256": "3859f7a841e3d99099cb1f5f88057c864bc560c3700566369f7acc79a7f7c3db",
+        "wav_path": "en-1701-row-42.wav",
+        "sha256_wav": "f3f390dede1646064180d9b8fab3780d7b21f7914a0e918a8ec75e9c6a26f130",
+        "sha256_pcm16": "274208b4aff593f81172a7f7f803a56ea11a764d70b0d3b71431dcbd52c0ed18",
+        "reference": "Goats seem to have been first domesticated roughly 10,000 years ago in the Zagros Mountains of Iran.",
+        "reference_sha256": "98ca00e387962c8ea7620b6e1e3402383aba677426d5ae7bfa22d36c1a11748c"
+      }
+    ],
+    "ja": [
+      {
+        "id": 1883,
+        "source_language": "ja",
+        "parquet_row_index": 210,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/ja_jp/test-00000-of-00001.parquet",
+        "duration_seconds": 11.22,
+        "source_audio_sha256": "b478c3ed80ffe389e37aa013236f07c31e360127805111d3fd5a977277b89e1f",
+        "wav_path": "ja-1883-row-210.wav",
+        "sha256_wav": "43c35b8b3d6cc8b189a2cf15ce5ab1e34923cd7d8b3e5f21c8e4ca002eb6eadc",
+        "sha256_pcm16": "fb9cb1583fcae1b66c0dd5c0b2b7df93bd0fc05e4e46f9ffc6f1c7fe159707fe",
+        "reference": "橋下の上方空間は15メートルです。2011年8月に竣工し、2017年3月まで開通しませんでした。",
+        "reference_sha256": "48339558fb7291d6a1d8369443c626c7cdc4c6b7c0e5695275292f4e4cc57f1d"
+      },
+      {
+        "id": 1929,
+        "source_language": "ja",
+        "parquet_row_index": 463,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/ja_jp/test-00000-of-00001.parquet",
+        "duration_seconds": 13.08,
+        "source_audio_sha256": "e4527bc9b06234645f7c51ea3ea202b4b72c41ccd4a1c309bc004b1358f30419",
+        "wav_path": "ja-1929-row-463.wav",
+        "sha256_wav": "79a74e7ad71232cc3cafbdee6f5e7f046b24d1a5ff3687d3efbc3aa7c4ef74a7",
+        "sha256_pcm16": "df7a795e83cf91beb2b4fa441aca9e600b5447044acd00ab0c582794d042bd11",
+        "reference": "第2セットでは、デル・ポトロが序盤から優位でしたが、6-6に追いつかれた後、またもやタイブレークが必要となりました。",
+        "reference_sha256": "36e1d38a588ab5aeabcb5609f6d3a9741c05641c2a93d28bb6001329121702be"
+      },
+      {
+        "id": 1701,
+        "source_language": "ja",
+        "parquet_row_index": 18,
+        "parquet_uri": "datasets/google/fleurs@fdd74f7cdf01fc7641ab3072b6a38d364b3667f6/ja_jp/test-00000-of-00001.parquet",
+        "duration_seconds": 11.88,
+        "source_audio_sha256": "8621f133e592c1fa76006fe069f250ab0695a46d2d09786ee9d456d715469970",
+        "wav_path": "ja-1701-row-18.wav",
+        "sha256_wav": "5e7f41472738627d3c8b9929f39a6789cb7c6280f75fafe7b4e289b7094545ac",
+        "sha256_pcm16": "9c0f417a003bcbf8c6fe5c2880b881e8df6c017e7c23343fd753160710a47b44",
+        "reference": "ヤギの家畜化は、約1万年前に始まり、その中心はイランのザグロス山脈西部であったとされています。",
+        "reference_sha256": "6f2f6c20b68ae72835d54d16a69e98ea0d385182ff39d79518a52aba9c8bd625"
+      }
+    ]
+  }
+}

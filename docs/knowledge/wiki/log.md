@@ -26,3 +26,16 @@ Private originals stay unchanged; public companion hashes/adaptations are separa
 from the executed private driver. No additional native run occurred while
 publishing, no product/default changed and no field/model/issue acceptance was
 granted.
+
+## 2026-11-09 — ingest | Real multilingual runtime first matrix
+
+Recorded [fixed-source provenance](../raw/2026-11-09-multilingual-runtime-first-matrix.json),
+[parallel fixtures](../raw/2026-11-09-multilingual-fleurs-parallel-fixtures.json),
+[offline character scores](../raw/2026-11-09-multilingual-runtime-offline-analysis.json)
+and [canonical interpretation](../../REAL_SPEECH_EVALUATION.md#2026-11-09-first-real-koenja-dual-target-runtime-matrix).
+Primary sentence-index/builder evidence and pinned three-language text checks
+support the selected public target references; older unavailable-score records
+are untouched. All six native arms, the one failed target, 96-cell/12-track
+denominators, numeric mismatches and partial memory/process observations remain
+explicit. Private originals are preserved. No extra native inference occurred
+for scoring/publication; no model/default, issue closure or field approval follows.
