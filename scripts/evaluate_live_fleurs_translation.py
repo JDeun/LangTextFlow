@@ -685,8 +685,12 @@ async def run_live(
                         "estimated segment end to in-process hub JSON; includes actual queues, "
                         "excludes network and browser paint"
                     ),
-                    "processing_rtf": "paced feed plus drain and shutdown wall time / audio duration",
-                    "drain_seconds": "audio end to ASR/postprocess/persistence/audience-queue drain",
+                    "processing_rtf": (
+                        "paced feed plus drain and shutdown wall time / audio duration"
+                    ),
+                    "drain_seconds": (
+                        "audio end to ASR/postprocess/persistence/audience-queue drain"
+                    ),
                     "isolated_component_decode_seconds": "not measured by this runtime harness",
                 },
                 "runtime_budget": {
