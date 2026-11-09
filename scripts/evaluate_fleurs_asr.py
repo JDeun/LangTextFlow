@@ -21,14 +21,14 @@ FLEURS_REVISION = "fdd74f7cdf01fc7641ab3072b6a38d364b3667f6"
 FLEURS_LICENSE = "https://creativecommons.org/licenses/by/4.0/"
 FLEURS_DATASET = "https://huggingface.co/datasets/google/fleurs"
 MAX_SAMPLE_SECONDS = 20
-CONFIGS = {"ko": "ko_kr", "en": "en_us"}
+CONFIGS = {"ko": "ko_kr", "en": "en_us", "ja": "ja_jp"}
 WINDOW_SECONDS = (4, 15, 30)
 
 
 def fleurs_test_parquet_uri(language: str) -> str:
     """Select only verified FLEURS language/test parquet from the pinned revision."""
     if language not in CONFIGS:
-        raise ValueError("language must be ko or en")
+        raise ValueError("language must be ko, en or ja")
     return (
         f"hf://datasets/google/fleurs@{FLEURS_REVISION}/"
         f"{CONFIGS[language]}/test-00000-of-00001.parquet"
@@ -84,7 +84,7 @@ def evaluate(
     chunk_seconds: int = 4,
 ) -> dict:
     if language not in CONFIGS:
-        raise ValueError("language must be ko or en")
+        raise ValueError("language must be ko, en or ja")
     if not 1 <= sample_count <= 8:
         raise ValueError("samples must be between 1 and 8")
     if model not in {"tiny", "base", "small"}:
