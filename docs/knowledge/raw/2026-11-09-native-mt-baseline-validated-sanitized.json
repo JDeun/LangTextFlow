@@ -1,0 +1,165 @@
+{
+  "publication": {
+    "kind": "sanitized_companion_not_original_bytes",
+    "original_sha256": "c94541d6be571b5c10abb59ff359ab2a5f2eda1e5ace55e1759c4d2b6f641240",
+    "rule": "replace absolute local filesystem locations and local fixture path values; retain synthetic/public text, model hashes, PIDs, versions and failure status",
+    "redacted_json_pointers": []
+  },
+  "record": {
+    "source_sha": "0d7a5ec674771174efde45a2c518cb5bbdbe9143",
+    "scope": "legacy_native_owner_and_actual_rust_mt_dispatcher",
+    "synthetic_asr": true,
+    "owned_text": true,
+    "semantic_quality_scored": false,
+    "field_qualified": false,
+    "cpu_threads": 2,
+    "paths": {
+      "legacy": {
+        "requests": [
+          {
+            "source": "ko",
+            "target": "en",
+            "text": "2010...",
+            "status": "rejected",
+            "error_code": "translation_rejected",
+            "pid": 47786
+          },
+          {
+            "source": "ko",
+            "target": "ja",
+            "text": "2010...",
+            "translation": "2010年...",
+            "status": "available",
+            "pid": 47786
+          },
+          {
+            "source": "ko",
+            "target": "en",
+            "text": "안녕하세요.",
+            "translation": "Hello to.",
+            "status": "available",
+            "pid": 47786
+          }
+        ],
+        "pid": 47786,
+        "exit_code": -15,
+        "reaped": true
+      },
+      "rust": {
+        "native_dispatcher": true,
+        "synthetic_asr": true,
+        "native_pids": [
+          47798
+        ],
+        "native_process_count": 1,
+        "native_reaped": true,
+        "fixture_asr_pids": [
+          47797
+        ],
+        "fixture_asr_reaped": true,
+        "numeric_source_preserved": true,
+        "numeric_english_state": "failed",
+        "numeric_japanese_state": "available",
+        "following_english_state": "available",
+        "native_error_frame_captured": false,
+        "rejection_code_basis": "only validated translation_rejected permits dispatcher reuse",
+        "example_exit_code": 0,
+        "example_exit_code_basis": "completed assert child.returncode == 0 before JSONL reporter exception",
+        "native_exit_code": null,
+        "native_exit_code_basis": "not exposed by shipped Rust example; PID absent"
+      }
+    },
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.12.13",
+    "verified_inputs": {
+      "model/model.bin": {
+        "sha256": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+        "bytes": 490667752
+      },
+      "model/config.json": {
+        "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+        "bytes": 223
+      },
+      "model/shared_vocabulary.json": {
+        "sha256": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+        "bytes": 2796509
+      },
+      "tokenizer/tokenizer_config.json": {
+        "sha256": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+        "bytes": 298
+      },
+      "tokenizer/special_tokens_map.json": {
+        "sha256": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+        "bytes": 1140
+      },
+      "tokenizer/sentencepiece.bpe.model": {
+        "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+        "bytes": 2423393
+      },
+      "tokenizer/vocab.json": {
+        "sha256": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc",
+        "bytes": 3708092
+      }
+    },
+    "versions": {
+      "ctranslate2": "4.8.2",
+      "transformers": "5.22.1",
+      "sentencepiece": "0.2.1",
+      "numpy": "2.5.3",
+      "tokenizers": "0.23.2"
+    },
+    "prepared_files": {
+      "model/model.bin": {
+        "sha256": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+        "bytes": 490667752
+      },
+      "model/config.json": {
+        "sha256": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+        "bytes": 223
+      },
+      "model/shared_vocabulary.json": {
+        "sha256": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+        "bytes": 2796509
+      },
+      "tokenizer/tokenizer_config.json": {
+        "sha256": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+        "bytes": 298
+      },
+      "tokenizer/special_tokens_map.json": {
+        "sha256": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+        "bytes": 1140
+      },
+      "tokenizer/sentencepiece.bpe.model": {
+        "sha256": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+        "bytes": 2423393
+      },
+      "tokenizer/vocab.json": {
+        "sha256": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc",
+        "bytes": 3708092
+      }
+    },
+    "prepare": {
+      "ready": true,
+      "pid": 47779,
+      "path": "shipped_prepare_worker_copy_verified_cache_and_native_load",
+      "exit_code": -15,
+      "reaped": true
+    },
+    "rust_example_sha256": "e6ed83448ae2035d4038c5b9c7ddf859ef8287fc471eec50e10a34d23a8cf146",
+    "raw_runner_status": "failed",
+    "raw_runner_error_type": "JSONDecodeError",
+    "status": "native_checks_passed_readonly_validation",
+    "reporter_limit": "The original native run completed but the receipt runner parsed two example JSONL records as one JSON value. Raw failed receipt/runner/frames are preserved. Captured Rust stdout was not retained by that runner. No native rerun performed.",
+    "proof_files_sha256": {
+      "attempt-01/native-receipt.json": "2dccde9aa145f102da92b1bfbc7394e221b30def60524ebad409050a8a6e70c7",
+      "attempt-01/runner.py": "2e7b22f476f5516c19800a5c6e7c41b8f86d02525c5ac8e0dd351079201c6fa0",
+      "attempt-01/rust-caption-frames.json": "8ddbba67f8eecab1287c28515de64ab09fbf101b65a90128d48d54480c96131a",
+      "rust-native-pids.jsonl": "bfa487f2d16a6d448bd8428aec5784249e62461b811c57a5e48140a4ac50b78f",
+      "asr-fixture-pids.jsonl": "fc2dc51384605273feb023f25827654659ff62b3963e17953ec21e9435159d47",
+      "fake_asr.py": "0200458f5a6c7612f1066047ef182b76d78294fe6ee4a12b12fca70756f81335",
+      "native_mt.py": "ef7300a9dbd30f37922acee83544650ca92d3a24ad13984b2b30112ab3f3c38b",
+      "files-receipt.json": "200df04f66980b41eed29ae8aef2bce49953e68fc1ffd79eb934f3b4dbb6cad6"
+    },
+    "uv_lock_sha256": "464487d4fb327ff7e87f8642f31137f07193d2c2b5ca53a01fdb789e15cb0b78"
+  }
+}

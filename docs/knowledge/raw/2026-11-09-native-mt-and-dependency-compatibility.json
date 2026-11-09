@@ -1,0 +1,106 @@
+{
+  "id": "2026-11-09-native-mt-and-dependency-compatibility",
+  "accessed": "2026-11-09",
+  "classification": "first_party_native_lifecycle_and_dependency_compatibility_not_quality_qualification",
+  "sources": [
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/pull/441",
+      "kind": "merged_request_rejection_fix"
+    },
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/tree/0d7a5ec674771174efde45a2c518cb5bbdbe9143",
+      "kind": "baseline_exact_source"
+    },
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/tree/f1db8e59bb89327afe5a5f7419becc0e2a9fde4d",
+      "kind": "dependency_candidate_exact_source"
+    },
+    {
+      "url": "https://github.com/JDeun/LangTextFlow/pull/444",
+      "kind": "dependency_candidate_at_measurement"
+    },
+    {
+      "url": "https://huggingface.co/facebook/m2m100_418M/tree/55c2e61bbf05dfb8d7abccdc3fae6fc8512fd636",
+      "kind": "pinned_tokenizer_source"
+    },
+    {
+      "url": "https://huggingface.co/gn64/M2M100_418M_CTranslate2/tree/18e406c615ef2991fa74d53734bf66b0a6b10cb4",
+      "kind": "transport_for_verified_runtime_bytes_not_independent_quality_evidence"
+    },
+    {
+      "url": "https://huggingface.co/datasets/google/fleurs/tree/fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+      "kind": "public_audio",
+      "license": "CC-BY-4.0"
+    }
+  ],
+  "tracking_issues": [
+    157,
+    344
+  ],
+  "rights": {
+    "mt_text": "owned_synthetic_text",
+    "asr_audio": "FLEURS CC-BY-4.0",
+    "redistributed": "sanitized receipts and permitted text only; no weights, audio or private filesystem paths"
+  },
+  "platform": "macOS 26.6.2 ARM64, CPython 3.12.13, CPU int8, two threads",
+  "artifacts": [
+    {
+      "file": "2026-11-09-native-mt-baseline-failed-receipt-sanitized.json",
+      "original_sha256": "2dccde9aa145f102da92b1bfbc7394e221b30def60524ebad409050a8a6e70c7",
+      "companion_sha256": "6abaab73c71d53a466ee550022021aa1e540b503cd57256435af6cc3de47f511",
+      "redactions": []
+    },
+    {
+      "file": "2026-11-09-native-mt-baseline-validated-sanitized.json",
+      "original_sha256": "c94541d6be571b5c10abb59ff359ab2a5f2eda1e5ace55e1759c4d2b6f641240",
+      "companion_sha256": "58838ba1505f4ef077a2a5d63c37c7c25cfd967dfde750341b82d1ea5b275be1",
+      "redactions": []
+    },
+    {
+      "file": "2026-11-09-native-mt-baseline-frames-sanitized.json",
+      "original_sha256": "8ddbba67f8eecab1287c28515de64ab09fbf101b65a90128d48d54480c96131a",
+      "companion_sha256": "6523c697776da613d42f1912b5435c63c15a1a9fd16a62272584619d1985d1b3",
+      "redactions": []
+    },
+    {
+      "file": "2026-11-09-native-dependency-mt-receipt-sanitized.json",
+      "original_sha256": "18cac1cd6bce5667cb3c51bec70ea329adbf651f1e2812f527318848e1a4c3ea",
+      "companion_sha256": "f4a87078bbaf9be8d2d620a86026a1e2d3071764d1787e8380d25e0146528fb4",
+      "redactions": []
+    },
+    {
+      "file": "2026-11-09-native-dependency-whisper-receipt-sanitized.json",
+      "original_sha256": "c81c9b6f37f92b8541224fd33320bd770f6551f264e98cce78b5febb7cfb2914",
+      "companion_sha256": "ca0ff8a53f99e2d66478e132616026d8499624cd218dd9a81d31e178c63ea8cf",
+      "redactions": [
+        "/fixture/sample/path"
+      ]
+    }
+  ],
+  "verified_scope": {
+    "model_files": "same seven canonical SHA-256 values, before/after both runs",
+    "production_source_diff_baseline_to_candidate": "zero for apps/server/langtextflow and crates/langtextflow-core",
+    "native_versions": {
+      "old_ctranslate2": "4.8.2",
+      "new_ctranslate2": "4.8.5",
+      "old_sentencepiece": "0.2.1",
+      "new_sentencepiece": "0.2.2",
+      "transformers": "5.22.1",
+      "torch_installed": false
+    },
+    "mt": "legacy and actual Rust MtDispatcher; rejected numeric EN, available JA and later EN, one native PID per path, all children exited",
+    "mt_legacy_output_comparison": "all three statuses/text outputs unchanged, including the unreviewed output Hello to.",
+    "asr": "one pinned public clip 1883, base/small, first4s and full12.48s; then deliberate invalid source interval",
+    "asr_first4s_comparison": "text, segment times and estimated flags identical to both earlier ABBA arms for each model",
+    "asr_error": "asr_worker_failed/null result, expected exit1 and reap after invalid interval; successful source results preserved"
+  },
+  "limits": [
+    "Baseline native runner exited1 only when parsing two example JSONL records as one JSON value; raw failure retained separately from offline validation.",
+    "Baseline Rust example stdout was not retained. Its exit0 follows the completed source assertion before the parser exception; native child exit status is not exposed, only PID absence.",
+    "The dependency candidate runner cleanly exited0 and retained example JSONL. Rust native child exit status remains unexposed.",
+    "Full12.48s Whisper requests have no matching old full-window baseline; this is not a corpus quality or latency comparison.",
+    "The candidate source f1db does not include later source-context changes from PR443; do not relabel this run as another source SHA.",
+    "No semantic/human, physical hardware, long-duration, Windows or release qualification. Prior negative duration evidence remains applicable.",
+    "Original receipts remain private and immutable. Published companion hashes deliberately differ from original byte hashes."
+  ]
+}

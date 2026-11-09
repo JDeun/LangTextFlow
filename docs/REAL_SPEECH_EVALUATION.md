@@ -23,7 +23,7 @@ The workflow installs pinned optional dataset readers and application extras, re
 
 No aggressive minimum accuracy threshold is imposed before a baseline is established. A missing transcript or failed provider **does** fail the job.
 
-For local development, install `uv sync --locked --extra whisper --extra benchmark`, then `uv pip install "datasets==4.4.1" "soundfile==0.13.1"`, and run:
+For local development, install `uv sync --locked --extra whisper --extra benchmark`, then `uv pip install "datasets==5.1.0" "fsspec==2026.7.0" "soundfile==0.13.1"` to match the workflow's dataset readers, and run:
 
 ```bash
 uv run --no-sync python scripts/evaluate_fleurs_asr.py \
@@ -505,6 +505,87 @@ samples nor their startup-inclusive growth establish PSS, a continuous peak,
 memory-leak behavior or physical 4GB/8GB suitability. The repeated public input
 has no aligned repeated transcript or bilingual gold; CER/WER remain unscored.
 The original failure and this later recovery result remain separate evidence.
+
+## 2026-11-09: same-host matched base/small native decoder pilot
+
+The [append-only metadata and aggregates](knowledge/raw/2026-11-09-asr-base-small-matched-cpu.json)
+record a new local run at clean frozen source
+`1fb5e24e136ce891b8f03c323f5a8c0f1b7ea6d5`, rather than current-main or field
+qualification. The first eight eligible Korean test clips within the first 40
+FLEURS entries were selected before inference: IDs
+1883/1929/1701/2000/1801/1662/1705/1959, **87.42 seconds** in total. The record
+retains every reference/PCM16/WAV hash, sample count and dataset index at the same
+`fdd74f7...` revision and CC-BY-4.0 attribution above. No raw audio is published.
+
+Four independent OS children ran **base → small → small → base** sequentially on
+one Darwin arm64 host. Each processed both 4s and 8s windows; the first two arms
+used 4→8 and the repeats 8→4 to balance order. CPU threads=2, workers=1, CPU INT8,
+beam=1, existing VAD and `condition_on_previous_text=False` were fixed. The real
+product `_load_model_sync` and `_transcribe_chunk_sync` methods were used with the
+same fixed `ASR prototype` title, no glossary/correction/MT, and unchanged product
+random-seed defaults. Versions include Python 3.12.13, faster-whisper 1.2.1 and
+CTranslate2 4.8.2; the full environment is in the record. Intentional native MT
+work waited until these arms ended, while incidental host/development load was
+**not controlled**. Filesystem/model-cache warmth was not equalized.
+
+Both official model metadata/card revisions declare MIT:
+base `ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66`, small
+`536b0662742c02347bc0e980a01041f333bce120`. All four model/config/tokenizer/vocabulary
+files were checked against pinned official Git/LFS metadata and recorded with
+SHA-256 and byte size. Native arms used those local paths offline. Source, driver,
+plan, fixture and original arm-report hashes are retained separately.
+
+All **64/64 clip-window observations** completed with nonempty hypotheses and no
+execution failure. These are eight unique clips repeated twice per model/window,
+not sixteen independent clips. CER/WER use the existing `quality_metrics`
+normalization and rounded per-clip values; the table reports the macro mean over
+eight clips, with the range across the two repetitions:
+
+| Model / window | Macro CER | Macro WER | Mean per-clip decode RTF |
+|---|---:|---:|---:|
+| base / 4s | 0.246975 | 0.484663 | 0.20918–0.21045 |
+| small / 4s | 0.144350–0.148813 | 0.451050 | 0.67198–0.69037 |
+| base / 8s | 0.212825–0.222438 | 0.452850–0.476288 | 0.12632–0.14922 |
+| small / 8s | 0.105188 | 0.430813 | 0.42637–0.43422 |
+
+The timer includes common PCM16→float conversion plus synchronous decoding, VAD
+and timing retries. It excludes model loading, input accumulation/pacing, runtime
+queues, correction/MT, WebSocket delivery and browser paint. Thus these RTFs and
+the retained per-chunk p95 values are **not live-caption latency or full-runtime
+throughput**. Four-second base used two bounded timestamp-recovery attempts in
+each repeat; other model/window arms used none. Estimated segment flags also
+retain VAD-tail normalization and never establish word alignment.
+
+Fresh-process model initialization took 0.411–0.627s for base and 0.980–1.148s for
+small after file verification; these are not cold-device load measurements.
+Darwin `ru_maxrss` is bytes, converted to MiB: process-lifetime high water through
+scoring was **584.67–629.64MiB base** and **1190.34–1255.23MiB small**. It includes
+imports/load/decode/scoring before final report serialization and excludes other
+processes, co-resident MT, the browser and total-device memory. It supplies no
+physical 4GB/8GB qualification.
+
+Small's lower CER on this cohort trades against greater decode time and RSS; WER
+still exceeds 0.43. Neither result selects an optimal model, changes a default,
+or approves Korean sermon semantics, six directions, noisy microphones or a
+long-event latency budget. The earlier hosted eight-clip/4s and 30s pilots have
+different harness/context/environment and incompletely retained identities;
+their values must not become a controlled before/after against this direct
+decoder run. The preceding failed duration and six-failed-target recovery records
+remain unchanged negative evidence.
+
+The [relocatable POSIX reproduction companion](knowledge/raw/2026-11-09-asr-matched-reproduction.py)
+reuses `evaluate_fleurs_asr` fixture helpers and the same frozen product/scorer.
+Its module description and local path bindings differ from the original private
+driver; both hashes and the otherwise-identical AST check are explicit in the
+record. **The companion did not produce these native results** and receives only
+the fake-contract selfcheck, without an additional model run. To reproduce,
+prepare a clean worktree at the recorded source, the listed Python versions and
+four pinned files per model plus the three official API receipts. Set
+`LTF_ASR_FROZEN_SOURCE`, `LTF_ASR_SMALL_MODEL` and a new `LTF_ASR_EVIDENCE` directory
+outside Git as described by the record, then invoke the companion with
+`selfcheck`, `prepare`, and explicit opt-in `run`. Native execution has per-arm
+eight-minute and whole-experiment forty-minute budgets; existing artifacts are
+never overwritten. No workflow or automatic model download is added here.
 
 ## Next phases
 

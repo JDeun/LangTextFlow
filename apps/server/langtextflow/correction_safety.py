@@ -7,7 +7,9 @@ from difflib import SequenceMatcher
 _NUMBER_PATTERN = re.compile(r"\d+(?:[.,:/-]\d+)*")
 _NEGATION = {
     "en": re.compile(r"\b(?:not|no|never|cannot|without|neither|nor)\b|n't\b"),
-    "ko": re.compile(r"않|없|아니|못|결코|절대|(?<![가-힣])안(?=\s)"),
+    "ko": re.compile(
+        r"않|없|아니|못|결코|절대|(?<![가-힣])안(?=\s)|지\s*(?:마(?:라|세요|십시오)?|말라)(?!\w)"
+    ),
     "ja": re.compile(r"ない|ません|ずに|ぬ(?=$|[\s、。！？.,!?])"),
 }
 
