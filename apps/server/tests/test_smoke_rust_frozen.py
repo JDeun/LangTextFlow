@@ -83,6 +83,60 @@ def test_process_discovery_denied_is_failure_instead_of_empty_success():
         owned.gone([])
 
 
+@pytest.mark.parametrize("race_at", ["lookup", "children", "fields"])
+def test_previously_observed_parent_exit_race_requires_authoritative_terminal_poll(race_at):
+    state = {"race": False, "exit": None}
+
+    def disappear():
+        state["exit"] = 1
+        raise FakeMissing()
+
+    def lookup(pid):
+        if state["race"] and race_at == "lookup":
+            disappear()
+        return node
+
+    def children(**kwargs):
+        if state["race"] and race_at == "children":
+            disappear()
+        return []
+
+    def created():
+        if state["race"] and race_at == "fields":
+            disappear()
+        return 1.
+
+    node = SimpleNamespace(pid=10, children=children, create_time=created,
+                           ppid=lambda: 1, exe=lambda: "owned", cmdline=lambda: ["owned"])
+    api = SimpleNamespace(Process=lookup, Error=FakeError, NoSuchProcess=FakeMissing)
+    owned = smoke.Owned(SimpleNamespace(pid=10, poll=lambda: state["exit"]), api)
+    assert owned.snapshot()[0]["pid"] == 10
+    state["race"] = True
+    assert owned.snapshot() == []
+    assert owned.observations == 1 and owned.seen[10]["created"] == 1.
+
+
+@pytest.mark.parametrize("observed,terminal,error,category", [
+    (True, False, FakeMissing, "parent_unobserved"),
+    (False, True, FakeMissing, "parent_unobserved"),
+    (True, True, PermissionError, "observation_unavailable"),
+])
+def test_missing_or_denied_parent_is_not_an_exit_proof(observed, terminal, error, category):
+    state = {"exit": None}
+
+    def failed_lookup(pid):
+        state["exit"] = 1 if terminal else None
+        raise error()
+
+    api = SimpleNamespace(Process=failed_lookup, Error=FakeError, NoSuchProcess=FakeMissing)
+    owned = smoke.Owned(SimpleNamespace(pid=10, poll=lambda: state["exit"]), api)
+    if observed:
+        owned.seen[10] = {"pid": 10, "created": 1.}
+        owned.observations = 1
+    with pytest.raises(smoke.SmokeFailure, match=category):
+        owned.snapshot()
+
+
 def test_cleanup_never_kills_a_reused_pid(monkeypatch):
     kills = []
     node = SimpleNamespace(create_time=lambda: 99., is_running=lambda: True,
@@ -118,8 +172,9 @@ def test_discovery_failure_still_waits_for_original_child(monkeypatch):
 
 
 def test_dead_backend_cannot_authorize_post_to_a_foreign_listener():
-    owned = smoke.Owned(SimpleNamespace(poll=lambda: 0), object())
-    with pytest.raises(smoke.SmokeFailure, match="port_not_owned"):
+    api = SimpleNamespace(Error=FakeError, NoSuchProcess=FakeMissing)
+    owned = smoke.Owned(SimpleNamespace(pid=10, poll=lambda: 0), api)
+    with pytest.raises(smoke.SmokeFailure, match="parent_unobserved"):
         owned.listener_owned(12345)
 
 

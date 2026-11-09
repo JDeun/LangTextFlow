@@ -62,8 +62,13 @@ class Owned:
         self.seen: dict[int, dict] = {}
         self.observations = 0
 
+    def known_parent_exited(self) -> bool:
+        return (self.observations > 0 and self.process.pid in self.seen
+                and self.process.poll() is not None)
+
     def snapshot(self) -> list[dict]:
         if self.process.poll() is not None:
+            require(self.known_parent_exited(), "parent_unobserved")
             return []
         try:
             root = self.api.Process(self.process.pid)
@@ -79,9 +84,15 @@ class Owned:
                 require(previous is None or previous["created"] == item["created"], "pid_reused")
                 self.seen[node.pid] = item
                 current.append(item)
-            require(any(row["pid"] == self.process.pid for row in current), "parent_unobserved")
+            if not any(row["pid"] == self.process.pid for row in current):
+                require(self.known_parent_exited(), "parent_unobserved")
+                return current
             self.observations += 1
             return current
+        except self.api.NoSuchProcess as exc:
+            if self.known_parent_exited():
+                return []
+            raise SmokeFailure("parent_unobserved") from exc
         except (self.api.Error, OSError) as exc:
             raise SmokeFailure("process_observation_unavailable") from exc
 
