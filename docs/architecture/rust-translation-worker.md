@@ -1,8 +1,9 @@
 # Rust v1 local translation worker
 
 Status: opt-in worker boundary toward the [approved Rust orchestration target](https://github.com/JDeun/LangTextFlow/issues/344#issuecomment-6536557339).
-This does not replace the production Python caption runtime or implement Rust MT
-scheduling, target-state projection, persistence or desktop cutover.
+This page covers inference only. Scheduling, projection, persistence and opt-in
+existing-API wiring are documented in [Rust production routing](rust-production-routing.md);
+the Python runtime remains the default and desktop cutover remains separate.
 
 The existing `langtextflow.translation.m2m100_worker` accepts an explicit
 `--rust-protocol` mode. Its default ready-ACK/private runtime protocol remains
