@@ -538,6 +538,60 @@ def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
     assert not mt_started.exists() and not _pid_alive(int(correction_pid.read_text()))
 
 
+def test_parent_eof_preserves_known_llm_attempt_and_deterministic_result_but_not_queued_attempts(
+    rust_api, monkeypatch, ollama,  # noqa: F811 - imported pytest fixture
+):
+    from langtextflow.asr.base import AsrEngineError
+
+    client, runtime = rust_api
+    url, calls, response = ollama
+    response["delay"] = 2
+    runtime.settings.ollama_url = url
+    runtime.settings.ollama_correction_model = "fixture-model:tag"
+    runtime.settings.correction_timeout_seconds = 5
+    asr = _ASR.replace("Original English source", "요한 보금 3장")
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", lambda *_: (
+        {"program": sys.executable, "args": ["-u", "-c", asr]}, None,
+    ))
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "source_language": "ko", "target_languages": ["en", "ja"],
+        "correction_provider": "ollama", "translation_provider": "none",
+        "context": {"preset": "church"},
+    })
+    assert started.status_code == 200, started.text
+    sid = started.json()["session_id"]
+
+    async def scenario():
+        for _ in range(2):
+            await runtime.feed_audio(struct.pack("<f", .1) * 64000)
+        async with asyncio.timeout(3):
+            while not calls or len(runtime.store.snapshot()) != 2:
+                await asyncio.sleep(.005)
+        bridge = runtime.engine
+        bridge._process.stdin.close()
+        await asyncio.wait_for(bridge._process.wait(), 8)
+        await asyncio.wait_for(bridge._reader, 2)
+        with pytest.raises(AsrEngineError):
+            await runtime.stop()
+        assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+
+    client.portal.call(scenario)
+    saved = client.get(f"/api/v1/history/{sid}/captions").json()
+    assert len(saved) == 2 and len(calls) == 1
+    active, queued = saved
+    assert active["text"] == "요한복음 3장" and queued["text"] == "요한 보금 3장"
+    for event, attempted in [(active, True), (queued, False)]:
+        assert event["committed"] and event["stage"] == "committed"
+        assert event["original_text"] == "요한 보금 3장"
+        assert event["translation_states"] == {"en": "unsupported", "ja": "unsupported"}
+        assert event["correction"]["method"] == "fallback"
+        assert event["correction"]["llm_attempted"] is attempted
+        assert event["correction"]["llm_applied"] is False
+        assert event["correction"]["deterministic_changed"] is attempted
+        assert event["correction"]["changed"] is attempted
+        assert url not in json.dumps(event)
+
+
 def test_rust_history_failure_does_not_block_source_and_later_stop_ends_session(rust_api):
     client, runtime = rust_api
     state = client.post("/api/v1/session/start", json=_REQUEST).json()

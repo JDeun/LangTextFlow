@@ -132,6 +132,11 @@ publishes CORRECTED with the existing typed `CorrectionProvenance`. Raw
 LLM retains an already completed deterministic result. When the deterministic
 worker itself cannot complete or its bounded queue is full, raw text survives as
 an explicit fallback with no claimed deterministic change or LLM application.
+The authority retains a completed deterministic result and whether the LLM leaf
+was invoked, so cancellation/EOF fallback preserves that known phase. Queued jobs
+that never reach the leaf do not claim an LLM attempt or an applied correction.
+One active job can retain at most 20,000 deterministic characters in addition to
+the encoded canonical cache; this is bounded metadata, not a model RSS limit.
 The shared lexical safety checks are not complete semantic certification.
 
 Each source retains the same MT jobs and absolute target deadlines captured before

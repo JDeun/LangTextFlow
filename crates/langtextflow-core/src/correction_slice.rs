@@ -416,6 +416,9 @@ async fn run(
         let Ok(deterministic) = response.1 else {
             continue;
         };
+        if !job.record_progress(&deterministic, false) {
+            continue;
+        }
         let decision = if options.provider == "none" {
             CorrectionDecision {
                 text: deterministic.clone(),
@@ -440,6 +443,9 @@ async fn run(
                 "correction provider unavailable",
             )
         } else {
+            if !job.record_progress(&deterministic, true) {
+                continue;
+            }
             let llm_request =
                 leaf_request(&job.request, "llm", &deterministic, &job.context, &options);
             let response = match select(

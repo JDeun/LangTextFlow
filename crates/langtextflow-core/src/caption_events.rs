@@ -129,6 +129,8 @@ pub struct ProjectedFrame {
     serial: u64,
     start_ms: u64,
     event: CaptionEvent,
+    deterministic_text: Option<String>,
+    llm_attempted: bool,
 }
 
 pub struct ObserverReceiver {
@@ -306,7 +308,27 @@ impl CaptionProjection {
             serial: event.serial,
             start_ms: event.start_ms,
             event,
+            deterministic_text: None,
+            llm_attempted: false,
         })
+    }
+
+    pub(crate) fn correction_progress(
+        &mut self,
+        id: &str,
+        revision: u64,
+        deterministic: &str,
+        attempted: bool,
+    ) -> bool {
+        let Some(frame) = self.pending.get_mut(id) else {
+            return false;
+        };
+        if frame.event.source_revision != revision || frame.event.stage != "stable" {
+            return false;
+        }
+        frame.deterministic_text = Some(deterministic.into());
+        frame.llm_attempted |= attempted;
+        true
     }
 
     pub(crate) fn target(
@@ -402,7 +424,7 @@ impl CaptionProjection {
         &mut self,
         id: &str,
         revision: u64,
-        decision: CorrectionDecision,
+        mut decision: CorrectionDecision,
         options: &CorrectionOptions,
         deadline: std::time::Instant,
         cancelled: &std::sync::atomic::AtomicBool,
@@ -422,6 +444,20 @@ impl CaptionProjection {
             || cancelled.load(std::sync::atomic::Ordering::Acquire)
         {
             return Err("stale_correction");
+        }
+        if decision.provenance.method == "fallback" {
+            if let Some(deterministic) = &previous.deterministic_text {
+                decision = CorrectionDecision::fallback(
+                    &previous.event.original_text,
+                    deterministic,
+                    options,
+                    previous.llm_attempted || decision.provenance.llm_attempted,
+                    decision
+                        .provenance
+                        .fallback_reason
+                        .unwrap_or("correction provider unavailable"),
+                );
+            }
         }
         let mut event = previous.event.clone();
         event.version = self.versions[&event.segment_id]
@@ -590,16 +626,18 @@ impl CaptionProjection {
             }
             if event.correction.is_none() {
                 if let Some(options) = options {
-                    event.correction = Some(
-                        CorrectionDecision::fallback(
-                            &event.original_text,
-                            &event.text,
-                            options,
-                            false,
-                            "correction provider unavailable",
-                        )
-                        .provenance,
+                    let fallback = CorrectionDecision::fallback(
+                        &event.original_text,
+                        previous
+                            .deterministic_text
+                            .as_deref()
+                            .unwrap_or(&event.text),
+                        options,
+                        previous.llm_attempted,
+                        "correction provider unavailable",
                     );
+                    event.text = fallback.text;
+                    event.correction = Some(fallback.provenance);
                 }
             }
             event.emitted_at = OffsetDateTime::now_utc()

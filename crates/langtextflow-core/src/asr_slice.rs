@@ -164,6 +164,29 @@ pub(crate) struct CorrectionJob {
 }
 
 impl CorrectionJob {
+    pub(crate) fn record_progress(&self, deterministic: &str, attempted: bool) -> bool {
+        let Some(owner) = self.owner.upgrade() else {
+            return false;
+        };
+        let mut state = owner.lock().unwrap();
+        if self.cancelled.load(Ordering::Acquire)
+            || std::time::Instant::now() >= self.deadline
+            || state.session_id != self.request.session_id
+            || state.generation != self.request.session_generation
+            || !state
+                .pending_corrections
+                .contains_key(&self.request.request_id)
+        {
+            return false;
+        }
+        state.projection.correction_progress(
+            &self.request.segment_id,
+            self.request.source_revision,
+            deterministic,
+            attempted,
+        )
+    }
+
     pub(crate) fn finish(&mut self, decision: CorrectionDecision) {
         self.armed = false;
         let Some(owner) = self.owner.upgrade() else {

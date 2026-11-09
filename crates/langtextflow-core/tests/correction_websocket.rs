@@ -413,6 +413,59 @@ fn stopped_owner_confirms_its_own_reap_even_when_a_replacement_holds_shared_capa
 }
 
 #[test]
+fn stopped_correction_owner_retains_known_phase_without_claiming_a_queued_llm_attempt() {
+    runtime().block_on(async {
+        let fixture = Fixture::new();
+        let (session, credential) = session();
+        let correction = fixture
+            .correction(&session, "ollama", 2., worker_slot())
+            .await;
+        let server = ObserverServer::bind(session.clone(), 0, ORIGIN)
+            .await
+            .unwrap();
+        let mut client = connect(&server, &credential).await;
+        next(&mut client).await;
+        publish(&session, "first", 1, "RAW-HANG");
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !fixture.records().iter().any(|entry| entry["mode"] == "llm") {
+            assert!(Instant::now() < deadline);
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        publish(&session, "queued", 1, "RAW-QUEUED");
+        correction.stop().await.unwrap();
+        let mut reconnect = connect(&server, &credential).await;
+        let snapshot = next(&mut reconnect).await;
+        let frames = snapshot["segments"].as_array().unwrap();
+        assert_eq!(frames.len(), 2);
+        for (text, chosen, attempted) in [
+            ("RAW-HANG", "DET-HANG", true),
+            ("RAW-QUEUED", "RAW-QUEUED", false),
+        ] {
+            let frame = frames
+                .iter()
+                .find(|frame| frame["original_text"] == text)
+                .unwrap();
+            assert_eq!(frame["text"], chosen);
+            assert_eq!(frame["committed"], true);
+            assert_eq!(frame["correction"]["method"], "fallback");
+            assert_eq!(frame["correction"]["llm_attempted"], attempted);
+            assert_eq!(frame["correction"]["llm_applied"], false);
+            assert_eq!(frame["correction"]["deterministic_changed"], attempted);
+        }
+        assert_eq!(
+            fixture
+                .records()
+                .iter()
+                .filter(|entry| entry["mode"] == "llm")
+                .count(),
+            1
+        );
+        server.stop().await.unwrap();
+        session.stop();
+    });
+}
+
+#[test]
 fn bounded_queue_overflow_preserves_every_raw_source_and_terminates_pending_work() {
     runtime().block_on(async {
         let fixture = Fixture::new();
