@@ -1,7 +1,7 @@
 """External frozen Rust/worker smoke with disposable data and no valid model.
 
 Run explicitly after packaging. The fake-contract unit tests do not launch the
-binary. A passed receipt proves idle wiring/ownership, not native recognition.
+binary. A passed receipt proves rejected-start wiring/ownership, not recognition.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import threading
 import time
 from contextlib import closing, suppress
 from pathlib import Path
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 FRAME_LIMIT = 128 * 1024
@@ -235,8 +235,7 @@ def direct_asr(rows: list[dict]) -> tuple[dict, dict]:
     return runtime, worker
 
 
-def recorded_direct_asr(owned: Owned, graph_log) -> tuple[dict, dict]:
-    rows = owned.snapshot()
+def record_process_graph(rows: list[dict], graph_log) -> None:
     flags = {"--asr-inference-worker", "--correction-worker", "--m2m100-worker",
              "--rust-protocol"}
     graph = []
@@ -251,7 +250,67 @@ def recorded_direct_asr(owned: Owned, graph_log) -> tuple[dict, dict]:
                       and any(part.startswith("_MEI") for part in path.parts)})
     graph_log.write(json.dumps({"processes": graph}) + "\n")
     graph_log.flush()  # Preserve the failing graph before any ownership assertion.
+
+
+def recorded_direct_asr(owned: Owned, graph_log) -> tuple[dict, dict]:
+    rows = owned.snapshot()
+    record_process_graph(rows, graph_log)
     return direct_asr(rows)
+
+
+def observed_start_refusal(owned: Owned, graph_log, operation) -> dict:
+    """Observe on the owner thread while one bounded HTTP request is pending."""
+    baseline = {(row["pid"], row["created"]) for row in owned.snapshot()}
+    replies: queue.Queue = queue.Queue(maxsize=1)
+
+    def request():
+        try:
+            replies.put_nowait((True, operation()))
+        except BaseException as exc:
+            replies.put_nowait((False, exc))
+
+    thread = threading.Thread(target=request, name="frozen-start-request", daemon=True)
+    seen: dict[tuple[int, float], dict] = {}
+    direct = None
+    thread.start()
+    try:
+        # The HTTP operation has the original 30s timeout. This does not extend
+        # that gate or introduce an artificial child lifetime for observation.
+        deadline = time.monotonic() + 30
+        while True:
+            rows = owned.snapshot()
+            record_process_graph(rows, graph_log)
+            for row in rows:
+                key = row["pid"], row["created"]
+                if key not in baseline:
+                    seen[key] = row
+            if any("--asr-inference-worker" in row["args"] for row in rows):
+                direct = direct_asr(rows)
+            try:
+                ok, result = replies.get(timeout=.01)
+                break
+            except queue.Empty:
+                require(time.monotonic() < deadline, "start_refusal_deadline")
+        thread.join(timeout=1)
+        require(not thread.is_alive(), "start_request_not_joined")
+        if not ok:
+            raise result
+        require(direct is not None, "refused_start_asr_dispatch_unobserved")
+        owned.gone(list(seen.values()))
+        runtime, worker = direct
+        return {"rust_pid": runtime["pid"], "rust_created": runtime["created"],
+                "asr_pid": worker["pid"], "asr_created": worker["created"],
+                "asr_parent_pid": worker["ppid"], "direct_pid_no_inner": True,
+                "observed_children_absent": True, "observed_children": len(seen),
+                "unobserved_descendants_excluded": True}
+    except BaseException:
+        # An observation failure is never an empty-tree success. Unblock the
+        # outstanding request by terminating only this known backend tree.
+        try:
+            owned.cleanup()
+        finally:
+            thread.join(timeout=2)
+        raise
 
 
 def environment(root: Path) -> dict[str, str]:
@@ -276,7 +335,13 @@ def worker_probe(binary: Path, root: Path, env: dict, api, kind: str) -> dict:
     text = "성령 🙏 日本語"
     payload = {"mode": "deterministic", "text": text, "context": {"title": "Frozen smoke"},
                "options": {"provider": "none", "url": "", "model": "unused", "timeout_seconds": 1}}
-    if kind == "asr":
+    if kind == "stream":
+        arguments = ["--asr-stream-worker"]
+        # Valid envelope, invalid lifecycle: poll-before-open proves dispatch
+        # without contacting any sidecar or pretending a model was prepared.
+        payload = {"stream_protocol_version": 1, "candidate_epoch": 1, "mode": "poll",
+                   "start_sample": 0, "end_sample": 0, "sample_rate": 16000}
+    elif kind == "asr":
         arguments = ["--asr-inference-worker", str(root / "fake-whisper"), str(root / "hf"), "2"]
         bad = root / "invalid.wav"
         bad.write_bytes(b"not a WAV")
@@ -299,8 +364,9 @@ def worker_probe(binary: Path, root: Path, env: dict, api, kind: str) -> dict:
     owned = Owned(process, api)
     try:
         owned.snapshot()
-        request = request_frame(kind, payload)
-        error = None if kind == "correction" else f"{kind}_worker_failed"
+        request = request_frame("asr" if kind == "stream" else kind, payload)
+        error = (None if kind == "correction" else "asr_stream_failed" if kind == "stream"
+                 else f"{kind}_worker_failed")
         validate_reply(exchange(owned, request), request, text if error is None else None, error)
         if kind == "correction":
             second = request_frame(kind, payload, 2)
@@ -364,13 +430,16 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
         raise
     owned = Owned(process, api)
 
-    def request(path, payload=None):
-        if payload is not None:
-            owned.listener_owned(port)  # Never stop a foreign process that won the port race.
+    def request(path, payload=None, expected_status=200):
         body = json.dumps(payload).encode() if payload is not None else None
         operation = Request(f"http://127.0.0.1:{port}" + path, data=body,
                             headers={"Content-Type": "application/json"})
-        with opener.open(operation, timeout=30) as response:
+        try:
+            response = opener.open(operation, timeout=30)
+        except HTTPError as exc:
+            response = exc
+        with response:
+            require(response.getcode() == expected_status, "unexpected_loopback_status")
             data = response.read(65537)
         require(len(data) <= 65536, "oversized_loopback_response")
         return json.loads(data)
@@ -390,37 +459,36 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
         else:
             raise SmokeFailure("backend_startup_deadline")
         for _ in range(2):
-            state = request("/api/v1/session/start", {
+            owned.listener_owned(port)  # Check on the observing owner thread, before POST.
+            payload = {
                 "engine": "faster-whisper", "source_language": "ko", "target_languages": ["en"],
                 "correction_provider": "none", "translation_provider": "none",
-                "context": {"title": "Frozen idle wiring", "audience_access": False},
-            })
-            require(state.get("running") is True and bool(state.get("session_id")), "start_failed")
-            runtime, worker = recorded_direct_asr(owned, graph_log)
-            # Idle observation catches a detached inner bootloader/early exit;
-            # actual Python/model readiness still needs the separate native proof.
-            idle_until = time.monotonic() + 2
-            while time.monotonic() < idle_until:
-                current_runtime, current_worker = recorded_direct_asr(owned, graph_log)
-                require(current_runtime["pid"] == runtime["pid"]
-                        and current_worker["pid"] == worker["pid"], "idle_worker_replaced")
-                time.sleep(.1)
+                "context": {"title": "Frozen invalid-cache refusal", "audience_access": False},
+            }
+            observed = observed_start_refusal(
+                owned, graph_log,
+                lambda payload=payload: request(
+                    "/api/v1/session/start", payload, expected_status=503,
+                ),
+            )
+            state = request("/api/v1/state")
+            require(state.get("running") is False and bool(state.get("session_id")),
+                    "refused_start_state_not_stopped")
             require(not cycles or cycles[0]["session_id"] != state["session_id"], "restart_same_id")
-            stopped = request("/api/v1/session/stop", {"expected_session_id": state["session_id"]})
-            require(stopped.get("running") is False, "stop_failed")
-            owned.gone([runtime, worker])
             ended_at = session_ended_at(root / "smoke.sqlite", state["session_id"])
             cycles.append({"session_id": state["session_id"], "ended_at": ended_at,
-                           "rust_pid": runtime["pid"], "asr_pid": worker["pid"],
-                           "asr_parent_pid": worker["ppid"], "direct_pid_no_inner": True,
-                           "idle_observation_seconds": 2})
+                           "http_status": 503, **observed})
+            require(process.poll() is None and request("/health") == {"status": "ok"},
+                    "backend_not_healthy_after_refusal")
+        owned.listener_owned(port)
         request("/api/v1/desktop/shutdown", {})
         require(process.wait(timeout=20) == 0, "backend_shutdown_exit")
         owned.gone(list(owned.seen.values()))
-        return {"status": "passed", "session_start_stop_restart": cycles,
+        return {"status": "passed", "invalid_cache_start_refusal_retry": cycles,
                 "runtime_bundled_auto_resolution": True, "no_audio_fed": True,
                 "valid_model_assets_supplied": False, "model_load_or_recognition_proven": False,
-                "owned_processes_absent": True, "observations": owned.observations}
+                "observed_processes_absent": True, "unobserved_descendants_excluded": True,
+                "observations": owned.observations}
     finally:
         try:
             owned.cleanup()
@@ -437,7 +505,7 @@ def main(binary_path: Path, output_receipt: Path) -> dict:
         output = output_receipt.open("x", encoding="utf-8")
     except FileExistsError:
         raise SmokeFailure("receipt_already_exists") from None
-    report = {"status": "failed", "scope": "frozen protocol and start-idle wiring only",
+    report = {"status": "failed", "scope": "frozen protocol and invalid-cache start refusal only",
               "field_ready": False, "valid_models_supplied": False, "model_quality_test": False,
               "probes": [], "stage": "preflight", "evidence_visibility": "private"}
     scratch = None
@@ -449,10 +517,10 @@ def main(binary_path: Path, output_receipt: Path) -> dict:
             report["binary_sha256"] = hashlib.file_digest(stream, "sha256").hexdigest()
         api = process_api()
         env = environment(scratch)
-        for kind in ("correction", "asr", "translation"):
+        for kind in ("correction", "asr", "translation", "stream"):
             report["stage"] = kind
             report["probes"].append(worker_probe(binary_path.resolve(), scratch, env, api, kind))
-        report["stage"] = "backend_start_idle"
+        report["stage"] = "backend_start_refusal"
         report["backend"] = backend_probe(binary_path.resolve(), scratch, env, api)
         report["status"] = "passed"
     except Exception as exc:
