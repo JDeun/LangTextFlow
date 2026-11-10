@@ -48,7 +48,7 @@ struct Config {
     target_languages: Vec<String>,
     database_path: String,
     spool_directory: PathBuf,
-    asr: Worker,
+    asr: Option<Worker>,
     #[serde(default)]
     auto_asr: Option<crate::auto_asr::AutoOptions>,
     #[serde(default = "default_startup_ms")]
@@ -172,7 +172,11 @@ pub fn run_stdio() -> Result<(), &'static str> {
     if config.protocol_version != 1
         || config.session_id.is_empty()
         || config.session_id.len() > 64
-        || !config.asr.valid()
+        || config.asr.as_ref().is_some_and(|worker| !worker.valid())
+        || (config.asr.is_none()
+            && config.auto_asr.as_ref().is_none_or(|options| {
+                options.policy != crate::auto_asr::StreamingPolicy::VibeVoice
+            }))
         || config
             .auto_asr
             .as_ref()
@@ -320,17 +324,17 @@ async fn serve(
     let asr_slot = worker_slot();
     let args = config
         .asr
-        .args
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
+        .as_ref()
+        .map(|worker| worker.args.iter().map(String::as_str).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let whisper_program = config.asr.as_ref().map(|worker| worker.program.as_str());
     let startup = async {
         if let Some(options) = config.auto_asr {
             crate::auto_ingress::start(
                 session.clone(),
                 &config.source_language,
                 options,
-                &config.asr.program,
+                whisper_program,
                 &args,
                 asr_slot.clone(),
                 &config.spool_directory,
@@ -340,7 +344,7 @@ async fn serve(
             PcmIngress::start_prepared(
                 session.clone(),
                 &config.source_language,
-                &config.asr.program,
+                whisper_program.ok_or("asr_worker_missing")?,
                 &args,
                 asr_slot.clone(),
                 &config.spool_directory,

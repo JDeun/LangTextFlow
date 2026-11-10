@@ -74,7 +74,7 @@ def _python_worker(module: str, args: list[str]) -> dict:
 
 
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
-    if (getattr(sys, "frozen", False) or request.engine not in {"auto", "faster-whisper"}
+    if (getattr(sys, "frozen", False) or request.engine not in {"auto", "faster-whisper", "vibevoice"}
             or request.correction_provider not in {"none", "ollama"}
             or request.translation_provider not in {"none", "m2m100-ct2"}
             or request.translation_model
@@ -93,7 +93,7 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or settings.max_segments != 100
             or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
         raise ValueError(
-            "Rust rollout requires source-mode CPU/int8 AUTO or faster-whisper, "
+            "Rust rollout requires source-mode CPU/int8 AUTO, VibeVoice or faster-whisper, "
             "none or Ollama correction, and none or M2M100 MT; "
             "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
         )
@@ -184,25 +184,27 @@ class RustRuntimeBridge(AsrEngine):
             self._failure = _ERROR
         return frame
 
-    def _worker_commands(self, request: StartSessionRequest) -> tuple[dict, dict | None]:
+    def _worker_commands(self, request: StartSessionRequest) -> tuple[dict | None, dict | None]:
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
-        model = (self.settings.low_resource_whisper_model if low
-                 else self.settings.faster_whisper_model)
-        cache = str(managed_whisper_cache(self.settings.model_cache_dir))
-        # Resolve before starting a process; this shared lookup is local-only.
-        try:
-            model_path = str(resolve_whisper_model(model, cache))
-            self._whisper_ready = True
-        except FileNotFoundError:
-            if request.engine != "auto" or low:
-                raise
-            model_path = model
-            self._whisper_ready = False
-        asr = _python_worker("langtextflow.inference_worker", [
-            model_path, cache,
-            ("auto" if request.engine == "auto" and not low
-             else str(self.settings.low_resource_cpu_threads)),
-        ])
+        asr = None
+        self._whisper_ready = False
+        if request.engine != "vibevoice":
+            model = (self.settings.low_resource_whisper_model if low
+                     else self.settings.faster_whisper_model)
+            cache = str(managed_whisper_cache(self.settings.model_cache_dir))
+            # Explicit VibeVoice neither queries nor prepares a fallback model.
+            try:
+                model_path = str(resolve_whisper_model(model, cache))
+                self._whisper_ready = True
+            except FileNotFoundError:
+                if request.engine != "auto" or low:
+                    raise
+                model_path = model
+            asr = _python_worker("langtextflow.inference_worker", [
+                model_path, cache,
+                ("auto" if request.engine == "auto" and not low
+                 else str(self.settings.low_resource_cpu_threads)),
+            ])
         mt = None
         if request.translation_provider == "m2m100-ct2":
             from .local_mt_preflight import local_m2m100_check
@@ -220,17 +222,19 @@ class RustRuntimeBridge(AsrEngine):
         return asr, mt
 
     def _auto_options(self, request: StartSessionRequest) -> dict | None:
-        if request.engine != "auto":
+        if request.engine not in {"auto", "vibevoice"}:
             return None
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         sidecar = None
-        if not low:
+        if not low or request.engine == "vibevoice":
             sidecar = {
                 **_python_worker("langtextflow.asr_stream_worker", []),
                 "endpoint": self.settings.vibevoice_url,
             }
         return {
-            "sidecar": sidecar, "whisper_ready": self._whisper_ready,
+            "policy": "vibevoice" if request.engine == "vibevoice" else "auto",
+            "sidecar": sidecar,
+            "whisper_ready": self._whisper_ready if request.engine == "auto" else False,
             "low_resource": low,
             "replay_seconds": self.settings.asr_replay_seconds,
             "health_ms": max(1, round(self.settings.asr_health_check_seconds * 1000)),
@@ -339,6 +343,8 @@ class RustRuntimeBridge(AsrEngine):
             raise AsrEngineError(_ERROR) from exc
 
     def _configured_model(self, request: StartSessionRequest) -> str | None:
+        if request.engine == "vibevoice":
+            return None
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         model = (self.settings.low_resource_whisper_model if low
                  else self.settings.faster_whisper_model)

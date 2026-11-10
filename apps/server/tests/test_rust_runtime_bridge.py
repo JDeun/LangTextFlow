@@ -108,7 +108,7 @@ def assert_recordings(client, runtime, sid, expected):
 
 
 @pytest.mark.parametrize("change", [
-    {"engine": "vibevoice"}, {"correction_provider": "unsupported"},
+    {"correction_provider": "unsupported"},
     {"translation_provider": "ollama"}, {"translation_model": "path/private"},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
@@ -123,7 +123,7 @@ async def test_rust_refusal_happens_before_history_bootstrap(tmp_path):
     database = tmp_path / "must-not-create.db"
     runtime = CaptionRuntime(Settings(runtime_core="rust", database_path=str(database)))
     with pytest.raises(ValueError, match="Rust rollout requires"):
-        await runtime.start(StartSessionRequest(engine="vibevoice"))
+        await runtime.start(StartSessionRequest(correction_provider="unsupported"))
     assert not runtime._initialized and not database.exists()
 
 
@@ -159,6 +159,23 @@ def test_auto_bootstrap_allows_missing_fallback_cache_only_for_standard_primary(
         assert bridge._auto_options(low)["sidecar"] is None
         with pytest.raises(FileNotFoundError):
             bridge._worker_commands(low)
+
+
+def test_explicit_vibevoice_does_not_query_whisper_cache_even_in_low_profile(monkeypatch):
+    from langtextflow import rust_runtime
+
+    def forbidden(*args):
+        pytest.fail("explicit VibeVoice must not query a Whisper fallback")
+
+    monkeypatch.setattr(rust_runtime, "resolve_whisper_model", forbidden)
+    for profile in ("standard", "low"):
+        bridge = RustRuntimeBridge(None, Settings(resource_profile=profile), asyncio.Semaphore(1))
+        request = StartSessionRequest(engine="vibevoice", translation_provider="none")
+        assert bridge._worker_commands(request) == (None, None)
+        options = bridge._auto_options(request)
+        assert options["policy"] == "vibevoice" and options["sidecar"] is not None
+        assert options["whisper_ready"] is False
+        assert bridge._configured_model(request) is None
 
 
 def test_windows_venv_worker_bootstrap_owns_actual_python_pid_and_keeps_site(tmp_path, monkeypatch):
@@ -279,7 +296,7 @@ def test_existing_http_capture_audience_history_and_restart_with_rust_authority(
                 }
                 # Preserve the active microphone across invalid configuration.
                 invalid = client.post(
-                    "/api/v1/session/start", json=_REQUEST | {"engine": "vibevoice"},
+                    "/api/v1/session/start", json=_REQUEST | {"correction_provider": "unsupported"},
                 )
                 assert invalid.status_code == 400
                 assert runtime.engine is bridge and runtime.state.session_id == sid
@@ -333,12 +350,13 @@ def test_existing_http_capture_audience_history_and_restart_with_rust_authority(
     assert client.post("/api/v1/session/stop").status_code == 200
 
 
-def test_actual_auto_primary_48k_uses_existing_audio_audience_history_and_restart(rust_api):
+@pytest.mark.parametrize("engine,profile", [("auto", "standard"), ("vibevoice", "low")])
+def test_actual_primary_48k_uses_existing_audio_audience_history_and_restart(rust_api, engine, profile):
     from test_asr_stream_worker import sidecar
 
     client, runtime = rust_api
     request = _REQUEST | {
-        "engine": "auto", "translation_provider": "none",
+        "engine": engine, "resource_profile": profile, "translation_provider": "none",
         "context": {
             "title": "AUTO title", "presenter": "Speaker", "description": "Description",
             "reference_text": "Reference", "hotwords": ["explicit"], "preset": "general",
@@ -388,7 +406,12 @@ def test_actual_auto_primary_48k_uses_existing_audio_audience_history_and_restar
             assert detail["engine"] == "vibevoice" and detail["ended_at"] is not None
             saved = client.get(f"/api/v1/history/{sid}/captions").json()
             assert saved and all(row["end_ms"] <= 1000 for row in saved)
-            assert all(row["asr_provenance"]["auto_generation"] == 0 for row in saved)
+            assert all(row["asr_provenance"]["auto_generation"] == (
+                0 if engine == "auto" else None
+            ) for row in saved)
+            if engine == "vibevoice":
+                assert all(row["asr_provenance"]["timeline_offset_samples"] is None
+                           and row["asr_provenance"]["replay_prefix_samples"] is None for row in saved)
 
 
 def test_actual_auto_disconnect_replays_without_python_pipeline_or_metadata_writes(
@@ -501,6 +524,44 @@ def test_actual_auto_startup_refusal_prepares_cached_fallback_without_live_failo
         saved = client.get(f"/api/v1/history/{sid}/captions").json()
         assert saved[0]["asr_provenance"]["auto_generation"] == 0
         assert saved[0]["asr_provenance"]["provider"] == "faster-whisper"
+
+
+@pytest.mark.parametrize("fault", ["config-redirect", "disconnect"])
+def test_explicit_vibevoice_failure_never_starts_fallback_and_releases_owned_child(
+    rust_api, monkeypatch, tmp_path, fault,
+):
+    from test_asr_stream_worker import sidecar
+    from langtextflow.asr.base import AsrEngineError
+
+    client, runtime = rust_api
+    marker = tmp_path / "forbidden-whisper"
+    commands = RustRuntimeBridge._worker_commands
+
+    def tracked(self, request):
+        asr, mt = commands(self, request)
+        return asr | {"args": ["-u", "-c", f"open({str(marker)!r},'w').close()\n" + _ASR]}, mt
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", tracked)
+    with client.portal.wrap_async_context_manager(sidecar(rate=16000, fault=fault)) as (url, _):
+        runtime.settings.vibevoice_url = url
+        response = client.post("/api/v1/session/start", json=_REQUEST | {
+            "engine": "vibevoice", "translation_provider": "none",
+        })
+        if fault == "config-redirect":
+            assert response.status_code == 503
+        else:
+            assert response.status_code == 200, response.text
+            bridge = runtime.engine
+            client.portal.call(runtime.feed_audio, struct.pack("<f", .1) * 1600)
+            # The sidecar may close before or after admission; stopping observes
+            # the terminal source error and still confirms child/spool cleanup.
+            with pytest.raises(AsrEngineError):
+                client.post("/api/v1/session/stop")
+            assert bridge._process.returncode == 0
+        assert not marker.exists() and runtime._rust_slot._value == 1
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    assert client.post("/api/v1/session/start", json=_REQUEST).status_code == 200
+    assert client.post("/api/v1/session/stop").status_code == 200
 
 
 def test_confirmed_failed_prepare_releases_native_lease_for_a_new_session(rust_api, monkeypatch):

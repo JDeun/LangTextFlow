@@ -134,6 +134,7 @@ struct State {
 
 #[derive(Default)]
 struct AutoScope {
+    auto_provenance: bool,
     epoch: u64,
     provider: Option<&'static str>,
     selected_provider: Option<&'static str>,
@@ -687,8 +688,16 @@ impl AsrSession {
             pending_corrections: state.pending_corrections.len(),
             pending_targets: state.pending_targets.len(),
             active_provider: state.auto_scope.as_ref().and_then(|s| s.provider),
-            auto_generation: state.auto_scope.as_ref().map(|s| s.generation),
-            failover_count: state.auto_scope.as_ref().map(|s| s.failovers),
+            auto_generation: state
+                .auto_scope
+                .as_ref()
+                .filter(|s| s.auto_provenance)
+                .map(|s| s.generation),
+            failover_count: state
+                .auto_scope
+                .as_ref()
+                .filter(|s| s.auto_provenance)
+                .map(|s| s.failovers),
             last_failover_reason: state.auto_scope.as_ref().and_then(|s| s.reason),
         }
     }
@@ -777,6 +786,15 @@ impl AsrSession {
         generation: u64,
         epoch: u64,
     ) -> Result<(), &'static str> {
+        self.begin_stream_candidate(generation, epoch, true)
+    }
+
+    pub(crate) fn begin_stream_candidate(
+        &self,
+        generation: u64,
+        epoch: u64,
+        auto_provenance: bool,
+    ) -> Result<(), &'static str> {
         let mut state = self.0.lock().unwrap();
         if state.session_id.is_empty()
             || state.generation != generation
@@ -784,11 +802,16 @@ impl AsrSession {
             || epoch > (1 << 53) - 1
             || state.active.is_some()
             || state.auto_scope.as_ref().is_some_and(|s| epoch <= s.epoch)
+            || state
+                .auto_scope
+                .as_ref()
+                .is_some_and(|s| s.auto_provenance != auto_provenance)
             || (state.auto_scope.is_none() && !state.revisions.is_empty())
         {
             return Err("stale_auto_candidate");
         }
         let scope = state.auto_scope.get_or_insert_with(Default::default);
+        scope.auto_provenance = auto_provenance;
         scope.epoch = epoch;
         scope.provider = None;
         scope.active_window = false;
@@ -958,9 +981,9 @@ impl AsrSession {
                 sample_rate: scope.rate,
                 audio_chunk_start_sample: source.chunk_start,
                 audio_chunk_end_sample: source.chunk_end,
-                auto_generation: Some(scope.generation),
-                timeline_offset_samples: Some(scope.origin),
-                replay_prefix_samples: Some(scope.replay),
+                auto_generation: scope.auto_provenance.then_some(scope.generation),
+                timeline_offset_samples: scope.auto_provenance.then_some(scope.origin),
+                replay_prefix_samples: scope.auto_provenance.then_some(scope.replay),
                 overlap_trimmed: source.mapped.overlap_trimmed,
             });
             events.push(SourceEvent {

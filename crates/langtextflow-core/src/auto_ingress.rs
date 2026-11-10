@@ -2,7 +2,7 @@
 use crate::asr_slice::{AsrSession, AudioChunk, AutoSource};
 use crate::auto_asr::{
     while_current, AutoClock, AutoOptions, FailoverReason, ReplayPcm, StreamBatch, StreamClient,
-    WhisperClient,
+    StreamingPolicy, WhisperClient,
 };
 use crate::pcm_ingress::{AsrChildren, Input, PcmIngress, PcmInput, Spool, WINDOW_SAMPLES};
 use crate::source_context::SourceContext;
@@ -29,7 +29,7 @@ impl Candidate {
 struct Owner {
     candidate: Candidate,
     options: AutoOptions,
-    whisper_program: String,
+    whisper_program: Option<String>,
     whisper_args: Vec<String>,
     slot: Arc<Semaphore>,
     children: AsrChildren,
@@ -49,7 +49,7 @@ pub(crate) async fn start(
     session: AsrSession,
     source: &str,
     options: AutoOptions,
-    whisper_program: &str,
+    whisper_program: Option<&str>,
     whisper_args: &[&str],
     slot: Arc<Semaphore>,
     temporary_parent: &Path,
@@ -60,7 +60,7 @@ pub(crate) async fn start(
     let (sid, generation, context) = session.auto_source_scope(source)?;
     let children = AsrChildren::default();
     let mut epoch = 1;
-    session.begin_auto_candidate(generation, epoch)?;
+    session.begin_stream_candidate(generation, epoch, options.policy == StreamingPolicy::Auto)?;
     let mut selected = None;
     if let Some(sidecar) = &options.sidecar {
         if let Ok(mut client) =
@@ -87,6 +87,9 @@ pub(crate) async fn start(
         }
     }
     if selected.is_none() {
+        if options.policy == StreamingPolicy::VibeVoice {
+            return Err("vibevoice_unavailable");
+        }
         if !options.whisper_ready {
             return Err("auto_candidates_unavailable");
         }
@@ -95,7 +98,7 @@ pub(crate) async fn start(
             session.begin_auto_candidate(generation, epoch)?;
         }
         let mut client = WhisperClient::spawn(
-            whisper_program,
+            whisper_program.ok_or("asr_worker_missing")?,
             whisper_args,
             &sid,
             generation,
@@ -132,7 +135,7 @@ pub(crate) async fn start(
     let owner = Owner {
         candidate,
         options,
-        whisper_program: whisper_program.into(),
+        whisper_program: whisper_program.map(str::to_owned),
         whisper_args: whisper_args.iter().map(|arg| (*arg).into()).collect(),
         slot,
         children: children.clone(),
@@ -408,7 +411,10 @@ impl Owner {
         spool: &mut Spool,
         reason: FailoverReason,
     ) -> Result<(), &'static str> {
-        if !matches!(self.candidate, Candidate::Stream(_)) || !self.options.whisper_ready {
+        if self.options.policy != StreamingPolicy::Auto
+            || !matches!(self.candidate, Candidate::Stream(_))
+            || !self.options.whisper_ready
+        {
             return Err("auto_candidates_exhausted");
         }
         self.epoch += 1;
@@ -421,7 +427,9 @@ impl Owner {
             return Err("asr_sample_rate_mismatch");
         }
         let mut client = WhisperClient::spawn(
-            &self.whisper_program,
+            self.whisper_program
+                .as_deref()
+                .ok_or("asr_worker_missing")?,
             &self
                 .whisper_args
                 .iter()
@@ -581,6 +589,7 @@ for line in sys.stdin:
                     session.configured_asr_model(Some("small".into())).unwrap();
                     let slot = Arc::new(Semaphore::new(1));
                     let options = AutoOptions {
+                        policy: StreamingPolicy::Auto,
                         sidecar: Some(StreamOptions {
                             program: python.clone(),
                             args: vec!["-u".into(), "-c".into(), STREAM.into()],
@@ -597,7 +606,7 @@ for line in sys.stdin:
                         session.clone(),
                         "en",
                         options,
-                        &python,
+                        Some(&python),
                         &["-u", "-c", WHISPER, mode],
                         slot.clone(),
                         &std::env::temp_dir(),
@@ -669,6 +678,7 @@ for line in sys.stdin:
                         .unwrap();
                     let slot = Arc::new(Semaphore::new(1));
                     let options = AutoOptions {
+                        policy: StreamingPolicy::Auto,
                         sidecar: None,
                         whisper_ready: true,
                         low_resource: true,
@@ -681,7 +691,7 @@ for line in sys.stdin:
                         session.clone(),
                         "en",
                         options,
-                        &python,
+                        Some(&python),
                         &["-u", "-c", &script, "ok"],
                         slot.clone(),
                         &std::env::temp_dir(),
