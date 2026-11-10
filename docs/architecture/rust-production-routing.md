@@ -438,7 +438,10 @@ certify physical microphone capture or frozen application packaging.
 
 ## Required remaining work
 
-Desktop/frozen binary bundling and lifecycle,
+Explicit VibeVoice (one candidate with no automatic fallback), the synthetic mock
+source, and existing
+GPU/compute, chunk, VAD and live-view configuration parity remain required before
+default cutover. Desktop/frozen binary bundling and lifecycle,
 native app capture/recording validation and
 reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.
