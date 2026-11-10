@@ -664,7 +664,8 @@ def test_actual_mock_and_general_demo_leaf_keep_synthetic_scope_status_and_targe
         assert event["asr_provenance"]["provider"] == "mock"
         assert event["asr_provenance"]["timestamp_basis"] == "synthetic"
         assert event["asr_provenance"]["sample_rate"] is None
-        assert all(value["provider"] == "demo" for value in event["translation_provenance"].values())
+        origins = event["translation_provenance"].values()
+        assert all(value["provider"] == "demo" for value in origins)
         assert event["translations"]["fr"].startswith("[FR demo]")
     assert client.post("/api/v1/session/stop").status_code == 200
     assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1

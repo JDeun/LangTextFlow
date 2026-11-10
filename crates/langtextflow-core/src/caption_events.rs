@@ -130,7 +130,6 @@ impl CaptionEvent {
     }
 }
 
-
 #[derive(Clone)]
 pub struct ProjectedFrame {
     pub(crate) raw: JsonFrame,
