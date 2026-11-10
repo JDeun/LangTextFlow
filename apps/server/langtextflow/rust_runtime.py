@@ -204,8 +204,7 @@ class RustRuntimeBridge(AsrEngine):
                 model_path = model
             asr = _python_worker("langtextflow.inference_worker", [
                 model_path, cache,
-                ("auto" if request.engine == "auto" and not low
-                 else str(self.settings.low_resource_cpu_threads)),
+                str(self.settings.low_resource_cpu_threads) if low else "auto",
             ])
         mt = None
         if request.translation_provider == "m2m100-ct2":

@@ -139,6 +139,26 @@ def test_configured_identity_is_not_a_verified_checkpoint_or_a_local_path(tmp_pa
         assert bridge._configured_model(request) is None
 
 
+@pytest.mark.parametrize("engine", ["faster-whisper", "auto"])
+@pytest.mark.parametrize("server_profile,request_profile,threads", [
+    ("standard", "standard", "auto"),
+    ("low", "standard", "7"),
+    ("standard", "low", "7"),
+])
+def test_worker_thread_policy(monkeypatch, engine, server_profile, request_profile, threads):
+    from langtextflow import rust_runtime
+
+    monkeypatch.setattr(rust_runtime, "resolve_whisper_model", lambda model, cache: model)
+    settings = Settings(resource_profile=server_profile, low_resource_cpu_threads=7)
+    bridge = RustRuntimeBridge(None, settings, asyncio.Semaphore(1))
+    request = StartSessionRequest(
+        engine=engine, resource_profile=request_profile, translation_provider="none",
+    )
+    asr, mt = bridge._worker_commands(request)
+    assert asr["args"][:2] == ["-m", "langtextflow.inference_worker"]
+    assert len(asr["args"][2:]) == 3 and asr["args"][-1] == threads and mt is None
+
+
 def test_auto_bootstrap_allows_missing_fallback_cache_only_for_standard_primary(monkeypatch):
     from langtextflow import rust_runtime
 
