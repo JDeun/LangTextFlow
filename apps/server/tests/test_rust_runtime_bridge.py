@@ -161,6 +161,7 @@ def test_frozen_runtime_uses_bundled_executable_and_refuses_missing_helper(
     ("langtextflow.asr_stream_worker", "--asr-stream-worker"),
     ("langtextflow.translation.m2m100_worker", "--m2m100-worker"),
     ("langtextflow.correction_worker", "--correction-worker"),
+    ("langtextflow.translation_worker", "--translation-worker"),
 ])
 def test_frozen_leaf_dispatch_is_fixed_before_windows_venv_bootstrap(monkeypatch, module, flag):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
@@ -168,6 +169,8 @@ def test_frozen_leaf_dispatch_is_fixed_before_windows_venv_bootstrap(monkeypatch
     monkeypatch.setattr(sys, "prefix", "frozen-application")
     monkeypatch.setattr(sys, "base_prefix", "unrelated-base")
     args = ["--rust-protocol", "private cache"]
+    if module == "langtextflow.translation_worker":
+        args = []
     assert _python_worker(module, args) == {"program": sys.executable, "args": [flag, *args]}
     with pytest.raises(ValueError, match="unsupported frozen"):
         _python_worker("untrusted.module", [])
