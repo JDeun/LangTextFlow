@@ -165,11 +165,15 @@ impl Drop for QueueTicket {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Default, Serialize)]
 pub(crate) struct SourceMetrics {
     pub active_window: bool,
     pub pending_corrections: usize,
     pub pending_targets: usize,
+    pub active_provider: Option<&'static str>,
+    pub auto_generation: Option<u64>,
+    pub failover_count: Option<u64>,
+    pub last_failover_reason: Option<crate::auto_asr::FailoverReason>,
 }
 
 #[derive(Serialize)]
@@ -358,6 +362,7 @@ mod tests {
                 active_window: false,
                 pending_corrections: 0,
                 pending_targets: 0,
+                ..Default::default()
             },
             correction: None,
             translation: None,

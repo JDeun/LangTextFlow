@@ -320,6 +320,10 @@ class CaptionRuntime:
 
     async def _provider_changed(self, provider: str) -> None:
         self.state.engine = provider
+        if self._rust_session:
+            # Rust's bounded SQLite writer owns provider metadata too.
+            self._refresh_queue_metrics()
+            return
         if self.state.session_id:
             try:
                 await asyncio.to_thread(
@@ -476,6 +480,9 @@ class CaptionRuntime:
         sample = view.sample
         if sample is None or view.status not in {"fresh", "final"}:
             return
+        if sample.source.active_provider is not None:
+            self.state.engine = sample.source.active_provider
+            self.metrics.asr_provider = sample.source.active_provider
         self.metrics.asr_queue_depth = sample.ingress.queue_depth
         self.metrics.asr_queue_capacity = sample.ingress.queue_capacity
         self.metrics.asr_queue_high_watermark = sample.ingress.queue_high_watermark

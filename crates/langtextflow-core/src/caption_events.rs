@@ -16,7 +16,7 @@ const MAX_VISIBLE_SEGMENTS: usize = 100;
 // Includes a transient 256-segment ASR reply plus the bounded correction/MT lanes.
 const MAX_PENDING_SEGMENTS: usize = 512;
 const MAX_PENDING_BYTES: usize = 16 * 1024 * 1024;
-const MAX_PUBLIC_IDS: usize = 128 * 256;
+pub(crate) const MAX_PUBLIC_IDS: usize = 128 * 256;
 const SNAPSHOT_OVERHEAD: usize = 2048;
 const JS_MAX: u64 = (1 << 53) - 1;
 pub type JsonFrame = Arc<RawValue>;
@@ -71,19 +71,19 @@ impl ObservedConfig {
 }
 
 #[derive(Clone, Serialize)]
-struct AsrProvenance {
-    provider: &'static str,
-    configured_model: Option<String>,
-    verified_model: Option<String>,
-    model_revision: Option<String>,
-    timestamp_basis: &'static str,
-    sample_rate: u32,
-    audio_chunk_start_sample: u64,
-    audio_chunk_end_sample: u64,
-    auto_generation: Option<u64>,
-    timeline_offset_samples: Option<u64>,
-    replay_prefix_samples: Option<u64>,
-    overlap_trimmed: bool,
+pub(crate) struct AsrProvenance {
+    pub(crate) provider: &'static str,
+    pub(crate) configured_model: Option<String>,
+    pub(crate) verified_model: Option<String>,
+    pub(crate) model_revision: Option<String>,
+    pub(crate) timestamp_basis: &'static str,
+    pub(crate) sample_rate: u32,
+    pub(crate) audio_chunk_start_sample: Option<u64>,
+    pub(crate) audio_chunk_end_sample: u64,
+    pub(crate) auto_generation: Option<u64>,
+    pub(crate) timeline_offset_samples: Option<u64>,
+    pub(crate) replay_prefix_samples: Option<u64>,
+    pub(crate) overlap_trimmed: bool,
 }
 
 #[derive(Clone, Serialize)]
@@ -209,6 +209,45 @@ impl CaptionProjection {
         translating: bool,
         correcting: bool,
     ) -> Result<Vec<ProjectedFrame>, &'static str> {
+        let origins = sources
+            .iter()
+            .map(|source| self.whisper_origin(chunk, source))
+            .collect::<Vec<_>>();
+        self.prepare_asr(sid, generation, sources, &origins, translating, correcting)
+    }
+
+    pub(crate) fn whisper_origin(&self, chunk: &AudioChunk, source: &SourceEvent) -> AsrProvenance {
+        AsrProvenance {
+            provider: "faster-whisper",
+            configured_model: self
+                .config
+                .as_ref()
+                .and_then(|c| c.configured_asr_model.clone()),
+            verified_model: None,
+            model_revision: None,
+            timestamp_basis: source.timestamp_basis,
+            sample_rate: chunk.sample_rate,
+            audio_chunk_start_sample: Some(chunk.start_sample),
+            audio_chunk_end_sample: chunk.end_sample,
+            auto_generation: None,
+            timeline_offset_samples: None,
+            replay_prefix_samples: None,
+            overlap_trimmed: false,
+        }
+    }
+
+    pub(crate) fn prepare_asr(
+        &self,
+        sid: &str,
+        generation: u64,
+        sources: &[SourceEvent],
+        origins: &[AsrProvenance],
+        translating: bool,
+        correcting: bool,
+    ) -> Result<Vec<ProjectedFrame>, &'static str> {
+        if origins.len() != sources.len() {
+            return Err("source_provenance_count");
+        }
         let Some(config) = &self.config else {
             return Ok(Vec::new());
         };
@@ -223,7 +262,7 @@ impl CaptionProjection {
         }
         let mut prepared = Vec::new();
         let mut serial = self.serial;
-        for source in sources {
+        for (source_index, source) in sources.iter().enumerate() {
             let previous = self.versions.get(&source.segment_id).copied().unwrap_or(0);
             let stages: &[(&str, u64, bool)] = if translating || correcting {
                 &[("stable", 1, false)]
@@ -263,20 +302,7 @@ impl CaptionProjection {
                             )
                         })
                         .collect(),
-                    asr_provenance: AsrProvenance {
-                        provider: "faster-whisper",
-                        configured_model: config.configured_asr_model.clone(),
-                        verified_model: None,
-                        model_revision: None,
-                        timestamp_basis: source.timestamp_basis,
-                        sample_rate: chunk.sample_rate,
-                        audio_chunk_start_sample: chunk.start_sample,
-                        audio_chunk_end_sample: chunk.end_sample,
-                        auto_generation: None,
-                        timeline_offset_samples: None,
-                        replay_prefix_samples: None,
-                        overlap_trimmed: false,
-                    },
+                    asr_provenance: origins[source_index].clone(),
                     translation_provenance: BTreeMap::new(),
                     start_ms: source.start_ms,
                     end_ms: source.end_ms,

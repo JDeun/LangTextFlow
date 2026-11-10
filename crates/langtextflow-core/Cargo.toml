@@ -13,3 +13,4 @@ futures-util = { version = "=0.3.34", default-features = false, features = ["sin
 time = { version = "=0.3.55", features = ["formatting"] }
 getrandom = "=0.4.3"
 rusqlite = { version = "=0.41.1", default-features = false, features = ["bundled"] }
+caseless = "=0.2.2"

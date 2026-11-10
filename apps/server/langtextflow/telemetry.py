@@ -60,7 +60,7 @@ class RustIngressMetrics(_StrictMetrics):
     empty_windows: Counter
     queue_high_watermark: Annotated[int, Field(ge=0, le=8)]
     queue_depth: Annotated[int, Field(ge=0, le=8)]
-    queue_capacity: Literal[8]
+    queue_capacity: Annotated[int, Field(ge=1, le=8)]
     backpressure_events: Counter
     clipped_samples: Counter
     rms_dbfs: Annotated[float, Field(ge=-120, le=20, allow_inf_nan=False)] | None
@@ -72,6 +72,13 @@ class RustSourceMetrics(_StrictMetrics):
     active_window: bool
     pending_corrections: Annotated[int, Field(ge=0, le=512)]
     pending_targets: Annotated[int, Field(ge=0, le=1024)]
+    active_provider: Literal["vibevoice", "faster-whisper"] | None = None
+    auto_generation: Counter | None = None
+    failover_count: Counter | None = None
+    last_failover_reason: Literal[
+        "provider_failed", "provider_closed", "provider_timeout",
+        "provider_protocol", "provider_ended",
+    ] | None = None
 
 
 class RustHistoryMetrics(_StrictMetrics):

@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "accessed_date": "2026-11-10",
+  "classification": "primary-source dependency audit; no model/runtime/field qualification",
+  "purpose": "Preserve full default-casefold comparison in Rust AUTO exact-overlap deduplication. Retained source spelling is unchanged; no canonical/compatibility normalization or fuzzy matching is used.",
+  "direct_dependency": {
+    "name": "caseless",
+    "version": "0.2.2",
+    "api": "caseless::default_case_fold_str",
+    "unicode_version": "16.0.0",
+    "license": "MIT",
+    "declared_msrv": null,
+    "repository": "https://github.com/unicode-rs/rust-caseless",
+    "tag": "v0.2.2",
+    "tag_object": "c8d34787ad39c71b856127d84dd866fae0377d47",
+    "source_commit": "f77d542c5439252f75d8da2f0cb4a13d3a13c5ea",
+    "archive": "https://static.crates.io/crates/caseless/caseless-0.2.2.crate",
+    "archive_sha256": "8b6fd507454086c8edfd769ca6ada439193cdb209c7681712ef6275cccbfe5d8",
+    "source_api": "https://docs.rs/caseless/0.2.2/src/caseless/lib.rs.html",
+    "source_data": "https://docs.rs/caseless/0.2.2/src/caseless/case_folding_data.rs.html",
+    "data_notice": "Unicode case-fold data Copyright 2024 Unicode, Inc.; Unicode License V3 notice retained"
+  },
+  "transitive_dependencies": [
+    {
+      "name": "unicode-normalization",
+      "version": "0.1.26",
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "selected_license": "MIT AND Unicode-3.0",
+      "declared_msrv": "1.36",
+      "repository": "https://github.com/unicode-rs/unicode-normalization",
+      "tag": "v0.1.26",
+      "tag_object": "ec93a0c068c437d178a3e59e1da47f7675aa6015",
+      "source_commit": "16c9597b73ec5b6b8ed55f4249a5ac854892544c",
+      "archive": "https://static.crates.io/crates/unicode-normalization/unicode-normalization-0.1.26.crate",
+      "archive_sha256": "75cd3fb03d5288b3ba9a1ee103ac7e9cbb59f0b03d64f8ddfcc04dd42758a85d"
+    },
+    {
+      "name": "tinyvec",
+      "version": "1.13.3",
+      "license": "Zlib OR Apache-2.0 OR MIT",
+      "selected_license": "MIT",
+      "declared_msrv": null,
+      "repository": "https://github.com/Lokathor/tinyvec",
+      "tag": "v1.13.3",
+      "tag_object": "391acd9c60185e9fd89f2a1546a837aa9ee129f5",
+      "source_commit": "e343bbbb5a6594c9d57de718e6f232e6c0115dcb",
+      "archive": "https://static.crates.io/crates/tinyvec/tinyvec-1.13.3.crate",
+      "archive_sha256": "fd3ca314f692efd6c868f8408f53fe444634a845f96c028b97d35f6a1f79f0ee"
+    }
+  ],
+  "verification": {
+    "archives_independently_sha256_hashed": true,
+    "archive_hashes_match_cargo_lock": true,
+    "registry_vcs_metadata_matches_official_peeled_tags": true,
+    "existing_dependency_versions_changed": false,
+    "notice": "crates/langtextflow-core/THIRD_PARTY_NOTICES.md",
+    "cached_rustsec_audit": {
+      "command": "cargo audit --file crates/Cargo.lock --no-fetch --deny warnings",
+      "database_commit": "6c5fedf8ff03c485ed674d8f941e0180f3f72d70",
+      "network_fetch": false,
+      "dependency_count": 70,
+      "exit_code": 0
+    }
+  },
+  "limits": [
+    "An undeclared MSRV is unknown; no minimum compiler version is inferred.",
+    "Caseless uses Unicode 16.0.0. CPython 3.12 uses Unicode 15.0.0; algorithm fidelity does not imply identical mappings for characters newly assigned in later Unicode versions.",
+    "The normalization dependency is transitive; its normalization APIs are not used in overlap comparison.",
+    "Current official RustSec auditing and Windows/macOS compilation remain required CI gates; this cached audit does not replace them."
+  ]
+}

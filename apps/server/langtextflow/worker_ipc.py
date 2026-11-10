@@ -19,7 +19,9 @@ REQUEST_KEYS = {*IDENTITY_KEYS, "task_kind", "source_language", "target_language
                 "deadline_ms", "payload"}
 
 
-def validate_inference_request(request: object, task_kind: str) -> None:
+def validate_inference_request(
+    request: object, task_kind: str, *, max_deadline_ms: int = 120_000,
+) -> None:
     """Real workers accept the fixed v1 contract before touching native state."""
     if not isinstance(request, dict) or set(request) != REQUEST_KEYS:
         raise ValueError("invalid_request")
@@ -29,7 +31,7 @@ def validate_inference_request(request: object, task_kind: str) -> None:
             or not isinstance(request["source_language"], str)
             or request["source_language"] not in {"ko", "en", "ja"}
             or type(request["deadline_ms"]) is not int
-            or not 1 <= request["deadline_ms"] <= 120_000):
+            or not 1 <= request["deadline_ms"] <= max_deadline_ms):
         raise ValueError("unsupported_request")
     target = request["target_language"]
     if ((task_kind in {"asr", "correction"} and target is not None)

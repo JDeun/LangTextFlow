@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from langtextflow.inference_worker import read_pcm, validate_request
+from langtextflow.inference_worker import is_prepare, read_pcm, validate_request
 
 
 def request(path: Path) -> dict:
@@ -51,6 +51,33 @@ def test_inference_worker_pcm_range_is_bounded_and_exact(tmp_path):
         validate_request({**request(path), "payload": json.dumps({**chunk, "end_sample": 0})})
 
 
+def test_whisper_prepare_is_distinct_from_the_legacy_wav_contract(tmp_path):
+    value = request(tmp_path / "no-audio.wav")
+    value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
+    assert is_prepare(value)
+    with pytest.raises(ValueError, match="invalid_audio_descriptor"):
+        validate_request(value)  # The legacy worker schema cannot mistake this for ASR output.
+    for payload in ({"asr_protocol_version": True, "mode": "prepare"},
+                    {"asr_protocol_version": 1, "mode": "other"},
+                    {"asr_protocol_version": 1, "mode": "prepare", "wav_path": "untrusted"}):
+        value["payload"] = json.dumps(payload)
+        assert not is_prepare(value)
+        with pytest.raises(ValueError):
+            validate_request(value)
+
+
+def test_only_audio_free_prepare_has_six_hundred_second_start_budget(tmp_path):
+    value = request(tmp_path / "no-audio.wav") | {"deadline_ms": 600_000}
+    with pytest.raises(ValueError):
+        is_prepare(value)
+    with pytest.raises(ValueError):
+        validate_request(value)
+    value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
+    assert is_prepare(value)
+    with pytest.raises(ValueError):
+        is_prepare(value | {"deadline_ms": 600_001})
+
+
 async def fake_native_process(tmp_path, mode, *, reference="Reference"):
     model = tmp_path / "prepared-private-model"
     model.mkdir()
@@ -73,7 +100,10 @@ sys.modules['numpy'] = types.SimpleNamespace(
 class Model:
     def __init__(self, path, **kwargs):
         assert kwargs['local_files_only'] is True
-        assert kwargs['cpu_threads'] == 2
+        if mode == 'auto-threads':
+            assert 'cpu_threads' not in kwargs and 'num_workers' not in kwargs
+        else:
+            assert kwargs['cpu_threads'] == 2 and kwargs['num_workers'] == 1
         marker.write_text('load')
         if mode == 'load-hang': time.sleep(120)
         if mode == 'load-error': raise ValueError('private-checkpoint-secret')
@@ -103,7 +133,8 @@ from langtextflow.inference_worker import main
 main()
 ''')
     process = await asyncio.create_subprocess_exec(
-        sys.executable, str(wrapper), str(model), str(tmp_path), "2",
+        sys.executable, str(wrapper), str(model), str(tmp_path),
+        "auto" if mode == "auto-threads" else "2",
         stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
@@ -111,7 +142,7 @@ main()
     return process, marker
 
 
-@pytest.mark.parametrize("mode", ["normal", "descriptor-clone", "load-error"])
+@pytest.mark.parametrize("mode", ["normal", "descriptor-clone", "load-error", "auto-threads"])
 async def test_actual_inference_worker_native_path_and_quiet_error(tmp_path, mode):
     path = tmp_path / "fixture.wav"
     wav(path)
@@ -137,6 +168,46 @@ async def test_actual_inference_worker_native_path_and_quiet_error(tmp_path, mod
             assert reply["status"] == "error" and reply["error"] == "asr_worker_failed"
             assert await asyncio.wait_for(process.wait(), 2) == 1
         assert await process.stderr.read() == b""
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+
+@pytest.mark.parametrize("mode", ["normal", "load-error", "load-hang"])
+async def test_actual_whisper_prepare_loads_without_audio_or_inference_and_eof_is_owned(
+    tmp_path, mode,
+):
+    process, marker = await fake_native_process(tmp_path, mode)
+    value = request(tmp_path / "absent-audio.wav")
+    value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
+    value["deadline_ms"] = 600_000
+    try:
+        process.stdin.write((json.dumps(value) + "\n").encode())
+        await process.stdin.drain()
+        if mode == "load-hang":
+            async with asyncio.timeout(3):
+                while not marker.exists():
+                    await asyncio.sleep(.01)
+            assert marker.read_text() == "load"
+            process.stdin.close()
+            assert await asyncio.wait_for(process.wait(), 3) == 0
+            assert await process.stdout.read() == b""
+        else:
+            reply = json.loads(await asyncio.wait_for(process.stdout.readline(), 3))
+            assert reply["request_id"] == value["request_id"]
+            if mode == "normal":
+                assert json.loads(reply["result"]) == {
+                    "asr_protocol_version": 1, "prepared": True, "sample_rate": 16000,
+                }
+                assert marker.read_text() == "load"  # Native transcribe wasn't invoked.
+                process.stdin.close()
+                assert await asyncio.wait_for(process.wait(), 3) == 0
+            else:
+                assert reply["error"] == "asr_worker_failed" and reply["result"] is None
+                assert await asyncio.wait_for(process.wait(), 3) == 1
+        assert await process.stderr.read() == b""
+        assert not (tmp_path / "absent-audio.wav").exists()
     finally:
         if process.returncode is None:
             process.kill()

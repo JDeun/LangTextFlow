@@ -24,7 +24,7 @@ Python's pipeline and caption persistence queue are bypassed. Its CaptionStore
 and per-client hub are UI relay mirrors; they neither transform source text nor
 create new caption revisions. Rust event timestamps/provenance survive unchanged.
 
-The supported subset is cached CPU/int8 faster-whisper in four-second windows,
+The supported subset includes AUTO and cached CPU/int8 faster-whisper in four-second windows,
 KO/EN/JA source with one or two distinct targets, deterministic correction with
 optional explicitly selected Ollama correction and independent audio recording,
 any existing preset with source-scoped glossary/hotwords and ASR context hints,
@@ -51,7 +51,7 @@ checkpoint verification, inferred word alignment or historical rewrite is added.
 | Control queue | One pending command; excess/malformed input closes authority admission before payload allocation |
 | Control output | ≤1KiB ready/ACK/stopped lines; one queued writer operation; one-second async write confirmation |
 | Native metrics | ≤4KiB including newline; 250ms coalesced watch value; one typed final pipe frame before stopped, without enlarging ACKs |
-| Parent ACK | Session ID, generation and ordered sequence checked; ≤15s startup reply / ≤15s + max(configured correction, target budget) exchange |
+| Parent ACK | Session ID, generation and ordered sequence checked; startup retains the configured HTTP start deadline (up to 600s); regular exchange ≤15s + max(configured correction, target budget) |
 | Correction | One supervised Python child, four queued jobs and one active job; immutable shared context; source publication never awaits it |
 | Observer | Existing loopback-only random port, private random token, exact internal Origin; bounded handshake/client/FIFO/write limits |
 | PCM / MT / history | Existing [PCM bounds](rust-continuous-pcm-ingress.md), [MT scheduler](rust-mt-scheduling-prototype.md), [SQLite writer](rust-sqlite-history.md) |
@@ -86,7 +86,11 @@ stdout: a process-owned std writer thread has a bounded async confirmation; on
 timeout, native cleanup runs before process exit. Python confirms host exit and
 retains its lease if cleanup is unconfirmed/nonzero rather than oversubscribing
 workers. Such a quarantined runtime requires server restart; no automatic retry
-or backend switch is claimed. Blocking filesystem/kernel syscalls retain the
+or backend switch bypasses that ownership. A model/start/source refusal whose
+ASR, correction, MT, spool, history and observer cleanup is confirmed reports an
+error but exits zero to certify cleanup, allowing an explicit new session.
+Zero exit does not certify successful preparation or inference. Protocol/output
+failures retain conservative nonzero/quarantine behavior. Blocking filesystem/kernel syscalls retain the
 limits documented in the existing ingress/history modules.
 
 Rust MT also retains the existing Python M2M100 native-child lease until confirmed
@@ -115,6 +119,85 @@ ASR still consumes only the first 1200 reference characters; optional correction
 uses the existing 3000-character excerpt. Sharing the larger captured excerpt
 does not widen the ASR prompt or mutate the archived full context.
 Titles, presenters and references are ASR hints, not evidence of model accuracy.
+
+## AUTO selection and continuous source ownership
+
+Rust owns the existing standard AUTO policy: VibeVoice first, then the locally
+cached Whisper candidate after startup or live failure. A low-resource request
+or server profile constructs only the Whisper candidate; it sends no sidecar
+configuration, HTTP probe, WebSocket or audio. Standard AUTO can start VibeVoice
+without a prepared fallback cache, but cannot download or invent a fallback.
+The bootstrap `whisper_ready` flag means local cache eligibility, not a loaded
+or verified checkpoint. Both AUTO Whisper and explicitly selected Whisper must
+complete the new strict, audio-free `prepare` acknowledgement before readiness.
+Only strict audio-free prepare/stream-open requests may use the configured
+600-second startup budget; audio inference, append, poll and finish retain the
+existing 120-second envelope limit. The parent owns the absolute deadline and
+EOF cancellation throughout native or network awaits.
+The unchanged three-argument Whisper CLI additionally accepts `auto` for the
+standard AUTO library-default thread policy; low profile retains its configured
+thread count and one native worker. The earlier explicit-Whisper CPU thread
+selection remains unchanged.
+
+The sidecar's actual 8–192kHz rate is returned to existing browser capture and
+recording paths. Whisper remains 16kHz; a mismatch fails explicitly before a
+Whisper child starts, without resampling retained PCM. One ingress owner bounds
+the input queue to eight frames and honors smaller configured queues. Its byte
+ring retains the configured replay tail (default eight seconds, maximum 120),
+while its accepted integer sample cursor includes the entire original frame.
+The existing total stream-duration bound still applies at the selected rate.
+Fractional replay seconds retain the existing float-to-complete-PCM-sample
+rounding policy rather than being rounded to whole milliseconds.
+
+Python's new streaming leaf owns only a persistent HTTP/WebSocket transport and
+returns immutable requested batches. Versioned open/append/poll/finish requests
+retain worker request identity, candidate epoch and sample interval. Audio travels
+through a Rust-owned private regular PCM file of at most 1MiB, never JSON/base64.
+The leaf verifies regular-file identity, exact length, finite float samples and
+continuous intervals. It uses the same immutable source snapshot and existing pure
+VibeVoice context formatter; it does not construct a caption pipeline, provider
+selector, event, generation, timestamp, SQLite row or replay policy. Text batches
+have 128-message/96KiB UTF-8 limits and must fit the unchanged final 128KiB JSONL
+envelope. Network redirects, ambient proxies and TLS-environment overrides are
+disabled; failures expose fixed categories rather than endpoints or paths.
+
+Rust retires an outgoing candidate epoch before awaiting its actual child reap.
+At most two per-child reap proofs are retained; an available shared semaphore is
+not proof that a particular predecessor exited. A replacement prepares and
+replays bounded immutable four-second WAV windows before activation. Its
+provisional output is limited to 128 source segments and 1MiB of text; failure
+discards it. A successful live replacement advances only the separate AUTO
+generation once. Session generation, already accepted caption/correction/MT
+work, original target deadlines and source-clock origin remain intact. Startup
+fallback stays AUTO generation zero with no claimed live failover.
+
+Replay rebases from integer origin/prefix samples. Fully covered text is dropped;
+partial overlap uses the existing conservative exact suffix/prefix comparison
+(equal counts of original characters, minimum four, maximum 240) and retains
+original spelling. The pinned full-casefold implementation and its Unicode
+version/licensing are recorded in the [dependency receipt](../knowledge/raw/2026-11-10-rust-auto-casefold-dependency.json).
+The small regression corpus is also compared with the actual Python helper;
+it is not a claim of equality across all Unicode database versions. There is no
+normalization, fuzzy deduplication or fabricated native word alignment.
+
+Canonical source provenance distinguishes sidecar sequence estimates from
+Whisper sample-clock native hints/estimates and preserves AUTO generation,
+timeline origin, replay prefix and overlap trimming. Verified model/revision
+remains unknown. Rust's same bounded SQLite writer updates active provider
+metadata without blocking source publication; Python mirrors status without
+writing it again. Existing source metrics report provider/generation/failover
+state. Transport append/poll and replay work are not ASR inference-duration or
+live-caption-latency measurements. Processed samples count unique continuous
+input intervals, while decoded-window counters include replay work.
+
+End of input makes new recording admission unavailable while caption/history
+ownership remains alive until the existing stop path finishes. Parent EOF also
+interrupts network/model preparation and prevents a late fallback from starting.
+The actual API tests exercise 48kHz primary/restart, low-profile no-probe,
+startup refusal/fallback, live disconnect/replay, partial target failure,
+sample-rate refusal, cancellation/reap, metadata and existing recording ownership
+using fake HTTP/WebSocket/native inference. They do not establish native AUTO
+quality, physical microphone behavior or frozen AUTO packaging.
 
 ## Source-first correction arbitration
 
@@ -302,7 +385,10 @@ certify physical microphone capture or frozen application packaging.
 
 ## Required remaining work
 
-AUTO/failover parity, desktop/frozen binary bundling and lifecycle,
+Explicit VibeVoice (one candidate with no automatic fallback), the synthetic mock
+source, remaining general-provider/ten-language target options, and existing
+GPU/compute, chunk, VAD and live-view configuration parity remain required before
+default cutover. Desktop/frozen binary bundling and lifecycle,
 native app capture/recording validation and
 reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.
