@@ -480,6 +480,7 @@ impl Spool {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn write_window(&mut self, pcm: &[u8]) -> Result<PathBuf, &'static str> {
         self.write_window_bounded(pcm, WINDOW_SAMPLES as u64)
     }
@@ -910,6 +911,38 @@ mod tests {
         }
         assert_eq!(input.metrics().accepted_frames, 262);
         assert_eq!(input.metrics().accepted_samples, 262);
+    }
+
+    #[test]
+    fn largest_configured_window_is_one_valid_private_wav_and_cleans_its_owned_file() {
+        let mut spool = Spool::new(&std::env::temp_dir(), AsrChildren::default()).unwrap();
+        let root = spool.root.clone();
+        assert!(spool
+            .write_window_bounded(&[0; 4], MAX_WHISPER_SAMPLES + 1)
+            .is_err());
+        let path = spool
+            .write_window_bounded(
+                &vec![0; MAX_WHISPER_SAMPLES as usize * 4],
+                MAX_WHISPER_SAMPLES,
+            )
+            .unwrap();
+        let mut header = [0; 44];
+        std::io::Read::read_exact(&mut std::fs::File::open(&path).unwrap(), &mut header).unwrap();
+        assert_eq!(&header[..4], b"RIFF");
+        assert_eq!(
+            u32::from_le_bytes(header[24..28].try_into().unwrap()),
+            SAMPLE_RATE
+        );
+        assert_eq!(
+            u32::from_le_bytes(header[40..44].try_into().unwrap()) as u64,
+            MAX_WHISPER_SAMPLES * 2
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            44 + MAX_WHISPER_SAMPLES * 2
+        );
+        drop(spool);
+        assert!(!path.exists() && !root.exists());
     }
 
     #[test]

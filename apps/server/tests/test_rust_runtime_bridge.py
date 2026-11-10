@@ -590,11 +590,15 @@ def test_configured_whisper_window_vad_view_and_requested_device_reach_actual_ho
         "protocol_version": 1, "device": "cuda", "compute_type": "float16",
     }  # Fake leaf ACK, not a GPU load or hardware qualification.
     assert [(row["start_sample"], row["end_sample"]) for row in chunks] == [
-        (0, 40000), (40000, 70000),
+        (0, 40000), (0, 30000),  # Each private WAV begins at file offset zero.
     ]
     saved = client.get(f"/api/v1/history/{sid}/captions").json()
     assert len(saved) == 2 and all(row["committed"] for row in saved)
     assert [(row["start_ms"], row["end_ms"]) for row in saved] == [(0, 2500), (2500, 4375)]
+    assert [(row["asr_provenance"]["audio_chunk_start_sample"],
+             row["asr_provenance"]["audio_chunk_end_sample"]) for row in saved] == [
+        (0, 40000), (40000, 70000),  # Public authority retains the global sample clock.
+    ]
     assert len(client.get("/api/v1/captions").json()) == 1
     sample = bridge.metrics_view().sample
     assert sample.ingress.accepted_samples == sample.ingress.processed_samples == 70000
