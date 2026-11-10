@@ -27,10 +27,12 @@ create new caption revisions. Rust event timestamps/provenance survive unchanged
 
 The supported subset includes AUTO, explicit VibeVoice, the deterministic mock source,
 and cached faster-whisper with bounded device/compute/window settings,
-KO/EN/JA source with one or two distinct targets, deterministic correction with
+the ten existing UI languages and the existing maximum-ten-target request bound, deterministic correction with
 optional explicitly selected Ollama correction and independent audio recording,
 any existing preset with source-scoped glossary/hotwords and ASR context hints,
-and none or cached M2M100 CT2 MT. Display/audience settings remain available.
+and none, demo, cached M2M100 CT2, Ollama or OpenAI-compatible MT.
+Only M2M100 retains the six directed KO/EN/JA pair restriction.
+Display/audience settings remain available.
 Unsupported combinations, invalid chunk/VAD/device settings
 and a missing executable are refused **before database initialization or live
 session mutation**. There is no silent fallback or omitted requested feature.
@@ -42,6 +44,56 @@ Known public Whisper aliases describe configured identity only. Explicit local
 directories never become public model identities, including relative paths that
 look like repository IDs. Verified model/revision stays unknown; no model hashing,
 checkpoint verification, inferred word alignment or historical rewrite is added.
+
+### Existing MT providers remain immutable leaves
+
+The existing operator provider/model controls select the same shared provider
+factory on both runtime paths. `translation_worker` calls the existing demo,
+Ollama or OpenAI-compatible `prepare`/`translate` leaves; it does not run
+`CaptionPipeline`, publish events or write history. The frozen entry point has
+a fixed `--translation-worker` dispatch, with no caller-supplied module/code.
+M2M100 keeps its existing native worker, decoder/prefix/glossary checks and
+typed completed-output rejection. Its ASCII digit-only exception is unchanged.
+
+One immutable context crosses bootstrap once (48KiB limit), retaining only
+fields the current leaves use. The source reference keeps 5000 characters;
+the unchanged ASR, correction and MT prompt builders consume their existing
+1200/3000/5000 prefixes. Source/preset/enabled glossary filtering and the existing
+utterance-relevant prompt hints remain intact. No gold reference is introduced.
+Context plus private MT options is checked before live transition against a
+56KiB budget, reserving space within the existing 64KiB bootstrap envelope.
+
+URLs, keys and private model selections cross only the owned private pipe, never
+command-line arguments or caption/model-provenance fields. Existing bounded
+HTTP readers, proxy isolation, redirect rejection and provider-specific output
+validators are reused. Public requested/configured model identities are sanitized;
+verified identity/revision remain null. Every selected MT target has provenance
+from its initial pending event through success, rejection, timeout or failure.
+Demo remains explicitly synthetic output (`deterministic-demo`).
+
+Rust bounds optional MT preparation by `provider_prepare_timeout_seconds` within
+the overall session-start deadline. A provider preparation failure preserves
+source ASR and makes its targets fail explicitly; it does not silently choose
+another provider. Ready/ACK transport reports the current known worker/provider
+availability so `/state` does not wait for a first successful translation.
+The latest target-error map uses generic diagnostics, without provider response
+text, credentials or endpoints. Source-only `none` remains disabled/unsupported.
+
+Rust still owns the same target jobs, correction handoff, original absolute
+deadlines and revision/commit fences. Native M2M uses the four-job queue;
+general/demo providers use a bounded ten-job queue so all nine other UI languages
+fit one source caption. The dispatcher remains serial. Completed-output rejection
+keeps a healthy child; HTTP/provider failure has a separate bounded code and can
+reuse only a general leaf. Unknown codes, malformed framing/identity, native or
+language-prefix failure remain terminal and require owned reap before replacement.
+EOF interrupts even an HTTP preparation/exchange; already queued translation is
+not started after cancellation. Preparing a child is distinct from translating.
+
+Actual OS/fake-HTTP/API regressions cover readiness, source preservation on
+prepare failure/timeout, all UI targets, per-target provenance in WS and SQLite,
+strict native guards, same-PID rejection/provider-failure recovery, and EOF/reap.
+These are wiring tests with synthetic sources; no external endpoint, model load,
+language quality, latency ranking or field approval is established by them.
 
 ## Private transport and ownership bounds
 
@@ -476,8 +528,7 @@ certify physical microphone capture or frozen application packaging.
 
 ## Required remaining work
 
-Remaining general-provider/ten-language target options and existing
-queue/parallelism and deadline/drain configuration parity remain required before
+Existing queue/parallelism and deadline/drain configuration parity remain required before
 default cutover. This settings wiring supplies no GPU/hardware qualification.
 Desktop/frozen binary bundling and lifecycle,
 native app capture/recording validation and
@@ -485,3 +536,7 @@ reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.
 Real six-direction/two-target semantics, aligned timing, long native soak/latency,
 rights, signing and physical 4/8GB qualification remain separate open gates.
+The Rust scheduler's serial MT/postprocessing ownership and drain policy do not
+yet reproduce every Python `translation_max_parallel_targets`,
+`postprocess_max_parallel_segments` or shutdown-drain setting; those configuration
+contracts must also be reconciled before a default cutover.

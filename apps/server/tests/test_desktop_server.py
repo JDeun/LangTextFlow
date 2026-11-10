@@ -17,6 +17,7 @@ from langtextflow.desktop_shutdown import (
 @pytest.mark.parametrize("argv", [
     ["backend"],
     ["backend", "--m2m100-worker"],
+    ["backend", "--translation-worker"],
     ["backend", "--asr-inference-worker"],
     ["backend", "--asr-stream-worker"],
     ["backend", "--correction-worker"],
@@ -98,6 +99,16 @@ def test_m2m100_worker_dispatch_never_initializes_web(monkeypatch, flag):
     monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", lambda: None)
     monkeypatch.setattr(desktop_server, "_prepare_desktop_environment",
                         lambda: pytest.fail("worker entered web initialization"))
+    with pytest.raises(SystemExit) as stopped:
+        desktop_server.main()
+    assert stopped.value.code == 2
+
+
+def test_translation_leaf_fixed_dispatch_never_initializes_web(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["backend", "--translation-worker", "unexpected"])
+    monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", lambda: None)
+    monkeypatch.setattr(desktop_server, "_prepare_desktop_environment",
+                        lambda: pytest.fail("translation leaf entered web initialization"))
     with pytest.raises(SystemExit) as stopped:
         desktop_server.main()
     assert stopped.value.code == 2

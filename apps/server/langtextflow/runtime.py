@@ -447,6 +447,8 @@ class CaptionRuntime:
             )
             if self.engine is not None and getattr(self.engine, "correction_status", None):
                 self.state.correction_status = self.engine.correction_status
+            if self.engine is not None and getattr(self.engine, "translation_status", None):
+                self.state.translation_status = self.engine.translation_status
             if self.engine is not None and getattr(self.engine, "persistence_error", None):
                 self.state.persistence_error = self.engine.persistence_error
         else:
@@ -543,8 +545,6 @@ class CaptionRuntime:
                 # Explicit Rust stop drains final events before revoking this relay;
                 # the next session waits for that owned cleanup, as on Python stop.
                 await self._publish(event)
-                if "available" in event.translation_states.values():
-                    self.state.translation_status.available = True
                 return
             if self._active_generation is not generation:
                 self.stale_asr_events_dropped += 1

@@ -145,6 +145,25 @@ async def test_actual_worker_reuses_native_model_all_six_directions_and_v1_ident
 
 
 @pytest.mark.asyncio
+async def test_native_prepare_checks_load_once_without_inference_and_reuses_same_child(tmp_path):
+    process, marker = await child(tmp_path)
+    try:
+        value = request(text="")
+        value["payload"] = json.dumps({"mode": "prepare", "text": "", "context": {}})
+        await send(process, value)
+        assert (await receive(process))["result"] == "ready"
+        assert marker.read_text().splitlines() == ["load"]
+        assert process.returncode is None
+        await send(process, request())
+        assert (await receive(process))["result"] == "synthetic-en"
+        assert marker.read_text().splitlines() == ["load", "infer"]
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), 2) == 0
+    finally:
+        await stop(process)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("mode", [
     "load-error", "infer-error", "prefix-error", "missing-cache",
 ])

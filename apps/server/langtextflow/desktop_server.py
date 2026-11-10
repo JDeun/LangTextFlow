@@ -156,6 +156,11 @@ async def _serve_desktop(app: Any, *, host: str, port: int) -> None:
 
 def main() -> None:
     multiprocessing.freeze_support()
+    if len(sys.argv) > 1 and sys.argv[1] == "--translation-worker":
+        from langtextflow.translation_worker import main as translation_worker
+
+        translation_worker(sys.argv[2:])
+        return
     if len(sys.argv) > 1 and sys.argv[1] == "--asr-stream-worker":
         from langtextflow.asr_stream_worker import main as asr_stream_worker
 

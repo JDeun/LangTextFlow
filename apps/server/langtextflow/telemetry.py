@@ -8,6 +8,8 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .models import MAX_TARGET_LANGUAGES
+
 MAX_ABS_PCM_SAMPLE = 4.0
 MAX_PCM_FRAME_BYTES = 1024 * 1024
 
@@ -71,7 +73,8 @@ class RustIngressMetrics(_StrictMetrics):
 class RustSourceMetrics(_StrictMetrics):
     active_window: bool
     pending_corrections: Annotated[int, Field(ge=0, le=512)]
-    pending_targets: Annotated[int, Field(ge=0, le=1024)]
+    # Includes all targets registered before bounded dispatch/finalization.
+    pending_targets: Annotated[int, Field(ge=0, le=512 * MAX_TARGET_LANGUAGES)]
     active_provider: Literal["vibevoice", "faster-whisper", "mock"] | None = None
     auto_generation: Counter | None = None
     failover_count: Counter | None = None
