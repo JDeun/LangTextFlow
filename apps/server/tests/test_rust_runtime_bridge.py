@@ -149,14 +149,17 @@ def test_worker_thread_policy(monkeypatch, engine, server_profile, request_profi
     from langtextflow import rust_runtime
 
     monkeypatch.setattr(rust_runtime, "resolve_whisper_model", lambda model, cache: model)
+    monkeypatch.setattr(rust_runtime, "_python_worker", lambda module, args: {
+        "module": module, "args": args,
+    })
     settings = Settings(resource_profile=server_profile, low_resource_cpu_threads=7)
     bridge = RustRuntimeBridge(None, settings, asyncio.Semaphore(1))
     request = StartSessionRequest(
         engine=engine, resource_profile=request_profile, translation_provider="none",
     )
     asr, mt = bridge._worker_commands(request)
-    assert asr["args"][:2] == ["-m", "langtextflow.inference_worker"]
-    assert len(asr["args"][2:]) == 3 and asr["args"][-1] == threads and mt is None
+    assert asr["module"] == "langtextflow.inference_worker"
+    assert len(asr["args"]) == 3 and asr["args"][-1] == threads and mt is None
 
 
 def test_auto_bootstrap_allows_missing_fallback_cache_only_for_standard_primary(monkeypatch):
