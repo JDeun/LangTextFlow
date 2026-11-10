@@ -25,6 +25,7 @@ pub struct ObservedConfig {
     pub source_language: String,
     pub targets: Vec<String>,
     pub(crate) configured_asr_model: Option<String>,
+    pub(crate) max_segments: usize,
     token: String,
 }
 
@@ -63,6 +64,7 @@ impl ObservedConfig {
                 source_language: source.into(),
                 targets: targets.to_vec(),
                 configured_asr_model: None,
+                max_segments: MAX_VISIBLE_SEGMENTS,
                 token: token.clone(),
             },
             ObserverCredential(token),
@@ -721,7 +723,11 @@ impl CaptionProjection {
             self.latest_bytes += frame.raw.get().len();
             self.serial = frame.serial;
             self.latest.push_back(frame.clone());
-            while self.latest.len() > MAX_VISIBLE_SEGMENTS
+            while self.latest.len()
+                > self
+                    .config
+                    .as_ref()
+                    .map_or(MAX_VISIBLE_SEGMENTS, |config| config.max_segments)
                 || self.latest_bytes > MAX_SNAPSHOT_BYTES - SNAPSHOT_OVERHEAD
             {
                 self.latest_bytes -= self.latest.pop_front().unwrap().raw.get().len();

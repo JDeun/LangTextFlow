@@ -1,10 +1,11 @@
 //! Private owned-parent control transport; the existing observer owns caption output.
 use crate::asr_slice::AsrSession;
+use crate::audio_options::{AudioOptions, WhisperOptions};
 use crate::correction_slice::{leaf_request, CorrectionDispatcher, CorrectionOptions};
 use crate::history::HistoryWriter;
 use crate::mt_slice::MtDispatcher;
 use crate::observer_ws::ObserverServer;
-use crate::pcm_ingress::{PcmIngress, FRAME_LIMIT};
+use crate::pcm_ingress::PcmIngress;
 use crate::source_context::SourceContext;
 use crate::supervision::worker_slot;
 use crate::telemetry::{MetricsFrame, MetricsSampler, MetricsSources};
@@ -49,6 +50,10 @@ struct Config {
     database_path: String,
     spool_directory: PathBuf,
     asr: Option<Worker>,
+    #[serde(default)]
+    audio_options: AudioOptions,
+    #[serde(default)]
+    whisper_options: Option<WhisperOptions>,
     #[serde(default)]
     mock: bool,
     #[serde(default)]
@@ -132,6 +137,7 @@ fn read_commands(
     mut reader: impl Read,
     sender: mpsc::Sender<Command>,
     closed: watch::Sender<bool>,
+    frame_limit: usize,
 ) {
     let mut read = || -> Result<(), ()> {
         loop {
@@ -139,7 +145,9 @@ fn read_commands(
             reader.read_exact(&mut header).map_err(|_| ())?;
             let size = u32::from_le_bytes(header[1..].try_into().unwrap()) as usize;
             let command = match (header[0], size) {
-                (1, 1..=FRAME_LIMIT) if size.is_multiple_of(4) => {
+                (1, 1..=crate::audio_options::MAX_AUDIO_FRAME_BYTES)
+                    if size <= frame_limit && size.is_multiple_of(4) =>
+                {
                     let mut frame = vec![0; size];
                     reader.read_exact(&mut frame).map_err(|_| ())?;
                     Command::Audio(frame)
@@ -212,6 +220,17 @@ pub fn run_stdio() -> Result<(), &'static str> {
     if config.protocol_version != 1
         || config.session_id.is_empty()
         || config.session_id.len() > 64
+        || !config.audio_options.valid()
+        || config
+            .whisper_options
+            .as_ref()
+            .is_some_and(|options| !options.valid())
+        || (config.whisper_options.is_some()
+            && (config.asr.is_none()
+                || config.mock
+                || config.auto_asr.as_ref().is_some_and(|options| {
+                    options.policy == crate::auto_asr::StreamingPolicy::VibeVoice
+                })))
         || config.asr.as_ref().is_some_and(|worker| !worker.valid())
         || (config.asr.is_none()
             && !config.mock
@@ -241,7 +260,8 @@ pub fn run_stdio() -> Result<(), &'static str> {
     }
     let (tx, rx) = mpsc::channel(1);
     let (closed_tx, closed) = watch::channel(false);
-    std::thread::spawn(move || read_commands(reader, tx, closed_tx));
+    let frame_limit = config.audio_options.max_frame_bytes;
+    std::thread::spawn(move || read_commands(reader, tx, closed_tx, frame_limit));
     let (output, frames) = std::sync::mpsc::sync_channel::<Output>(1);
     // A full OS pipe blocks only this process-owned std thread. Async timeout
     // still reaps inference; process exit ends a nonreading parent's writer.
@@ -272,10 +292,11 @@ async fn serve(
     output: std::sync::mpsc::SyncSender<Output>,
 ) -> Result<(), &'static str> {
     let session = AsrSession::default();
-    let credential = session.start_observed(
+    let credential = session.start_observed_with_limit(
         &config.session_id,
         &config.source_language,
         &config.target_languages,
+        config.audio_options.max_segments,
     )?;
     let generation = session.audio_generation(&config.source_language)?;
     session.configured_asr_model(config.asr_model_identity)?;
@@ -382,6 +403,8 @@ async fn serve(
                 session.clone(),
                 &config.source_language,
                 options,
+                config.audio_options.clone(),
+                config.whisper_options.clone(),
                 whisper_program,
                 &args,
                 asr_slot.clone(),
@@ -399,6 +422,8 @@ async fn serve(
                 &config.spool_directory,
                 config.asr_startup_ms,
                 config.audio_queue_frames,
+                &config.audio_options,
+                config.whisper_options.as_ref(),
             )
             .await
             .map(SourceOwner::Audio)
@@ -651,7 +676,29 @@ mod tests {
         let (closed, observed) = watch::channel(false);
         let mut header = vec![1];
         header.extend_from_slice(&u32::MAX.to_le_bytes());
-        read_commands(std::io::Cursor::new(header), tx, closed);
+        read_commands(
+            std::io::Cursor::new(header),
+            tx,
+            closed,
+            crate::pcm_ingress::FRAME_LIMIT,
+        );
+        assert!(*observed.borrow() && rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn configured_frame_limit_rejects_header_before_any_payload_read() {
+        struct HeaderOnly(std::io::Cursor<Vec<u8>>);
+        impl Read for HeaderOnly {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                assert!(self.0.position() < 5, "oversized payload must not be read");
+                self.0.read(buffer)
+            }
+        }
+        let (tx, mut rx) = mpsc::channel(1);
+        let (closed, observed) = watch::channel(false);
+        let mut header = vec![1];
+        header.extend_from_slice(&8_u32.to_le_bytes());
+        read_commands(HeaderOnly(std::io::Cursor::new(header)), tx, closed, 4);
         assert!(*observed.borrow() && rx.try_recv().is_err());
     }
 }

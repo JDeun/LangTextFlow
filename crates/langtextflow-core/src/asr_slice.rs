@@ -566,6 +566,22 @@ impl AsrSession {
         Ok(token)
     }
 
+    pub(crate) fn start_observed_with_limit(
+        &self,
+        session_id: &str,
+        source: &str,
+        targets: &[String],
+        max_segments: usize,
+    ) -> Result<ObserverCredential, &'static str> {
+        if !(1..=10_000).contains(&max_segments) {
+            return Err("invalid_live_capacity");
+        }
+        let (mut config, token) = ObservedConfig::new(source, targets)?;
+        config.max_segments = max_segments;
+        self.start_configured(session_id, Some(config))?;
+        Ok(token)
+    }
+
     fn start_configured(
         &self,
         session_id: &str,
