@@ -1,9 +1,9 @@
 //! Opt-in bounded native MT lane. Rust owns admission and publication, Python inference only.
 use crate::asr_slice::MtJob;
 use crate::supervision::{SupervisedWorker, WorkerError};
+use crate::telemetry::{JobOutcome, QueueTelemetry};
 use crate::translation_provider::{TranslationIdentity, TranslationProvider};
 use crate::{validate_reply, WorkerRequest, WorkerStatus};
-use crate::telemetry::{JobOutcome, QueueTelemetry};
 use futures_util::future::{select, Either};
 use serde::Serialize;
 use serde_json::Value;
@@ -157,7 +157,8 @@ impl MtDispatcher {
     ) -> Result<Self, &'static str> {
         let provider = Arc::new(provider);
         let identity = provider.options.identity();
-        let (sender, receiver) = mpsc::channel(4);
+        let queue_capacity = if provider.native() { 4 } else { 10 };
+        let (sender, receiver) = mpsc::channel(queue_capacity);
         let (stop, stopping) = watch::channel(false);
         let mut worker = None;
         let mut available = false;
@@ -219,7 +220,7 @@ impl MtDispatcher {
         Ok(Self {
             sender,
             metrics: QueueTelemetry::default(),
-            queue_capacity: 4,
+            queue_capacity,
             stop,
             task: Some(task),
             slot,
@@ -389,7 +390,9 @@ async fn run(
                     job.finish(MtOutcome::Available(result));
                 } else if valid
                     && reply.status == WorkerStatus::Error
-                    && reply.error.as_deref() == Some("translation_rejected")
+                    && (reply.error.as_deref() == Some("translation_rejected")
+                        || (provider.as_ref().is_some_and(|value| !value.native())
+                            && reply.error.as_deref() == Some("translation_provider_failed")))
                 {
                     // Completed-output rejection fails only this target, not the healthy model.
                     worker = Some(returned);

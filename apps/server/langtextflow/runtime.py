@@ -446,6 +446,8 @@ class CaptionRuntime:
             )
             if self.engine is not None and getattr(self.engine, "correction_status", None):
                 self.state.correction_status = self.engine.correction_status
+            if self.engine is not None and getattr(self.engine, "translation_status", None):
+                self.state.translation_status = self.engine.translation_status
             if self.engine is not None and getattr(self.engine, "persistence_error", None):
                 self.state.persistence_error = self.engine.persistence_error
         else:

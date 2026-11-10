@@ -1111,7 +1111,7 @@ impl AsrSession {
     pub(crate) fn audio_generation(&self, source: &str) -> Result<u64, &'static str> {
         let state = self.0.lock().unwrap();
         if state.session_id.is_empty()
-            || !matches!(source, "ko" | "en" | "ja")
+            || !crate::supported_language(source)
             || state
                 .projection
                 .config
@@ -1128,7 +1128,7 @@ impl AsrSession {
         if state.session_id.is_empty()
             || !state.revisions.is_empty()
             || state.active.is_some()
-            || !matches!(source, "ko" | "en" | "ja")
+            || !crate::supported_language(source)
             || state
                 .projection
                 .config
@@ -1160,7 +1160,7 @@ impl AsrSession {
         binding: Option<&AudioBinding>,
     ) -> Result<Admission, &'static str> {
         if !chunk.valid()
-            || !matches!(source_language, "ko" | "en" | "ja")
+            || !crate::supported_language(source_language)
             || segment_id.is_empty()
             || segment_id.len() > 128
             || revision == 0

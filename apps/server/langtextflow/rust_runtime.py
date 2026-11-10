@@ -25,10 +25,13 @@ from .models import (
     GlossaryEntry,
     StartSessionRequest,
     TranscriptEvent,
+    TranslationStatus,
     public_model_identity,
 )
 from .telemetry import RustAuthorityMetrics, RustMetricsFrame
+from .translation.factory import create_translator, provider_options, validate_local_pairs
 from .whisper_cache import WHISPER_REPOSITORIES, managed_whisper_cache, resolve_whisper_model
+from .worker_ipc import SUPPORTED_LANGUAGES
 
 _ERROR = "Rust runtime unavailable; stop the session and check local runtime setup."
 _ORIGIN = "http://127.0.0.1"
@@ -44,7 +47,7 @@ def _source_context(request: StartSessionRequest) -> dict:
     snapshot = {
         "title": context.title, "presenter": context.presenter,
         "description": context.description[:1000],
-        "reference_text": context.reference_excerpt(3000),
+        "reference_text": context.reference_excerpt(5000),
         "preset": context.preset.value, "hotwords": list(context.hotwords),
         "glossary": [entry.model_dump(mode="json", include=set(GlossaryEntry.model_fields))
                      for entry in context.glossary
@@ -76,17 +79,17 @@ def _python_worker(module: str, args: list[str]) -> dict:
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
     if (getattr(sys, "frozen", False) or request.engine not in {"auto", "faster-whisper"}
             or request.correction_provider not in {"none", "ollama"}
-            or request.translation_provider not in {"none", "m2m100-ct2"}
-            or request.translation_model
+            or request.translation_provider not in {
+                "none", "demo", "m2m100-ct2", "ollama", "openai-compatible",
+            }
             or (request.correction_model and request.correction_provider != "ollama")
             or not 0 < settings.correction_timeout_seconds <= 120
             or (request.correction_provider == "ollama" and (
                 len(settings.ollama_url.encode()) > 4096
                 or not 1 <= len(request.correction_model or settings.ollama_correction_model) <= 200
             ))
-            or request.source_language not in {"ko", "en", "ja"}
-            or any(lang not in {"ko", "en", "ja"} for lang in request.target_languages)
-            or len(request.target_languages) > 2
+            or request.source_language not in SUPPORTED_LANGUAGES
+            or any(lang not in SUPPORTED_LANGUAGES for lang in request.target_languages)
             or settings.faster_whisper_device not in {"auto", "cpu"}
             or settings.faster_whisper_compute_type not in {"default", "int8"}
             or settings.faster_whisper_chunk_seconds != 4
@@ -94,14 +97,40 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
         raise ValueError(
             "Rust rollout requires source-mode CPU/int8 AUTO or faster-whisper, "
-            "none or Ollama correction, and none or M2M100 MT; "
+            "none or Ollama correction, and a configured translation provider; "
             "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
         )
-    _source_context(request)  # Reject an oversized snapshot before replacing a live source.
+    validate_local_pairs(request)
+    # Private credentials/options share the one bounded bootstrap, not a second
+    # context copy. Reserve 8KiB for owned command/path/control metadata.
+    snapshot = {"context": _source_context(request),
+                "translation": _translation_options(settings, request)}
+    if len(json.dumps(snapshot, ensure_ascii=False).encode()) > 56 * 1024:
+        raise ValueError("Rust inference options exceed the bootstrap safety limit")
     binary = Path(settings.rust_runtime_binary).expanduser()
     if (not settings.rust_runtime_binary or not binary.is_file()
             or not os.access(binary, os.X_OK)):
         raise ValueError("configure a built Rust runtime binary before selecting Rust")
+
+
+def _public_translation_model(model: str | None) -> str | None:
+    return (None if isinstance(model, str) and Path(model).expanduser().is_dir()
+            else public_model_identity(model))
+
+
+def _translation_options(settings: Settings, request: StartSessionRequest) -> dict | None:
+    options = provider_options(settings, request)
+    translator = create_translator(options)
+    if translator is None:
+        return None
+    private = {"provider": translator.provider, "model": translator.model,
+               "url": options.get("url", ""), "api_key": options.get("api_key", ""),
+               "timeout_seconds": options.get("timeout_seconds", 20.)}
+    if (len(private["url"].encode()) > 4096 or len(private["api_key"].encode()) > 8192
+            or not isinstance(private["model"], str) or not 1 <= len(private["model"]) <= 200):
+        raise ValueError("invalid translation provider configuration")
+    return {**private, "requested_model": _public_translation_model(request.translation_model),
+            "configured_model": _public_translation_model(translator.model)}
 
 
 class RustRuntimeBridge(AsrEngine):
@@ -130,6 +159,7 @@ class RustRuntimeBridge(AsrEngine):
         self._stopping = False
         self.persistence_error: str | None = None
         self.correction_status = CorrectionStatus()
+        self.translation_status = TranslationStatus()
         self._metrics: RustMetricsFrame | None = None
         self._metrics_received_at: float | None = None
         self._sample_rate = 16_000
@@ -205,18 +235,16 @@ class RustRuntimeBridge(AsrEngine):
         ])
         mt = None
         if request.translation_provider == "m2m100-ct2":
-            from .local_mt_preflight import local_m2m100_check
             from .m2m100_cache import m2m100_cache_paths
-            from .preflight import CheckStatus
-
-            if local_m2m100_check(self.settings).status is not CheckStatus.READY:
-                raise AsrEngineError(_ERROR)
             model_dir, tokenizer_dir = m2m100_cache_paths(self.settings)
             mt = _python_worker("langtextflow.translation.m2m100_worker", [
                 "--rust-protocol",
                 str(model_dir), str(tokenizer_dir),
-                str(self.settings.local_m2m100_cpu_threads),
+                str(self.settings.low_resource_cpu_threads if low
+                    else self.settings.local_m2m100_cpu_threads),
             ])
+        elif request.translation_provider != "none":
+            mt = _python_worker("langtextflow.translation_worker", [])
         return asr, mt
 
     def _auto_options(self, request: StartSessionRequest) -> dict | None:
@@ -241,6 +269,11 @@ class RustRuntimeBridge(AsrEngine):
     async def start(self, request: StartSessionRequest) -> None:
         validate_rust_request(self.settings, request)
         context = _source_context(request)
+        translation_options = _translation_options(self.settings, request)
+        self.translation_status = TranslationStatus(
+            enabled=translation_options is not None, provider=request.translation_provider,
+            model=translation_options["configured_model"] if translation_options else None,
+        )
         correction_options = {
             "provider": request.correction_provider,
             "url": self.settings.ollama_url if request.correction_provider != "none" else "",
@@ -274,6 +307,10 @@ class RustRuntimeBridge(AsrEngine):
                 "target_languages": request.target_languages,
                 "database_path": str(Path(self.settings.database_path).resolve()),
                 "spool_directory": tempfile.gettempdir(), "asr": asr, "mt": mt,
+                "translation": translation_options,
+                "translation_prepare_ms": max(1, round(
+                    self.settings.provider_prepare_timeout_seconds * 1000,
+                )),
                 "auto_asr": self._auto_options(request),
                 "asr_startup_ms": max(1, round(self.settings.session_start_timeout_seconds * 1000)),
                 "audio_queue_frames": min(8, self.settings.audio_queue_chunks),
@@ -316,6 +353,7 @@ class RustRuntimeBridge(AsrEngine):
             self._sample_rate = ready["sample_rate"]
             self._queue_capacity = ready["queue_capacity"]
             self._active_provider = ready["active_provider"]
+            self._translation_health(ready)
             self.correction_status.available = ready.get("correction_available") is True
             if self.correction_status.enabled and not self.correction_status.available:
                 self.correction_status.error = "correction provider unavailable"
@@ -349,6 +387,15 @@ class RustRuntimeBridge(AsrEngine):
         ):
             return model
         return None
+
+    def _translation_health(self, reply: dict) -> None:
+        if type(reply.get("translation_available")) is not bool:
+            raise AsrEngineError(_ERROR)
+        self.translation_status.available = reply["translation_available"]
+        self.translation_status.error = (
+            "translation provider unavailable" if self.translation_status.enabled
+            and not self.translation_status.available else None
+        )
 
     async def _reply(self, kind: str, budget: float = _CONTROL_BUDGET) -> dict:
         if self._process is None:
@@ -393,6 +440,12 @@ class RustRuntimeBridge(AsrEngine):
                         raise AsrEngineError(_ERROR)
                     if frame.get("type") == "transcript":
                         event = TranscriptEvent.model_validate(frame)
+                        self.translation_status.errors_by_language = {
+                            target: "translation timed out" if state == "timed_out"
+                            else "translation provider failed"
+                            for target, state in event.translation_states.items()
+                            if state in {"failed", "timed_out"}
+                        }
                         if event.correction is not None:
                             if event.correction.llm_attempted:
                                 self.correction_status.available = True
@@ -441,6 +494,7 @@ class RustRuntimeBridge(AsrEngine):
             async with asyncio.timeout(budget):
                 await self._process.stdin.drain()
                 reply = await self._reply("ack", budget)
+                self._translation_health(reply)
                 if (type(reply.get("sequence")) is not int
                         or reply.get("sequence") != self._sequence
                         or type(reply.get("serial")) is not int

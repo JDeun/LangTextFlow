@@ -11,7 +11,7 @@ import threading
 
 from .models import MAX_TRANSCRIPT_TEXT_CHARS, SessionContext
 from .parent_pipe import read_parent_pipe
-from .translation import TranslationError
+from .translation import TranslationError, TranslationRejected
 from .translation.factory import create_translator
 from .worker_ipc import IDENTITY_KEYS, MAX_FRAME_BYTES, validate_inference_request
 
@@ -101,10 +101,12 @@ def main(args: list[str] | None = None) -> None:
                         target_language=request["target_language"], context=context,
                     )).strip()
                     if not result or len(result) > 20_000:
-                        raise TranslationError("invalid translation result")
+                        raise TranslationRejected("invalid translation result")
+            except TranslationRejected:
+                error, result = "translation_rejected", None
             except TranslationError:
                 error = ("translation_provider_unavailable" if mode == "prepare"
-                         else "translation_rejected")
+                         else "translation_provider_failed")
                 result = None
             except Exception:
                 error, result = "translation_worker_failed", None

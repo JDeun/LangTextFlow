@@ -8,7 +8,7 @@ class TranslationError(RuntimeError):
 
 
 class TranslationRejected(TranslationError):
-    """Completed inference failed output validation; the native worker remains usable."""
+    """Completed inference failed output validation; the worker remains usable."""
 
 
 class Translator(ABC):

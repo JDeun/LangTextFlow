@@ -46,7 +46,11 @@ fn public_model(model: &str) -> bool {
         && !model.contains(":/")
         && !(model.as_bytes().get(1) == Some(&b':') && model.as_bytes()[0].is_ascii_alphabetic())
         && parts.len() <= 2
-        && parts.iter().all(|part| part.as_bytes().first().is_some_and(u8::is_ascii_alphanumeric))
+        && parts.iter().all(|part| {
+            part.as_bytes()
+                .first()
+                .is_some_and(u8::is_ascii_alphanumeric)
+        })
         && !["sk-", "hf_", "ghp_", "github_pat_", "xoxb-", "xoxp-"]
             .iter()
             .any(|prefix| model.starts_with(prefix))

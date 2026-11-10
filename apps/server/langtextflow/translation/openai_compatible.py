@@ -7,7 +7,7 @@ import httpx
 from ..models import SessionContext
 from ..prompt_safety import UNTRUSTED_DATA_POLICY, bounded_model_text, untrusted_json
 from ..provider_http import bounded_json_request
-from .base import TranslationError, Translator
+from .base import TranslationError, TranslationRejected, Translator
 from .glossary_selection import relevant_glossary
 
 _LANGUAGE_NAMES = {
@@ -120,7 +120,7 @@ class OpenAICompatibleTranslator(Translator):
                 label="OpenAI-compatible translation",
             )
         except ValueError as exc:
-            raise TranslationError(str(exc)) from exc
+            raise TranslationRejected(str(exc)) from exc
 
     @staticmethod
     def _message_content(payload: Any) -> str:

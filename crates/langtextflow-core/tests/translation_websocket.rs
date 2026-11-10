@@ -213,47 +213,96 @@ fn configured_general_provider_keeps_own_policy_provenance_and_healthy_rejection
         let slot = worker_slot();
         let (_parent, parent_closed) = tokio::sync::watch::channel(false);
         let prepare = WorkerRequest {
-            protocol_version: 1, request_id: "prepare".into(), session_id: "general".into(),
-            session_generation: 1, segment_id: "prepare".into(), source_revision: 1,
-            task_kind: TaskKind::Translation, source_language: "ko".into(),
-            target_language: Some("en".into()), deadline_ms: 2000, payload: String::new(),
+            protocol_version: 1,
+            request_id: "prepare".into(),
+            session_id: "general".into(),
+            session_generation: 1,
+            segment_id: "prepare".into(),
+            source_revision: 1,
+            task_kind: TaskKind::Translation,
+            source_language: "ko".into(),
+            target_language: Some("en".into()),
+            deadline_ms: 2000,
+            payload: String::new(),
         };
-        let provider = TranslationProvider::new(TranslationOptions {
-            provider: "demo".into(), url: "http://owned.invalid/private".into(),
-            model: "deterministic-demo".into(), api_key: "synthetic-secret".into(),
-            timeout_seconds: 1., requested_model: None,
-            configured_model: Some("deterministic-demo".into()),
-        }, SourceContext { reference_text: "r".repeat(5000), ..SourceContext::default() }).unwrap();
+        let provider = TranslationProvider::new(
+            TranslationOptions {
+                provider: "demo".into(),
+                url: "http://owned.invalid/private".into(),
+                model: "deterministic-demo".into(),
+                api_key: "synthetic-secret".into(),
+                timeout_seconds: 1.,
+                requested_model: None,
+                configured_model: Some("deterministic-demo".into()),
+            },
+            SourceContext {
+                reference_text: "r".repeat(5000),
+                ..SourceContext::default()
+            },
+        )
+        .unwrap();
         let dispatcher = MtDispatcher::start_prepared(
             std::env::var("LTF_WORKER_PYTHON").unwrap_or_else(|_| "python3".into()),
-            vec!["-u".into(), "-c".into(), CHILD.into(), fixture.log().to_string_lossy().into()],
-            slot.clone(), provider, prepare, parent_closed,
-        ).await.unwrap();
+            vec![
+                "-u".into(),
+                "-c".into(),
+                CHILD.into(),
+                fixture.log().to_string_lossy().into(),
+            ],
+            slot.clone(),
+            provider,
+            prepare,
+            parent_closed,
+        )
+        .await
+        .unwrap();
         assert!(dispatcher.available());
         let session = AsrSession::default();
-        let token = session.start_observed("general", "ko", &["en".into()]).unwrap();
+        let token = session
+            .start_observed("general", "ko", &["en".into()])
+            .unwrap();
         enable(&session, &dispatcher, 2000);
-        let server = ObserverServer::bind(session.clone(), 0, ORIGIN).await.unwrap();
+        let server = ObserverServer::bind(session.clone(), 0, ORIGIN)
+            .await
+            .unwrap();
         let mut socket = connect(&server, &token).await;
         receive(&mut socket).await;
         for (index, (text, expected)) in [
-            ("COPY-ME", "available"), ("DEMO", "available"),
-            ("2010...", "failed"), ("healthy", "available"),
-        ].iter().enumerate() {
+            ("COPY-ME", "available"),
+            ("DEMO", "available"),
+            ("2010...", "failed"),
+            ("healthy", "available"),
+        ]
+        .iter()
+        .enumerate()
+        {
             publish(&session, &format!("chunk-{index}"), 1, "ko", text);
             let first = receive(&mut socket).await;
             let frames = until_commit(&mut socket, first["segment_id"].as_str().unwrap()).await;
-            assert_eq!(frames.last().unwrap()["translation_states"]["en"], *expected);
+            assert_eq!(
+                frames.last().unwrap()["translation_states"]["en"],
+                *expected
+            );
             for frame in [&first, frames.last().unwrap()] {
                 assert_eq!(frame["translation_provenance"]["en"]["provider"], "demo");
-                assert_eq!(frame["translation_provenance"]["en"]["configured_model"], "deterministic-demo");
+                assert_eq!(
+                    frame["translation_provenance"]["en"]["configured_model"],
+                    "deterministic-demo"
+                );
                 assert!(frame["translation_provenance"]["en"]["verified_model"].is_null());
                 assert!(!frame.to_string().contains("synthetic-secret"));
                 assert!(!frame.to_string().contains("owned.invalid"));
             }
             assert!(dispatcher.available());
         }
-        assert_eq!(fixture.records().iter().filter(|row| row.get("text").is_none()).count(), 1);
+        assert_eq!(
+            fixture
+                .records()
+                .iter()
+                .filter(|row| row.get("text").is_none())
+                .count(),
+            1
+        );
         dispatcher.stop().await.unwrap();
         assert_eq!(slot.available_permits(), 1);
         server.stop().await.unwrap();
@@ -340,14 +389,17 @@ fn digit_only_copies_reach_both_targets_but_text_and_nonascii_copies_still_fail(
                 assert_eq!(final_frame["translations"][target], "17");
             }
             assert_eq!(
-                fixture.records().iter().filter(|row| row.get("text").is_none()).count(),
+                fixture
+                    .records()
+                    .iter()
+                    .filter(|row| row.get("text").is_none())
+                    .count(),
                 1
             );
             for text in ["COPY-ME", "０１７"] {
                 publish(&session, text, 1, source, text);
                 let first = receive(&mut socket).await;
-                let frames =
-                    until_commit(&mut socket, first["segment_id"].as_str().unwrap()).await;
+                let frames = until_commit(&mut socket, first["segment_id"].as_str().unwrap()).await;
                 let final_frame = frames.last().unwrap();
                 for target in &targets {
                     assert_eq!(final_frame["translation_states"][target], "failed");
@@ -368,9 +420,13 @@ fn request_rejection_preserves_source_peer_target_and_healthy_worker_pid() {
         let slot = worker_slot();
         let dispatcher = fixture.dispatcher(4, slot.clone());
         let session = AsrSession::default();
-        let token = session.start_observed("quality", "ko", &["en".into(), "ja".into()]).unwrap();
+        let token = session
+            .start_observed("quality", "ko", &["en".into(), "ja".into()])
+            .unwrap();
         enable(&session, &dispatcher, 2000);
-        let server = ObserverServer::bind(session.clone(), 0, ORIGIN).await.unwrap();
+        let server = ObserverServer::bind(session.clone(), 0, ORIGIN)
+            .await
+            .unwrap();
         let mut socket = connect(&server, &token).await;
         receive(&mut socket).await;
         publish(&session, "numeric", 1, "ko", "2010...");
@@ -378,18 +434,40 @@ fn request_rejection_preserves_source_peer_target_and_healthy_worker_pid() {
         let rejected = frames.last().unwrap();
         assert_eq!(rejected["original_text"], "2010...");
         assert_eq!(rejected["text"], "2010...");
-        assert_eq!(rejected["translation_states"], json!({"en":"failed", "ja":"available"}));
+        assert_eq!(
+            rejected["translation_states"],
+            json!({"en":"failed", "ja":"available"})
+        );
         assert_eq!(rejected["translations"], json!({"ja":"translated-ja"}));
-        assert_eq!(rejected["translation_provenance"]["en"]["provider"], "m2m100-ct2");
+        assert_eq!(
+            rejected["translation_provenance"]["en"]["provider"],
+            "m2m100-ct2"
+        );
         assert!(rejected["translation_provenance"]["en"]["verified_model"].is_null());
         publish(&session, "healthy", 1, "ko", "healthy");
         let source = receive(&mut socket).await;
         let frames = until_commit(&mut socket, source["segment_id"].as_str().unwrap()).await;
-        assert_eq!(frames.last().unwrap()["translation_states"], json!({"en":"available", "ja":"available"}));
+        assert_eq!(
+            frames.last().unwrap()["translation_states"],
+            json!({"en":"available", "ja":"available"})
+        );
         let records = fixture.records();
-        let pids = records.iter().map(|row| row["pid"].as_u64().unwrap()).collect::<std::collections::HashSet<_>>();
-        assert_eq!(pids.len(), 1, "request rejection must not restart a healthy child");
-        assert_eq!(records.iter().filter(|row| row.get("text").is_none()).count(), 1);
+        let pids = records
+            .iter()
+            .map(|row| row["pid"].as_u64().unwrap())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            pids.len(),
+            1,
+            "request rejection must not restart a healthy child"
+        );
+        assert_eq!(
+            records
+                .iter()
+                .filter(|row| row.get("text").is_none())
+                .count(),
+            1
+        );
         dispatcher.stop().await.unwrap();
         assert_eq!(slot.available_permits(), 1);
         server.stop().await.unwrap();
@@ -398,15 +476,25 @@ fn request_rejection_preserves_source_peer_target_and_healthy_worker_pid() {
 
 #[test]
 fn malformed_or_unknown_rejection_remains_terminal_and_cannot_publish() {
-    for text in ["2010-WRONG", "2010-EXTRA", "2010-UNKNOWN", "2010-RESULT", "2010-MISSING"] {
+    for text in [
+        "2010-WRONG",
+        "2010-EXTRA",
+        "2010-UNKNOWN",
+        "2010-RESULT",
+        "2010-MISSING",
+    ] {
         runtime().block_on(async {
             let fixture = Fixture::new();
             let slot = worker_slot();
             let dispatcher = fixture.dispatcher(4, slot.clone());
             let session = AsrSession::default();
-            let token = session.start_observed("bad-error", "ko", &["en".into()]).unwrap();
+            let token = session
+                .start_observed("bad-error", "ko", &["en".into()])
+                .unwrap();
             enable(&session, &dispatcher, 2000);
-            let server = ObserverServer::bind(session.clone(), 0, ORIGIN).await.unwrap();
+            let server = ObserverServer::bind(session.clone(), 0, ORIGIN)
+                .await
+                .unwrap();
             let mut socket = connect(&server, &token).await;
             receive(&mut socket).await;
             publish(&session, "bad", 1, "ko", text);
@@ -417,9 +505,24 @@ fn malformed_or_unknown_rejection_remains_terminal_and_cannot_publish() {
             let source = receive(&mut socket).await;
             until_commit(&mut socket, source["segment_id"].as_str().unwrap()).await;
             let records = fixture.records();
-            assert_eq!(records.iter().filter(|row| row.get("text").is_none()).count(), 2, "{text}");
-            let pids = records.iter().filter(|row| row.get("text").is_some()).map(|row| row["pid"].as_u64().unwrap()).collect::<std::collections::HashSet<_>>();
-            assert_eq!(pids.len(), 2, "{text}: later work requires a separately reaped replacement");
+            assert_eq!(
+                records
+                    .iter()
+                    .filter(|row| row.get("text").is_none())
+                    .count(),
+                2,
+                "{text}"
+            );
+            let pids = records
+                .iter()
+                .filter(|row| row.get("text").is_some())
+                .map(|row| row["pid"].as_u64().unwrap())
+                .collect::<std::collections::HashSet<_>>();
+            assert_eq!(
+                pids.len(),
+                2,
+                "{text}: later work requires a separately reaped replacement"
+            );
             dispatcher.stop().await.unwrap();
             assert_eq!(slot.available_permits(), 1);
             server.stop().await.unwrap();

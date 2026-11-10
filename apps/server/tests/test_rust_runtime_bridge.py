@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from test_rust_correction_worker import ollama  # noqa: F401
+from test_translation_leaf import mt_endpoint  # noqa: F401
 
 from langtextflow import main
 from langtextflow.config import Settings
@@ -66,6 +67,10 @@ for line in sys.stdin:
     req=json.loads(line)
     reply={k:req[k] for k in ('protocol_version','request_id','session_id',
                              'session_generation','segment_id','source_revision')}
+    if json.loads(req['payload']).get('mode')=='prepare':
+        reply.update(status='ok',result='ready',error=None)
+        print(json.dumps(reply),flush=True)
+        continue
     failed=req['target_language']=='ja'
     reply.update(status='error' if failed else 'ok',
                  result=None if failed else '한국어 번역',error='synthetic' if failed else None)
@@ -109,7 +114,7 @@ def assert_recordings(client, runtime, sid, expected):
 
 @pytest.mark.parametrize("change", [
     {"engine": "vibevoice"}, {"correction_provider": "unsupported"},
-    {"translation_provider": "ollama"}, {"translation_model": "path/private"},
+    {"translation_provider": "unsupported"}, {"source_language": "unknown"},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
     binary = tmp_path / "runtime"
@@ -221,7 +226,8 @@ def rust_api(monkeypatch, tmp_path):
 
     def commands(self, request):
         return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
-                {"program": sys.executable, "args": ["-u", "-c", _MT]})
+                ({"program": sys.executable, "args": ["-u", "-c", _MT]}
+                 if request.translation_provider != "none" else None))
 
     original_start = runtime.pipeline.start
     original_ingest = runtime.pipeline.ingest
@@ -252,6 +258,140 @@ def rust_api(monkeypatch, tmp_path):
     monkeypatch.setattr(main.app.router, "lifespan_context", lifespan)
     with TestClient(main.app, client=("127.0.0.1", 50000), headers=_ORIGIN) as client:
         yield client, runtime
+
+
+@pytest.mark.parametrize("provider,unavailable", [
+    ("demo", False), ("ollama", False), ("openai-compatible", False),
+    ("ollama", True), ("openai-compatible", True),
+])
+def test_actual_general_mt_leaves_ready_state_context_and_failed_target_provenance(
+    rust_api, monkeypatch, mt_endpoint, provider, unavailable,  # noqa: F811
+):
+    client, runtime = rust_api
+    endpoint, calls, state = mt_endpoint
+    state["unavailable"] = unavailable
+    runtime.settings.ollama_url = endpoint
+    runtime.settings.openai_compatible_url = endpoint
+    runtime.settings.openai_compatible_api_key = "owned-synthetic-key"
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                _python_worker("langtextflow.translation_worker", []))
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "translation_provider": provider, "translation_model": "configured:tag",
+        "source_language": "es", "target_languages": ["fr", "en"],
+        "context": {"title": "MT title", "presenter": "Presenter", "reference_text": "r" * 5000,
+                    "glossary": [{"term": "Original", "source_language": "es",
+                                  "translations": {"fr": "Terme", "en": "Term"}}]},
+    })
+    assert started.status_code == 200, started.text
+    ready = started.json()["translation_status"]
+    assert ready["enabled"] and ready["provider"] == provider
+    assert ready["available"] is (not unavailable)
+    assert ready["model"] == ("deterministic-demo" if provider == "demo" else "configured:tag")
+    sid = started.json()["session_id"]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        assert captions.receive_json()["type"] == "snapshot"
+        assert audio.receive_json()["type"] == "audio_config"
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        event = captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+        assert event["original_text"] == "Original English source"
+        if unavailable:
+            assert set(event["translation_states"].values()) == {"failed"} and not calls
+        elif provider == "demo":
+            assert event["translations"]["fr"] == "[FR demo] Original English source"
+        else:
+            assert event["translation_states"] == {"fr": "failed", "en": "available"}
+            assert len(calls) == 2
+            prompt = json.loads(calls[0][0]["messages"][1]["content"])
+            assert prompt["reference_material"] == "r" * 5000
+            assert prompt["terminology_mappings"] == [{"source": "Original", "target": "Terme"}]
+            assert calls[0][1] == ("Bearer owned-synthetic-key" if provider == "openai-compatible"
+                                   else None)
+        assert set(event["translation_provenance"]) == {"fr", "en"}
+        assert all(value["provider"] == provider and value["verified_model"] is None
+                   for value in event["translation_provenance"].values())
+        assert endpoint not in json.dumps(event) and "owned-synthetic-key" not in json.dumps(event)
+    assert client.post("/api/v1/session/stop").status_code == 200
+    stored = runtime.history.segments(sid)[0].model_dump(mode="json")
+    assert stored["translation_provenance"] == event["translation_provenance"]
+    assert stored["translations"] == event["translations"]
+    final_status = client.get("/api/v1/state").json()["translation_status"]
+    assert final_status["available"] is (not unavailable)
+
+
+def test_actual_demo_all_ui_languages_are_admitted_without_m2m_pair_or_four_job_limit(
+    rust_api, monkeypatch,
+):
+    from langtextflow.worker_ipc import SUPPORTED_LANGUAGES
+
+    client, runtime = rust_api
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                _python_worker("langtextflow.translation_worker", []))
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    # Ten UI languages include the source, so all nine distinct targets must fit.
+    targets = sorted(SUPPORTED_LANGUAGES - {"fr"})
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "translation_provider": "demo", "source_language": "fr", "target_languages": targets,
+    })
+    assert started.status_code == 200, started.text
+    assert started.json()["translation_status"]["available"]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        captions.receive_json()
+        audio.receive_json()
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        event = captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+        assert event["translation_states"] == dict.fromkeys(targets, "available")
+        assert set(event["translations"]) == set(event["translation_provenance"]) == set(targets)
+    assert client.post("/api/v1/session/stop").status_code == 200
+
+
+def test_actual_mt_prepare_timeout_reaps_optional_provider_and_preserves_source(
+    rust_api, monkeypatch, mt_endpoint,  # noqa: F811
+):
+    client, runtime = rust_api
+    endpoint, calls, state = mt_endpoint
+    state.update(unavailable=False, prepare_delay=3.)
+    runtime.settings.ollama_url = endpoint
+    runtime.settings.provider_prepare_timeout_seconds = 2.
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                _python_worker("langtextflow.translation_worker", []))
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "translation_provider": "ollama", "translation_model": "configured:tag",
+    })
+    assert started.status_code == 200, started.text
+    assert not started.json()["translation_status"]["available"]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        captions.receive_json()
+        audio.receive_json()
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        event = captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+        assert event["original_text"] == "Original English source"
+        assert set(event["translation_states"].values()) == {"failed"}
+    assert not calls and state["gets"] == 1
+    assert client.post("/api/v1/session/stop").status_code == 200
+    assert runtime._rust_slot._value == 1
 
 
 def test_existing_http_capture_audience_history_and_restart_with_rust_authority(rust_api):
@@ -710,7 +850,8 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
     asr_requests = [value for value in records if value["task_kind"] == "asr"]
     assert json.loads(asr_requests[0]["payload"]) == {"asr_protocol_version": 1, "mode": "prepare"}
     asr = [value for value in asr_requests if json.loads(value["payload"]).get("mode") != "prepare"]
-    mt = [value for value in records if value["task_kind"] == "translation"]
+    mt = [value for value in records if value["task_kind"] == "translation"
+          and json.loads(value["payload"]).get("mode") != "prepare"]
     assert len(asr) == 1 and len(mt) == 2
     assert json.loads(asr[0]["payload"])["context"] == expected
     assert expected["description"] == "d" * 1000 and expected["reference_text"] == "r" * 2000
