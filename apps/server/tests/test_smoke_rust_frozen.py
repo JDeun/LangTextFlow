@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from io import StringIO
 from types import SimpleNamespace
 
@@ -287,3 +288,27 @@ def test_loopback_redirects_cannot_send_smoke_requests_elsewhere():
     with pytest.raises(smoke.SmokeFailure, match="redirect_forbidden"):
         smoke.NoRedirect().redirect_request(None, None, 307, "redirect", {},
                                              "https://unapproved.invalid/receive")
+
+
+@pytest.mark.parametrize("case", ["ended", "not_ended", "query_error"])
+def test_session_database_handle_closes_before_fixture_cleanup(tmp_path, monkeypatch, case):
+    path = tmp_path / "smoke.sqlite"
+    database = sqlite3.connect(path)
+    if case != "query_error":
+        database.execute("CREATE TABLE sessions(session_id TEXT, ended_at TEXT)")
+        database.execute("INSERT INTO sessions VALUES (?, ?)",
+                         ("session", "finished" if case == "ended" else None))
+        database.commit()
+    # Retaining this reference prevents garbage collection from hiding a leak.
+    monkeypatch.setattr(smoke.sqlite3, "connect", lambda *args, **kwargs: database)
+    if case == "ended":
+        assert smoke.session_ended_at(path, "session") == "finished"
+    elif case == "not_ended":
+        with pytest.raises(smoke.SmokeFailure, match="session_not_ended"):
+            smoke.session_ended_at(path, "session")
+    else:
+        with pytest.raises(sqlite3.OperationalError, match="no such table"):
+            smoke.session_ended_at(path, "session")
+    with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
+        database.execute("SELECT 1")
+    path.unlink()

@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from contextlib import suppress
+from contextlib import closing, suppress
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -328,6 +328,15 @@ def worker_probe(binary: Path, root: Path, env: dict, api, kind: str) -> dict:
             process.stdout.close()
 
 
+def session_ended_at(database_path: Path, session_id: str) -> str:
+    # SQLite's transaction context does not close the Windows file handle.
+    with closing(sqlite3.connect(database_path, timeout=2)) as database:
+        row = database.execute("SELECT ended_at FROM sessions WHERE session_id=?",
+                               (session_id,)).fetchone()
+    require(row is not None and row[0] is not None, "session_not_ended_in_sqlite")
+    return row[0]
+
+
 def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
     fake = root / "fake-whisper"
     fake.mkdir()
@@ -400,11 +409,8 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
             stopped = request("/api/v1/session/stop", {"expected_session_id": state["session_id"]})
             require(stopped.get("running") is False, "stop_failed")
             owned.gone([runtime, worker])
-            with sqlite3.connect(root / "smoke.sqlite", timeout=2) as database:
-                row = database.execute("SELECT ended_at FROM sessions WHERE session_id=?",
-                                       (state["session_id"],)).fetchone()
-            require(row is not None and row[0] is not None, "session_not_ended_in_sqlite")
-            cycles.append({"session_id": state["session_id"], "ended_at": row[0],
+            ended_at = session_ended_at(root / "smoke.sqlite", state["session_id"])
+            cycles.append({"session_id": state["session_id"], "ended_at": ended_at,
                            "rust_pid": runtime["pid"], "asr_pid": worker["pid"],
                            "asr_parent_pid": worker["ppid"], "direct_pid_no_inner": True,
                            "idle_observation_seconds": 2})
