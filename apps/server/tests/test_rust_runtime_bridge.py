@@ -390,7 +390,9 @@ def test_existing_http_capture_audience_history_and_restart_with_rust_authority(
 
 
 @pytest.mark.parametrize("engine,profile", [("auto", "standard"), ("vibevoice", "low")])
-def test_actual_primary_48k_uses_existing_audio_audience_history_and_restart(rust_api, engine, profile):
+def test_actual_primary_48k_uses_existing_audio_audience_history_and_restart(
+    rust_api, engine, profile,
+):
     from test_asr_stream_worker import sidecar
 
     client, runtime = rust_api
@@ -450,10 +452,13 @@ def test_actual_primary_48k_uses_existing_audio_audience_history_and_restart(rus
             ) for row in saved)
             if engine == "vibevoice":
                 assert all(row["asr_provenance"]["timeline_offset_samples"] is None
-                           and row["asr_provenance"]["replay_prefix_samples"] is None for row in saved)
+                           and row["asr_provenance"]["replay_prefix_samples"] is None
+                           for row in saved)
 
 
-def test_rust_mock_preserves_demo_cadence_targets_history_and_restart_without_pcm(rust_recording_api):
+def test_rust_mock_preserves_demo_cadence_targets_history_and_restart_without_pcm(
+    rust_recording_api,
+):
     from langtextflow.asr.mock import SAMPLES
 
     client, runtime = rust_recording_api
@@ -506,7 +511,8 @@ def test_rust_mock_preserves_demo_cadence_targets_history_and_restart_without_pc
         metrics = client.get("/api/v1/metrics").json()
         assert metrics["rust_authority"]["status"] == "final"
         sample = metrics["rust_authority"]["sample"]
-        assert sample["ingress"] is metrics["asr_queue_depth"] is metrics["asr_queue_capacity"] is None
+        assert sample["ingress"] is None
+        assert metrics["asr_queue_depth"] is metrics["asr_queue_capacity"] is None
         assert sample["source"]["active_provider"] == "mock"
         saved = client.get(f"/api/v1/history/{sid}/captions").json()
         assert saved[0]["text"] == SAMPLES[0] and saved[0]["committed"]
@@ -658,6 +664,7 @@ def test_explicit_vibevoice_failure_never_starts_fallback_and_releases_owned_chi
     rust_api, monkeypatch, tmp_path, fault,
 ):
     from test_asr_stream_worker import sidecar
+
     from langtextflow.asr.base import AsrEngineError
 
     client, runtime = rust_api

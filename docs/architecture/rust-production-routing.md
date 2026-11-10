@@ -164,9 +164,9 @@ Only strict audio-free prepare/stream-open requests may use the configured
 existing 120-second envelope limit. The parent owns the absolute deadline and
 EOF cancellation throughout native or network awaits.
 The unchanged three-argument Whisper CLI additionally accepts `auto` for the
-standard AUTO library-default thread policy; low profile retains its configured
-thread count and one native worker. The earlier explicit-Whisper CPU thread
-selection remains unchanged.
+standard AUTO and explicit-Whisper library-default thread policy; an effective
+low request or server profile retains its configured thread count and one native
+worker. This restores the existing Python policy without changing the CLI ABI.
 
 The sidecar's actual 8–192kHz rate is returned to existing browser capture and
 recording paths. Whisper remains 16kHz; a mismatch fails explicitly before a

@@ -74,7 +74,8 @@ def _python_worker(module: str, args: list[str]) -> dict:
 
 
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
-    if (getattr(sys, "frozen", False) or request.engine not in {"auto", "faster-whisper", "vibevoice", "mock"}
+    if (getattr(sys, "frozen", False)
+            or request.engine not in {"auto", "faster-whisper", "vibevoice", "mock"}
             or request.correction_provider not in {"none", "ollama"}
             or request.translation_provider not in {"none", "m2m100-ct2"}
             or request.translation_model
