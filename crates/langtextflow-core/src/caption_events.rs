@@ -2,6 +2,7 @@
 use crate::asr_slice::{AudioChunk, SourceEvent};
 use crate::correction_slice::{CorrectionDecision, CorrectionOptions, CorrectionProvenance};
 use crate::history::{HistorySink, Invalidation};
+use crate::translation_provider::TranslationIdentity;
 use serde::Serialize;
 use serde_json::value::RawValue;
 use std::collections::{BTreeMap, HashMap, VecDeque};
@@ -25,6 +26,7 @@ pub struct ObservedConfig {
     pub source_language: String,
     pub targets: Vec<String>,
     pub(crate) configured_asr_model: Option<String>,
+    pub(crate) translation_identity: Option<TranslationIdentity>,
     pub(crate) max_segments: usize,
     token: String,
 }
@@ -43,13 +45,17 @@ impl ObservedConfig {
         source: &str,
         targets: &[String],
     ) -> Result<(Self, ObserverCredential), &'static str> {
-        if !matches!(source, "ko" | "en" | "ja")
+        if !crate::supported_language(source)
             || targets.is_empty()
-            || targets.len() > 2
+            || targets.len() > 10
             || targets
                 .iter()
-                .any(|lang| lang == source || !matches!(lang.as_str(), "ko" | "en" | "ja"))
-            || (targets.len() == 2 && targets[0] == targets[1])
+                .any(|lang| lang == source || !crate::supported_language(lang))
+            || targets
+                .iter()
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                != targets.len()
         {
             return Err("invalid_languages");
         }
@@ -64,6 +70,7 @@ impl ObservedConfig {
                 source_language: source.into(),
                 targets: targets.to_vec(),
                 configured_asr_model: None,
+                translation_identity: None,
                 max_segments: MAX_VISIBLE_SEGMENTS,
                 token: token.clone(),
             },
@@ -115,19 +122,12 @@ struct CaptionEvent {
     serial: u64,
 }
 
+type TranslationProvenance = TranslationIdentity;
+
 impl CaptionEvent {
     fn source_text(&self) -> &str {
         self.original_text.as_deref().unwrap_or(&self.text)
     }
-}
-
-#[derive(Clone, Serialize)]
-struct TranslationProvenance {
-    provider: &'static str,
-    requested_model: Option<String>,
-    configured_model: Option<String>,
-    verified_model: Option<String>,
-    model_revision: Option<String>,
 }
 
 #[derive(Clone)]
@@ -311,7 +311,18 @@ impl CaptionProjection {
                         })
                         .collect(),
                     asr_provenance: origins[source_index].clone(),
-                    translation_provenance: BTreeMap::new(),
+                    translation_provenance: config
+                        .translation_identity
+                        .clone()
+                        .or_else(|| translating.then(TranslationIdentity::native))
+                        .as_ref()
+                        .map_or_else(BTreeMap::new, |identity| {
+                            config
+                                .targets
+                                .iter()
+                                .map(|target| (target.clone(), identity.clone()))
+                                .collect()
+                        }),
                     start_ms: source.start_ms,
                     end_ms: Some(source.end_ms),
                     speaker: None,
@@ -507,16 +518,6 @@ impl CaptionProjection {
         let status = match outcome {
             crate::mt_slice::MtOutcome::Available(text) => {
                 event.translations.insert(target.into(), text);
-                event.translation_provenance.insert(
-                    target.into(),
-                    TranslationProvenance {
-                        provider: "m2m100-ct2",
-                        requested_model: None,
-                        configured_model: None,
-                        verified_model: None,
-                        model_revision: None,
-                    },
-                );
                 "available"
             }
             crate::mt_slice::MtOutcome::Failed => "failed",
@@ -545,7 +546,6 @@ impl CaptionProjection {
             if expired || cancelled.load(std::sync::atomic::Ordering::Acquire) {
                 let mut event = prepared.event;
                 event.translations.remove(target);
-                event.translation_provenance.remove(target);
                 event
                     .translation_states
                     .insert(target.into(), if expired { "timed_out" } else { "failed" });
@@ -1018,7 +1018,7 @@ mod tests {
             );
             assert_eq!(event.translations.len(), 1);
             assert_eq!(event.translations["ja"], "Japanese");
-            assert_eq!(event.translation_provenance.len(), 1);
+            assert_eq!(event.translation_provenance.len(), 2);
             assert_eq!(event.original_text.as_deref(), Some("Original"));
             assert_eq!(event.version, 3);
             assert!(event.committed);

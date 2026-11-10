@@ -9,6 +9,7 @@ use crate::pcm_ingress::PcmIngress;
 use crate::source_context::SourceContext;
 use crate::supervision::worker_slot;
 use crate::telemetry::{MetricsFrame, MetricsSampler, MetricsSources};
+use crate::translation_provider::{TranslationOptions, TranslationProvider};
 use crate::{TaskKind, WorkerRequest, PROTOCOL_VERSION};
 use futures_util::future::{select, Either};
 use serde::Deserialize;
@@ -65,6 +66,10 @@ struct Config {
     #[serde(default)]
     asr_model_identity: Option<String>,
     mt: Option<Worker>,
+    #[serde(default)]
+    translation: Option<TranslationOptions>,
+    #[serde(default = "prepare_budget")]
+    translation_prepare_ms: u64,
     translation_deadline_ms: u64,
     #[serde(default)]
     context: SourceContext,
@@ -72,6 +77,9 @@ struct Config {
     correction: Option<Correction>,
 }
 
+fn prepare_budget() -> u64 {
+    30_000
+}
 fn default_startup_ms() -> u64 {
     120_000
 }
@@ -248,6 +256,11 @@ pub fn run_stdio() -> Result<(), &'static str> {
         || !(1..=600_000).contains(&config.asr_startup_ms)
         || !(1..=crate::pcm_ingress::QUEUE_FRAMES).contains(&config.audio_queue_frames)
         || config.mt.as_ref().is_some_and(|mt| !mt.valid())
+        || config
+            .translation
+            .as_ref()
+            .is_some_and(|options| options.validate().is_err())
+        || !(1..=120_000).contains(&config.translation_prepare_ms)
         || config.correction.as_ref().is_some_and(|correction| {
             !correction.worker.valid() || correction.options.validate().is_err()
         })
@@ -317,7 +330,41 @@ async fn serve(
         .as_ref()
         .is_some_and(|writer| session.attach_history(writer.sink()).is_ok());
     let mt = if let Some(worker) = config.mt {
-        let dispatcher = MtDispatcher::start(worker.program, worker.args, 4, worker_slot())?;
+        let dispatcher = if let Some(options) = config.translation {
+            if options.provider == "m2m100-ct2"
+                && (!matches!(config.source_language.as_str(), "ko" | "en" | "ja")
+                    || config
+                        .target_languages
+                        .iter()
+                        .any(|target| !matches!(target.as_str(), "ko" | "en" | "ja")))
+            {
+                return Err("unsupported_local_translation_pair");
+            }
+            let prepare = WorkerRequest {
+                protocol_version: PROTOCOL_VERSION,
+                request_id: "translation-prepare".into(),
+                session_id: config.session_id.clone(),
+                session_generation: generation,
+                segment_id: "prepare".into(),
+                source_revision: 1,
+                task_kind: TaskKind::Translation,
+                source_language: config.source_language.clone(),
+                target_language: config.target_languages.first().cloned(),
+                deadline_ms: config.translation_prepare_ms,
+                payload: String::new(),
+            };
+            MtDispatcher::start_prepared(
+                worker.program,
+                worker.args,
+                worker_slot(),
+                TranslationProvider::new(options, config.context.clone())?,
+                prepare,
+                parent_closed.clone(),
+            )
+            .await?
+        } else {
+            MtDispatcher::start(worker.program, worker.args, 4, worker_slot())?
+        };
         session.enable_translation(
             &dispatcher,
             config.context.translation(),
@@ -490,6 +537,7 @@ async fn serve(
         "session_id":config.session_id,"session_generation":generation,
         "port":observer.address().port(), "observer_path":credential.path(),
         "correction_available":correction.as_ref().is_some_and(|owner| owner.available),
+        "translation_available":mt.as_ref().is_some_and(|owner| owner.available()),
         "history_available":history_attached}),
     )
     .await
@@ -563,6 +611,7 @@ async fn serve(
             json!({"type":"ack", "session_id":config.session_id,
             "session_generation":generation,"sequence":sequence,
             "serial":session.publication_serial(),
+            "translation_available":mt.as_ref().is_some_and(|owner| owner.available()),
             "history":history.as_ref().filter(|_|history_attached).map(|writer| writer.sink().metrics())}),
         )
         .await

@@ -21,10 +21,15 @@ from .m2m100_ct2 import (
 
 def validate_rust_request(request: object) -> tuple[str, SessionContext]:
     validate_inference_request(request, "translation")
+    if (request["source_language"] not in SUPPORTED_LANGUAGES
+            or request["target_language"] not in SUPPORTED_LANGUAGES):
+        raise ValueError("unsupported_local_translation_pair")
     payload = json.loads(request["payload"])
-    if (not isinstance(payload, dict) or set(payload) != {"text", "context"}
+    if (not isinstance(payload, dict)
+            or set(payload) not in ({"text", "context"}, {"text", "context", "mode"})
+            or ("mode" in payload and payload["mode"] != "prepare")
             or not isinstance(payload["text"], str)
-            or not payload["text"].strip()
+            or (payload.get("mode") != "prepare" and not payload["text"].strip())
             or len(payload["text"]) > MAX_TRANSCRIPT_TEXT_CHARS
             or not isinstance(payload["context"], dict)
             or not set(payload["context"]) <= {"preset", "glossary"}):
@@ -109,6 +114,10 @@ def main(args: list[str] | None = None) -> None:
                     raise ValueError("local translation cache is incomplete")
                 prepared = provider._prepare_sync()
             try:
+                if rust_protocol and json.loads(request["payload"]).get("mode") == "prepare":
+                    print(json.dumps({**identity, "status": "ok", "result": "ready",
+                                      "error": None}), file=output, flush=True)
+                    continue
                 candidate = provider._translate_sync(text, source, target, *prepared)
                 if rust_protocol:
                     provider._check_glossary(candidate, text, source, target, context)

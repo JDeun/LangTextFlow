@@ -24,13 +24,10 @@ from .models import (
     TranslationStatus,
 )
 from .translation import (
-    DemoTranslator,
-    M2M100CT2Translator,
-    OllamaTranslator,
-    OpenAICompatibleTranslator,
     TranslationError,
     Translator,
 )
+from .translation.factory import build_translator, validate_local_pairs
 
 
 class CaptionPipeline:
@@ -119,15 +116,7 @@ class CaptionPipeline:
 
     @staticmethod
     def _validate_local_translation_pairs(request: StartSessionRequest) -> None:
-        if request.translation_provider == "m2m100-ct2":
-            supported = {"ko", "en", "ja"}
-            if request.source_language not in supported or any(
-                target not in supported or target == request.source_language
-                for target in request.target_languages
-            ):
-                raise ValueError(
-                    "Local M2M100 supports only the six directed ko/en/ja pairs"
-                )
+        validate_local_pairs(request)
 
     async def start(self, request: StartSessionRequest) -> None:
         # Direct pipeline test doubles are allowed to supply a fake provider;
@@ -447,48 +436,7 @@ class CaptionPipeline:
         raise ValueError(f"unsupported correction provider: {provider}")
 
     def _build_translator(self, request: StartSessionRequest) -> Translator | None:
-        provider = request.translation_provider
-        if provider == "none":
-            return None
-        if provider == "m2m100-ct2":
-            # Preserve standalone builder validation used by the offline
-            # adapter and its tests, independent from runtime lifecycle.
-            self._validate_local_translation_pairs(request)
-            from .m2m100_cache import m2m100_cache_paths
-
-            model_dir, tokenizer_dir = m2m100_cache_paths(self.settings)
-            return M2M100CT2Translator(
-                model_dir=str(model_dir),
-                tokenizer_dir=str(tokenizer_dir),
-                cpu_threads=(
-                    self.settings.low_resource_cpu_threads
-                    if (request.resource_profile == "low"
-                        or self.settings.resource_profile == "low")
-                    else self.settings.local_m2m100_cpu_threads
-                ),
-            )
-        if provider == "demo":
-            return DemoTranslator()
-        if provider == "ollama":
-            return OllamaTranslator(
-                base_url=self.settings.ollama_url,
-                model=request.translation_model or self.settings.ollama_translation_model,
-                request_timeout_seconds=self.settings.ollama_translation_timeout_seconds,
-            )
-        if provider == "openai-compatible":
-            return OpenAICompatibleTranslator(
-                base_url=self.settings.openai_compatible_url,
-                model=(
-                    request.translation_model
-                    or self.settings.openai_compatible_translation_model
-                ),
-                api_key=self.settings.openai_compatible_api_key,
-                request_timeout_seconds=max(
-                    self.settings.openai_compatible_timeout_seconds,
-                    0.1,
-                ),
-            )
-        raise ValueError(f"unsupported translation provider: {provider}")
+        return build_translator(self.settings, request)
 
     async def _worker(self) -> None:
         while True:

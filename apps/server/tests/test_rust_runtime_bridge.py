@@ -22,6 +22,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from test_rust_correction_worker import ollama  # noqa: F401
+from test_translation_leaf import mt_endpoint  # noqa: F401
 
 from langtextflow import main
 from langtextflow.config import Settings
@@ -34,6 +35,7 @@ from langtextflow.runtime import CaptionRuntime
 from langtextflow.rust_runtime import (
     RustRuntimeBridge,
     _python_worker,
+    _runtime_binary,
     _source_context,
     validate_rust_request,
 )
@@ -67,6 +69,10 @@ for line in sys.stdin:
     req=json.loads(line)
     reply={k:req[k] for k in ('protocol_version','request_id','session_id',
                              'session_generation','segment_id','source_revision')}
+    if json.loads(req['payload']).get('mode')=='prepare':
+        reply.update(status='ok',result='ready',error=None)
+        print(json.dumps(reply),flush=True)
+        continue
     failed=req['target_language']=='ja'
     reply.update(status='error' if failed else 'ok',
                  result=None if failed else '한국어 번역',error='synthetic' if failed else None)
@@ -110,7 +116,7 @@ def assert_recordings(client, runtime, sid, expected):
 
 @pytest.mark.parametrize("change", [
     {"correction_provider": "unsupported"},
-    {"translation_provider": "ollama"}, {"translation_model": "path/private"},
+    {"translation_provider": "unsupported"}, {"source_language": "unknown"},
 ])
 def test_unsupported_rust_combinations_refused_without_starting_process(tmp_path, change):
     binary = tmp_path / "runtime"
@@ -126,6 +132,49 @@ async def test_rust_refusal_happens_before_history_bootstrap(tmp_path):
     with pytest.raises(ValueError, match="Rust rollout requires"):
         await runtime.start(StartSessionRequest(correction_provider="unsupported"))
     assert not runtime._initialized and not database.exists()
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_frozen_runtime_uses_bundled_executable_and_refuses_missing_helper(
+    tmp_path, monkeypatch, platform,
+):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr(sys, "platform", platform)
+    settings = Settings(runtime_core="rust")
+    with pytest.raises(ValueError, match="unavailable"):
+        validate_rust_request(settings, StartSessionRequest(**_REQUEST))
+    binary = tmp_path / "runtime" / ("langtextflow-runtime.exe" if platform == "win32"
+                                    else "langtextflow-runtime")
+    binary.parent.mkdir()
+    binary.write_bytes(b"trusted executable fixture")
+    binary.chmod(0o700)
+    validate_rust_request(settings, StartSessionRequest(**_REQUEST))
+    assert _runtime_binary(settings) == binary.resolve()
+    # The explicitly configured trusted helper still takes precedence.
+    settings.rust_runtime_binary = str(tmp_path / "absent")
+    with pytest.raises(ValueError, match="unavailable"):
+        _runtime_binary(settings)
+
+
+@pytest.mark.parametrize("module,flag", [
+    ("langtextflow.inference_worker", "--asr-inference-worker"),
+    ("langtextflow.asr_stream_worker", "--asr-stream-worker"),
+    ("langtextflow.translation.m2m100_worker", "--m2m100-worker"),
+    ("langtextflow.correction_worker", "--correction-worker"),
+    ("langtextflow.translation_worker", "--translation-worker"),
+])
+def test_frozen_leaf_dispatch_is_fixed_before_windows_venv_bootstrap(monkeypatch, module, flag):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "prefix", "frozen-application")
+    monkeypatch.setattr(sys, "base_prefix", "unrelated-base")
+    args = ["--rust-protocol", "private cache"]
+    if module == "langtextflow.translation_worker":
+        args = []
+    assert _python_worker(module, args) == {"program": sys.executable, "args": [flag, *args]}
+    with pytest.raises(ValueError, match="unsupported frozen"):
+        _python_worker("untrusted.module", [])
 
 
 def test_configured_identity_is_not_a_verified_checkpoint_or_a_local_path(tmp_path, monkeypatch):
@@ -311,6 +360,140 @@ def rust_api(monkeypatch, tmp_path):
         yield client, runtime
 
 
+@pytest.mark.parametrize("provider,unavailable", [
+    ("demo", False), ("ollama", False), ("openai-compatible", False),
+    ("ollama", True), ("openai-compatible", True),
+])
+def test_actual_general_mt_leaves_ready_state_context_and_failed_target_provenance(
+    rust_api, monkeypatch, mt_endpoint, provider, unavailable,  # noqa: F811
+):
+    client, runtime = rust_api
+    endpoint, calls, state = mt_endpoint
+    state["unavailable"] = unavailable
+    runtime.settings.ollama_url = endpoint
+    runtime.settings.openai_compatible_url = endpoint
+    runtime.settings.openai_compatible_api_key = "owned-synthetic-key"
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                _python_worker("langtextflow.translation_worker", []))
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "translation_provider": provider, "translation_model": "configured:tag",
+        "source_language": "es", "target_languages": ["fr", "en"],
+        "context": {"title": "MT title", "presenter": "Presenter", "reference_text": "r" * 5000,
+                    "glossary": [{"term": "Original", "source_language": "es",
+                                  "translations": {"fr": "Terme", "en": "Term"}}]},
+    })
+    assert started.status_code == 200, started.text
+    ready = started.json()["translation_status"]
+    assert ready["enabled"] and ready["provider"] == provider
+    assert ready["available"] is (not unavailable)
+    assert ready["model"] == ("deterministic-demo" if provider == "demo" else "configured:tag")
+    sid = started.json()["session_id"]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        assert captions.receive_json()["type"] == "snapshot"
+        assert audio.receive_json()["type"] == "audio_config"
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        event = captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+        assert event["original_text"] == "Original English source"
+        if unavailable:
+            assert set(event["translation_states"].values()) == {"failed"} and not calls
+        elif provider == "demo":
+            assert event["translations"]["fr"] == "[FR demo] Original English source"
+        else:
+            assert event["translation_states"] == {"fr": "failed", "en": "available"}
+            assert len(calls) == 2
+            prompt = json.loads(calls[0][0]["messages"][1]["content"])
+            assert prompt["reference_material"] == "r" * 5000
+            assert prompt["terminology_mappings"] == [{"source": "Original", "target": "Terme"}]
+            assert calls[0][1] == ("Bearer owned-synthetic-key" if provider == "openai-compatible"
+                                   else None)
+        assert set(event["translation_provenance"]) == {"fr", "en"}
+        assert all(value["provider"] == provider and value["verified_model"] is None
+                   for value in event["translation_provenance"].values())
+        assert endpoint not in json.dumps(event) and "owned-synthetic-key" not in json.dumps(event)
+    assert client.post("/api/v1/session/stop").status_code == 200
+    stored = runtime.history.segments(sid)[0].model_dump(mode="json")
+    assert stored["translation_provenance"] == event["translation_provenance"]
+    assert stored["translations"] == event["translations"]
+    final_status = client.get("/api/v1/state").json()["translation_status"]
+    assert final_status["available"] is (not unavailable)
+
+
+def test_actual_demo_all_ui_languages_are_admitted_without_m2m_pair_or_four_job_limit(
+    rust_api, monkeypatch,
+):
+    from langtextflow.worker_ipc import SUPPORTED_LANGUAGES
+
+    client, runtime = rust_api
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                _python_worker("langtextflow.translation_worker", []))
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    # Ten UI languages include the source, so all nine distinct targets must fit.
+    targets = sorted(SUPPORTED_LANGUAGES - {"fr"})
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "translation_provider": "demo", "source_language": "fr", "target_languages": targets,
+    })
+    assert started.status_code == 200, started.text
+    assert started.json()["translation_status"]["available"]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        captions.receive_json()
+        audio.receive_json()
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        event = captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+        assert event["translation_states"] == dict.fromkeys(targets, "available")
+        assert set(event["translations"]) == set(event["translation_provenance"]) == set(targets)
+    assert client.post("/api/v1/session/stop").status_code == 200
+
+
+def test_actual_mt_prepare_timeout_reaps_optional_provider_and_preserves_source(
+    rust_api, monkeypatch, mt_endpoint,  # noqa: F811
+):
+    client, runtime = rust_api
+    endpoint, calls, state = mt_endpoint
+    state.update(unavailable=False, prepare_delay=3.)
+    runtime.settings.ollama_url = endpoint
+    runtime.settings.provider_prepare_timeout_seconds = 2.
+
+    def commands(self, request):
+        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                _python_worker("langtextflow.translation_worker", []))
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "translation_provider": "ollama", "translation_model": "configured:tag",
+    })
+    assert started.status_code == 200, started.text
+    assert not started.json()["translation_status"]["available"]
+    with (client.websocket_connect("/ws/captions") as captions,
+          client.websocket_connect("/ws/audio") as audio):
+        captions.receive_json()
+        audio.receive_json()
+        audio.send_bytes(struct.pack("<f", .1) * 1600)
+        audio.send_text("end")
+        event = captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+        assert event["original_text"] == "Original English source"
+        assert set(event["translation_states"].values()) == {"failed"}
+    assert not calls and state["gets"] == 1
+    assert client.post("/api/v1/session/stop").status_code == 200
+    assert runtime._rust_slot._value == 1
+
+
 def test_existing_http_capture_audience_history_and_restart_with_rust_authority(rust_api):
     client, runtime = rust_api
     old_sid = None
@@ -455,6 +638,41 @@ def test_actual_primary_48k_uses_existing_audio_audience_history_and_restart(
                 assert all(row["asr_provenance"]["timeline_offset_samples"] is None
                            and row["asr_provenance"]["replay_prefix_samples"] is None
                            for row in saved)
+
+
+def test_actual_mock_and_general_demo_leaf_keep_synthetic_scope_status_and_target_identity(
+    rust_api, monkeypatch,
+):
+    client, runtime = rust_api
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", lambda self, request: (
+        None, _python_worker("langtextflow.translation_worker", []),
+    ))
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "engine": "mock", "translation_provider": "demo", "target_languages": ["ko", "fr"],
+    })
+    assert started.status_code == 200, started.text
+    state, bridge = started.json(), runtime.engine
+    assert not state["audio_required"] and not bridge.accepts_audio
+    assert state["translation_status"]["available"]
+    assert state["translation_status"]["model"] == "deterministic-demo"
+    with client.websocket_connect("/ws/captions") as captions:
+        snapshot = captions.receive_json()["segments"]
+        event = snapshot[-1] if snapshot else captions.receive_json()
+        while not event["committed"]:
+            event = captions.receive_json()
+        assert event["translation_states"] == {"ko": "available", "fr": "available"}
+        assert event["asr_provenance"]["provider"] == "mock"
+        assert event["asr_provenance"]["timestamp_basis"] == "synthetic"
+        assert event["asr_provenance"]["sample_rate"] is None
+        origins = event["translation_provenance"].values()
+        assert all(value["provider"] == "demo" for value in origins)
+        assert event["translations"]["fr"].startswith("[FR demo]")
+    assert client.post("/api/v1/session/stop").status_code == 200
+    assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+    saved = runtime.history.segments(state["session_id"])[0]
+    assert saved.translation_provenance["fr"].provider == "demo"
+    metrics = client.get("/api/v1/metrics").json()["rust_authority"]
+    assert metrics["sample"]["ingress"] is None
 
 
 def test_rust_mock_preserves_demo_cadence_targets_history_and_restart_without_pcm(
@@ -1019,7 +1237,8 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
         "inference_options": {"protocol_version": 1, "device": "auto", "compute_type": "default"},
     }
     asr = [value for value in asr_requests if json.loads(value["payload"]).get("mode") != "prepare"]
-    mt = [value for value in records if value["task_kind"] == "translation"]
+    mt = [value for value in records if value["task_kind"] == "translation"
+          and json.loads(value["payload"]).get("mode") != "prepare"]
     assert len(asr) == 1 and len(mt) == 2
     assert json.loads(asr[0]["payload"])["context"] == expected
     assert expected["description"] == "d" * 1000 and expected["reference_text"] == "r" * 2000
@@ -1135,7 +1354,7 @@ def test_cancel_during_optional_prepare_does_not_start_asr_after_parent_eof(
     client.portal.call(scenario)
 
 
-def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
+def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt_inference(
     rust_api, monkeypatch, tmp_path,
 ):
     from langtextflow import rust_runtime
@@ -1144,6 +1363,7 @@ def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
     client, runtime = rust_api
     correction_pid = tmp_path / "correction.pid"
     mt_started = tmp_path / "mt-started"
+    mt_pid = tmp_path / "mt.pid"
     worker_command = rust_runtime._python_worker
     sleeper = (
         "import json,os,sys,time\nfor line in sys.stdin:\n"
@@ -1158,9 +1378,12 @@ def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
         return worker_command(module, args)
 
     def commands(self, request):
+        mt = _MT.replace("    failed=", (
+            f"    open({str(mt_started)!r},'w').write('inference')\n    failed="
+        ))
         return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
                 {"program": sys.executable, "args": ["-u", "-c",
-                 f"open({str(mt_started)!r},'w').write('started')\n" + _MT]})
+                 "import os\n" + f"open({str(mt_pid)!r},'w').write(str(os.getpid()))\n" + mt]})
 
     monkeypatch.setattr(rust_runtime, "_python_worker", worker)
     monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
@@ -1189,6 +1412,7 @@ def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
     assert saved[0]["text"] == saved[0]["original_text"] == "Original English source"
     assert saved[0]["translation_states"] == {"ko": "failed", "ja": "failed"}
     assert not mt_started.exists() and not _pid_alive(int(correction_pid.read_text()))
+    assert not _pid_alive(int(mt_pid.read_text()))  # Prepared child is also owned/reaped.
 
 
 def test_parent_eof_preserves_known_llm_attempt_and_deterministic_result_but_not_queued_attempts(

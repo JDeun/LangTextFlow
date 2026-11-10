@@ -8,6 +8,7 @@ import pytest
 
 from langtextflow.asr.base import AsrEngineError
 from langtextflow.config import Settings
+from langtextflow.models import MAX_TARGET_LANGUAGES
 from langtextflow.runtime import CaptionRuntime
 from langtextflow.runtime_benchmark import RuntimeMetricsCollector
 from langtextflow.rust_runtime import RustRuntimeBridge
@@ -126,6 +127,18 @@ def test_session_generation_size_and_conflicting_replay_fences():
     accept(owner, frame(2))
     accept(owner, first)  # Older sequence is ignored, never installed or refreshed.
     assert owner.metrics_view().sample.sequence == 2
+
+
+def test_pending_target_population_accepts_all_retained_targets_but_stays_bounded():
+    value = frame()
+    maximum = 512 * MAX_TARGET_LANGUAGES
+    value["source"]["pending_targets"] = maximum
+    assert len(json.dumps(value).encode()) + 1 <= 4096
+    assert accept(bridge(), value).source.pending_targets == maximum
+    for invalid in (maximum + 1, -1, True):
+        value["source"]["pending_targets"] = invalid
+        with pytest.raises(ValueError):
+            accept(bridge(), value)
 
 
 def test_synthetic_source_keeps_pcm_unmeasured_in_metrics_and_collector(tmp_path):

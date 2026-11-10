@@ -1,0 +1,122 @@
+{
+  "classification": "reproduced",
+  "source_url": "https://github.com/JDeun/LangTextFlow/pull/454",
+  "issues": [
+    154,
+    158,
+    224,
+    344
+  ],
+  "scope": "One public cached-model macOS ARM64 frozen backend integration; no model selection or release qualification",
+  "binary_source_revision": "15c8e29a7d2942b0ccf2232eec7b205d6754a792",
+  "observer_source_revision": "a06f46bc43f272c4ea9f77814b8ffdda60cffc4e",
+  "binary_sha256": "9d8dd17bdc6b8bae103eab7c2c29d66d62e9f5569d742ca3c0d749eaa908b851",
+  "private_receipt_sha256": "7be9204cfe6d94d693a8e9e6515c9d12c5774a05fb7c745fa8cab6bc7b44241c",
+  "retained_private_driver": {
+    "file": "native_fullpath_probe_v3.py",
+    "sha256": "136a0a13a52f2940f8964dbe2e720904cf057a7889d6d06972967fb5b61e35f0",
+    "availability": "Owner workspace evidence; not a published reproduction script"
+  },
+  "build_environment_versions": {
+    "python": "3.12.13",
+    "pyinstaller": "6.22.3",
+    "ctranslate2": "4.8.5",
+    "faster-whisper": "1.2.1",
+    "sentencepiece": "0.2.2",
+    "transformers": "5.22.1"
+  },
+  "input": {
+    "dataset": "google/fleurs",
+    "revision": "fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+    "config": "ko_kr",
+    "split": "test",
+    "id": 1883,
+    "duration_seconds": 12.48,
+    "license": "CC-BY-4.0",
+    "source_url": "https://huggingface.co/datasets/google/fleurs/tree/fdd74f7cdf01fc7641ab3072b6a38d364b3667f6",
+    "human_reference_not_in_prompt": true
+  },
+  "models": {
+    "asr_repository": "Systran/faster-whisper-base",
+    "asr_revision": "ebe41f70d5b6dfa9166e2c581c45c9c0cfc57b66",
+    "mt_files_match_prior_receipt": true,
+    "official_mt_checkpoint_identity_verified": false
+  },
+  "verified_input_file_sha256": {
+    "asr-matched-selection/models/base-ebe41f70/model.bin": "d01c3014881c9c6f3133c182f3d2887eb6ca1c789a7538c5c007196857a0a6a9",
+    "asr-matched-selection/models/base-ebe41f70/config.json": "56a6d8110d311f19c8f0471e562832c7527f146b567275bfca59fcf7c184da9a",
+    "asr-matched-selection/models/base-ebe41f70/tokenizer.json": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+    "asr-matched-selection/models/base-ebe41f70/vocabulary.txt": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+    "multilingual-runtime-pilot-preparation/ko-1883-row-0.wav": "353bd463b9f51b720bd7f557d4be03cf33ee98e2649036852843c5afab3135de",
+    "native-mt-rejection/native-validated/model/model.bin": "a1826980fc5c037e69c7ac94fcb56c03001a66f380eb71863cc0a3879e71421b",
+    "native-mt-rejection/native-validated/model/config.json": "8f6496adfc930cbfecbe8281112197705c488fab47d34b4829b06d7f478909af",
+    "native-mt-rejection/native-validated/model/shared_vocabulary.json": "7eb5d0ff184c6095c7c10f9911c0aea492250abd12854f9c3d787c64b1c6397e",
+    "native-mt-rejection/native-validated/tokenizer/tokenizer_config.json": "a53e6aa83da0b82565ed90c3849056307a9453843322ac5b8439ec4b9497fe48",
+    "native-mt-rejection/native-validated/tokenizer/special_tokens_map.json": "c1a4f86c3874d279ae1b2a05162858db5dd6c61665d84223ed886cbcff08fda6",
+    "native-mt-rejection/native-validated/tokenizer/sentencepiece.bpe.model": "d8f7c76ed2a5e0822be39f0a4f95a55eb19c78f4593ce609e2edbc2aea4d380a",
+    "native-mt-rejection/native-validated/tokenizer/vocab.json": "b6e77e474aeea8f441363aca7614317c06381f3eacfe10fb9856d5081d1074cc"
+  },
+  "result": {
+    "source_count": 3,
+    "available_target_count": 6,
+    "recorded_pcm_sha256": "6aaa41029964099abe32008ef17ec538aa71aa480cc01568f6d64a65b25b30ab",
+    "ended_at": "2026-11-10T13:35:14.533913Z",
+    "all_observed_native_children_absent": true,
+    "all_sources_committed": true,
+    "all_six_target_states_available": true,
+    "committed_websocket_delivery_checked": true,
+    "live_and_history_caption_objects_equal": true,
+    "recorded_pcm_bytes_equal_original": true,
+    "expected_caption_stop_close": {
+      "code": 1012,
+      "reason": "caption session stopped"
+    },
+    "backend_graceful_exit_code_checked": 0,
+    "observed_processes": 7,
+    "observed_owned_processes_absent": true
+  },
+  "startup_control": {
+    "http_wall_seconds_including_prepare": 29.258778667077422,
+    "application_start_budget_seconds": 120,
+    "interpretation": "Single startup control, not decoder RTF or caption latency distribution"
+  },
+  "preserved_failed_attempts": [
+    {
+      "file": "native-fullpath-15c8e29-first.json",
+      "sha256": "b13504a3485a26ad4743e6eabf5909eb33208f9e23995b342da40e2a38f97614",
+      "result": "failed",
+      "cause": "Test driver used an unconfigured Origin; rejected before audio transmission"
+    },
+    {
+      "file": "native-fullpath-15c8e29-second.json",
+      "sha256": "79a2b526bee4f63c9d82ecac46f69ea465d4d17ca5703991e555aeeac42a9a69",
+      "result": "failed",
+      "cause": "Driver misclassified the intended stop close1012; earlier product assertions passed, but graceful backend shutdown was not reached"
+    }
+  ],
+  "other_evidence": {
+    "source_frozen_invalid_cache_controls": {
+      "file": "whisper-prepare-120s-15c8e29-first.json",
+      "sha256": "884257ef66f7d8a998cadfb44b40f4f16b89d9fb11c276468c9ba0b77c251616",
+      "source_seconds": 0.6426254995167255,
+      "frozen_seconds": 25.895419833250344
+    },
+    "application_budget_refusal_retry": {
+      "file": "probe-15c8e29-auto-refusal-app-budget.json",
+      "sha256": "f8e80c0b37131d2755927cc1a5f59887d1d286aeac53d20a4bfd88a21349df29",
+      "result": "passed"
+    }
+  },
+  "limits": [
+    "One unique public recording; successful and failed attempts are correlated repeats, not additional independent clips.",
+    "No human semantics, language/model ranking, real microphone, GPU, Windows native inference or physical 4GB/8GB qualification.",
+    "The intermediate binary reused pre-telemetry frontend assets; no packaged UI qualification.",
+    "Later main/settings/provider revisions require a freshly matched bridge/helper/UI package and their own acceptance evidence.",
+    "CT2 requested CPU/int8 and two threads describe configuration, not physical-memory fit or a measured global resource budget.",
+    "MT files match the fixed prior receipt; official checkpoint identity is not independently certified.",
+    "All process-absence claims cover observed PID/create-time identities, not unobserved descendants."
+  ],
+  "model_promoted": false,
+  "default_runtime_changed": false,
+  "release_qualified": false
+}
