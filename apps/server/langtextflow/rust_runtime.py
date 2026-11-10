@@ -74,7 +74,8 @@ def _python_worker(module: str, args: list[str]) -> dict:
 
 
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
-    if (getattr(sys, "frozen", False) or request.engine not in {"auto", "faster-whisper"}
+    if (getattr(sys, "frozen", False)
+            or request.engine not in {"auto", "faster-whisper", "vibevoice", "mock"}
             or request.correction_provider not in {"none", "ollama"}
             or request.translation_provider not in {"none", "m2m100-ct2"}
             or request.translation_model
@@ -93,7 +94,7 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or settings.max_segments != 100
             or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
         raise ValueError(
-            "Rust rollout requires source-mode CPU/int8 AUTO or faster-whisper, "
+            "Rust rollout requires source-mode CPU/int8 AUTO, VibeVoice or faster-whisper, "
             "none or Ollama correction, and none or M2M100 MT; "
             "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
         )
@@ -107,7 +108,8 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
 class RustRuntimeBridge(AsrEngine):
     """One native runtime lease, private command pipe and authorized observer relay."""
 
-    def __init__(self, publish, settings: Settings, slot: asyncio.Semaphore) -> None:
+    def __init__(self, publish, settings: Settings, slot: asyncio.Semaphore,
+                 *, accepts_audio: bool = True) -> None:
         super().__init__(publish)
         self.settings = settings
         self.slot = slot
@@ -137,9 +139,10 @@ class RustRuntimeBridge(AsrEngine):
         self._whisper_ready = True
         self._active_provider: str | None = None
         self._input_ended = False
+        self._accepts_audio = accepts_audio
 
     running = property(lambda self: self._running and not self._input_ended and not self._failure)
-    accepts_audio = property(lambda self: True)
+    accepts_audio = property(lambda self: self._accepts_audio)
     sample_rate = property(lambda self: self._sample_rate)
     queue_capacity = property(lambda self: self._queue_capacity)
     active_provider = property(lambda self: self._active_provider)
@@ -180,29 +183,30 @@ class RustRuntimeBridge(AsrEngine):
         self._metrics = frame
         self._metrics_received_at = time.monotonic()
         self._active_provider = frame.source.active_provider
-        if frame.ingress.failure is not None and not self._stopping:
+        if frame.ingress is not None and frame.ingress.failure is not None and not self._stopping:
             self._failure = _ERROR
         return frame
 
-    def _worker_commands(self, request: StartSessionRequest) -> tuple[dict, dict | None]:
+    def _worker_commands(self, request: StartSessionRequest) -> tuple[dict | None, dict | None]:
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
-        model = (self.settings.low_resource_whisper_model if low
-                 else self.settings.faster_whisper_model)
-        cache = str(managed_whisper_cache(self.settings.model_cache_dir))
-        # Resolve before starting a process; this shared lookup is local-only.
-        try:
-            model_path = str(resolve_whisper_model(model, cache))
-            self._whisper_ready = True
-        except FileNotFoundError:
-            if request.engine != "auto" or low:
-                raise
-            model_path = model
-            self._whisper_ready = False
-        asr = _python_worker("langtextflow.inference_worker", [
-            model_path, cache,
-            ("auto" if request.engine == "auto" and not low
-             else str(self.settings.low_resource_cpu_threads)),
-        ])
+        asr = None
+        self._whisper_ready = False
+        if request.engine not in {"vibevoice", "mock"}:
+            model = (self.settings.low_resource_whisper_model if low
+                     else self.settings.faster_whisper_model)
+            cache = str(managed_whisper_cache(self.settings.model_cache_dir))
+            # Explicit VibeVoice neither queries nor prepares a fallback model.
+            try:
+                model_path = str(resolve_whisper_model(model, cache))
+                self._whisper_ready = True
+            except FileNotFoundError:
+                if request.engine != "auto" or low:
+                    raise
+                model_path = model
+            asr = _python_worker("langtextflow.inference_worker", [
+                model_path, cache,
+                str(self.settings.low_resource_cpu_threads) if low else "auto",
+            ])
         mt = None
         if request.translation_provider == "m2m100-ct2":
             from .local_mt_preflight import local_m2m100_check
@@ -220,17 +224,19 @@ class RustRuntimeBridge(AsrEngine):
         return asr, mt
 
     def _auto_options(self, request: StartSessionRequest) -> dict | None:
-        if request.engine != "auto":
+        if request.engine not in {"auto", "vibevoice"}:
             return None
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         sidecar = None
-        if not low:
+        if not low or request.engine == "vibevoice":
             sidecar = {
                 **_python_worker("langtextflow.asr_stream_worker", []),
                 "endpoint": self.settings.vibevoice_url,
             }
         return {
-            "sidecar": sidecar, "whisper_ready": self._whisper_ready,
+            "policy": "vibevoice" if request.engine == "vibevoice" else "auto",
+            "sidecar": sidecar,
+            "whisper_ready": self._whisper_ready if request.engine == "auto" else False,
             "low_resource": low,
             "replay_seconds": self.settings.asr_replay_seconds,
             "health_ms": max(1, round(self.settings.asr_health_check_seconds * 1000)),
@@ -260,6 +266,7 @@ class RustRuntimeBridge(AsrEngine):
         except TimeoutError as exc:
             raise AsrEngineError(_ERROR) from exc
         self._leased = True
+        self._accepts_audio = request.engine != "mock"
         try:
             if request.translation_provider == "m2m100-ct2":
                 from .translation.m2m100_ct2 import _CHILD_SLOT
@@ -274,6 +281,7 @@ class RustRuntimeBridge(AsrEngine):
                 "target_languages": request.target_languages,
                 "database_path": str(Path(self.settings.database_path).resolve()),
                 "spool_directory": tempfile.gettempdir(), "asr": asr, "mt": mt,
+                "mock": request.engine == "mock",
                 "auto_asr": self._auto_options(request),
                 "asr_startup_ms": max(1, round(self.settings.session_start_timeout_seconds * 1000)),
                 "audio_queue_frames": min(8, self.settings.audio_queue_chunks),
@@ -303,9 +311,11 @@ class RustRuntimeBridge(AsrEngine):
                     or ready.get("metrics_protocol_version") != 1
                     or type(ready.get("sample_rate")) is not int
                     or not 8000 <= ready["sample_rate"] <= 192000
-                    or type(ready.get("queue_capacity")) is not int
-                    or not 1 <= ready["queue_capacity"] <= 8
-                    or ready.get("active_provider") not in {"vibevoice", "faster-whisper"}
+                    or (ready.get("queue_capacity") is not None if not self._accepts_audio else (
+                        type(ready.get("queue_capacity")) is not int
+                        or not 1 <= ready["queue_capacity"] <= 8))
+                    or ready.get("active_provider") not in {"vibevoice", "faster-whisper", "mock"}
+                    or (ready.get("active_provider") == "mock") != (request.engine == "mock")
                     or type(ready.get("port")) is not int or not 1 <= ready["port"] <= 65535
                     or not isinstance(ready.get("observer_path"), str)
                     or not ready["observer_path"].startswith("/ws/observer?token=")
@@ -339,6 +349,8 @@ class RustRuntimeBridge(AsrEngine):
             raise AsrEngineError(_ERROR) from exc
 
     def _configured_model(self, request: StartSessionRequest) -> str | None:
+        if request.engine in {"vibevoice", "mock"}:
+            return None
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         model = (self.settings.low_resource_whisper_model if low
                  else self.settings.faster_whisper_model)
@@ -377,6 +389,7 @@ class RustRuntimeBridge(AsrEngine):
                 return reply
 
     async def _relay(self, socket) -> None:
+        snapshot_seen = False
         try:
             async with socket:
                 async for raw in socket:
@@ -393,16 +406,36 @@ class RustRuntimeBridge(AsrEngine):
                         raise AsrEngineError(_ERROR)
                     if frame.get("type") == "transcript":
                         event = TranscriptEvent.model_validate(frame)
-                        if event.correction is not None:
-                            if event.correction.llm_attempted:
-                                self.correction_status.available = True
-                            self.correction_status.error = event.correction.fallback_reason
-                        await self.publish(event)
+                        await self._publish_relay(event)
                     elif frame.get("type") == "snapshot":
-                        # No source revisions are accepted from this audio route;
-                        # initial snapshot is empty. Reconnect never invents events.
-                        if frame.get("segments"):
+                        # The demo timer can publish before the observer connects.
+                        # Restore its bounded canonical snapshot once; real audio
+                        # still cannot produce captions before the first input.
+                        segments = frame.get("segments")
+                        if (snapshot_seen or not isinstance(segments, list)
+                                or len(segments) > 100 or (segments and self.accepts_audio)):
                             raise AsrEngineError(_ERROR)
+                        seen = set()
+                        restored = []
+                        for item in segments:
+                            if (not isinstance(item, dict)
+                                    or item.get("type") != "transcript"
+                                    or item.get("session_id") != self.session_id
+                                    or type(item.get("session_generation")) is not int
+                                    or item["session_generation"] != 1
+                                    or type(item.get("serial")) is not int
+                                    or not 1 <= item["serial"] <= frame["serial"]):
+                                raise AsrEngineError(_ERROR)
+                            event = TranscriptEvent.model_validate(item)
+                            if (event.segment_id in seen or event.asr_provenance is None
+                                    or event.asr_provenance.provider != "mock"
+                                    or event.asr_provenance.timestamp_basis != "synthetic"):
+                                raise AsrEngineError(_ERROR)
+                            seen.add(event.segment_id)
+                            restored.append(event)
+                        for event in restored:
+                            await self._publish_relay(event)
+                        snapshot_seen = True
                     else:
                         raise AsrEngineError(_ERROR)
                     async with self._observed:
@@ -417,6 +450,13 @@ class RustRuntimeBridge(AsrEngine):
                 self._failure = _ERROR
                 if self._process is not None:
                     self._process.stdin.close()
+
+    async def _publish_relay(self, event: TranscriptEvent) -> None:
+        if event.correction is not None:
+            if event.correction.llm_attempted:
+                self.correction_status.available = True
+            self.correction_status.error = event.correction.fallback_reason
+        await self.publish(event)
 
     async def _command(self, tag: int, frame: bytes = b"") -> None:
         if self._process is None or self._failure or self._process.returncode is not None:
@@ -459,12 +499,14 @@ class RustRuntimeBridge(AsrEngine):
             raise
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
-        if not self.running or not 0 < len(pcm_f32le) <= _MAX_FRAME or len(pcm_f32le) % 4:
+        if (not self.accepts_audio or not self.running
+                or not 0 < len(pcm_f32le) <= _MAX_FRAME or len(pcm_f32le) % 4):
             raise AsrEngineError(_ERROR)
         await self._command(1, pcm_f32le)
 
     async def end_audio(self) -> None:
-        await self._command(2)
+        if self.accepts_audio:
+            await self._command(2)
 
     async def stop(self) -> None:
         if self._cleanup is None:

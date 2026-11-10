@@ -8,6 +8,7 @@ pub mod caption_events;
 pub mod correction_slice;
 pub mod history;
 pub mod mt_slice;
+mod mock_source;
 pub mod observer_ws;
 pub mod pcm_ingress;
 pub mod runtime_control;

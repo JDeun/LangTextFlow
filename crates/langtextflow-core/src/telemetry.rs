@@ -187,7 +187,7 @@ pub(crate) struct MetricsFrame {
     #[serde(rename = "final")]
     pub final_sample: bool,
     pub stop_error: Option<&'static str>,
-    pub ingress: IngressMetrics,
+    pub ingress: Option<IngressMetrics>,
     pub source: SourceMetrics,
     pub correction: Option<QueueSnapshot>,
     pub translation: Option<QueueSnapshot>,
@@ -210,7 +210,7 @@ pub(crate) struct MetricsSources {
     pub session: AsrSession,
     pub session_id: String,
     pub generation: u64,
-    pub input: PcmInput,
+    pub input: Option<PcmInput>,
     pub correction: Option<QueueTelemetry>,
     pub translation: Option<(QueueTelemetry, usize)>,
     pub history: Option<HistorySink>,
@@ -233,7 +233,7 @@ impl MetricsSources {
                 .map_err(|_| "clock_format")?,
             final_sample,
             stop_error,
-            ingress: self.input.metrics(),
+            ingress: self.input.as_ref().map(PcmInput::metrics),
             source: self.session.source_metrics(),
             correction: self.correction.as_ref().map(|queue| queue.snapshot(4)),
             translation: self
@@ -354,10 +354,10 @@ mod tests {
             sampled_at: "2026-11-10T00:00:00Z".into(),
             final_sample: false,
             stop_error: None,
-            ingress: IngressMetrics {
+            ingress: Some(IngressMetrics {
                 queue_capacity: 8,
                 ..Default::default()
-            },
+            }),
             source: SourceMetrics {
                 active_window: false,
                 pending_corrections: 0,
@@ -393,7 +393,7 @@ mod tests {
         };
         frame.correction = Some(queue.clone());
         frame.translation = Some(queue);
-        frame.ingress = IngressMetrics {
+        frame.ingress = Some(IngressMetrics {
             accepted_frames: MAX_COUNT,
             accepted_samples: MAX_COUNT,
             processed_samples: MAX_COUNT,
@@ -407,7 +407,7 @@ mod tests {
             rms_dbfs: Some(-99.12345678901235),
             voice_active: true,
             failure: Some("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
-        };
+        });
         frame.history = Some(HistoryMetrics {
             accepted: MAX_COUNT,
             persisted: MAX_COUNT,

@@ -48,7 +48,9 @@ struct Config {
     target_languages: Vec<String>,
     database_path: String,
     spool_directory: PathBuf,
-    asr: Worker,
+    asr: Option<Worker>,
+    #[serde(default)]
+    mock: bool,
     #[serde(default)]
     auto_asr: Option<crate::auto_asr::AutoOptions>,
     #[serde(default = "default_startup_ms")]
@@ -83,6 +85,44 @@ enum Command {
     Audio(Vec<u8>),
     End,
     Stop,
+}
+
+enum SourceOwner {
+    Audio(PcmIngress),
+    Mock(crate::mock_source::MockSource),
+}
+
+impl SourceOwner {
+    fn input(&self) -> Option<crate::pcm_ingress::PcmInput> {
+        match self {
+            Self::Audio(owner) => Some(owner.input()),
+            Self::Mock(_) => None,
+        }
+    }
+    fn cleanup_path(&self) -> Option<PathBuf> {
+        match self {
+            Self::Audio(owner) => Some(owner.cleanup_path().to_owned()),
+            Self::Mock(_) => None,
+        }
+    }
+    fn failure(&self) -> Option<watch::Receiver<Option<&'static str>>> {
+        match self {
+            Self::Mock(owner) => Some(owner.failure.clone()),
+            Self::Audio(_) => None,
+        }
+    }
+    async fn finish(self) -> Result<(), &'static str> {
+        match self {
+            Self::Audio(owner) => owner.finish().await.map(|_| ()),
+            Self::Mock(owner) => owner.stop().await,
+        }
+    }
+    async fn cancel(self) -> Result<(), &'static str> {
+        match self {
+            Self::Audio(owner) => owner.cancel().await.map(|_| ()),
+            Self::Mock(owner) => owner.stop().await,
+        }
+    }
 }
 
 /// A full command is read and size-checked before admission. A second queued
@@ -172,7 +212,16 @@ pub fn run_stdio() -> Result<(), &'static str> {
     if config.protocol_version != 1
         || config.session_id.is_empty()
         || config.session_id.len() > 64
-        || !config.asr.valid()
+        || config.asr.as_ref().is_some_and(|worker| !worker.valid())
+        || (config.asr.is_none()
+            && !config.mock
+            && config.auto_asr.as_ref().is_none_or(|options| {
+                options.policy != crate::auto_asr::StreamingPolicy::VibeVoice
+            }))
+        || (config.mock
+            && (config.asr.is_some()
+                || config.auto_asr.is_some()
+                || config.asr_model_identity.is_some()))
         || config
             .auto_asr
             .as_ref()
@@ -320,27 +369,31 @@ async fn serve(
     let asr_slot = worker_slot();
     let args = config
         .asr
-        .args
-        .iter()
-        .map(String::as_str)
-        .collect::<Vec<_>>();
+        .as_ref()
+        .map(|worker| worker.args.iter().map(String::as_str).collect::<Vec<_>>())
+        .unwrap_or_default();
+    let whisper_program = config.asr.as_ref().map(|worker| worker.program.as_str());
     let startup = async {
-        if let Some(options) = config.auto_asr {
+        if config.mock {
+            crate::mock_source::MockSource::start(session.clone(), generation)
+                .map(SourceOwner::Mock)
+        } else if let Some(options) = config.auto_asr {
             crate::auto_ingress::start(
                 session.clone(),
                 &config.source_language,
                 options,
-                &config.asr.program,
+                whisper_program,
                 &args,
                 asr_slot.clone(),
                 &config.spool_directory,
             )
             .await
+            .map(SourceOwner::Audio)
         } else {
             PcmIngress::start_prepared(
                 session.clone(),
                 &config.source_language,
-                &config.asr.program,
+                whisper_program.ok_or("asr_worker_missing")?,
                 &args,
                 asr_slot.clone(),
                 &config.spool_directory,
@@ -348,6 +401,7 @@ async fn serve(
                 config.audio_queue_frames,
             )
             .await
+            .map(SourceOwner::Audio)
         }
     };
     let started = match select(Box::pin(startup), Box::pin(parent_closed.changed())).await {
@@ -385,7 +439,8 @@ async fn serve(
         }
     };
     let input = ingress.as_ref().unwrap().input();
-    let cleanup_path = ingress.as_ref().unwrap().cleanup_path().to_owned();
+    let cleanup_path = ingress.as_ref().unwrap().cleanup_path();
+    let mut mock_failure = ingress.as_ref().unwrap().failure();
     let mut sampler = MetricsSampler::start(MetricsSources {
         session: session.clone(),
         session_id: config.session_id.clone(),
@@ -404,7 +459,8 @@ async fn serve(
         &output,
         json!({"type":"ready", "protocol_version":1,
         "metrics_protocol_version":1,
-        "sample_rate":input.sample_rate(), "queue_capacity":input.metrics().queue_capacity,
+        "sample_rate":input.as_ref().map_or(16000, |input| input.sample_rate()),
+        "queue_capacity":input.as_ref().map(|input| input.metrics().queue_capacity),
         "active_provider":session.source_metrics().active_provider.unwrap_or("faster-whisper"),
         "session_id":config.session_id,"session_generation":generation,
         "port":observer.address().port(), "observer_path":credential.path(),
@@ -420,19 +476,39 @@ async fn serve(
         if *parent_closed.borrow() || failure.is_some() {
             break;
         }
-        let command =
-            match select(Box::pin(commands.recv()), Box::pin(parent_closed.changed())).await {
+        let receive = select(Box::pin(commands.recv()), Box::pin(parent_closed.changed()));
+        let command = match select(
+            Box::pin(receive),
+            Box::pin(crate::mock_source::failure(&mut mock_failure)),
+        )
+        .await
+        {
+            Either::Right((error, _)) => {
+                failure = Some(error);
+                source_failure = true;
+                break;
+            }
+            Either::Left((received, _)) => match received {
                 Either::Left((Some(command), _)) => command,
                 _ => break,
-            };
+            },
+        };
         sequence += 1;
         let stop = matches!(command, Command::Stop);
         let operation = async {
             match command {
-                Command::Audio(frame) => input.feed(&frame).await?,
+                Command::Audio(frame) => {
+                    input
+                        .as_ref()
+                        .ok_or("audio_not_supported")?
+                        .feed(&frame)
+                        .await?
+                }
                 Command::End | Command::Stop => {
-                    if let Some(owner) = ingress.take() {
-                        owner.finish().await?;
+                    if !config.mock || stop {
+                        if let Some(owner) = ingress.take() {
+                            owner.finish().await?;
+                        }
                     }
                     let deadline = Instant::now()
                         + Duration::from_millis(
@@ -503,7 +579,7 @@ async fn serve(
             cleanup_ok = false;
         }
     }
-    if !confirm_audio_cleanup(&asr_slot, Some(&cleanup_path)).await {
+    if !confirm_audio_cleanup(&asr_slot, cleanup_path.as_deref()).await {
         failure.get_or_insert("audio_cleanup_unconfirmed");
         cleanup_ok = false;
     }

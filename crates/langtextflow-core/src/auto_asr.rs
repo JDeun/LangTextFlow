@@ -60,6 +60,8 @@ impl StreamOptions {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AutoOptions {
+    #[serde(default)]
+    pub policy: StreamingPolicy,
     pub sidecar: Option<StreamOptions>,
     pub whisper_ready: bool,
     pub low_resource: bool,
@@ -67,6 +69,15 @@ pub struct AutoOptions {
     pub health_ms: u64,
     pub startup_ms: u64,
     pub queue_frames: usize,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamingPolicy {
+    #[default]
+    Auto,
+    #[serde(rename = "vibevoice")]
+    VibeVoice,
 }
 
 impl AutoOptions {
@@ -78,7 +89,9 @@ impl AutoOptions {
             && (1..=60_000).contains(&self.health_ms)
             && (1..=600_000).contains(&self.startup_ms)
             && self.sidecar.as_ref().is_none_or(StreamOptions::valid)
-            && if self.low_resource {
+            && if self.policy == StreamingPolicy::VibeVoice {
+                self.sidecar.is_some() && !self.whisper_ready
+            } else if self.low_resource {
                 self.sidecar.is_none() && self.whisper_ready
             } else {
                 self.sidecar.is_some()
@@ -853,6 +866,7 @@ print(json.dumps({'unicode_version':unicodedata.unidata_version,
     #[test]
     fn low_policy_can_never_carry_a_sidecar_or_an_unprepared_whisper() {
         let mut options = AutoOptions {
+            policy: StreamingPolicy::Auto,
             queue_frames: 3,
             sidecar: None,
             whisper_ready: true,
@@ -870,6 +884,11 @@ print(json.dumps({'unicode_version':unicodedata.unidata_version,
             args: vec![],
             endpoint: "http://127.0.0.1:8001".into(),
         });
+        assert!(!options.valid());
+        options.policy = StreamingPolicy::VibeVoice;
+        options.whisper_ready = false;
+        assert!(options.valid());
+        options.whisper_ready = true;
         assert!(!options.valid());
     }
 

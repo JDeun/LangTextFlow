@@ -48,6 +48,10 @@ export async function runTelemetryChecks(locale: Locale) {
   const sample: NonNullable<RustAuthorityMetrics["sample"]> = {
     session_id: "owned-fixture", session_generation: 1, sequence: 1,
     sampled_at: "2026-11-10T00:00:00Z", final: false, stop_error: null,
+    ingress: { accepted_frames: 0, accepted_samples: 0, processed_samples: 0,
+      decoded_windows: 0, empty_windows: 0, queue_high_watermark: 2, queue_depth: 0,
+      queue_capacity: 8, backpressure_events: 0, clipped_samples: 0,
+      rms_dbfs: null, voice_active: false, failure: null },
     correction: { queued: 0, active: 0, capacity: 4, high: 1, admitted: 1, succeeded: 1,
       failed: 0, expired: 0, cancelled: 0, overflow: 0, unavailable: 0, wait_samples: 1,
       wait_p50_ms: 1.5, wait_p95_ms: 1.5 },
@@ -70,17 +74,21 @@ export async function runTelemetryChecks(locale: Locale) {
     dispose = () => {};
   };
   try {
-    for (const status of ["not_sampled", "stale", "unavailable", "fresh", "final"] as const) {
+    for (const variant of ["not_sampled", "stale", "unavailable", "fresh", "final", "synthetic"] as const) {
+      const status = variant === "synthetic" ? "fresh" : variant;
+      const synthetic = variant === "synthetic";
       const measured = status === "fresh" || status === "final";
       metrics.asr_running = status !== "final";
       metrics.rust_authority = { status, age_ms: status === "not_sampled" ? null : status === "fresh" ? 25 : 2000,
-        sample: status === "not_sampled" ? null : { ...sample, final: status === "final" } };
-      metrics.asr_queue_depth = measured ? 0 : null;
-      metrics.asr_queue_capacity = measured ? 8 : null;
-      metrics.asr_queue_high_watermark = measured ? 2 : null;
+        sample: status === "not_sampled" ? null : { ...sample, final: status === "final",
+          ingress: synthetic ? null : sample.ingress } };
+      metrics.asr_provider = synthetic ? "mock" : "faster-whisper";
+      metrics.asr_queue_depth = measured && !synthetic ? 0 : null;
+      metrics.asr_queue_capacity = measured && !synthetic ? 8 : null;
+      metrics.asr_queue_high_watermark = measured && !synthetic ? 2 : null;
       metrics.postprocess_queue_depth = measured ? 0 : null;
       metrics.postprocess_queue_capacity = measured ? 10 : null;
-      flushSync(() => root.render(<LocaleProvider><TelemetryPanel key={status} apiUrl="" running={status !== "final"} /></LocaleProvider>));
+      flushSync(() => root.render(<LocaleProvider><TelemetryPanel key={variant} apiUrl="" running={status !== "final"} /></LocaleProvider>));
       const label = { not_sampled: copy.metricsNotSampled, stale: copy.metricsStale,
         unavailable: copy.metricsUnavailable, fresh: copy.metricsFresh, final: copy.metricsFinal }[status];
       await until(() => Boolean(host.querySelector("[data-testid='native-metrics-status']")?.textContent?.includes(label)));
@@ -91,9 +99,11 @@ export async function runTelemetryChecks(locale: Locale) {
       if (measured) assert(post.classList.contains("warning"), "failed target job did not warn");
       assert(host.scrollWidth <= host.clientWidth + 1, "native metrics overflow the shipped width");
       assert(!host.textContent?.includes("NaN"), "nullable metric rendered NaN");
+      if (synthetic) assert(host.querySelector(".telemetry-grid > .telemetry-metric > strong")?.textContent === "—",
+        "synthetic source fabricated a measured PCM queue");
     }
     // Keep only this owned fixture mounted until the runner captures its image.
-    return `five native availability states; locale=${locale}; width=${innerWidth}`;
+    return `five native availability states plus synthetic PCM absence; locale=${locale}; width=${innerWidth}`;
   } catch (error) {
     dispose();
     throw error;
