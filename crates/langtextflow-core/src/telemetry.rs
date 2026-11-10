@@ -430,7 +430,7 @@ mod tests {
             connected: 8,
         };
         frame.source.pending_corrections = 512;
-        frame.source.pending_targets = 1024;
+        frame.source.pending_targets = 512 * 10;
         frame.stop_error = Some("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
         let size = frame.raw().unwrap().get().len() + 1;
         assert!(
