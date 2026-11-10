@@ -453,7 +453,7 @@ def test_backend_requires_two_refusals_ended_sqlite_and_same_healthy_backend(
         elif path.endswith("/shutdown"):
             process.returncode = 0
         response = BytesIO(json.dumps(value).encode())
-        response.getcode = lambda: 200
+        response.getcode = lambda: 202 if path.endswith("/shutdown") else 200
         return response
 
     monkeypatch.setattr(smoke, "build_opener", lambda *args: SimpleNamespace(open=open_request))
