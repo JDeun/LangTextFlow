@@ -93,6 +93,12 @@ The [Mac ARM64 receipt](../knowledge/raw/2026-11-10-frozen-rust-idle-wiring.json
 records passing worker controls and two owned start/stop/restart cycles at source
 `700600a`, alongside the earlier failed PyInstaller 6.22.2 attempt. Windows and
 actual cached-model execution remain separate acceptance checks.
+The later [native frozen control](../knowledge/raw/2026-11-10-frozen-rust-native-control.json)
+at backend source `15c8e29` used one public KO clip and fixed cached base/M2M
+files: three committed sources, six available targets, matching live/history
+captions and recorded PCM, observed worker cleanup and graceful backend exit.
+This is one backend wiring control with earlier frontend assets. It does not
+qualify later settings/provider revisions, packaged UI, model quality or release.
 
 One Rust process lease spans startup, capture and owned stop. New starts wait for
 prior source cleanup. Parent EOF interrupts blocked feed/drain, revokes authority,
