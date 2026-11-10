@@ -20,6 +20,7 @@ def validate_request(request: object) -> tuple[str, str, SessionContext, dict]:
     validate_inference_request(request, "translation")
     payload = json.loads(request["payload"])
     if (not isinstance(payload, dict) or set(payload) != {"mode", "text", "context", "options"}
+            or not isinstance(payload["mode"], str)
             or payload["mode"] not in {"prepare", "translate"}
             or not isinstance(payload["text"], str)
             or len(payload["text"]) > MAX_TRANSCRIPT_TEXT_CHARS
@@ -32,6 +33,7 @@ def validate_request(request: object) -> tuple[str, str, SessionContext, dict]:
     options = payload["options"]
     if (not isinstance(options, dict)
             or set(options) != {"provider", "url", "model", "api_key", "timeout_seconds"}
+            or not isinstance(options["provider"], str)
             or options["provider"] not in {"demo", "ollama", "openai-compatible"}
             or not isinstance(options["url"], str) or len(options["url"]) > 4096
             or not isinstance(options["model"], str) or not 1 <= len(options["model"]) <= 200

@@ -392,9 +392,15 @@ class RustRuntimeBridge(AsrEngine):
         if type(reply.get("translation_available")) is not bool:
             raise AsrEngineError(_ERROR)
         self.translation_status.available = reply["translation_available"]
+        self._translation_error()
+
+    def _translation_error(self) -> None:
         self.translation_status.error = (
             "translation provider unavailable" if self.translation_status.enabled
-            and not self.translation_status.available else None
+            and not self.translation_status.available else "; ".join(
+                f"{target}: {reason}"
+                for target, reason in self.translation_status.errors_by_language.items()
+            ) or None
         )
 
     async def _reply(self, kind: str, budget: float = _CONTROL_BUDGET) -> dict:
@@ -446,6 +452,7 @@ class RustRuntimeBridge(AsrEngine):
                             for target, state in event.translation_states.items()
                             if state in {"failed", "timed_out"}
                         }
+                        self._translation_error()
                         if event.correction is not None:
                             if event.correction.llm_attempted:
                                 self.correction_status.available = True

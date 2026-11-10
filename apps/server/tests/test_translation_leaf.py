@@ -101,7 +101,8 @@ def test_one_shared_snapshot_preserves_exact_existing_asr_correction_and_mt_prom
 @pytest.fixture
 def mt_endpoint():
     records = []
-    state = {"unavailable": True, "prepare_delay": 0., "delay": 0., "gets": 0}
+    state = {"unavailable": True, "prepare_delay": 0., "delay": 0., "gets": 0,
+             "fail_post": False}
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -124,6 +125,10 @@ def mt_endpoint():
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             records.append((body, self.headers.get("Authorization")))
             time.sleep(state["delay"])
+            if state["fail_post"]:
+                self.send_response(503)
+                self.end_headers()
+                return
             output = "" if len(records) == 1 else "traduction française"
             self.send_response(200)
             self.end_headers()
@@ -183,9 +188,12 @@ async def test_actual_leaf_prepare_failure_request_rejection_and_next_success_re
             assert rejected["result"] == "[FR demo] 원문"
         else:
             assert rejected["error"] == "translation_rejected" and rejected["result"] is None
-        assert (await send("translate", serial=4))["error"] is None
+            state["fail_post"] = True
+            assert (await send("translate", serial=4))["error"] == "translation_provider_failed"
+            state["fail_post"] = False
+        assert (await send("translate", serial=5))["error"] is None
         if provider != "demo":
-            assert len(records) == 2
+            assert len(records) == 3
             assert records[0][1] == ("Bearer owned-synthetic-key" if provider == "openai-compatible"
                                      else None)
         process.stdin.close()
@@ -193,5 +201,41 @@ async def test_actual_leaf_prepare_failure_request_rejection_and_next_success_re
         assert await process.stderr.read() == b""
     finally:
         if process is not None and process.returncode is None:
+            process.kill()
+            await process.wait()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["prepare", "translate"])
+async def test_parent_eof_interrupts_actual_http_leaf_without_waiting_for_request(
+    mode, mt_endpoint,
+):
+    endpoint, calls, state = mt_endpoint
+    state["unavailable"] = False
+    options = {"provider": "ollama", "url": endpoint, "model": "configured:tag",
+               "api_key": "", "timeout_seconds": 20}
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "langtextflow.translation_worker",
+        stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
+    )
+    try:
+        if mode == "translate":
+            process.stdin.write((json.dumps(request(options, "prepare")) + "\n").encode())
+            await process.stdin.drain()
+            reply = json.loads(await asyncio.wait_for(process.stdout.readline(), 3))
+            assert reply["result"] == "ready"
+        state["prepare_delay" if mode == "prepare" else "delay"] = 1.
+        process.stdin.write((json.dumps(request(options, mode)) + "\n").encode())
+        await process.stdin.drain()
+        async with asyncio.timeout(3):
+            while not (state["gets"] if mode == "prepare" else calls):
+                await asyncio.sleep(.005)
+        process.stdin.close()
+        assert await asyncio.wait_for(process.wait(), .8) == 0
+        assert await process.stdout.read() == await process.stderr.read() == b""
+    finally:
+        if process.returncode is None:
             process.kill()
             await process.wait()

@@ -967,7 +967,7 @@ def test_cancel_during_optional_prepare_does_not_start_asr_after_parent_eof(
     client.portal.call(scenario)
 
 
-def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
+def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt_inference(
     rust_api, monkeypatch, tmp_path,
 ):
     from langtextflow import rust_runtime
@@ -976,6 +976,7 @@ def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
     client, runtime = rust_api
     correction_pid = tmp_path / "correction.pid"
     mt_started = tmp_path / "mt-started"
+    mt_pid = tmp_path / "mt.pid"
     worker_command = rust_runtime._python_worker
     sleeper = (
         "import json,os,sys,time\nfor line in sys.stdin:\n"
@@ -990,9 +991,12 @@ def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
         return worker_command(module, args)
 
     def commands(self, request):
+        mt = _MT.replace("    failed=", (
+            f"    open({str(mt_started)!r},'w').write('inference')\n    failed="
+        ))
         return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
                 {"program": sys.executable, "args": ["-u", "-c",
-                 f"open({str(mt_started)!r},'w').write('started')\n" + _MT]})
+                 "import os\n" + f"open({str(mt_pid)!r},'w').write(str(os.getpid()))\n" + mt]})
 
     monkeypatch.setattr(rust_runtime, "_python_worker", worker)
     monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
@@ -1021,6 +1025,7 @@ def test_parent_eof_preserves_terminal_raw_history_without_starting_queued_mt(
     assert saved[0]["text"] == saved[0]["original_text"] == "Original English source"
     assert saved[0]["translation_states"] == {"ko": "failed", "ja": "failed"}
     assert not mt_started.exists() and not _pid_alive(int(correction_pid.read_text()))
+    assert not _pid_alive(int(mt_pid.read_text()))  # Prepared child is also owned/reaped.
 
 
 def test_parent_eof_preserves_known_llm_attempt_and_deterministic_result_but_not_queued_attempts(
