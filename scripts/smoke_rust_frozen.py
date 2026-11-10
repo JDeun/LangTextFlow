@@ -24,6 +24,8 @@ from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
 
 FRAME_LIMIT = 128 * 1024
+SESSION_START_SECONDS = 120
+START_REQUEST_SECONDS = SESSION_START_SECONDS + 15  # Existing bounded control cleanup.
 IDENTITY = ("protocol_version", "request_id", "session_id", "session_generation",
             "segment_id", "source_revision")
 
@@ -274,9 +276,9 @@ def observed_start_refusal(owned: Owned, graph_log, operation) -> dict:
     direct = None
     thread.start()
     try:
-        # The HTTP operation has the original 30s timeout. This does not extend
-        # that gate or introduce an artificial child lifetime for observation.
-        deadline = time.monotonic() + 30
+        # Prepare now imports native modules before refusing a corrupt cache.
+        # Match the configured application start budget plus control cleanup.
+        deadline = time.monotonic() + START_REQUEST_SECONDS + 1
         while True:
             rows = owned.snapshot()
             record_process_graph(rows, graph_log)
@@ -417,6 +419,7 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
                 "LANGTEXTFLOW_FASTER_WHISPER_COMPUTE_TYPE": "int8",
                 "LANGTEXTFLOW_FASTER_WHISPER_CHUNK_SECONDS": "4",
                 "LANGTEXTFLOW_MAX_SEGMENTS": "100"})
+    env["LANGTEXTFLOW_SESSION_START_TIMEOUT_SECONDS"] = str(SESSION_START_SECONDS)
     opener = build_opener(ProxyHandler({}), NoRedirect())
     log = (root / "backend.log").open("xb")
     graph_log = (root / "backend-process-graph.log").open("x", encoding="utf-8")
@@ -435,7 +438,9 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
         operation = Request(f"http://127.0.0.1:{port}" + path, data=body,
                             headers={"Content-Type": "application/json"})
         try:
-            response = opener.open(operation, timeout=30)
+            response = opener.open(
+                operation, timeout=START_REQUEST_SECONDS if path.endswith("/start") else 30,
+            )
         except HTTPError as exc:
             response = exc
         with response:

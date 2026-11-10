@@ -433,8 +433,8 @@ def test_backend_requires_two_refusals_ended_sqlite_and_same_healthy_backend(
         database.execute("CREATE TABLE sessions(session_id TEXT, ended_at TEXT)")
 
     def open_request(request, timeout):
-        assert timeout == 30
         path = request.full_url.split(":4242")[1]
+        assert timeout == (smoke.START_REQUEST_SECONDS if path.endswith("/start") else 30)
         calls.append(path)
         value = {"status": "ok"}
         if path.endswith("/start"):
