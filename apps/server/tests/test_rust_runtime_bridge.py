@@ -178,6 +178,20 @@ def test_explicit_vibevoice_does_not_query_whisper_cache_even_in_low_profile(mon
         assert bridge._configured_model(request) is None
 
 
+def test_mock_bootstrap_has_no_asr_worker_model_lookup_or_streaming_sidecar(monkeypatch):
+    from langtextflow import rust_runtime
+
+    def forbidden(*args):
+        pytest.fail("synthetic source must not query a native model")
+
+    monkeypatch.setattr(rust_runtime, "resolve_whisper_model", forbidden)
+    bridge = RustRuntimeBridge(None, Settings(), asyncio.Semaphore(1), accepts_audio=False)
+    request = StartSessionRequest(engine="mock", translation_provider="none")
+    assert bridge._worker_commands(request) == (None, None)
+    assert bridge._auto_options(request) is bridge._configured_model(request) is None
+    assert not bridge.accepts_audio
+
+
 def test_windows_venv_worker_bootstrap_owns_actual_python_pid_and_keeps_site(tmp_path, monkeypatch):
     import importlib.metadata
     import sysconfig
@@ -237,8 +251,10 @@ def rust_api(monkeypatch, tmp_path):
             await asyncio.wait_for(runtime.shutdown(), 20)
 
     def commands(self, request):
-        return ({"program": sys.executable, "args": ["-u", "-c", _ASR]},
-                {"program": sys.executable, "args": ["-u", "-c", _MT]})
+        return (None if request.engine == "mock" else
+                {"program": sys.executable, "args": ["-u", "-c", _ASR]},
+                {"program": sys.executable, "args": ["-u", "-c", _MT]}
+                if request.translation_provider != "none" else None)
 
     original_start = runtime.pipeline.start
     original_ingest = runtime.pipeline.ingest
@@ -412,6 +428,94 @@ def test_actual_primary_48k_uses_existing_audio_audience_history_and_restart(rus
             if engine == "vibevoice":
                 assert all(row["asr_provenance"]["timeline_offset_samples"] is None
                            and row["asr_provenance"]["replay_prefix_samples"] is None for row in saved)
+
+
+def test_rust_mock_preserves_demo_cadence_targets_history_and_restart_without_pcm(rust_recording_api):
+    from langtextflow.asr.mock import SAMPLES
+
+    client, runtime = rust_recording_api
+    old_sid = None
+    for cycle in range(2):
+        started = client.post("/api/v1/session/start", json=_REQUEST | {"engine": "mock"})
+        assert started.status_code == 200, started.text
+        state, bridge = started.json(), runtime.engine
+        sid = state["session_id"]
+        assert sid != old_sid and state["running"] and not state["audio_required"]
+        assert state["engine"] == "mock" and not bridge.accepts_audio
+        assert not client.get("/api/v1/session/recording").json()["available"]
+        refused = client.post("/api/v1/session/start", json=_REQUEST | {
+            "engine": "mock", "record_audio": True,
+        })
+        assert refused.status_code == 400 and runtime.engine is bridge
+        with pytest.raises(RuntimeError, match="no active audio ASR session"):
+            client.portal.call(runtime.feed_audio, struct.pack("<f", .1) * 160)
+        client.portal.call(runtime.end_audio)
+        assert bridge.running  # End-of-microphone is a no-op for the timer source.
+        with client.websocket_connect(f"/ws/audience/{state['join_code']}") as audience:
+            snapshot = audience.receive_json()["segments"]
+            partial = snapshot[0] if snapshot else audience.receive_json()
+            assert partial["stage"] == "partial" and partial["version"] == 1
+            assert partial["segment_id"] == "demo-000-00" and partial["text"] == SAMPLES[0][:-3]
+            assert partial["confidence"] == .72
+            assert partial["original_text"] is partial["end_ms"] is None
+            assert partial["translation_states"] == partial["translations"] == {}
+            events = []
+            while not events or not events[-1]["committed"]:
+                events.append(audience.receive_json())
+            stable, final = events[0], events[-1]
+            assert stable["stage"] == "stable" and stable["version"] == 2
+            assert stable["text"] == stable["original_text"] == SAMPLES[0]
+            assert (stable["start_ms"], stable["end_ms"], stable["confidence"]) == (0, 5000, .93)
+            assert final["translation_states"] == {"ko": "available", "ja": "failed"}
+            if cycle == 0:
+                next_partial = audience.receive_json()
+                assert next_partial["segment_id"] == "demo-000-01"
+                assert next_partial["stage"] == "partial" and next_partial["start_ms"] == 6000
+                assert next_partial["text"] == SAMPLES[1][:-3]
+                while True:
+                    third = audience.receive_json()
+                    if third["segment_id"] == "demo-000-02":
+                        break
+                assert third["stage"] == "partial" and third["start_ms"] == 12000
+                assert third["text"] == SAMPLES[2][:-3]
+        assert client.post("/api/v1/session/stop").status_code == 200
+        assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
+        metrics = client.get("/api/v1/metrics").json()
+        assert metrics["rust_authority"]["status"] == "final"
+        sample = metrics["rust_authority"]["sample"]
+        assert sample["ingress"] is metrics["asr_queue_depth"] is metrics["asr_queue_capacity"] is None
+        assert sample["source"]["active_provider"] == "mock"
+        saved = client.get(f"/api/v1/history/{sid}/captions").json()
+        assert saved[0]["text"] == SAMPLES[0] and saved[0]["committed"]
+        for row in saved:
+            origin = row["asr_provenance"]
+            assert origin["provider"] == "mock" and origin["timestamp_basis"] == "synthetic"
+            assert all(origin[key] is None for key in (
+                "sample_rate", "audio_chunk_start_sample", "audio_chunk_end_sample",
+                "configured_model", "verified_model", "auto_generation", "timeline_offset_samples",
+                "replay_prefix_samples",
+            ))
+        assert client.get(f"/api/v1/history/{sid}").json()["ended_at"] is not None
+        assert runtime.archive.recordings(sid) == []
+        old_sid = sid
+
+
+def test_rust_mock_stop_during_partial_does_not_invent_stable_or_committed_source(rust_api):
+    client, runtime = rust_api
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "engine": "mock", "translation_provider": "none",
+    })
+    assert started.status_code == 200, started.text
+    state, bridge = started.json(), runtime.engine
+    with client.websocket_connect(f"/ws/audience/{state['join_code']}") as audience:
+        snapshot = audience.receive_json()["segments"]
+        partial = snapshot[0] if snapshot else audience.receive_json()
+        assert partial["stage"] == "partial"
+        assert client.post("/api/v1/session/stop").status_code == 200
+    saved = client.get(f"/api/v1/history/{state['session_id']}/captions").json()
+    assert len(saved) == 1 and saved[0]["stage"] == "partial" and not saved[0]["committed"]
+    assert saved[0]["version"] == 1 and saved[0]["original_text"] is saved[0]["end_ms"] is None
+    assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
 
 
 def test_actual_auto_disconnect_replays_without_python_pipeline_or_metadata_writes(

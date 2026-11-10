@@ -340,7 +340,8 @@ class CaptionRuntime:
             from .rust_runtime import RustRuntimeBridge, validate_rust_request
 
             validate_rust_request(self.settings, request)
-            return RustRuntimeBridge(self._publish, self.settings, self._rust_slot)
+            return RustRuntimeBridge(self._publish, self.settings, self._rust_slot,
+                                     accepts_audio=request.engine != "mock")
         low = self.settings.resource_profile == "low" or request.resource_profile == "low"
         if request.engine == "mock":
             return MockStreamingAsrEngine(self.pipeline.ingest)
@@ -483,9 +484,10 @@ class CaptionRuntime:
         if sample.source.active_provider is not None:
             self.state.engine = sample.source.active_provider
             self.metrics.asr_provider = sample.source.active_provider
-        self.metrics.asr_queue_depth = sample.ingress.queue_depth
-        self.metrics.asr_queue_capacity = sample.ingress.queue_capacity
-        self.metrics.asr_queue_high_watermark = sample.ingress.queue_high_watermark
+        if sample.ingress is not None:
+            self.metrics.asr_queue_depth = sample.ingress.queue_depth
+            self.metrics.asr_queue_capacity = sample.ingress.queue_capacity
+            self.metrics.asr_queue_high_watermark = sample.ingress.queue_high_watermark
         queues = [queue for queue in (sample.correction, sample.translation) if queue is not None]
         self.metrics.postprocess_queue_depth = sum(queue.queued + queue.active for queue in queues)
         self.metrics.postprocess_queue_capacity = sum(queue.capacity + 1 for queue in queues)

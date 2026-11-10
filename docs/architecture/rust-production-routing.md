@@ -24,7 +24,8 @@ Python's pipeline and caption persistence queue are bypassed. Its CaptionStore
 and per-client hub are UI relay mirrors; they neither transform source text nor
 create new caption revisions. Rust event timestamps/provenance survive unchanged.
 
-The supported subset includes AUTO and cached CPU/int8 faster-whisper in four-second windows,
+The supported subset includes AUTO, explicit VibeVoice, the deterministic mock source,
+and cached CPU/int8 faster-whisper in four-second windows,
 KO/EN/JA source with one or two distinct targets, deterministic correction with
 optional explicitly selected Ollama correction and independent audio recording,
 any existing preset with source-scoped glossary/hotwords and ASR context hints,
@@ -120,7 +121,35 @@ uses the existing 3000-character excerpt. Sharing the larger captured excerpt
 does not widen the ASR prompt or mutate the archived full context.
 Titles, presenters and references are ASR hints, not evidence of model accuracy.
 
+## Deterministic mock source
+
+Rust owns the existing demo timer, without a Python caption pipeline, ASR worker,
+PCM spool or model lookup. It retains the three Korean sample strings, selected
+source-language label, `demo-{cycle:03}-{index:02}` IDs, immediate partial text
+with the last three characters removed, 0.55-second partial→stable delay and
+2.4-second pause before the next sample. Confidence remains 0.72/0.93; synthetic
+timestamps remain six seconds apart with a five-second stable duration.
+Stable sources use the same bounded correction/independent-target MT, projection,
+observer and SQLite history paths as real ASR. Partial events have null original
+text/end time, no target work, and remain partial if stopped before stability.
+Stop/restart owns and cancels the timer; retired generations cannot publish.
+The existing public-ID bound still applies and its exhaustion fails explicitly.
+
+The bridge advertises no audio input or recording availability. Ending microphone
+input is a no-op; it does not stop the demo timer. Provenance explicitly says
+`provider=mock`, `timestamp_basis=synthetic`, with no sample, model or AUTO/replay
+claims. Native metrics use `ingress=null`; the API mirror, UI and collector keep
+PCM queue values unmeasured. Demo output is not native inference or model quality
+evidence, even when optional translation/correction workers are configured.
+
 ## AUTO selection and continuous source ownership
+
+Explicit `vibevoice` uses the same bounded streaming leaf and source-clock owner
+with one candidate. It neither looks up a Whisper cache nor configures, starts
+or falls back to Whisper, including in the low-resource profile. Startup or live
+failure remains an explicit source failure. Its sample-rate and sequence-estimated
+timestamps retain the real sidecar boundaries; AUTO generation/replay fields stay
+null because no AUTO policy ran.
 
 Rust owns the existing standard AUTO policy: VibeVoice first, then the locally
 cached Whisper candidate after startup or live failure. A low-resource request
@@ -385,8 +414,7 @@ certify physical microphone capture or frozen application packaging.
 
 ## Required remaining work
 
-Explicit VibeVoice (one candidate with no automatic fallback), the synthetic mock
-source, remaining general-provider/ten-language target options, and existing
+Remaining general-provider/ten-language target options and existing
 GPU/compute, chunk, VAD and live-view configuration parity remain required before
 default cutover. Desktop/frozen binary bundling and lifecycle,
 native app capture/recording validation and
