@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import struct
 import sys
@@ -35,6 +36,38 @@ _ORIGIN = "http://127.0.0.1"
 _MAX_FRAME = 1024 * 1024
 _CONTROL_BUDGET = 15.0
 _CONTEXT_LIMIT = 48 * 1024
+
+
+def _audio_options(settings: Settings) -> dict:
+    seconds = settings.faster_whisper_chunk_seconds
+    if not math.isfinite(seconds) or not 0 < seconds <= 120:
+        raise ValueError("invalid Rust audio chunk configuration")
+    chunk_bytes = max(4, int(seconds * 16000 * 4))
+    if (chunk_bytes % 4 or not math.isfinite(settings.vad_threshold_dbfs)
+            or type(settings.vad_hangover_frames) is not int
+            or not 0 <= settings.vad_hangover_frames <= 10000
+            or type(settings.max_audio_frame_bytes) is not int
+            or not 4 <= settings.max_audio_frame_bytes <= 8 * 1024 * 1024
+            or settings.max_audio_frame_bytes % 4 or type(settings.max_segments) is not int
+            or not 1 <= settings.max_segments <= 10000):
+        raise ValueError("invalid Rust audio configuration")
+    return {"protocol_version": 1, "chunk_samples": chunk_bytes // 4,
+            "vad_threshold_dbfs": settings.vad_threshold_dbfs,
+            "vad_hangover_frames": settings.vad_hangover_frames,
+            "max_frame_bytes": settings.max_audio_frame_bytes,
+            "max_segments": settings.max_segments}
+
+
+def _whisper_options(settings: Settings, request: StartSessionRequest) -> dict | None:
+    if request.engine not in {"auto", "faster-whisper"}:
+        return None
+    from .worker_ipc import validate_inference_options
+
+    low = settings.resource_profile == "low" or request.resource_profile == "low"
+    return validate_inference_options({
+        "protocol_version": 1, "device": "cpu" if low else settings.faster_whisper_device,
+        "compute_type": "int8" if low else settings.faster_whisper_compute_type,
+    })
 
 
 def _source_context(request: StartSessionRequest) -> dict:
@@ -87,17 +120,14 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             ))
             or request.source_language not in {"ko", "en", "ja"}
             or any(lang not in {"ko", "en", "ja"} for lang in request.target_languages)
-            or len(request.target_languages) > 2
-            or settings.faster_whisper_device not in {"auto", "cpu"}
-            or settings.faster_whisper_compute_type not in {"default", "int8"}
-            or settings.faster_whisper_chunk_seconds != 4
-            or settings.max_segments != 100
-            or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
+            or len(request.target_languages) > 2):
         raise ValueError(
-            "Rust rollout requires source-mode CPU/int8 AUTO, VibeVoice or faster-whisper, "
+            "Rust rollout requires source-mode AUTO, VibeVoice, mock or faster-whisper, "
             "none or Ollama correction, and none or M2M100 MT; "
-            "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
+            "or use the Python runtime"
         )
+    _audio_options(settings)
+    _whisper_options(settings, request)
     _source_context(request)  # Reject an oversized snapshot before replacing a live source.
     binary = Path(settings.rust_runtime_binary).expanduser()
     if (not settings.rust_runtime_binary or not binary.is_file()
@@ -140,6 +170,7 @@ class RustRuntimeBridge(AsrEngine):
         self._active_provider: str | None = None
         self._input_ended = False
         self._accepts_audio = accepts_audio
+        self._audio_options = _audio_options(settings)
 
     running = property(lambda self: self._running and not self._input_ended and not self._failure)
     accepts_audio = property(lambda self: self._accepts_audio)
@@ -246,6 +277,8 @@ class RustRuntimeBridge(AsrEngine):
 
     async def start(self, request: StartSessionRequest) -> None:
         validate_rust_request(self.settings, request)
+        self._audio_options = _audio_options(self.settings)
+        whisper_options = _whisper_options(self.settings, request)
         context = _source_context(request)
         correction_options = {
             "provider": request.correction_provider,
@@ -282,6 +315,8 @@ class RustRuntimeBridge(AsrEngine):
                 "database_path": str(Path(self.settings.database_path).resolve()),
                 "spool_directory": tempfile.gettempdir(), "asr": asr, "mt": mt,
                 "mock": request.engine == "mock",
+                "audio_options": self._audio_options,
+                "whisper_options": whisper_options,
                 "auto_asr": self._auto_options(request),
                 "asr_startup_ms": max(1, round(self.settings.session_start_timeout_seconds * 1000)),
                 "audio_queue_frames": min(8, self.settings.audio_queue_chunks),
@@ -413,7 +448,8 @@ class RustRuntimeBridge(AsrEngine):
                         # still cannot produce captions before the first input.
                         segments = frame.get("segments")
                         if (snapshot_seen or not isinstance(segments, list)
-                                or len(segments) > 100 or (segments and self.accepts_audio)):
+                                or len(segments) > self._audio_options["max_segments"]
+                                or (segments and self.accepts_audio)):
                             raise AsrEngineError(_ERROR)
                         seen = set()
                         restored = []
@@ -500,7 +536,8 @@ class RustRuntimeBridge(AsrEngine):
 
     async def feed_audio(self, pcm_f32le: bytes) -> None:
         if (not self.accepts_audio or not self.running
-                or not 0 < len(pcm_f32le) <= _MAX_FRAME or len(pcm_f32le) % 4):
+                or not 0 < len(pcm_f32le) <= self._audio_options["max_frame_bytes"]
+                or len(pcm_f32le) % 4):
             raise AsrEngineError(_ERROR)
         await self._command(1, pcm_f32le)
 

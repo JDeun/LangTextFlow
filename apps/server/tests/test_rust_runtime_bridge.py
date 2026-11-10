@@ -52,6 +52,7 @@ for line in sys.stdin:
                              'session_generation','segment_id','source_revision')}
     if chunk.get('mode')=='prepare':
         result={'asr_protocol_version':1,'prepared':True,'sample_rate':16000}
+        if 'inference_options' in chunk:result['inference_options']=chunk['inference_options']
     else:
         count=chunk['end_sample']-chunk['start_sample']
         result={'sample_count':count,'sample_rate':16000,'segments':[{
@@ -547,6 +548,116 @@ def test_rust_mock_stop_during_partial_does_not_invent_stable_or_committed_sourc
     assert bridge._process.returncode == 0 and runtime._rust_slot._value == 1
 
 
+def test_configured_whisper_window_vad_view_and_requested_device_reach_actual_host(
+    rust_api, monkeypatch, tmp_path,
+):
+    from langtextflow.telemetry import EnergyVad
+
+    client, runtime = rust_api
+    runtime.settings.faster_whisper_chunk_seconds = 2.5
+    runtime.settings.faster_whisper_device = "cuda"
+    runtime.settings.faster_whisper_compute_type = "float16"
+    runtime.settings.vad_threshold_dbfs = -15.
+    runtime.settings.vad_hangover_frames = 260
+    runtime.settings.max_segments = runtime.store.max_segments = 1
+    runtime._vad = EnergyVad(threshold_dbfs=-15., hangover_frames=260)
+    marker = tmp_path / "private-prepare-requests.jsonl"
+    original = RustRuntimeBridge._worker_commands
+
+    def commands(self, request):
+        asr, _ = original(self, request)
+        tracked = _ASR.replace("    req=json.loads(line)",
+            f"    req=json.loads(line)\n    open({str(marker)!r},'a').write(line)")
+        return asr | {"args": ["-u", "-c", tracked]}, None
+
+    monkeypatch.setattr(RustRuntimeBridge, "_worker_commands", commands)
+    started = client.post("/api/v1/session/start", json=_REQUEST | {"translation_provider": "none"})
+    assert started.status_code == 200, started.text
+    bridge, sid = runtime.engine, started.json()["session_id"]
+    with client.websocket_connect(f"/ws/audio?expected_session_id={sid}") as audio:
+        assert audio.receive_json()["sample_rate"] == 16000
+        audio.send_bytes(struct.pack("<f", .1) * 70000)
+        audio.send_text("end")
+        async def accepted():
+            async with asyncio.timeout(3):
+                while runtime._audio_samples_received < 70000:
+                    await asyncio.sleep(.005)
+        client.portal.call(accepted)
+    assert client.post("/api/v1/session/stop").status_code == 200
+    records = [json.loads(line) for line in marker.read_text().splitlines()]
+    prepare, *chunks = [json.loads(row["payload"]) for row in records]
+    assert prepare["inference_options"] == {
+        "protocol_version": 1, "device": "cuda", "compute_type": "float16",
+    }  # Fake leaf ACK, not a GPU load or hardware qualification.
+    assert [(row["start_sample"], row["end_sample"]) for row in chunks] == [
+        (0, 40000), (0, 30000),  # Each private WAV begins at file offset zero.
+    ]
+    saved = client.get(f"/api/v1/history/{sid}/captions").json()
+    assert len(saved) == 2 and all(row["committed"] for row in saved)
+    assert [(row["start_ms"], row["end_ms"]) for row in saved] == [(0, 2500), (2500, 4375)]
+    assert [(row["asr_provenance"]["audio_chunk_start_sample"],
+             row["asr_provenance"]["audio_chunk_end_sample"]) for row in saved] == [
+        (0, 40000), (40000, 70000),  # Public authority retains the global sample clock.
+    ]
+    assert len(client.get("/api/v1/captions").json()) == 1
+    sample = bridge.metrics_view().sample
+    assert sample.ingress.accepted_samples == sample.ingress.processed_samples == 70000
+    assert sample.ingress.decoded_windows == 2 and not sample.ingress.voice_active
+
+
+def test_large_single_vibevoice_frame_uses_bounded_leaf_batches_and_negotiated_clock(
+    rust_api, monkeypatch,
+):
+    from test_asr_stream_worker import sidecar
+
+    client, runtime = rust_api
+    runtime.settings.max_audio_frame_bytes = runtime._vad.max_frame_bytes = 4 * 1024 * 1024
+    runtime.settings.faster_whisper_chunk_seconds = 120  # Does not configure VibeVoice windows.
+    monkeypatch.setattr(main, "settings", runtime.settings)
+    with client.portal.wrap_async_context_manager(sidecar(rate=48000)) as (url, seen):
+        runtime.settings.vibevoice_url = url
+        started = client.post("/api/v1/session/start", json=_REQUEST | {
+            "engine": "vibevoice", "translation_provider": "none",
+        })
+        assert started.status_code == 200, started.text
+        bridge, sid = runtime.engine, started.json()["session_id"]
+        pcm = struct.pack("<f", .1) * (262144 + 16000)
+        with client.websocket_connect(f"/ws/audio?expected_session_id={sid}") as audio:
+            assert audio.receive_json()["sample_rate"] == 48000
+            audio.send_bytes(pcm)
+            audio.send_text("end")
+            async def accepted():
+                async with asyncio.timeout(3):
+                    while runtime._audio_samples_received < len(pcm) // 4:
+                        await asyncio.sleep(.005)
+            client.portal.call(accepted)
+        assert client.post("/api/v1/session/stop").status_code == 200
+        assert bytes(seen["pcm"]) == pcm and seen["connections"] == 1
+        saved = client.get(f"/api/v1/history/{sid}/captions").json()
+        assert saved and saved[0]["end_ms"] == 2000
+        assert all(row["end_ms"] <= round(len(pcm) // 4 * 1000 / 48000) for row in saved)
+        assert all(row["asr_provenance"]["sample_rate"] == 48000 for row in saved)
+        metrics = bridge.metrics_view().sample.ingress
+        assert metrics.accepted_frames == 1 and metrics.accepted_samples == len(pcm) // 4
+        assert metrics.processed_samples == metrics.accepted_samples
+
+
+def test_invalid_audio_settings_never_replace_a_running_session_or_echo_private_values(rust_api):
+    client, runtime = rust_api
+    started = client.post("/api/v1/session/start", json=_REQUEST | {
+        "engine": "mock", "translation_provider": "none",
+    })
+    assert started.status_code == 200
+    bridge, sid = runtime.engine, started.json()["session_id"]
+    runtime.settings.faster_whisper_device = "private/credential-device"
+    refused = client.post("/api/v1/session/start", json=_REQUEST)
+    assert refused.status_code == 400 and "credential-device" not in refused.text
+    assert runtime.engine is bridge and runtime.state.session_id == sid
+    assert bridge._process.returncode is None
+    runtime.settings.faster_whisper_device = "auto"
+    assert client.post("/api/v1/session/stop").status_code == 200
+
+
 def test_actual_auto_disconnect_replays_without_python_pipeline_or_metadata_writes(
     rust_api, monkeypatch,
 ):
@@ -903,7 +1014,10 @@ def test_actual_api_captures_context_once_and_routes_source_scoped_asr_and_mt(
     assert client.post("/api/v1/session/stop").status_code == 200
     records = [json.loads(line) for line in marker.read_text(encoding="utf-8").splitlines()]
     asr_requests = [value for value in records if value["task_kind"] == "asr"]
-    assert json.loads(asr_requests[0]["payload"]) == {"asr_protocol_version": 1, "mode": "prepare"}
+    assert json.loads(asr_requests[0]["payload"]) == {
+        "asr_protocol_version": 1, "mode": "prepare",
+        "inference_options": {"protocol_version": 1, "device": "auto", "compute_type": "default"},
+    }
     asr = [value for value in asr_requests if json.loads(value["payload"]).get("mode") != "prepare"]
     mt = [value for value in records if value["task_kind"] == "translation"]
     assert len(asr) == 1 and len(mt) == 2
@@ -1370,8 +1484,10 @@ for line in sys.stdin:
         continue
     reply={k:req[k] for k in ('protocol_version','request_id','session_id',
                              'session_generation','segment_id','source_revision')}
-    reply.update(status='ok',error=None,result=json.dumps({
-        'asr_protocol_version':1,'prepared':True,'sample_rate':16000}))
+    result={'asr_protocol_version':1,'prepared':True,'sample_rate':16000}
+    payload=json.loads(req['payload'])
+    if 'inference_options' in payload:result['inference_options']=payload['inference_options']
+    reply.update(status='ok',error=None,result=json.dumps(result))
     print(json.dumps(reply),flush=True)
 """
 

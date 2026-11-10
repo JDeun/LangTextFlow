@@ -2,6 +2,7 @@
 //! Inference remains owned by Python; this crate never loads ASR/MT models.
 
 pub mod asr_slice;
+pub mod audio_options;
 pub mod auto_asr;
 mod auto_ingress;
 pub mod caption_events;

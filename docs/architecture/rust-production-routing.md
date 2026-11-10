@@ -25,15 +25,15 @@ and per-client hub are UI relay mirrors; they neither transform source text nor
 create new caption revisions. Rust event timestamps/provenance survive unchanged.
 
 The supported subset includes AUTO, explicit VibeVoice, the deterministic mock source,
-and cached CPU/int8 faster-whisper in four-second windows,
+and cached faster-whisper with bounded device/compute/window settings,
 KO/EN/JA source with one or two distinct targets, deterministic correction with
 optional explicitly selected Ollama correction and independent audio recording,
 any existing preset with source-scoped glossary/hotwords and ASR context hints,
 and none or cached M2M100 CT2 MT. Display/audience settings remain available.
-Unsupported combinations, frozen mode, incompatible chunk/VAD/device settings
+Unsupported combinations, frozen mode, invalid chunk/VAD/device settings
 and a missing executable are refused **before database initialization or live
 session mutation**. There is no silent fallback or omitted requested feature.
-The fixed 100-segment live projection is also checked against server configuration.
+The live projection uses the configured count ceiling and its existing byte ceiling.
 Unavailable cached model/runtime initialization can still fail a valid start;
 that failed attempt is ended through existing bootstrap cleanup.
 
@@ -48,7 +48,7 @@ checkpoint verification, inferred word alignment or historical rewrite is added.
 |---|---|
 | Bootstrap | One UTF-8 JSON line, 64KiB including newline; strict Rust fields; executable/argument/path bounds |
 | Inference context | Immutable ≤48KiB UTF-8 JSON snapshot, validated before source transition; the existing 128KiB worker envelope remains unchanged |
-| Audio/control | One-byte tag + little-endian u32 length; audio ≤1MiB and float32-aligned; end/stop have zero payload |
+| Audio/control | One-byte tag + little-endian u32 length; audio ≤configured 4B–8MiB, float32-aligned; declared length checked before allocation; end/stop have zero payload |
 | Control queue | One pending command; excess/malformed input closes authority admission before payload allocation |
 | Control output | ≤1KiB ready/ACK/stopped lines; one queued writer operation; one-second async write confirmation |
 | Native metrics | ≤4KiB including newline; 250ms coalesced watch value; one typed final pipe frame before stopped, without enlarging ACKs |
@@ -142,6 +142,45 @@ claims. Native metrics use `ingress=null`; the API mirror, UI and collector keep
 PCM queue values unmeasured. Demo output is not native inference or model quality
 evidence, even when optional translation/correction workers are configured.
 
+## Immutable audio and Whisper configuration
+
+The trusted bootstrap installs strict version-1 `audio_options` once: Whisper
+`chunk_samples` (1–1,920,000 at 16kHz), finite VAD threshold, hangover (0–10,000
+original frames), maximum input frame bytes (4–8MiB, a multiple of four), and
+live segment count (1–10,000). Missing options preserve the prototype defaults:
+four seconds, −45dBFS, three frames, 1MiB and 100 segments. Python rejects invalid
+configuration before replacing a session or initializing history. Fractional
+chunk settings preserve the existing float-to-byte truncation/minimum policy;
+a window that would contain an incomplete float32 sample is rejected.
+
+The existing effective-low rule is server-low OR request-low: low Whisper uses
+CPU/int8 and configured threads; standard uses configured device/compute and
+library-default threads. Optional strict `whisper_options` is sent only when
+Whisper can be selected. It travels in audio-free `prepare.inference_options` and
+must be echoed exactly in its successful ACK. The leaf binds the options before
+model loading and refuses changing them in the same child. The three-argument
+CLI and option-free prototype prepare/WAV calls retain their old contract.
+Accepted `cuda` or compute names describe requested configuration; they do not
+prove GPU availability, actual loaded compute precision or performance.
+
+Rust still validates the entire original frame before one queue reservation,
+copy or sample-clock change. Cancelled reservations admit no prefix. Large
+VibeVoice frames are subdivided inside that owner into at-most-1MiB immutable
+leaf descriptors, preserving one input admission/ACK. VibeVoice retains its
+negotiated sample rate and chunk duration; Whisper window settings do not change
+its clock. The 128KiB JSONL and 1MiB caption/snapshot bounds stay unchanged.
+RMS/hangover remains monitoring only, with no PCM dropping. Live count and byte
+bounds are independent ceilings; byte-driven evictions remain observable and
+never delete original SQLite history. A Whisper window's absolute deadline is
+its first accepted frame time plus the actual sample-clock duration plus the
+existing 120-second native budget. Queue age consumes that deadline; a partial
+tail adds only its actual length. Admission additionally caps native work at
+now + 120 seconds, and the existing supervised exchange cap remains unchanged.
+The window deadline is at most 240 seconds after its first frame. Required
+outstanding work includes queue/parallelism policies and drain budgets; settings
+and fast fake-input checks do not prove a realtime two-minute window can finish,
+or that a GPU/physical hardware target qualifies.
+
 ## AUTO selection and continuous source ownership
 
 Explicit `vibevoice` uses the same bounded streaming leaf and source-clock owner
@@ -193,7 +232,7 @@ disabled; failures expose fixed categories rather than endpoints or paths.
 Rust retires an outgoing candidate epoch before awaiting its actual child reap.
 At most two per-child reap proofs are retained; an available shared semaphore is
 not proof that a particular predecessor exited. A replacement prepares and
-replays bounded immutable four-second WAV windows before activation. Its
+replays bounded immutable configured-size Whisper WAV windows before activation. Its
 provisional output is limited to 128 source segments and 1MiB of text; failure
 discards it. A successful live replacement advances only the separate AUTO
 generation once. Session generation, already accepted caption/correction/MT
@@ -415,8 +454,9 @@ certify physical microphone capture or frozen application packaging.
 ## Required remaining work
 
 Remaining general-provider/ten-language target options and existing
-GPU/compute, chunk, VAD and live-view configuration parity remain required before
-default cutover. Desktop/frozen binary bundling and lifecycle,
+queue/parallelism and deadline/drain configuration parity remain required before
+default cutover. This settings wiring supplies no GPU/hardware qualification.
+Desktop/frozen binary bundling and lifecycle,
 native app capture/recording validation and
 reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.

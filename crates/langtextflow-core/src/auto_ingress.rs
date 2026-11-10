@@ -1,10 +1,15 @@
 //! One-way AUTO source ownership; workers never select providers or publish events.
 use crate::asr_slice::{AsrSession, AudioChunk, AutoSource};
+use crate::audio_options::{AudioOptions, WhisperOptions};
 use crate::auto_asr::{
     while_current, AutoClock, AutoOptions, FailoverReason, ReplayPcm, StreamBatch, StreamClient,
     StreamingPolicy, WhisperClient,
 };
-use crate::pcm_ingress::{AsrChildren, Input, PcmIngress, PcmInput, Spool, WINDOW_SAMPLES};
+#[cfg(test)]
+use crate::pcm_ingress::WINDOW_SAMPLES;
+use crate::pcm_ingress::{
+    window_deadline, AsrChildren, Input, PcmIngress, PcmInput, Spool, FRAME_LIMIT,
+};
 use crate::source_context::SourceContext;
 use futures_util::future::{select, Either};
 use std::path::Path;
@@ -29,6 +34,8 @@ impl Candidate {
 struct Owner {
     candidate: Candidate,
     options: AutoOptions,
+    audio_options: AudioOptions,
+    whisper_options: Option<WhisperOptions>,
     whisper_program: Option<String>,
     whisper_args: Vec<String>,
     slot: Arc<Semaphore>,
@@ -49,12 +56,17 @@ pub(crate) async fn start(
     session: AsrSession,
     source: &str,
     options: AutoOptions,
+    audio_options: AudioOptions,
+    whisper_options: Option<WhisperOptions>,
     whisper_program: Option<&str>,
     whisper_args: &[&str],
     slot: Arc<Semaphore>,
     temporary_parent: &Path,
 ) -> Result<PcmIngress, &'static str> {
-    if !options.valid() {
+    if !options.valid()
+        || !audio_options.valid()
+        || whisper_options.as_ref().is_some_and(|o| !o.valid())
+    {
         return Err("auto_configuration");
     }
     let (sid, generation, context) = session.auto_source_scope(source)?;
@@ -111,7 +123,10 @@ pub(crate) async fn start(
             &session,
             source,
             generation,
-            client.prepare(Instant::now() + Duration::from_millis(options.startup_ms)),
+            client.prepare_configured(
+                whisper_options.as_ref(),
+                Instant::now() + Duration::from_millis(options.startup_ms),
+            ),
         )
         .await
         {
@@ -127,14 +142,28 @@ pub(crate) async fn start(
     };
     let mut clock = AutoClock::default();
     clock.candidate(rate, 0, 0, 0)?;
-    let (input, receiver) = PcmInput::channel(session.clone(), source, rate, options.queue_frames)?;
+    let (input, receiver) = PcmInput::channel_configured(
+        session.clone(),
+        source,
+        rate,
+        options.queue_frames,
+        &audio_options,
+    )?;
     let spool = Spool::new(temporary_parent, children.clone())?;
     let root = spool.root.clone();
     session.activate_auto_candidate(generation, epoch, provider, &clock, None)?;
     let replay_seconds = options.replay_seconds;
+    let window_bytes = audio_options.window_bytes();
+    let buffer = if matches!(candidate, Candidate::Whisper(_)) {
+        Vec::with_capacity(window_bytes)
+    } else {
+        Vec::new()
+    };
     let owner = Owner {
         candidate,
         options,
+        audio_options,
+        whisper_options,
         whisper_program: whisper_program.map(str::to_owned),
         whisper_args: whisper_args.iter().map(|arg| (*arg).into()).collect(),
         slot,
@@ -145,7 +174,7 @@ pub(crate) async fn start(
         context,
         clock,
         ring: ReplayPcm::new_seconds(rate, replay_seconds)?,
-        buffer: Vec::with_capacity(WINDOW_SAMPLES * 4),
+        buffer,
         cursor: 0,
         sequence: 0,
         window_started: None,
@@ -182,12 +211,7 @@ async fn consume(
                     }
                     owner.ring.push(&frame.pcm)?;
                     let result = owner
-                        .feed(
-                            &input,
-                            &mut spool,
-                            &frame.pcm,
-                            frame.accepted_at + Duration::from_secs(120),
-                        )
+                        .feed(&input, &mut spool, &frame.pcm, frame.accepted_at)
                         .await;
                     if result.is_err() {
                         owner
@@ -288,45 +312,56 @@ impl Owner {
         input: &PcmInput,
         spool: &mut Spool,
         pcm: &[u8],
-        deadline: Instant,
+        accepted_at: Instant,
     ) -> Result<(), &'static str> {
-        if let Candidate::Stream(client) = &mut self.candidate {
-            let path = spool.write_pcm(pcm)?;
-            input
-                .session
-                .auto_window(self.generation, self.epoch, true)?;
-            let batch = while_current(
-                &input.session,
-                &input.source,
-                self.generation,
-                client.append(&path, (pcm.len() / 4) as u64, deadline),
-            )
-            .await?;
-            input
-                .session
-                .auto_window(self.generation, self.epoch, false)?;
-            spool.clear()?;
-            let done = batch.done;
-            self.publish_stream(input, batch)?;
-            input.state.lock().unwrap().metrics.processed_samples += (pcm.len() / 4) as u64;
-            return if done {
-                Err("auto_provider_ended")
-            } else {
-                Ok(())
-            };
+        if matches!(self.candidate, Candidate::Stream(_)) {
+            let deadline = accepted_at + Duration::from_secs(120);
+            // One validated/accepted input frame can exceed the descriptor bound.
+            // Subdivision happens only inside this owner, never as separate ACKs.
+            for part in pcm.chunks(FRAME_LIMIT) {
+                let Candidate::Stream(client) = &mut self.candidate else {
+                    return Err("auto_provider_state");
+                };
+                let path = spool.write_pcm(part)?;
+                input
+                    .session
+                    .auto_window(self.generation, self.epoch, true)?;
+                let batch = while_current(
+                    &input.session,
+                    &input.source,
+                    self.generation,
+                    client.append(&path, (part.len() / 4) as u64, deadline),
+                )
+                .await?;
+                input
+                    .session
+                    .auto_window(self.generation, self.epoch, false)?;
+                spool.clear()?;
+                let done = batch.done;
+                self.publish_stream(input, batch)?;
+                input.state.lock().unwrap().metrics.processed_samples += (part.len() / 4) as u64;
+                if done {
+                    return Err("auto_provider_ended");
+                }
+            }
+            return Ok(());
         }
         let mut offset = 0;
         while offset < pcm.len() {
             if self.buffer.is_empty() {
-                self.window_started = Some(deadline);
+                self.window_started = Some(accepted_at);
             }
-            let take = (WINDOW_SAMPLES * 4 - self.buffer.len()).min(pcm.len() - offset);
+            let window_bytes = self.audio_options.window_bytes();
+            let take = (window_bytes - self.buffer.len()).min(pcm.len() - offset);
             self.buffer.extend_from_slice(&pcm[offset..offset + take]);
             offset += take;
-            if self.buffer.len() == WINDOW_SAMPLES * 4 {
-                let sources = self
-                    .decode(input, spool, self.window_started.unwrap())
-                    .await?;
+            if self.buffer.len() == window_bytes {
+                let deadline = window_deadline(
+                    self.window_started.unwrap(),
+                    (self.buffer.len() / 4) as u64,
+                    Instant::now(),
+                )?;
+                let sources = self.decode(input, spool, deadline).await?;
                 self.publish(input, sources)?;
                 self.buffer.clear();
             }
@@ -340,8 +375,12 @@ impl Owner {
         spool: &mut Spool,
         deadline: Instant,
     ) -> Result<Vec<AutoSource>, &'static str> {
+        let deadline = deadline.min(Instant::now() + Duration::from_secs(120));
+        if Instant::now() >= deadline {
+            return Err("audio_deadline_expired");
+        }
         let samples = (self.buffer.len() / 4) as u64;
-        let path = spool.write_window(&self.buffer)?;
+        let path = spool.write_window_bounded(&self.buffer, self.audio_options.chunk_samples)?;
         let Candidate::Whisper(client) = &mut self.candidate else {
             return Err("auto_provider_state");
         };
@@ -446,7 +485,10 @@ impl Owner {
             &input.session,
             &input.source,
             self.generation,
-            client.prepare(Instant::now() + Duration::from_millis(self.options.startup_ms)),
+            client.prepare_configured(
+                self.whisper_options.as_ref(),
+                Instant::now() + Duration::from_millis(self.options.startup_ms),
+            ),
         )
         .await
         {
@@ -462,9 +504,10 @@ impl Owner {
         let deadline = Instant::now() + Duration::from_millis(self.options.startup_ms);
         let mut provisional = Vec::new();
         let mut bytes = 0;
-        for part in replay.chunks(WINDOW_SAMPLES * 4) {
+        let window_bytes = self.audio_options.window_bytes();
+        for part in replay.chunks(window_bytes) {
             self.buffer.extend_from_slice(part);
-            if self.buffer.len() == WINDOW_SAMPLES * 4 {
+            if self.buffer.len() == window_bytes {
                 let sources = self.decode(input, spool, deadline).await?;
                 for source in sources {
                     if provisional.len() == 128 || bytes + source.mapped.text.len() > 1024 * 1024 {
@@ -476,7 +519,7 @@ impl Owner {
                 self.buffer.clear();
             }
         }
-        self.window_started = Some(Instant::now() + Duration::from_secs(120));
+        self.window_started = Some(Instant::now());
         input.session.activate_auto_candidate(
             self.generation,
             self.epoch,
@@ -496,7 +539,12 @@ impl Owner {
             match &mut self.candidate {
                 Candidate::Whisper(_) => {
                     if !self.buffer.is_empty() {
-                        let sources = self.decode(input, spool, deadline).await?;
+                        let window = window_deadline(
+                            self.window_started.unwrap_or_else(Instant::now),
+                            (self.buffer.len() / 4) as u64,
+                            Instant::now(),
+                        )?;
+                        let sources = self.decode(input, spool, deadline.min(window)).await?;
                         self.publish(input, sources)?;
                         self.buffer.clear();
                     }
@@ -606,6 +654,8 @@ for line in sys.stdin:
                         session.clone(),
                         "en",
                         options,
+                        AudioOptions::default(),
+                        None,
                         Some(&python),
                         &["-u", "-c", WHISPER, mode],
                         slot.clone(),
@@ -691,6 +741,8 @@ for line in sys.stdin:
                         session.clone(),
                         "en",
                         options,
+                        AudioOptions::default(),
+                        None,
                         Some(&python),
                         &["-u", "-c", &script, "ok"],
                         slot.clone(),

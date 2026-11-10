@@ -38,13 +38,14 @@ def snapshot():
             "serial": 1, "segments": [event]}
 
 
-async def relay(frames, *, audio=False):
+async def relay(frames, *, audio=False, max_segments=100):
     events = []
 
     async def publish(event):
         events.append(event)
 
-    owner = RustRuntimeBridge(publish, Settings(), asyncio.Semaphore(1), accepts_audio=audio)
+    owner = RustRuntimeBridge(publish, Settings(max_segments=max_segments), asyncio.Semaphore(1),
+                              accepts_audio=audio)
     owner.session_id = "owned-session"
     owner._process = SimpleNamespace(stdin=SimpleNamespace(close=lambda: None))
     await owner._relay(Socket(frames))
@@ -61,6 +62,18 @@ async def test_initial_demo_snapshot_preserves_partial_once_and_serial_without_i
     assert len(repeated) == 1  # A second snapshot cannot replay public events.
     _, audio = await relay([first], audio=True)
     assert audio == []  # Preserve real-audio startup's existing empty-only rule.
+
+
+async def test_configured_live_capacity_above_legacy_hundred_reaches_snapshot_parser():
+    value = snapshot()
+    first = value["segments"][0]
+    value["segments"] = [first | {"segment_id": f"demo-{index:03d}-00", "serial": index + 1}
+                         for index in range(101)]
+    value["serial"] = 101
+    owner, events = await relay([value], max_segments=150)
+    assert len(events) == 101 and owner._serial == 101
+    _, rejected = await relay([value])
+    assert rejected == []
 
 
 @pytest.mark.parametrize("change", [
