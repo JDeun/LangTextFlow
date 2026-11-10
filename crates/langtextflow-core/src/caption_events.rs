@@ -25,6 +25,7 @@ pub struct ObservedConfig {
     pub source_language: String,
     pub targets: Vec<String>,
     pub(crate) configured_asr_model: Option<String>,
+    pub(crate) max_segments: usize,
     token: String,
 }
 
@@ -63,6 +64,7 @@ impl ObservedConfig {
                 source_language: source.into(),
                 targets: targets.to_vec(),
                 configured_asr_model: None,
+                max_segments: MAX_VISIBLE_SEGMENTS,
                 token: token.clone(),
             },
             ObserverCredential(token),
@@ -77,9 +79,9 @@ pub(crate) struct AsrProvenance {
     pub(crate) verified_model: Option<String>,
     pub(crate) model_revision: Option<String>,
     pub(crate) timestamp_basis: &'static str,
-    pub(crate) sample_rate: u32,
+    pub(crate) sample_rate: Option<u32>,
     pub(crate) audio_chunk_start_sample: Option<u64>,
-    pub(crate) audio_chunk_end_sample: u64,
+    pub(crate) audio_chunk_end_sample: Option<u64>,
     pub(crate) auto_generation: Option<u64>,
     pub(crate) timeline_offset_samples: Option<u64>,
     pub(crate) replay_prefix_samples: Option<u64>,
@@ -96,13 +98,13 @@ struct CaptionEvent {
     stage: &'static str,
     source_language: String,
     text: String,
-    original_text: String,
+    original_text: Option<String>,
     translations: BTreeMap<String, String>,
     translation_states: BTreeMap<String, &'static str>,
     asr_provenance: AsrProvenance,
     translation_provenance: BTreeMap<String, TranslationProvenance>,
     start_ms: u64,
-    end_ms: u64,
+    end_ms: Option<u64>,
     speaker: Option<String>,
     confidence: Option<f64>,
     correction: Option<CorrectionProvenance>,
@@ -111,6 +113,12 @@ struct CaptionEvent {
     session_id: String,
     session_generation: u64,
     serial: u64,
+}
+
+impl CaptionEvent {
+    fn source_text(&self) -> &str {
+        self.original_text.as_deref().unwrap_or(&self.text)
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -226,9 +234,9 @@ impl CaptionProjection {
             verified_model: None,
             model_revision: None,
             timestamp_basis: source.timestamp_basis,
-            sample_rate: chunk.sample_rate,
+            sample_rate: Some(chunk.sample_rate),
             audio_chunk_start_sample: Some(chunk.start_sample),
-            audio_chunk_end_sample: chunk.end_sample,
+            audio_chunk_end_sample: Some(chunk.end_sample),
             auto_generation: None,
             timeline_offset_samples: None,
             replay_prefix_samples: None,
@@ -286,7 +294,7 @@ impl CaptionProjection {
                     stage,
                     source_language: source.source_language.clone(),
                     text: source.text.clone(),
-                    original_text: source.text.clone(),
+                    original_text: Some(source.text.clone()),
                     translations: BTreeMap::new(),
                     translation_states: config
                         .targets
@@ -305,7 +313,7 @@ impl CaptionProjection {
                     asr_provenance: origins[source_index].clone(),
                     translation_provenance: BTreeMap::new(),
                     start_ms: source.start_ms,
-                    end_ms: source.end_ms,
+                    end_ms: Some(source.end_ms),
                     speaker: None,
                     confidence: None,
                     correction: None,
@@ -322,6 +330,105 @@ impl CaptionProjection {
         }
         self.check_pending_limits(&prepared)?;
         Ok(prepared)
+    }
+
+    pub(crate) fn prepare_mock_partial(
+        &self,
+        sid: &str,
+        generation: u64,
+        source: &SourceEvent,
+    ) -> Result<Vec<ProjectedFrame>, &'static str> {
+        if self.versions.contains_key(&source.segment_id) {
+            return Err("stale_revision");
+        }
+        if self.versions.len() >= MAX_PUBLIC_IDS {
+            return Err("version_capacity");
+        }
+        let serial = self
+            .serial
+            .checked_add(1)
+            .filter(|v| *v <= JS_MAX)
+            .ok_or("serial_exhausted")?;
+        Ok(vec![Self::frame(CaptionEvent {
+            kind: "transcript",
+            segment_id: source.segment_id.clone(),
+            version: 1,
+            source_revision: 1,
+            stage: "partial",
+            source_language: source.source_language.clone(),
+            text: source.text.clone(),
+            original_text: None,
+            translations: BTreeMap::new(),
+            translation_states: BTreeMap::new(),
+            asr_provenance: Self::mock_origin(),
+            translation_provenance: BTreeMap::new(),
+            start_ms: source.start_ms,
+            end_ms: None,
+            speaker: None,
+            confidence: Some(0.72),
+            correction: None,
+            committed: false,
+            emitted_at: OffsetDateTime::now_utc()
+                .format(&Rfc3339)
+                .map_err(|_| "clock_format")?,
+            session_id: sid.into(),
+            session_generation: generation,
+            serial,
+        })?])
+    }
+
+    pub(crate) fn prepare_mock_stable(
+        &self,
+        sid: &str,
+        generation: u64,
+        sources: &[SourceEvent],
+        translating: bool,
+        correcting: bool,
+    ) -> Result<Vec<ProjectedFrame>, &'static str> {
+        if sources
+            .iter()
+            .any(|source| !self.mock_partial_ready(&source.segment_id))
+        {
+            return Err("mock_partial_required");
+        }
+        let origins = sources
+            .iter()
+            .map(|_| Self::mock_origin())
+            .collect::<Vec<_>>();
+        self.prepare_asr(sid, generation, sources, &origins, translating, correcting)?
+            .into_iter()
+            .map(|frame| {
+                let mut event = frame.event;
+                event.confidence = Some(0.93);
+                Self::frame(event)
+            })
+            .collect()
+    }
+
+    pub(crate) fn mock_partial_ready(&self, id: &str) -> bool {
+        self.latest.iter().any(|frame| {
+            frame.id == id
+                && frame.event.stage == "partial"
+                && frame.event.version == 1
+                && frame.event.asr_provenance.provider == "mock"
+        })
+    }
+
+    fn mock_origin() -> AsrProvenance {
+        AsrProvenance {
+            provider: "mock",
+            configured_model: None,
+            verified_model: None,
+            model_revision: None,
+            timestamp_basis: "synthetic",
+            sample_rate: None,
+            audio_chunk_start_sample: None,
+            audio_chunk_end_sample: None,
+            auto_generation: None,
+            timeline_offset_samples: None,
+            replay_prefix_samples: None,
+            overlap_trimmed: false,
+        }
     }
 
     fn frame(event: CaptionEvent) -> Result<ProjectedFrame, &'static str> {
@@ -477,7 +584,7 @@ impl CaptionProjection {
         if decision.provenance.method == "fallback" {
             if let Some(deterministic) = &previous.deterministic_text {
                 decision = CorrectionDecision::fallback(
-                    &previous.event.original_text,
+                    previous.event.source_text(),
                     deterministic,
                     options,
                     previous.llm_attempted || decision.provenance.llm_attempted,
@@ -537,11 +644,11 @@ impl CaptionProjection {
             let event = &frames[0].event;
             let attempted = event.correction.as_ref().unwrap().llm_attempted;
             let fallback = CorrectionDecision::fallback(
-                &event.original_text,
+                event.source_text(),
                 if attempted {
                     &decision.deterministic_text
                 } else {
-                    &event.original_text
+                    event.source_text()
                 },
                 options,
                 attempted,
@@ -566,7 +673,9 @@ impl CaptionProjection {
     }
 
     fn check_pending_limits(&self, prepared: &[ProjectedFrame]) -> Result<(), &'static str> {
-        let extra = prepared.iter().filter(|frame| !frame.event.committed);
+        let extra = prepared
+            .iter()
+            .filter(|frame| !frame.event.committed && frame.event.stage != "partial");
         if self.pending.len()
             + extra
                 .clone()
@@ -599,7 +708,7 @@ impl CaptionProjection {
             if let Some(old) = self.pending.remove(&frame.id) {
                 self.pending_bytes -= old.raw.get().len();
             }
-            if !frame.event.committed {
+            if !frame.event.committed && frame.event.stage != "partial" {
                 self.pending_bytes += frame.raw.get().len();
                 self.pending.insert(frame.id.clone(), frame.clone());
             }
@@ -614,7 +723,11 @@ impl CaptionProjection {
             self.latest_bytes += frame.raw.get().len();
             self.serial = frame.serial;
             self.latest.push_back(frame.clone());
-            while self.latest.len() > MAX_VISIBLE_SEGMENTS
+            while self.latest.len()
+                > self
+                    .config
+                    .as_ref()
+                    .map_or(MAX_VISIBLE_SEGMENTS, |config| config.max_segments)
                 || self.latest_bytes > MAX_SNAPSHOT_BYTES - SNAPSHOT_OVERHEAD
             {
                 self.latest_bytes -= self.latest.pop_front().unwrap().raw.get().len();
@@ -656,7 +769,7 @@ impl CaptionProjection {
             if event.correction.is_none() {
                 if let Some(options) = options {
                     let fallback = CorrectionDecision::fallback(
-                        &event.original_text,
+                        event.source_text(),
                         previous
                             .deterministic_text
                             .as_deref()
@@ -906,7 +1019,7 @@ mod tests {
             assert_eq!(event.translations.len(), 1);
             assert_eq!(event.translations["ja"], "Japanese");
             assert_eq!(event.translation_provenance.len(), 1);
-            assert_eq!(event.original_text, "Original");
+            assert_eq!(event.original_text.as_deref(), Some("Original"));
             assert_eq!(event.version, 3);
             assert!(event.committed);
         }

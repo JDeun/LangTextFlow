@@ -21,6 +21,7 @@ from .worker_ipc import (
     IDENTITY_KEYS,
     MAX_FRAME_BYTES,
     PROTOCOL_VERSION,
+    validate_inference_options,
     validate_inference_request,
 )
 
@@ -51,9 +52,13 @@ def validate_request(request: object) -> dict:
 def is_prepare(request: object) -> bool:
     validate_inference_request(request, "asr", max_deadline_ms=600_000)
     payload = json.loads(request["payload"])
-    prepared = (isinstance(payload, dict) and set(payload) == {"asr_protocol_version", "mode"}
+    prepared = (isinstance(payload, dict)
+            and set(payload) in ({"asr_protocol_version", "mode"},
+                                 {"asr_protocol_version", "mode", "inference_options"})
             and type(payload["asr_protocol_version"]) is int
             and payload["asr_protocol_version"] == 1 and payload["mode"] == "prepare")
+    if prepared and "inference_options" in payload:
+        validate_inference_options(payload["inference_options"])
     if not prepared:
         validate_inference_request(request, "asr")
     return prepared
@@ -136,12 +141,9 @@ def main(args: list[str] | None = None) -> None:
     async def unused_publish(_event):
         raise RuntimeError("worker must not publish caption events")
 
-    engine = FasterWhisperStreamingAsrEngine(
-        unused_publish, model=args[0], cache_dir=args[1],
-        cpu_threads=None if args[2] == "auto" else int(args[2]),
-        device="cpu", compute_type="int8", allow_download=False,
-    )
     threading.Thread(target=read_requests, daemon=True).start()
+    engine = None
+    bound_options = None
     while True:
         request = incoming.get()
         identity = {"protocol_version": PROTOCOL_VERSION, "request_id": "", "session_id": "",
@@ -150,10 +152,25 @@ def main(args: list[str] | None = None) -> None:
             prepare = is_prepare(request)
             chunk = None if prepare else validate_request(request)
             identity = {key: request[key] for key in IDENTITY_KEYS}
+            payload = json.loads(request["payload"])
+            options = payload.get("inference_options") if prepare else None
+            effective = options or {"protocol_version": 1, "device": "cpu", "compute_type": "int8"}
+            if engine is None:
+                bound_options = effective.copy()
+                engine = FasterWhisperStreamingAsrEngine(
+                    unused_publish, model=args[0], cache_dir=args[1],
+                    cpu_threads=None if args[2] == "auto" else int(args[2]),
+                    device=effective["device"], compute_type=effective["compute_type"],
+                    allow_download=False,
+                )
+            elif prepare and effective != bound_options:
+                raise ValueError("inference_options_changed")
             if prepare:
                 if engine._model is None:
                     engine._model = engine._load_model_sync()
                 result = {"asr_protocol_version": 1, "prepared": True, "sample_rate": 16_000}
+                if options is not None:
+                    result["inference_options"] = options
             else:
                 result = infer(engine, request, chunk)
             reply = {**identity, "status": "ok",

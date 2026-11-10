@@ -60,6 +60,8 @@ impl StreamOptions {
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AutoOptions {
+    #[serde(default)]
+    pub policy: StreamingPolicy,
     pub sidecar: Option<StreamOptions>,
     pub whisper_ready: bool,
     pub low_resource: bool,
@@ -67,6 +69,15 @@ pub struct AutoOptions {
     pub health_ms: u64,
     pub startup_ms: u64,
     pub queue_frames: usize,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StreamingPolicy {
+    #[default]
+    Auto,
+    #[serde(rename = "vibevoice")]
+    VibeVoice,
 }
 
 impl AutoOptions {
@@ -78,7 +89,9 @@ impl AutoOptions {
             && (1..=60_000).contains(&self.health_ms)
             && (1..=600_000).contains(&self.startup_ms)
             && self.sidecar.as_ref().is_none_or(StreamOptions::valid)
-            && if self.low_resource {
+            && if self.policy == StreamingPolicy::VibeVoice {
+                self.sidecar.is_some() && !self.whisper_ready
+            } else if self.low_resource {
                 self.sidecar.is_none() && self.whisper_ready
             } else {
                 self.sidecar.is_some()
@@ -375,10 +388,25 @@ impl WhisperClient {
     }
 
     pub async fn prepare(&mut self, deadline: Instant) -> Result<(), &'static str> {
-        let result = self
-            .exchange(json!({"asr_protocol_version":1,"mode":"prepare"}), deadline)
-            .await?;
-        if result != json!({"asr_protocol_version":1,"prepared":true,"sample_rate":16000}) {
+        self.prepare_configured(None, deadline).await
+    }
+
+    pub(crate) async fn prepare_configured(
+        &mut self,
+        options: Option<&crate::audio_options::WhisperOptions>,
+        deadline: Instant,
+    ) -> Result<(), &'static str> {
+        if options.is_some_and(|options| !options.valid()) {
+            return Err("asr_whisper_options");
+        }
+        let mut payload = json!({"asr_protocol_version":1,"mode":"prepare"});
+        let mut expected = json!({"asr_protocol_version":1,"prepared":true,"sample_rate":16000});
+        if let Some(options) = options {
+            payload["inference_options"] = json!(options);
+            expected["inference_options"] = json!(options);
+        }
+        let result = self.exchange(payload, deadline).await?;
+        if result != expected {
             return Err("asr_whisper_prepare");
         }
         Ok(())
@@ -853,6 +881,7 @@ print(json.dumps({'unicode_version':unicodedata.unidata_version,
     #[test]
     fn low_policy_can_never_carry_a_sidecar_or_an_unprepared_whisper() {
         let mut options = AutoOptions {
+            policy: StreamingPolicy::Auto,
             queue_frames: 3,
             sidecar: None,
             whisper_ready: true,
@@ -870,6 +899,11 @@ print(json.dumps({'unicode_version':unicodedata.unidata_version,
             args: vec![],
             endpoint: "http://127.0.0.1:8001".into(),
         });
+        assert!(!options.valid());
+        options.policy = StreamingPolicy::VibeVoice;
+        options.whisper_ready = false;
+        assert!(options.valid());
+        options.whisper_ready = true;
         assert!(!options.valid());
     }
 
@@ -989,6 +1023,36 @@ for line in sys.stdin:
                 tokio::time::timeout(Duration::from_secs(2),async {
                     while slot.available_permits()==0 {tokio::time::sleep(Duration::from_millis(5)).await;}
                 }).await.unwrap();
+            }
+        });
+    }
+
+    #[test]
+    fn configured_prepare_requires_exact_options_ack_and_reaps_ignoring_old_worker() {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+            let python = std::env::var("LTF_WORKER_PYTHON").unwrap_or_else(|_| "python3".into());
+            let script = r#"
+import json,sys
+for line in sys.stdin:
+ r=json.loads(line);p=json.loads(r['payload'])
+ out={k:r[k] for k in ('protocol_version','request_id','session_id','session_generation','segment_id','source_revision')}
+ result={'asr_protocol_version':1,'prepared':True,'sample_rate':16000}
+ if sys.argv[1]!='old':result['inference_options']=dict(p['inference_options'])
+ if sys.argv[1]=='wrong':result['inference_options']['device']='cpu'
+ out.update(status='ok',result=json.dumps(result),error=None);print(json.dumps(out),flush=True)
+"#;
+            let options = crate::audio_options::WhisperOptions {
+                protocol_version: 1, device: "cuda".into(), compute_type: "float16".into(),
+            };
+            for mode in ["exact", "old", "wrong"] {
+                let slot = crate::supervision::worker_slot();
+                let mut client = WhisperClient::spawn(&python, &["-u", "-c", script, mode],
+                    "settings", 1, "en", 1, slot.clone()).unwrap();
+                let result = client.prepare_configured(Some(&options), Instant::now()+Duration::from_secs(2)).await;
+                assert_eq!(result.is_ok(), mode == "exact");
+                client.stop().await.unwrap();
+                assert!(client.reaped.load(Ordering::Acquire));
+                assert_eq!(slot.available_permits(), 1);
             }
         });
     }

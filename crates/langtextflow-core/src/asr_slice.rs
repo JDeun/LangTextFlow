@@ -130,10 +130,12 @@ struct State {
     correction: Option<CorrectionAdmission>,
     pending_corrections: HashMap<String, PendingTarget>,
     auto_scope: Option<AutoScope>,
+    synthetic_source: bool,
 }
 
 #[derive(Default)]
 struct AutoScope {
+    auto_provenance: bool,
     epoch: u64,
     provider: Option<&'static str>,
     selected_provider: Option<&'static str>,
@@ -161,6 +163,7 @@ struct AcceptedChunk {
 enum SourceProjection {
     Whisper(AudioChunk),
     Auto(Vec<crate::caption_events::AsrProvenance>),
+    Synthetic,
 }
 
 struct SourceCompletion {
@@ -470,6 +473,7 @@ impl Default for AsrSession {
             correction: None,
             pending_corrections: HashMap::new(),
             auto_scope: None,
+            synthetic_source: false,
         })))
     }
 }
@@ -562,6 +566,22 @@ impl AsrSession {
         Ok(token)
     }
 
+    pub(crate) fn start_observed_with_limit(
+        &self,
+        session_id: &str,
+        source: &str,
+        targets: &[String],
+        max_segments: usize,
+    ) -> Result<ObserverCredential, &'static str> {
+        if !(1..=10_000).contains(&max_segments) {
+            return Err("invalid_live_capacity");
+        }
+        let (mut config, token) = ObservedConfig::new(source, targets)?;
+        config.max_segments = max_segments;
+        self.start_configured(session_id, Some(config))?;
+        Ok(token)
+    }
+
     fn start_configured(
         &self,
         session_id: &str,
@@ -591,6 +611,7 @@ impl AsrSession {
         state.translation = None;
         state.context = None;
         state.auto_scope = None;
+        state.synthetic_source = false;
         state.correction = None;
         for pending in state
             .pending_corrections
@@ -686,9 +707,21 @@ impl AsrSession {
                 || state.auto_scope.as_ref().is_some_and(|s| s.active_window),
             pending_corrections: state.pending_corrections.len(),
             pending_targets: state.pending_targets.len(),
-            active_provider: state.auto_scope.as_ref().and_then(|s| s.provider),
-            auto_generation: state.auto_scope.as_ref().map(|s| s.generation),
-            failover_count: state.auto_scope.as_ref().map(|s| s.failovers),
+            active_provider: if state.synthetic_source && !state.session_id.is_empty() {
+                Some("mock")
+            } else {
+                state.auto_scope.as_ref().and_then(|s| s.provider)
+            },
+            auto_generation: state
+                .auto_scope
+                .as_ref()
+                .filter(|s| s.auto_provenance)
+                .map(|s| s.generation),
+            failover_count: state
+                .auto_scope
+                .as_ref()
+                .filter(|s| s.auto_provenance)
+                .map(|s| s.failovers),
             last_failover_reason: state.auto_scope.as_ref().and_then(|s| s.reason),
         }
     }
@@ -777,6 +810,15 @@ impl AsrSession {
         generation: u64,
         epoch: u64,
     ) -> Result<(), &'static str> {
+        self.begin_stream_candidate(generation, epoch, true)
+    }
+
+    pub(crate) fn begin_stream_candidate(
+        &self,
+        generation: u64,
+        epoch: u64,
+        auto_provenance: bool,
+    ) -> Result<(), &'static str> {
         let mut state = self.0.lock().unwrap();
         if state.session_id.is_empty()
             || state.generation != generation
@@ -784,11 +826,16 @@ impl AsrSession {
             || epoch > (1 << 53) - 1
             || state.active.is_some()
             || state.auto_scope.as_ref().is_some_and(|s| epoch <= s.epoch)
+            || state
+                .auto_scope
+                .as_ref()
+                .is_some_and(|s| s.auto_provenance != auto_provenance)
             || (state.auto_scope.is_none() && !state.revisions.is_empty())
         {
             return Err("stale_auto_candidate");
         }
         let scope = state.auto_scope.get_or_insert_with(Default::default);
+        scope.auto_provenance = auto_provenance;
         scope.epoch = epoch;
         scope.provider = None;
         scope.active_window = false;
@@ -955,12 +1002,12 @@ impl AsrSession {
                 verified_model: None,
                 model_revision: None,
                 timestamp_basis: source.timestamp_basis,
-                sample_rate: scope.rate,
+                sample_rate: Some(scope.rate),
                 audio_chunk_start_sample: source.chunk_start,
-                audio_chunk_end_sample: source.chunk_end,
-                auto_generation: Some(scope.generation),
-                timeline_offset_samples: Some(scope.origin),
-                replay_prefix_samples: Some(scope.replay),
+                audio_chunk_end_sample: Some(source.chunk_end),
+                auto_generation: scope.auto_provenance.then_some(scope.generation),
+                timeline_offset_samples: scope.auto_provenance.then_some(scope.origin),
+                replay_prefix_samples: scope.auto_provenance.then_some(scope.replay),
                 overlap_trimmed: source.mapped.overlap_trimmed,
             });
             events.push(SourceEvent {
@@ -1001,6 +1048,98 @@ impl AsrSession {
                 cancelled: None,
             },
         )
+    }
+
+    pub(crate) fn enable_mock(&self, generation: u64) -> Result<(), &'static str> {
+        let mut state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || state.generation != generation
+            || state.projection.config.is_none()
+            || !state.revisions.is_empty()
+            || state.auto_scope.is_some()
+            || state.active.is_some()
+            || state.synthetic_source
+        {
+            return Err("mock_source_scope");
+        }
+        state.synthetic_source = true;
+        if let Some(history) = &state.projection.history {
+            history.engine_changed("mock");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn mock_source(
+        &self,
+        generation: u64,
+        index: u64,
+        text: &str,
+        stable: bool,
+    ) -> Result<(), &'static str> {
+        let mut state = self.0.lock().unwrap();
+        if state.session_id.is_empty()
+            || state.generation != generation
+            || !state.synthetic_source
+            || index >= crate::caption_events::MAX_PUBLIC_IDS as u64
+        {
+            return Err("stale_mock_source");
+        }
+        let id = format!("demo-{:03}-{:02}", index / 3, index % 3);
+        let source = SourceEvent {
+            session_id: state.session_id.clone(),
+            session_generation: generation,
+            segment_id: id.clone(),
+            source_revision: 1,
+            source_language: state
+                .projection
+                .config
+                .as_ref()
+                .ok_or("mock_source_scope")?
+                .source_language
+                .clone(),
+            stage: if stable { "stable" } else { "partial" },
+            text: text.into(),
+            start_ms: index * 6000,
+            end_ms: index * 6000 + 5000,
+            timestamp_basis: "synthetic",
+        };
+        if !stable {
+            let frames =
+                state
+                    .projection
+                    .prepare_mock_partial(&state.session_id, generation, &source)?;
+            state.projection.apply(frames)?;
+            return Ok(());
+        }
+        // The timer owns one immutable partial→stable revision. It cannot
+        // rewrite an existing stable source or accept a retired session timer.
+        if state.revisions.contains_key(&id)
+            || state.accepted.contains_key(&id)
+            || !state.projection.mock_partial_ready(&id)
+        {
+            return Err("stale_revision");
+        }
+        let source_id = state.serial.checked_add(1).ok_or("request_id_exhausted")?;
+        state.serial = source_id;
+        state.revisions.insert(
+            id.clone(),
+            SegmentVersion {
+                revision: 1,
+                source_id,
+            },
+        );
+        self.publish_sources(
+            state,
+            SourceCompletion {
+                chunk_id: id,
+                revision: 1,
+                events: vec![source],
+                projection: SourceProjection::Synthetic,
+                deadline: std::time::Instant::now() + std::time::Duration::from_secs(120),
+                cancelled: None,
+            },
+        )?;
+        Ok(())
     }
 
     pub(crate) fn authorize_observer(&self, token: &str) -> bool {
@@ -1120,6 +1259,7 @@ impl AsrSession {
     pub(crate) fn bind_audio_generation(&self, source: &str) -> Result<u64, &'static str> {
         let state = self.0.lock().unwrap();
         if state.session_id.is_empty()
+            || state.synthetic_source
             || !state.revisions.is_empty()
             || state.active.is_some()
             || !matches!(source, "ko" | "en" | "ja")
@@ -1386,6 +1526,13 @@ impl AsrSession {
                 state.generation,
                 &events,
                 origins,
+                state.translation.is_some(),
+                state.correction.is_some(),
+            )?,
+            SourceProjection::Synthetic => state.projection.prepare_mock_stable(
+                &state.session_id,
+                state.generation,
+                &events,
                 state.translation.is_some(),
                 state.correction.is_some(),
             )?,

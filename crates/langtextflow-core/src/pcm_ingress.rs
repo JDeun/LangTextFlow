@@ -1,5 +1,6 @@
 //! Opt-in continuous PCM ownership; energy monitoring never discards silence.
 use crate::asr_slice::{AsrSession, AudioBinding, AudioChunk, MAX_SOURCE_CHUNKS};
+use crate::audio_options::{AudioOptions, WhisperOptions, MAX_WHISPER_SAMPLES};
 use crate::supervision::SupervisedWorker;
 use futures_util::future::{select, Either};
 use serde::Serialize;
@@ -22,6 +23,33 @@ const DRAIN_BUDGET: Duration = Duration::from_secs(10);
 const CLEANUP_BUDGET: Duration = Duration::from_secs(2);
 const POLL: Duration = Duration::from_millis(10);
 
+/// Gathering the actual window is separate from its unchanged native budget.
+/// Queue age consumes the absolute budget; admission cannot renew an old frame.
+pub(crate) fn window_deadline(
+    accepted_at: Instant,
+    samples: u64,
+    now: Instant,
+) -> Result<Instant, &'static str> {
+    if !(1..=MAX_WHISPER_SAMPLES).contains(&samples) {
+        return Err("audio_window_shape");
+    }
+    let nanos = samples
+        .checked_mul(1_000_000_000)
+        .ok_or("audio_deadline_overflow")?
+        / u64::from(SAMPLE_RATE);
+    let absolute = accepted_at
+        .checked_add(Duration::from_nanos(nanos))
+        .and_then(|time| time.checked_add(REQUEST_BUDGET))
+        .ok_or("audio_deadline_overflow")?;
+    if now >= absolute {
+        return Err("audio_deadline_expired");
+    }
+    let native = now
+        .checked_add(REQUEST_BUDGET)
+        .ok_or("audio_deadline_overflow")?;
+    Ok(absolute.min(native))
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct IngressMetrics {
     pub accepted_frames: u64,
@@ -42,7 +70,7 @@ pub struct IngressMetrics {
 #[derive(Default)]
 pub(crate) struct InputState {
     pub(crate) closing: bool,
-    hangover: u8,
+    hangover: usize,
     pub(crate) metrics: IngressMetrics,
 }
 
@@ -68,10 +96,16 @@ pub struct PcmInput {
     capacity: usize,
     sample_rate: u32,
     max_samples: u64,
+    options: AudioOptions,
 }
 
+#[cfg(test)]
 fn analyze(pcm: &[u8]) -> Result<(f64, u64), &'static str> {
-    if pcm.is_empty() || !pcm.len().is_multiple_of(4) || pcm.len() > FRAME_LIMIT {
+    analyze_bounded(pcm, FRAME_LIMIT)
+}
+
+fn analyze_bounded(pcm: &[u8], limit: usize) -> Result<(f64, u64), &'static str> {
+    if pcm.is_empty() || !pcm.len().is_multiple_of(4) || pcm.len() > limit {
         return Err("invalid_pcm_frame");
     }
     let mut sum = 0.0_f64;
@@ -97,7 +131,26 @@ impl PcmInput {
         sample_rate: u32,
         capacity: usize,
     ) -> Result<(Self, mpsc::Receiver<Input>), &'static str> {
-        if !(8000..=192000).contains(&sample_rate) || !(1..=QUEUE_FRAMES).contains(&capacity) {
+        Self::channel_configured(
+            session,
+            source,
+            sample_rate,
+            capacity,
+            &AudioOptions::default(),
+        )
+    }
+
+    pub(crate) fn channel_configured(
+        session: AsrSession,
+        source: &str,
+        sample_rate: u32,
+        capacity: usize,
+        options: &AudioOptions,
+    ) -> Result<(Self, mpsc::Receiver<Input>), &'static str> {
+        if !options.valid()
+            || !(8000..=192000).contains(&sample_rate)
+            || !(1..=QUEUE_FRAMES).contains(&capacity)
+        {
             return Err("audio_configuration");
         }
         let generation = session.bind_audio_generation(source)?;
@@ -113,6 +166,7 @@ impl PcmInput {
                 capacity,
                 sample_rate,
                 max_samples: MAX_SOURCE_CHUNKS as u64 * 4 * u64::from(sample_rate),
+                options: options.clone(),
             },
             receiver,
         ))
@@ -125,7 +179,7 @@ impl PcmInput {
             .try_acquire_owned()
             .map_err(|_| "audio_producer_busy")?;
         let accepted_at = Instant::now();
-        let (dbfs, clipped) = analyze(pcm_f32le)?;
+        let (dbfs, clipped) = analyze_bounded(pcm_f32le, self.options.max_frame_bytes)?;
         if self.session.audio_generation(&self.source)? != self.generation {
             return Err("stale_audio_generation");
         }
@@ -165,8 +219,8 @@ impl PcmInput {
         state.metrics.accepted_frames += 1;
         state.metrics.clipped_samples += clipped;
         state.metrics.rms_dbfs = Some(dbfs);
-        if dbfs >= -45.0 {
-            state.hangover = 3;
+        if dbfs >= self.options.vad_threshold_dbfs {
+            state.hangover = self.options.vad_hangover_frames;
             state.metrics.voice_active = true;
         } else if state.hangover > 0 {
             state.hangover -= 1;
@@ -211,9 +265,12 @@ impl PcmIngress {
         temporary_parent: &Path,
         startup_ms: u64,
         capacity: usize,
+        options: &AudioOptions,
+        whisper_options: Option<&WhisperOptions>,
     ) -> Result<Self, &'static str> {
         let (sid, generation, _) = session.auto_source_scope(source)?;
-        let (input, receiver) = PcmInput::channel(session, source, SAMPLE_RATE, capacity)?;
+        let (input, receiver) =
+            PcmInput::channel_configured(session, source, SAMPLE_RATE, capacity, options)?;
         let mut client = crate::auto_asr::WhisperClient::spawn(
             program, args, &sid, generation, source, 1, slot,
         )?;
@@ -225,7 +282,10 @@ impl PcmIngress {
             &input.session,
             source,
             generation,
-            client.prepare(Instant::now() + Duration::from_millis(startup_ms)),
+            client.prepare_configured(
+                whisper_options,
+                Instant::now() + Duration::from_millis(startup_ms),
+            ),
         )
         .await
         {
@@ -420,8 +480,22 @@ impl Spool {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn write_window(&mut self, pcm: &[u8]) -> Result<PathBuf, &'static str> {
-        if self.active.is_some() || pcm.is_empty() || pcm.len() > WINDOW_SAMPLES * 4 {
+        self.write_window_bounded(pcm, WINDOW_SAMPLES as u64)
+    }
+
+    pub(crate) fn write_window_bounded(
+        &mut self,
+        pcm: &[u8],
+        samples: u64,
+    ) -> Result<PathBuf, &'static str> {
+        if self.active.is_some()
+            || pcm.is_empty()
+            || !pcm.len().is_multiple_of(4)
+            || !(1..=MAX_WHISPER_SAMPLES).contains(&samples)
+            || pcm.len() > samples as usize * 4
+        {
             return Err("audio_window_shape");
         }
         self.sequence += 1;
@@ -526,7 +600,8 @@ async fn consume(
     mut spool: Spool,
 ) -> Result<(), &'static str> {
     let mut worker = Some(worker);
-    let mut buffer = Vec::with_capacity(WINDOW_SAMPLES * 4);
+    let window_bytes = input.options.window_bytes();
+    let mut buffer = Vec::with_capacity(window_bytes);
     let mut cursor = 0u64;
     let mut sequence = 0u64;
     let mut started = None;
@@ -554,11 +629,10 @@ async fn consume(
                         if buffer.is_empty() {
                             started = Some(frame.accepted_at);
                         }
-                        let take =
-                            (WINDOW_SAMPLES * 4 - buffer.len()).min(frame.pcm.len() - offset);
+                        let take = (window_bytes - buffer.len()).min(frame.pcm.len() - offset);
                         buffer.extend_from_slice(&frame.pcm[offset..offset + take]);
                         offset += take;
-                        if buffer.len() == WINDOW_SAMPLES * 4 {
+                        if buffer.len() == window_bytes {
                             decode_window(
                                 &input,
                                 &mut worker,
@@ -566,7 +640,7 @@ async fn consume(
                                 &buffer,
                                 cursor,
                                 sequence,
-                                started.unwrap() + REQUEST_BUDGET,
+                                started.unwrap(),
                             )
                             .await?;
                             cursor += (buffer.len() / 4) as u64;
@@ -584,7 +658,7 @@ async fn consume(
                             &buffer,
                             cursor,
                             sequence,
-                            started.unwrap() + REQUEST_BUDGET,
+                            started.unwrap(),
                         )
                         .await?;
                     }
@@ -623,10 +697,11 @@ async fn decode_window(
     pcm: &[u8],
     start: u64,
     sequence: u64,
-    deadline: Instant,
+    accepted_at: Instant,
 ) -> Result<(), &'static str> {
-    let path = spool.write_window(pcm)?;
     let samples = (pcm.len() / 4) as u64;
+    let deadline = window_deadline(accepted_at, samples, Instant::now())?;
+    let path = spool.write_window_bounded(pcm, input.options.chunk_samples)?;
     let admitted = input.session.admit_window(
         &format!("pcm-{}", sequence + 1),
         &input.source,
@@ -702,6 +777,172 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(quantize(&pcm), expected);
         assert!((analyze(&0.5f32.to_le_bytes()).unwrap().0 + 6.020599913).abs() < 1e-8);
+    }
+
+    #[test]
+    fn gathering_and_tail_duration_do_not_renew_stale_queues_or_native_budget() {
+        let accepted = Instant::now();
+        let complete = accepted + Duration::from_secs(120);
+        assert!(complete >= accepted + REQUEST_BUDGET); // The old calculation expired here.
+        assert_eq!(
+            window_deadline(accepted, MAX_WHISPER_SAMPLES, complete).unwrap(),
+            accepted + Duration::from_secs(240)
+        );
+        assert_eq!(
+            window_deadline(accepted, MAX_WHISPER_SAMPLES, accepted).unwrap(),
+            accepted + REQUEST_BUDGET
+        ); // Fast input never gains a 240s native exchange.
+        let queued = accepted + Duration::from_secs(180);
+        assert_eq!(
+            window_deadline(accepted, MAX_WHISPER_SAMPLES, queued)
+                .unwrap()
+                .duration_since(queued),
+            Duration::from_secs(60)
+        );
+        assert!(window_deadline(
+            accepted,
+            MAX_WHISPER_SAMPLES,
+            accepted + Duration::from_secs(240)
+        )
+        .is_err());
+        assert_eq!(
+            window_deadline(accepted, 8000, complete).unwrap(),
+            accepted + Duration::from_millis(120500)
+        ); // Only the actual half-second tail.
+        assert!(window_deadline(accepted, 8000, accepted + Duration::from_secs(121)).is_err());
+        assert!(window_deadline(accepted, 0, accepted).is_err());
+
+        let session = AsrSession::default();
+        session
+            .start_observed("native-cap", "en", &["ko".into()])
+            .unwrap();
+        let admitted = session
+            .admit_window(
+                "window",
+                "en",
+                AudioChunk {
+                    wav_path: "owned.wav".into(),
+                    start_sample: 0,
+                    end_sample: MAX_WHISPER_SAMPLES,
+                    sample_rate: SAMPLE_RATE,
+                },
+                &AudioBinding {
+                    generation: session.audio_generation("en").unwrap(),
+                    deadline: accepted + Duration::from_secs(240),
+                },
+            )
+            .unwrap();
+        assert_eq!(admitted.request().deadline_ms, 120_000);
+        // SupervisedWorker's unchanged min(absolute, now+request.deadline_ms)
+        // also bounds transport/model execution when the absolute window is later.
+    }
+
+    #[test]
+    fn configured_whole_frame_validation_and_cancelled_reservation_never_admit_a_prefix() {
+        use std::future::Future;
+        use std::task::{Context, Poll};
+        let session = AsrSession::default();
+        session
+            .start_observed("atomic", "en", &["ko".into()])
+            .unwrap();
+        let options = AudioOptions {
+            max_frame_bytes: crate::audio_options::MAX_AUDIO_FRAME_BYTES,
+            ..Default::default()
+        };
+        let (input, mut receiver) =
+            PcmInput::channel_configured(session, "en", 16000, 1, &options).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(input.feed(&[0; 4])).unwrap();
+        let before = serde_json::to_value(input.metrics()).unwrap();
+        let mut large = vec![0; options.max_frame_bytes];
+        let end = large.len();
+        large[end - 4..].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert!(runtime.block_on(input.feed(&large)).is_err());
+        assert_eq!(serde_json::to_value(input.metrics()).unwrap(), before);
+        large[end - 4..].copy_from_slice(&0_f32.to_le_bytes());
+        let mut pending = Box::pin(input.feed(&large));
+        let mut context = Context::from_waker(futures_util::task::noop_waker_ref());
+        assert!(matches!(pending.as_mut().poll(&mut context), Poll::Pending));
+        drop(pending);
+        assert_eq!(serde_json::to_value(input.metrics()).unwrap(), before);
+        assert!(matches!(receiver.try_recv(), Ok(Input::Frame(_))));
+        runtime.block_on(input.feed(&large)).unwrap();
+        assert_eq!(input.metrics().accepted_frames, 2);
+        assert_eq!(
+            input.metrics().accepted_samples,
+            1 + (large.len() / 4) as u64
+        );
+        match receiver.try_recv().unwrap() {
+            Input::Frame(frame) => {
+                assert_eq!(frame.start_sample, 1);
+                assert_eq!(frame.pcm.len(), options.max_frame_bytes);
+            }
+            Input::End => panic!("frame was lost"),
+        }
+    }
+
+    #[test]
+    fn configured_vad_hangover_above_u8_range_counts_original_frames_without_dropping_pcm() {
+        let session = AsrSession::default();
+        session.start_observed("vad", "en", &["ko".into()]).unwrap();
+        let options = AudioOptions {
+            vad_threshold_dbfs: -10.,
+            vad_hangover_frames: 260,
+            ..Default::default()
+        };
+        let (input, mut receiver) =
+            PcmInput::channel_configured(session, "en", 16000, 1, &options).unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime
+            .block_on(input.feed(&0.5_f32.to_le_bytes()))
+            .unwrap();
+        assert!(input.metrics().voice_active);
+        receiver.try_recv().unwrap();
+        for index in 0..261 {
+            runtime.block_on(input.feed(&[0; 4])).unwrap();
+            assert_eq!(input.metrics().voice_active, index < 260);
+            assert!(matches!(receiver.try_recv(), Ok(Input::Frame(_))));
+        }
+        assert_eq!(input.metrics().accepted_frames, 262);
+        assert_eq!(input.metrics().accepted_samples, 262);
+    }
+
+    #[test]
+    fn largest_configured_window_is_one_valid_private_wav_and_cleans_its_owned_file() {
+        let mut spool = Spool::new(&std::env::temp_dir(), AsrChildren::default()).unwrap();
+        let root = spool.root.clone();
+        assert!(spool
+            .write_window_bounded(&[0; 4], MAX_WHISPER_SAMPLES + 1)
+            .is_err());
+        let path = spool
+            .write_window_bounded(
+                &vec![0; MAX_WHISPER_SAMPLES as usize * 4],
+                MAX_WHISPER_SAMPLES,
+            )
+            .unwrap();
+        let mut header = [0; 44];
+        std::io::Read::read_exact(&mut std::fs::File::open(&path).unwrap(), &mut header).unwrap();
+        assert_eq!(&header[..4], b"RIFF");
+        assert_eq!(
+            u32::from_le_bytes(header[24..28].try_into().unwrap()),
+            SAMPLE_RATE
+        );
+        assert_eq!(
+            u32::from_le_bytes(header[40..44].try_into().unwrap()) as u64,
+            MAX_WHISPER_SAMPLES * 2
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            44 + MAX_WHISPER_SAMPLES * 2
+        );
+        drop(spool);
+        assert!(!path.exists() && !root.exists());
     }
 
     #[test]
