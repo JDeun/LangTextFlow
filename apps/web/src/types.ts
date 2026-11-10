@@ -327,6 +327,21 @@ export interface RustAuthorityMetrics {
     sampled_at: string;
     final: boolean;
     stop_error: string | null;
+    ingress: {
+      accepted_frames: number;
+      accepted_samples: number;
+      processed_samples: number;
+      decoded_windows: number;
+      empty_windows: number;
+      queue_high_watermark: number;
+      queue_depth: number;
+      queue_capacity: number;
+      backpressure_events: number;
+      clipped_samples: number;
+      rms_dbfs: number | null;
+      voice_active: boolean;
+      failure: string | null;
+    } | null;
     correction: RustQueueMetrics | null;
     translation: RustQueueMetrics | null;
   } | null;

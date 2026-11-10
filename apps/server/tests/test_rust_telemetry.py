@@ -141,6 +141,24 @@ def test_pending_target_population_accepts_all_retained_targets_but_stays_bounde
             accept(bridge(), value)
 
 
+def test_synthetic_source_keeps_pcm_unmeasured_in_metrics_and_collector(tmp_path):
+    owner = bridge()
+    value = frame()
+    value["ingress"] = None
+    value["source"].update(active_provider="mock", active_window=False)
+    accept(owner, value)
+    runtime = CaptionRuntime(Settings(database_path=str(tmp_path / "unused.db")))
+    runtime._rust_session, runtime.engine = True, owner
+    sample = runtime.metrics_snapshot()
+    assert sample.rust_authority.sample.ingress is None
+    assert sample.asr_provider == "mock" and runtime.state.engine == "mock"
+    assert sample.asr_queue_depth is sample.asr_queue_capacity is None
+    assert sample.asr_queue_high_watermark is None
+    collector = RuntimeMetricsCollector()
+    collector.sample(sample)  # Null PCM must not break existing collectors.
+    assert collector.postprocess_queue_peak == 5
+
+
 async def reply(owner, values, kind="stopped"):
     reader = asyncio.StreamReader()
     reader.feed_data(b"".join((json.dumps(value) + "\n").encode() for value in values))

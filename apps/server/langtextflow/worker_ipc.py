@@ -18,6 +18,22 @@ IDENTITY_KEYS = (
 )
 REQUEST_KEYS = {*IDENTITY_KEYS, "task_kind", "source_language", "target_language",
                 "deadline_ms", "payload"}
+INFERENCE_DEVICES = {"cpu", "cuda", "auto"}
+INFERENCE_COMPUTE_TYPES = {
+    "default", "auto", "int8", "int8_float32", "int8_float16", "int8_bfloat16",
+    "int16", "float16", "float32", "bfloat16",
+}
+
+
+def validate_inference_options(options: object) -> dict:
+    if (not isinstance(options, dict)
+            or set(options) != {"protocol_version", "device", "compute_type"}
+            or type(options["protocol_version"]) is not int or options["protocol_version"] != 1
+            or not isinstance(options["device"], str) or options["device"] not in INFERENCE_DEVICES
+            or not isinstance(options["compute_type"], str)
+            or options["compute_type"] not in INFERENCE_COMPUTE_TYPES):
+        raise ValueError("invalid_inference_options")
+    return options
 
 
 def validate_inference_request(

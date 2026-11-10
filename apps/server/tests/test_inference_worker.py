@@ -10,6 +10,31 @@ from pathlib import Path
 import pytest
 
 from langtextflow.inference_worker import is_prepare, read_pcm, validate_request
+from langtextflow.worker_ipc import (
+    INFERENCE_COMPUTE_TYPES,
+    INFERENCE_DEVICES,
+    validate_inference_options,
+)
+
+
+@pytest.mark.parametrize("device", sorted(INFERENCE_DEVICES))
+@pytest.mark.parametrize("compute_type", sorted(INFERENCE_COMPUTE_TYPES))
+def test_inference_options_accept_supported_values(device, compute_type):
+    options = {"protocol_version": 1, "device": device, "compute_type": compute_type}
+    assert validate_inference_options(options) == options
+
+
+@pytest.mark.parametrize("patch", [
+    {"protocol_version": True}, {"protocol_version": 2}, {"device": True},
+    {"device": "gpu"}, {"compute_type": []}, {"compute_type": "invalid"},
+    {"extra": 1},
+])
+def test_inference_options_reject_invalid_values(patch):
+    options = {"protocol_version": 1, "device": "cpu", "compute_type": "int8"}
+    with pytest.raises(ValueError):
+        validate_inference_options(options | patch)
+    with pytest.raises(ValueError):
+        validate_inference_options({"device": "cpu"})
 
 
 def request(path: Path) -> dict:
@@ -55,6 +80,13 @@ def test_whisper_prepare_is_distinct_from_the_legacy_wav_contract(tmp_path):
     value = request(tmp_path / "no-audio.wav")
     value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
     assert is_prepare(value)
+    value["payload"] = json.dumps({
+        "asr_protocol_version": 1, "mode": "prepare",
+        "inference_options": {"protocol_version": True, "device": "cpu", "compute_type": "int8"},
+    })
+    with pytest.raises(ValueError):
+        is_prepare(value)
+    value["payload"] = json.dumps({"asr_protocol_version": 1, "mode": "prepare"})
     with pytest.raises(ValueError, match="invalid_audio_descriptor"):
         validate_request(value)  # The legacy worker schema cannot mistake this for ASR output.
     for payload in ({"asr_protocol_version": True, "mode": "prepare"},
@@ -100,6 +132,9 @@ sys.modules['numpy'] = types.SimpleNamespace(
 class Model:
     def __init__(self, path, **kwargs):
         assert kwargs['local_files_only'] is True
+        assert kwargs['device'] == ('cuda' if mode == 'options' else 'cpu')
+        assert kwargs['compute_type'] == ('float16' if mode == 'options' else 'int8')
+        if mode == 'options': assert not marker.exists()
         if mode == 'auto-threads':
             assert 'cpu_threads' not in kwargs and 'num_workers' not in kwargs
         else:
@@ -140,6 +175,44 @@ main()
         env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1])},
     )
     return process, marker
+
+
+async def test_options_prepare_binds_engine_and_rejects_changes(tmp_path):
+    path = tmp_path / "fixture.wav"
+    wav(path)
+    process, marker = await fake_native_process(tmp_path, "options")
+    options = {"protocol_version": 1, "device": "cuda", "compute_type": "float16"}
+    value = request(path)
+    value["payload"] = json.dumps({
+        "asr_protocol_version": 1, "mode": "prepare", "inference_options": options,
+    })
+
+    async def exchange(message):
+        process.stdin.write((json.dumps(message) + "\n").encode())
+        await process.stdin.drain()
+        return json.loads(await asyncio.wait_for(process.stdout.readline(), 3))
+
+    try:
+        for _ in range(2):
+            reply = await exchange(value)
+            assert json.loads(reply["result"]) == {
+                "asr_protocol_version": 1, "prepared": True, "sample_rate": 16000,
+                "inference_options": options,
+            }
+        assert marker.read_text() == "load"
+        assert (await exchange(request(path)))["status"] == "ok"
+        assert marker.read_text() == "infer"
+        value["payload"] = json.dumps({
+            "asr_protocol_version": 1, "mode": "prepare",
+            "inference_options": options | {"device": "cpu"},
+        })
+        reply = await exchange(value)
+        assert reply["status"] == "error" and reply["error"] == "asr_worker_failed"
+        assert await asyncio.wait_for(process.wait(), 2) == 1
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
 
 
 @pytest.mark.parametrize("mode", ["normal", "descriptor-clone", "load-error", "auto-threads"])

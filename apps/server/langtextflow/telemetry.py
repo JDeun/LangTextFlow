@@ -75,7 +75,7 @@ class RustSourceMetrics(_StrictMetrics):
     pending_corrections: Annotated[int, Field(ge=0, le=512)]
     # Includes all targets registered before bounded dispatch/finalization.
     pending_targets: Annotated[int, Field(ge=0, le=512 * MAX_TARGET_LANGUAGES)]
-    active_provider: Literal["vibevoice", "faster-whisper"] | None = None
+    active_provider: Literal["vibevoice", "faster-whisper", "mock"] | None = None
     auto_generation: Counter | None = None
     failover_count: Counter | None = None
     last_failover_reason: Literal[
@@ -115,7 +115,7 @@ class RustMetricsFrame(_StrictMetrics):
     sampled_at: Annotated[str, Field(max_length=40)]
     final: bool
     stop_error: Annotated[str, Field(pattern=r"^[a-z_]{1,64}$")] | None
-    ingress: RustIngressMetrics
+    ingress: RustIngressMetrics | None
     source: RustSourceMetrics
     correction: RustQueueMetrics | None
     translation: RustQueueMetrics | None

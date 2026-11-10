@@ -1,10 +1,14 @@
 """Smoke-driver contracts only: no frozen process, native model or build is run."""
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
-from io import StringIO
+import threading
+from contextlib import closing
+from io import BytesIO, StringIO
 from types import SimpleNamespace
+from urllib.error import HTTPError
 
 import pytest
 
@@ -312,3 +316,164 @@ def test_session_database_handle_closes_before_fixture_cleanup(tmp_path, monkeyp
     with pytest.raises(sqlite3.ProgrammingError, match="closed database"):
         database.execute("SELECT 1")
     path.unlink()
+
+
+def test_refusal_observes_direct_child_while_http_is_pending_on_owner_thread():
+    release = threading.Event()
+    owner_thread = threading.get_ident()
+    gone = []
+    snapshots = 0
+
+    def snapshot():
+        nonlocal snapshots
+        assert threading.get_ident() == owner_thread
+        snapshots += 1
+        if snapshots == 1:
+            return []
+        release.set()
+        return processes()
+
+    def operation():
+        assert threading.get_ident() != owner_thread
+        assert release.wait(1), "HTTP must remain pending until child observation"
+        return {"detail": "fixed refusal"}
+
+    owned = SimpleNamespace(snapshot=snapshot, gone=lambda rows: gone.extend(rows),
+                            cleanup=lambda: pytest.fail("success must not force cleanup"))
+    log = StringIO()
+    result = smoke.observed_start_refusal(owned, log, operation)
+    assert result["rust_pid"] == 10 and result["rust_created"] == 1.
+    assert result["asr_pid"] == 11 and result["asr_created"] == 2.
+    assert result["asr_parent_pid"] == 10 and result["direct_pid_no_inner"]
+    assert result["observed_children_absent"] and result["observed_children"] == 2
+    assert result["unobserved_descendants_excluded"]
+    assert {row["pid"] for row in gone} == {10, 11}
+    assert "processes" in log.getvalue() and "/owned" not in log.getvalue()
+
+
+def test_stream_dispatch_control_is_valid_but_never_opens_a_sidecar(tmp_path, monkeypatch):
+    from langtextflow.asr_stream_worker import StreamLeaf, validate
+
+    process = SimpleNamespace(
+        stdin=BytesIO(), stdout=BytesIO(), returncode=1,
+        poll=lambda: 1, wait=lambda **kwargs: 1,
+    )
+    owned = SimpleNamespace(process=process, observations=1, seen={1: {"pid": 1}},
+                            snapshot=lambda: [], gone=lambda rows: None, cleanup=lambda: None)
+
+    def spawn(arguments, **kwargs):
+        assert arguments[1:] == ["--asr-stream-worker"]
+        return process
+
+    def exchange(owner, request):
+        assert validate(request)["mode"] == "poll" and request["task_kind"] == "asr"
+        with pytest.raises(ValueError, match="stale_stream_candidate"):
+            asyncio.run(StreamLeaf().handle(request))
+        return wire(request, error="asr_stream_failed")
+
+    monkeypatch.setattr(smoke.subprocess, "Popen", spawn)
+    monkeypatch.setattr(smoke, "Owned", lambda *args: owned)
+    monkeypatch.setattr(smoke, "exchange", exchange)
+    result = smoke.worker_probe(tmp_path / "unused", tmp_path, {}, object(), "stream")
+    assert result["generic_error"] == "asr_stream_failed" and result["exit_code"] == 1
+
+
+@pytest.mark.parametrize("failure", ["unobserved", "denied", "eof"])
+def test_refusal_never_promotes_missing_observation_or_eof_to_cleanup_success(failure):
+    actions = []
+    calls = 0
+
+    def snapshot():
+        nonlocal calls
+        calls += 1
+        if calls > 1 and failure == "denied":
+            raise smoke.SmokeFailure("process_observation_unavailable")
+        return []
+
+    def operation():
+        if failure == "eof":
+            raise EOFError("owned fixture EOF")
+        return {"detail": "fixed refusal"}
+
+    owned = SimpleNamespace(snapshot=snapshot, gone=lambda rows: pytest.fail("no child proof"),
+                            cleanup=lambda: actions.append("cleanup"))
+    expected = EOFError if failure == "eof" else smoke.SmokeFailure
+    with pytest.raises(expected):
+        smoke.observed_start_refusal(owned, StringIO(), operation)
+    assert actions == ["cleanup"]
+    assert not any(thread.name == "frozen-start-request" for thread in threading.enumerate())
+
+
+@pytest.mark.parametrize("status,ended", [(503, True), (200, True), (503, False)])
+def test_backend_requires_two_refusals_ended_sqlite_and_same_healthy_backend(
+    tmp_path, monkeypatch, status, ended,
+):
+    state = {"session_id": None, "running": False}
+    calls, actions = [], []
+    process = SimpleNamespace(pid=1, returncode=None, poll=lambda: process.returncode,
+                              wait=lambda **kwargs: process.returncode)
+    owned = SimpleNamespace(
+        seen={1: {"pid": 1, "created": 1.}}, observations=1,
+        snapshot=lambda: [], listener_owned=lambda port: actions.append("listener"),
+        gone=lambda rows: actions.append("gone"), cleanup=lambda: actions.append("cleanup"),
+    )
+    monkeypatch.setattr(smoke.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr(smoke, "Owned", lambda *args: owned)
+    sock = SimpleNamespace(bind=lambda addr: None, getsockname=lambda: ("127.0.0.1", 4242))
+
+    class Socket:
+        def __enter__(self):
+            return sock
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(smoke.socket, "socket", lambda: Socket())
+    with closing(sqlite3.connect(tmp_path / "smoke.sqlite")) as database:
+        database.execute("CREATE TABLE sessions(session_id TEXT, ended_at TEXT)")
+
+    def open_request(request, timeout):
+        path = request.full_url.split(":4242")[1]
+        assert timeout == (smoke.START_REQUEST_SECONDS if path.endswith("/start") else 30)
+        calls.append(path)
+        value = {"status": "ok"}
+        if path.endswith("/start"):
+            sid = f"session-{len([p for p in calls if p.endswith('/start')])}"
+            state.update(session_id=sid)
+            with closing(sqlite3.connect(tmp_path / "smoke.sqlite")) as database:
+                database.execute("INSERT INTO sessions VALUES (?, ?)",
+                                 (sid, "finished" if ended else None))
+                database.commit()
+            if status == 503:
+                raise HTTPError(request.full_url, 503, "refused", {},
+                                BytesIO(b'{"detail":"fixed refusal"}'))
+            value = {"running": True, "session_id": sid}
+        elif path.endswith("/state"):
+            value = state
+        elif path.endswith("/shutdown"):
+            process.returncode = 0
+        response = BytesIO(json.dumps(value).encode())
+        response.getcode = lambda: 202 if path.endswith("/shutdown") else 200
+        return response
+
+    monkeypatch.setattr(smoke, "build_opener", lambda *args: SimpleNamespace(open=open_request))
+
+    def observed(owned, log, operation):
+        operation()  # Exercise actual HTTPError/status/body handling.
+        return {"direct_pid_no_inner": True, "observed_children_absent": True,
+                "unobserved_descendants_excluded": True}
+
+    monkeypatch.setattr(smoke, "observed_start_refusal", observed)
+    if status != 503 or not ended:
+        with pytest.raises(smoke.SmokeFailure, match="status|session_not_ended"):
+            smoke.backend_probe(tmp_path / "unused", tmp_path, {}, object())
+    else:
+        result = smoke.backend_probe(tmp_path / "unused", tmp_path, {}, object())
+        cycles = result["invalid_cache_start_refusal_retry"]
+        assert [cycle["session_id"] for cycle in cycles] == ["session-1", "session-2"]
+        assert all(cycle["http_status"] == 503 and cycle["ended_at"] for cycle in cycles)
+        assert result["model_load_or_recognition_proven"] is False
+        assert result["observed_processes_absent"] and result["unobserved_descendants_excluded"]
+        assert calls.count("/api/v1/session/start") == 2
+        assert calls[-1] == "/api/v1/desktop/shutdown" and process.returncode == 0
+    assert actions[-1] == "cleanup"
