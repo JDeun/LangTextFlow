@@ -48,6 +48,17 @@ def validate_request(request: object) -> dict:
     return chunk
 
 
+def is_prepare(request: object) -> bool:
+    validate_inference_request(request, "asr", max_deadline_ms=600_000)
+    payload = json.loads(request["payload"])
+    prepared = (isinstance(payload, dict) and set(payload) == {"asr_protocol_version", "mode"}
+            and type(payload["asr_protocol_version"]) is int
+            and payload["asr_protocol_version"] == 1 and payload["mode"] == "prepare")
+    if not prepared:
+        validate_inference_request(request, "asr")
+    return prepared
+
+
 def read_pcm(chunk: dict) -> bytes:
     # Bound file size and each read independently; no raw audio crosses JSONL.
     fd = os.open(chunk["wav_path"], os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
@@ -91,7 +102,9 @@ def infer(engine: FasterWhisperStreamingAsrEngine, request: dict, chunk: dict) -
 
 def main(args: list[str] | None = None) -> None:
     args = sys.argv[1:] if args is None else args
-    if len(args) != 3 or not args[2].isdigit() or not 1 <= int(args[2]) <= 16:
+    if (len(args) != 3 or (args[2] != "auto" and (
+        not args[2].isdigit() or not 1 <= int(args[2]) <= 16
+    ))):
         raise SystemExit(2)
     output = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     with open(os.devnull, "w") as silent:
@@ -124,7 +137,8 @@ def main(args: list[str] | None = None) -> None:
         raise RuntimeError("worker must not publish caption events")
 
     engine = FasterWhisperStreamingAsrEngine(
-        unused_publish, model=args[0], cache_dir=args[1], cpu_threads=int(args[2]),
+        unused_publish, model=args[0], cache_dir=args[1],
+        cpu_threads=None if args[2] == "auto" else int(args[2]),
         device="cpu", compute_type="int8", allow_download=False,
     )
     threading.Thread(target=read_requests, daemon=True).start()
@@ -133,9 +147,15 @@ def main(args: list[str] | None = None) -> None:
         identity = {"protocol_version": PROTOCOL_VERSION, "request_id": "", "session_id": "",
                     "session_generation": 0, "segment_id": "", "source_revision": 0}
         try:
-            chunk = validate_request(request)
+            prepare = is_prepare(request)
+            chunk = None if prepare else validate_request(request)
             identity = {key: request[key] for key in IDENTITY_KEYS}
-            result = infer(engine, request, chunk)
+            if prepare:
+                if engine._model is None:
+                    engine._model = engine._load_model_sync()
+                result = {"asr_protocol_version": 1, "prepared": True, "sample_rate": 16_000}
+            else:
+                result = infer(engine, request, chunk)
             reply = {**identity, "status": "ok",
                      "result": json.dumps(result, ensure_ascii=False), "error": None}
             frame = (json.dumps(reply, ensure_ascii=False, allow_nan=False) + "\n").encode()

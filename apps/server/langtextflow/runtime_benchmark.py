@@ -56,21 +56,23 @@ class RuntimeMetricsCollector:
     correction_latency_ms: list[float] = field(default_factory=list)
     translation_latency_ms: list[float] = field(default_factory=list)
     commit_latency_ms: list[float] = field(default_factory=list)
-    postprocess_queue_peak: int = 0
-    persistence_queue_peak: int = 0
+    postprocess_queue_peak: int | None = None
+    persistence_queue_peak: int | None = None
     failover_audio_ms: float | None = None
     _last_failover_count: int = 0
     _last_values: dict[str, float | None] = field(default_factory=dict)
 
     def sample(self, metrics: RealtimeMetrics) -> None:
-        self.postprocess_queue_peak = max(
-            self.postprocess_queue_peak,
-            metrics.postprocess_queue_depth,
-        )
-        self.persistence_queue_peak = max(
-            self.persistence_queue_peak,
-            metrics.persistence_queue_depth,
-        )
+        if metrics.postprocess_queue_depth is not None:
+            self.postprocess_queue_peak = max(
+                metrics.postprocess_queue_depth,
+                self.postprocess_queue_peak if self.postprocess_queue_peak is not None else -1,
+            )
+        if metrics.persistence_queue_depth is not None:
+            self.persistence_queue_peak = max(
+                metrics.persistence_queue_depth,
+                self.persistence_queue_peak if self.persistence_queue_peak is not None else -1,
+            )
         if metrics.asr_failover_count > self._last_failover_count:
             self.failover_audio_ms = metrics.audio_duration_ms
             self._last_failover_count = metrics.asr_failover_count

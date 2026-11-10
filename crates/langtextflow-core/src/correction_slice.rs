@@ -2,6 +2,7 @@
 use crate::asr_slice::CorrectionJob;
 use crate::source_context::SourceContext;
 use crate::supervision::{SupervisedWorker, WorkerError};
+use crate::telemetry::{JobOutcome, QueueTelemetry};
 use crate::{validate_reply, WorkerRequest, WorkerStatus};
 use futures_util::future::{select, Either};
 use serde::{Deserialize, Serialize};
@@ -136,6 +137,7 @@ impl CorrectionDecision {
 pub(crate) struct CorrectionAdmission {
     pub sender: mpsc::Sender<CorrectionJob>,
     pub options: CorrectionOptions,
+    pub metrics: QueueTelemetry,
 }
 
 pub(crate) fn leaf_request(
@@ -157,6 +159,7 @@ type Reaped = Arc<Mutex<Option<Arc<AtomicBool>>>>;
 
 pub struct CorrectionDispatcher {
     pub(crate) sender: mpsc::Sender<CorrectionJob>,
+    pub(crate) metrics: QueueTelemetry,
     pub available: bool,
     pub(crate) options: CorrectionOptions,
     stop: watch::Sender<bool>,
@@ -201,6 +204,7 @@ impl CorrectionDispatcher {
         ));
         Ok(Self {
             sender,
+            metrics: QueueTelemetry::default(),
             available,
             options,
             stop,
@@ -380,7 +384,9 @@ async fn run(
         else {
             break;
         };
+        job.start_metrics();
         if job.cancelled.load(Ordering::Acquire) || Instant::now() >= job.deadline {
+            job.finish_metrics(JobOutcome::Cancelled);
             continue;
         }
         if worker.is_none() {
@@ -395,7 +401,10 @@ async fn run(
                 available = result.1;
             }
         }
-        let Some(owned) = worker.take() else { continue };
+        let Some(owned) = worker.take() else {
+            job.finish_metrics(JobOutcome::Failed);
+            continue;
+        };
         let deterministic_request = leaf_request(
             &job.request,
             "deterministic",
@@ -414,6 +423,7 @@ async fn run(
         };
         worker = response.0;
         let Ok(deterministic) = response.1 else {
+            job.finish_metrics(JobOutcome::Failed);
             continue;
         };
         if !job.record_progress(&deterministic, false) {

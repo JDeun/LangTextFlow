@@ -279,7 +279,13 @@ def _require_model_listing(
     return models
 
 
-async def _vibevoice_check(settings: Settings) -> PreflightCheck:
+async def _vibevoice_check(settings: Settings, *, skip: bool = False) -> PreflightCheck:
+    if skip:
+        return PreflightCheck(
+            id="vibevoice", label="VibeVoice Streaming", status=CheckStatus.INFO,
+            summary="저사양 Auto는 VibeVoice sidecar를 조회하거나 시작하지 않습니다.",
+            details={"skipped": True, "reason": "low_resource_auto"},
+        )
     try:
         async with httpx.AsyncClient(timeout=2.5, trust_env=False) as client:
             payload = await bounded_json_request(
@@ -609,7 +615,7 @@ async def run_preflight(
             settings.low_resource_whisper_model if low else settings.faster_whisper_model,
             managed_whisper_cache(settings.model_cache_dir),
         ),
-        _vibevoice_check(settings),
+        _vibevoice_check(settings, skip=low and engine == "auto"),
         _ollama_checks(settings, ollama_model),
         _openai_compatible_checks(settings, openai_model),
     )

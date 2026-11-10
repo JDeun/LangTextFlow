@@ -18,6 +18,7 @@ from langtextflow.desktop_shutdown import (
     ["backend"],
     ["backend", "--m2m100-worker"],
     ["backend", "--asr-inference-worker"],
+    ["backend", "--asr-stream-worker"],
     ["backend", "--correction-worker"],
     ["backend", "--m2m100-prepare-worker"],
     ["backend", "--post-event-transcript-worker", "audio.wav"],
@@ -111,5 +112,18 @@ def test_correction_worker_dispatch_precedes_web_setup_and_preserves_args(monkey
     monkeypatch.setattr(desktop_server, "_prepare_desktop_environment",
                         lambda: pytest.fail("worker entered web initialization"))
     monkeypatch.setattr(correction_worker, "main", lambda args: received.append(args))
+    desktop_server.main()
+    assert received == [["unexpected"]]
+
+
+def test_stream_worker_dispatch_precedes_web_setup_and_preserves_args(monkeypatch):
+    from langtextflow import asr_stream_worker
+
+    received = []
+    monkeypatch.setattr(sys, "argv", ["backend", "--asr-stream-worker", "unexpected"])
+    monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", lambda: None)
+    monkeypatch.setattr(desktop_server, "_prepare_desktop_environment",
+                        lambda: pytest.fail("worker entered web initialization"))
+    monkeypatch.setattr(asr_stream_worker, "main", lambda args: received.append(args))
     desktop_server.main()
     assert received == [["unexpected"]]

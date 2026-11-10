@@ -7,6 +7,7 @@ use crate::observer_ws::ObserverServer;
 use crate::pcm_ingress::{PcmIngress, FRAME_LIMIT};
 use crate::source_context::SourceContext;
 use crate::supervision::worker_slot;
+use crate::telemetry::{MetricsFrame, MetricsSampler, MetricsSources};
 use crate::{TaskKind, WorkerRequest, PROTOCOL_VERSION};
 use futures_util::future::{select, Either};
 use serde::Deserialize;
@@ -49,6 +50,12 @@ struct Config {
     spool_directory: PathBuf,
     asr: Worker,
     #[serde(default)]
+    auto_asr: Option<crate::auto_asr::AutoOptions>,
+    #[serde(default = "default_startup_ms")]
+    asr_startup_ms: u64,
+    #[serde(default = "default_queue_frames")]
+    audio_queue_frames: usize,
+    #[serde(default)]
     asr_model_identity: Option<String>,
     mt: Option<Worker>,
     translation_deadline_ms: u64,
@@ -56,6 +63,13 @@ struct Config {
     context: SourceContext,
     #[serde(default)]
     correction: Option<Correction>,
+}
+
+fn default_startup_ms() -> u64 {
+    120_000
+}
+fn default_queue_frames() -> usize {
+    crate::pcm_ingress::QUEUE_FRAMES
 }
 
 #[derive(Deserialize)]
@@ -108,9 +122,23 @@ async fn write_frame(
     value: serde_json::Value,
 ) -> Result<(), &'static str> {
     let frame = value.to_string();
-    if frame.len() > 1024 {
+    if frame.len() + 1 > 1024 {
         return Err("control_reply_limit");
     }
+    write_encoded(output, frame).await
+}
+
+async fn write_metrics(
+    output: &std::sync::mpsc::SyncSender<Output>,
+    value: &MetricsFrame,
+) -> Result<(), &'static str> {
+    write_encoded(output, value.raw()?.get().to_owned()).await
+}
+
+async fn write_encoded(
+    output: &std::sync::mpsc::SyncSender<Output>,
+    frame: String,
+) -> Result<(), &'static str> {
     let (tx, rx) = oneshot::channel();
     output.try_send((frame, tx)).map_err(|_| "control_output")?;
     tokio::time::timeout(Duration::from_secs(1), rx)
@@ -145,6 +173,12 @@ pub fn run_stdio() -> Result<(), &'static str> {
         || config.session_id.is_empty()
         || config.session_id.len() > 64
         || !config.asr.valid()
+        || config
+            .auto_asr
+            .as_ref()
+            .is_some_and(|options| !options.valid())
+        || !(1..=600_000).contains(&config.asr_startup_ms)
+        || !(1..=crate::pcm_ingress::QUEUE_FRAMES).contains(&config.audio_queue_frames)
         || config.mt.as_ref().is_some_and(|mt| !mt.valid())
         || config.correction.as_ref().is_some_and(|correction| {
             !correction.worker.valid() || correction.options.validate().is_err()
@@ -284,46 +318,94 @@ async fn serve(
         return error.map_or(Ok(()), Err);
     }
     let asr_slot = worker_slot();
-    let started = PcmIngress::start(
-        session.clone(),
-        &config.source_language,
-        &config.asr.program,
-        &config
-            .asr
-            .args
-            .iter()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        asr_slot.clone(),
-        &config.spool_directory,
-    );
+    let args = config
+        .asr
+        .args
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>();
+    let startup = async {
+        if let Some(options) = config.auto_asr {
+            crate::auto_ingress::start(
+                session.clone(),
+                &config.source_language,
+                options,
+                &config.asr.program,
+                &args,
+                asr_slot.clone(),
+                &config.spool_directory,
+            )
+            .await
+        } else {
+            PcmIngress::start_prepared(
+                session.clone(),
+                &config.source_language,
+                &config.asr.program,
+                &args,
+                asr_slot.clone(),
+                &config.spool_directory,
+                config.asr_startup_ms,
+                config.audio_queue_frames,
+            )
+            .await
+        }
+    };
+    let started = match select(Box::pin(startup), Box::pin(parent_closed.changed())).await {
+        Either::Left((result, _)) => result,
+        Either::Right(_) => Err("control_parent_closed"),
+    };
     let mut ingress = match started {
         Ok(ingress) => Some(ingress),
-        Err(error) => {
+        Err(_) => {
             // Spool creation can fail after spawn; await the independent reaper.
-            let reaped = confirm_audio_cleanup(&asr_slot, None).await;
+            let mut reaped = confirm_audio_cleanup(&asr_slot, None).await;
             if let Some(mt) = mt {
-                let _ = mt.stop().await;
+                reaped &= mt.stop().await.is_ok();
             }
             if let Some(correction) = correction {
-                let _ = correction.stop().await;
+                reaped &= correction.stop().await.is_ok();
             }
             if let Some(writer) = &mut history {
-                let _ = writer.stop().await;
+                reaped &= writer.stop().await.is_ok();
             }
-            let _ = observer.stop().await;
-            return Err(if reaped {
-                error
-            } else {
-                "audio_cleanup_unconfirmed"
-            });
+            reaped &= observer.stop().await.is_ok();
+            if !reaped {
+                return Err("audio_cleanup_unconfirmed");
+            }
+            if !*parent_closed.borrow() {
+                let _ = write_frame(
+                    &output,
+                    json!({"type":"failed", "session_id":config.session_id,
+                    "session_generation":generation, "error":"asr_start_failed"}),
+                )
+                .await;
+            }
+            // Exit zero certifies owned cleanup, never successful preparation.
+            return Ok(());
         }
     };
     let input = ingress.as_ref().unwrap().input();
     let cleanup_path = ingress.as_ref().unwrap().cleanup_path().to_owned();
+    let mut sampler = MetricsSampler::start(MetricsSources {
+        session: session.clone(),
+        session_id: config.session_id.clone(),
+        generation,
+        input: input.clone(),
+        correction: correction.as_ref().map(|owner| owner.metrics.clone()),
+        translation: mt
+            .as_ref()
+            .map(|owner| (owner.metrics.clone(), owner.queue_capacity)),
+        history: history
+            .as_ref()
+            .filter(|_| history_attached)
+            .map(HistoryWriter::sink),
+    });
     let mut failure = write_frame(
         &output,
         json!({"type":"ready", "protocol_version":1,
+        "metrics_protocol_version":1,
+        "sample_rate":input.sample_rate(), "queue_capacity":input.metrics().queue_capacity,
+        "active_provider":session.source_metrics().active_provider.unwrap_or("faster-whisper"),
         "session_id":config.session_id,"session_generation":generation,
         "port":observer.address().port(), "observer_path":credential.path(),
         "correction_available":correction.as_ref().is_some_and(|owner| owner.available),
@@ -331,6 +413,7 @@ async fn serve(
     )
     .await
     .err();
+    let mut source_failure = false;
 
     let mut sequence = 0_u64;
     loop {
@@ -371,6 +454,7 @@ async fn serve(
         };
         if let Err(error) = result {
             failure = Some(error);
+            source_failure = true;
             break;
         }
         if let Err(error) = write_frame(
@@ -389,42 +473,73 @@ async fn serve(
             break;
         }
     }
+    let mut cleanup_ok = true;
+    if let Err(error) = sampler.stop().await {
+        failure.get_or_insert(error);
+        cleanup_ok = false;
+    }
     // Revoke on parent loss, but retain accepted final results for explicit stop.
     if *parent_closed.borrow() || failure.is_some() {
         if session.stop_checked().is_err() {
             failure.get_or_insert("source_finalize_failed");
+            cleanup_ok = false;
         }
     }
     if let Some(owner) = ingress.take() {
-        let _ = owner.cancel().await;
+        if owner.cancel().await.is_err() {
+            failure.get_or_insert("audio_cleanup_unconfirmed");
+            cleanup_ok = false;
+        }
     }
     if let Some(dispatcher) = correction {
         if let Err(error) = dispatcher.stop().await {
             failure.get_or_insert(error);
+            cleanup_ok = false;
         }
     }
     if let Some(dispatcher) = mt {
         if let Err(error) = dispatcher.stop().await {
             failure.get_or_insert(error);
+            cleanup_ok = false;
         }
     }
     if !confirm_audio_cleanup(&asr_slot, Some(&cleanup_path)).await {
         failure.get_or_insert("audio_cleanup_unconfirmed");
+        cleanup_ok = false;
     }
     if let Some(writer) = &mut history {
         if writer.stop().await.is_err() {
             failure.get_or_insert("history_stop_unconfirmed");
+            cleanup_ok = false;
         }
     }
     let history_metrics = history
         .as_ref()
         .filter(|_| history_attached)
         .map(|writer| writer.sink().metrics());
-    let _ = observer.stop().await;
+    if observer.stop().await.is_err() {
+        failure.get_or_insert("observer_stop_unconfirmed");
+        cleanup_ok = false;
+    }
+    let final_metrics = sampler.final_frame(failure)?;
     session.stop();
     if *parent_closed.borrow() {
+        if source_failure && cleanup_ok {
+            return Ok(());
+        }
         return failure.map_or(Ok(()), Err);
     }
+    if source_failure && cleanup_ok {
+        let _ = write_metrics(&output, &final_metrics).await;
+        let _ = write_frame(
+            &output,
+            json!({"type":"stopped", "session_id":config.session_id,
+            "session_generation":generation,"history":history_metrics,"error":failure}),
+        )
+        .await;
+        return Ok(());
+    }
+    write_metrics(&output, &final_metrics).await?;
     write_frame(
         &output,
         json!({"type":"stopped", "session_id":config.session_id,
