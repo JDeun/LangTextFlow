@@ -481,7 +481,7 @@ def backend_probe(binary: Path, root: Path, env: dict, api) -> dict:
             require(process.poll() is None and request("/health") == {"status": "ok"},
                     "backend_not_healthy_after_refusal")
         owned.listener_owned(port)
-        request("/api/v1/desktop/shutdown", {})
+        request("/api/v1/desktop/shutdown", {}, expected_status=202)
         require(process.wait(timeout=20) == 0, "backend_shutdown_exit")
         owned.gone(list(owned.seen.values()))
         return {"status": "passed", "invalid_cache_start_refusal_retry": cycles,
