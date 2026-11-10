@@ -35,6 +35,7 @@ from langtextflow.runtime import CaptionRuntime
 from langtextflow.rust_runtime import (
     RustRuntimeBridge,
     _python_worker,
+    _runtime_binary,
     _source_context,
     validate_rust_request,
 )
@@ -130,6 +131,46 @@ async def test_rust_refusal_happens_before_history_bootstrap(tmp_path):
     with pytest.raises(ValueError, match="Rust rollout requires"):
         await runtime.start(StartSessionRequest(engine="vibevoice"))
     assert not runtime._initialized and not database.exists()
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_frozen_runtime_uses_bundled_executable_and_refuses_missing_helper(
+    tmp_path, monkeypatch, platform,
+):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    monkeypatch.setattr(sys, "platform", platform)
+    settings = Settings(runtime_core="rust")
+    with pytest.raises(ValueError, match="unavailable"):
+        validate_rust_request(settings, StartSessionRequest(**_REQUEST))
+    binary = tmp_path / "runtime" / ("langtextflow-runtime.exe" if platform == "win32"
+                                    else "langtextflow-runtime")
+    binary.parent.mkdir()
+    binary.write_bytes(b"trusted executable fixture")
+    binary.chmod(0o700)
+    validate_rust_request(settings, StartSessionRequest(**_REQUEST))
+    assert _runtime_binary(settings) == binary.resolve()
+    # The explicitly configured trusted helper still takes precedence.
+    settings.rust_runtime_binary = str(tmp_path / "absent")
+    with pytest.raises(ValueError, match="unavailable"):
+        _runtime_binary(settings)
+
+
+@pytest.mark.parametrize("module,flag", [
+    ("langtextflow.inference_worker", "--asr-inference-worker"),
+    ("langtextflow.asr_stream_worker", "--asr-stream-worker"),
+    ("langtextflow.translation.m2m100_worker", "--m2m100-worker"),
+    ("langtextflow.correction_worker", "--correction-worker"),
+])
+def test_frozen_leaf_dispatch_is_fixed_before_windows_venv_bootstrap(monkeypatch, module, flag):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(sys, "prefix", "frozen-application")
+    monkeypatch.setattr(sys, "base_prefix", "unrelated-base")
+    args = ["--rust-protocol", "private cache"]
+    assert _python_worker(module, args) == {"program": sys.executable, "args": [flag, *args]}
+    with pytest.raises(ValueError, match="unsupported frozen"):
+        _python_worker("untrusted.module", [])
 
 
 def test_configured_identity_is_not_a_verified_checkpoint_or_a_local_path(tmp_path, monkeypatch):

@@ -63,6 +63,17 @@ def _source_context(request: StartSessionRequest) -> dict:
 
 
 def _python_worker(module: str, args: list[str]) -> dict:
+    if getattr(sys, "frozen", False):
+        flag = {
+            "langtextflow.inference_worker": "--asr-inference-worker",
+            "langtextflow.asr_stream_worker": "--asr-stream-worker",
+            "langtextflow.translation.m2m100_worker": "--m2m100-worker",
+            "langtextflow.correction_worker": "--correction-worker",
+            "langtextflow.translation_worker": "--translation-worker",
+        }.get(module)
+        if flag is None:
+            raise ValueError("unsupported frozen inference worker")
+        return {"program": sys.executable, "args": [flag, *args]}
     if sys.platform == "win32" and sys.prefix != sys.base_prefix:
         # Windows venv python.exe redirects to a second PID. Own the base
         # interpreter directly while loading the same trusted venv site files.
@@ -76,8 +87,21 @@ def _python_worker(module: str, args: list[str]) -> dict:
     return {"program": sys.executable, "args": ["-m", module, *args]}
 
 
+def _runtime_binary(settings: Settings) -> Path:
+    if settings.rust_runtime_binary:
+        binary = Path(settings.rust_runtime_binary).expanduser()
+    elif getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        suffix = ".exe" if sys.platform == "win32" else ""
+        binary = Path(sys._MEIPASS) / "runtime" / f"langtextflow-runtime{suffix}"
+    else:
+        raise ValueError("configure a built Rust runtime binary before selecting Rust")
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise ValueError("Rust runtime binary is unavailable")
+    return binary.resolve()
+
+
 def validate_rust_request(settings: Settings, request: StartSessionRequest) -> None:
-    if (getattr(sys, "frozen", False) or request.engine not in {"auto", "faster-whisper"}
+    if (request.engine not in {"auto", "faster-whisper"}
             or request.correction_provider not in {"none", "ollama"}
             or request.translation_provider not in {
                 "none", "demo", "m2m100-ct2", "ollama", "openai-compatible",
@@ -96,7 +120,7 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
             or settings.max_segments != 100
             or settings.vad_threshold_dbfs != -45 or settings.vad_hangover_frames != 3):
         raise ValueError(
-            "Rust rollout requires source-mode CPU/int8 AUTO or faster-whisper, "
+            "Rust rollout requires CPU/int8 AUTO or faster-whisper, "
             "none or Ollama correction, and a configured translation provider; "
             "keep default VAD, 4s chunks and 100 live captions, or use the Python runtime"
         )
@@ -107,10 +131,7 @@ def validate_rust_request(settings: Settings, request: StartSessionRequest) -> N
                 "translation": _translation_options(settings, request)}
     if len(json.dumps(snapshot, ensure_ascii=False).encode()) > 56 * 1024:
         raise ValueError("Rust inference options exceed the bootstrap safety limit")
-    binary = Path(settings.rust_runtime_binary).expanduser()
-    if (not settings.rust_runtime_binary or not binary.is_file()
-            or not os.access(binary, os.X_OK)):
-        raise ValueError("configure a built Rust runtime binary before selecting Rust")
+    _runtime_binary(settings)
 
 
 def _public_translation_model(model: str | None) -> str | None:
@@ -327,7 +348,7 @@ class RustRuntimeBridge(AsrEngine):
             if len(config) > 64 * 1024:
                 raise AsrEngineError(_ERROR)
             self._process = await asyncio.create_subprocess_exec(
-                str(Path(self.settings.rust_runtime_binary).expanduser().resolve()),
+                str(_runtime_binary(self.settings)),
                 stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL, limit=4096,
             )

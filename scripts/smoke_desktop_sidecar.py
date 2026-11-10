@@ -316,6 +316,11 @@ def main() -> None:
                             with suppress(ProcessLookupError):
                                 os.killpg(process.pid, signal.SIGKILL)
                         process.wait(timeout=5)
+    from smoke_rust_frozen import main as smoke_rust_runtime
+
+    receipt = Path(__file__).resolve().parents[1] / "artifacts/rust-frozen-smoke.json"
+    if smoke_rust_runtime(binary, receipt)["status"] != "passed":
+        raise RuntimeError("frozen Rust control/worker ownership smoke failed; inspect its receipt")
     print(
         "Frozen backend smoke passed: worker dispatch, multiprocessing EOF, UI, captions, shutdown"
     )

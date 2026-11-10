@@ -95,6 +95,8 @@ impl SupervisedWorker {
             .env("HF_HUB_OFFLINE", "1")
             .env("TRANSFORMERS_OFFLINE", "1")
             .env("PYTHONUTF8", "1")
+            // Reuse the frozen parent's bundle and own the actual worker PID.
+            .env("PYINSTALLER_RESET_ENVIRONMENT", "0")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

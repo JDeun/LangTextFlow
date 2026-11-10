@@ -18,6 +18,9 @@ from langtextflow.desktop_shutdown import (
     ["backend"],
     ["backend", "--m2m100-worker"],
     ["backend", "--translation-worker"],
+    ["backend", "--asr-inference-worker"],
+    ["backend", "--asr-stream-worker"],
+    ["backend", "--correction-worker"],
     ["backend", "--m2m100-prepare-worker"],
     ["backend", "--post-event-transcript-worker", "audio.wav"],
     ["backend", "--faster-whisper-prefetch-worker", "small", "cache"],
@@ -88,7 +91,9 @@ def test_packaged_desktop_public_surface_and_security_boundary(tmp_path: Path) -
     reset_desktop_shutdown()
 
 
-@pytest.mark.parametrize("flag", ["--m2m100-worker", "--m2m100-prepare-worker"])
+@pytest.mark.parametrize("flag", [
+    "--m2m100-worker", "--m2m100-prepare-worker", "--asr-inference-worker",
+])
 def test_m2m100_worker_dispatch_never_initializes_web(monkeypatch, flag):
     monkeypatch.setattr(sys, "argv", ["backend", flag])
     monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", lambda: None)
@@ -107,3 +112,29 @@ def test_translation_leaf_fixed_dispatch_never_initializes_web(monkeypatch):
     with pytest.raises(SystemExit) as stopped:
         desktop_server.main()
     assert stopped.value.code == 2
+
+
+def test_correction_worker_dispatch_precedes_web_setup_and_preserves_args(monkeypatch):
+    from langtextflow import correction_worker
+
+    received = []
+    monkeypatch.setattr(sys, "argv", ["backend", "--correction-worker", "unexpected"])
+    monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", lambda: None)
+    monkeypatch.setattr(desktop_server, "_prepare_desktop_environment",
+                        lambda: pytest.fail("worker entered web initialization"))
+    monkeypatch.setattr(correction_worker, "main", lambda args: received.append(args))
+    desktop_server.main()
+    assert received == [["unexpected"]]
+
+
+def test_stream_worker_dispatch_precedes_web_setup_and_preserves_args(monkeypatch):
+    from langtextflow import asr_stream_worker
+
+    received = []
+    monkeypatch.setattr(sys, "argv", ["backend", "--asr-stream-worker", "unexpected"])
+    monkeypatch.setattr(desktop_server.multiprocessing, "freeze_support", lambda: None)
+    monkeypatch.setattr(desktop_server, "_prepare_desktop_environment",
+                        lambda: pytest.fail("worker entered web initialization"))
+    monkeypatch.setattr(asr_stream_worker, "main", lambda args: received.append(args))
+    desktop_server.main()
+    assert received == [["unexpected"]]

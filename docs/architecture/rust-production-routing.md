@@ -1,6 +1,6 @@
 # Rust routing through the existing application API
 
-Status: intermediate opt-in source-mode application wiring toward the **required**
+Status: intermediate opt-in application wiring toward the **required**
 [Rust core + Python inference target](https://github.com/JDeun/LangTextFlow/issues/344#issuecomment-6536557339).
 Python remains the default and rollback path. This is not completion of the
 architecture, desktop/frozen packaging, model selection or field qualification.
@@ -15,7 +15,8 @@ producer claim and expected-session guards remain at those same boundaries.
 There is no new public control API, UI panel or model download.
 
 The trusted server starts the explicitly configured `langtextflow-runtime`
-executable without a shell. Python supplies the existing session metadata and
+executable, or the bundled `runtime/langtextflow-runtime[.exe]` in frozen builds,
+without a shell. Python supplies the existing session metadata and
 initializes/migrates the existing SQLite schema. Rust owns the accepted session
 generation, continuous PCM/VAD, ASR worker, bounded independent-target MT,
 canonical revision/commit projection, authorized observer and caption-history
@@ -32,7 +33,7 @@ any existing preset with source-scoped glossary/hotwords and ASR context hints,
 and none, demo, cached M2M100 CT2, Ollama or OpenAI-compatible MT.
 Only M2M100 retains the six directed KO/EN/JA pair restriction.
 Display/audience settings remain available.
-Unsupported combinations, frozen mode, incompatible chunk/VAD/device settings
+Unsupported combinations, incompatible chunk/VAD/device settings
 and a missing executable are refused **before database initialization or live
 session mutation**. There is no silent fallback or omitted requested feature.
 The fixed 100-segment live projection is also checked against server configuration.
@@ -129,6 +130,22 @@ fixed trusted venv-site bootstrap. Rust therefore owns the actual interpreter
 PID instead of only the virtualenv redirector. `-S` prevents base/global site
 packages from taking precedence over the trusted virtualenv's package versions.
 No user transcript or remote code becomes executable code.
+
+Frozen workers use fixed ASR/correction/MT entrypoint flags on the same sidecar
+executable. The Rust owner inherits the frozen runtime environment and sets the
+public `PYINSTALLER_RESET_ENVIRONMENT=0` option for workers; it does not rewrite
+private bootloader variables. Packaging pins PyInstaller 6.22.3, whose
+[upstream fix](https://github.com/pyinstaller/pyinstaller/issues/9513) supports
+an intervening native process between frozen instances. Version 6.22.2 required
+the immediate parent to use the same executable, which is incompatible with
+the Rust worker owner. The project license and existing Rust third-party notices
+are embedded under `licenses/`; this is not a complete release SBOM or license
+review. The external frozen smoke records actual process ownership and lifecycle;
+its model-free checks do not qualify model loading, real audio or signed releases.
+The [Mac ARM64 receipt](../knowledge/raw/2026-11-10-frozen-rust-idle-wiring.json)
+records passing worker controls and two owned start/stop/restart cycles at source
+`700600a`, alongside the earlier failed PyInstaller 6.22.2 attempt. Windows and
+actual cached-model execution remain separate acceptance checks.
 
 One Rust process lease spans startup, capture and owned stop. New starts wait for
 prior source cleanup. Parent EOF interrupts blocked feed/drain, revokes authority,
@@ -441,7 +458,12 @@ certify physical microphone capture or frozen application packaging.
 Explicit VibeVoice (one candidate with no automatic fallback), the synthetic mock
 source, and existing
 GPU/compute, chunk, VAD and live-view configuration parity remain required before
-default cutover. Desktop/frozen binary bundling and lifecycle,
+default cutover. The same cutover must reconcile configurable postprocessing and
+target concurrency, postprocessing/persistence drain budgets and correction
+prepare timeout against the current fixed Rust owners/budgets. Configured API
+audio frames can exceed Rust's 1MiB transport limit, and standard explicit
+Whisper still consumes the low-profile thread setting; both are remaining
+configuration differences, not supported parity. Desktop/frozen binary bundling and lifecycle,
 native app capture/recording validation and
 reviewed gradual default cutover/rollback remain **required**. This supported
 subset is an intermediate delivery, not a reduction of the approved target.
