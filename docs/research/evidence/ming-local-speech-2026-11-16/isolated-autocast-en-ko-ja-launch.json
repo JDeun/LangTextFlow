@@ -1,0 +1,45 @@
+{
+  "started_at": "2026-11-16T08:32:31.273858+00:00",
+  "command": [
+    "<WORKSPACE>/ming-test-venv/bin/python",
+    "<WORKSPACE>/LangTextFlow/scripts/benchmark_ming_tts_local.py",
+    "--source-dir",
+    "<WORKSPACE>/Ming-3.0-tts",
+    "--model-path",
+    "<WORKSPACE>/ming-preparation/Ming-3.0-tts-0.5B/7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+    "--output-dir",
+    "<WORKSPACE>/ming-results/cpu-isolated-autocast-en-ko-ja",
+    "--allow-model-execution",
+    "--device",
+    "cpu",
+    "--cpu-autocast",
+    "--case",
+    "en",
+    "--case",
+    "ko",
+    "--case",
+    "ja",
+    "--max-decode-steps",
+    "128",
+    "--threads",
+    "4",
+    "--seed",
+    "1234"
+  ],
+  "plan_sha256": "813d1a317fc9d45fa8ff7050fb2e01707694e40506a6f09d0c5d923298b0fdac",
+  "runner_sha256": "a21890c9ed23c1080f6a33a9756a9243d05d2425adf75337e76a096ea4ab4b83",
+  "guard_sha256": "f8efbdf18a5f74f9f2d5d8b53eeddd78fd866366f4b60f59f078f219b4d469e5",
+  "required_before_import": "ORT_DISABLE_TELEMETRY=1 + Linux libseccomp native socket/connect/send/io_uring_setup deny; API disable; fail closed",
+  "wall_timeout_seconds": 360,
+  "rlimit_as_bytes": 8589934592,
+  "rlimit_cpu_seconds": [
+    900,
+    910
+  ],
+  "inherited_file_descriptors": "close_fds=True; standard IO pipes/files only",
+  "scope": "isolation repair attempt with CPU BF16 autocast; earlier exploratory runs retained, not retroactively preregistered",
+  "deviations": [
+    "RLIMIT_AS bounds virtual address space, not RSS; no aggregate descendants cgroup CPU cap.",
+    "CPU autocast is an explicit compatibility arm; do not combine with baseline timings."
+  ]
+}

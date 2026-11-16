@@ -1,0 +1,295 @@
+{
+  "schema_version": 1,
+  "status": "completed_waveform_smoke",
+  "phase": "finished",
+  "started_at": "2026-11-16T08:32:31.371924+00:00",
+  "model_id": "inclusionAI/Ming-3.0-tts-0.5B",
+  "expected_model_revision": "7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+  "expected_source_revision": "a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+  "actual_model_execution": true,
+  "model_load_attempted": true,
+  "inference_attempted": true,
+  "actual_model_execution_definition": "synthesize invoked; completion reported separately",
+  "runner_sha256_at_start": "a21890c9ed23c1080f6a33a9756a9243d05d2425adf75337e76a096ea4ab4b83",
+  "field_ready": false,
+  "semantic_quality": "not_evaluated",
+  "measurement_scope": "synthetic TTS waveform smoke; no ASR/MT/caption qualification",
+  "first_audio_latency_seconds": null,
+  "first_audio_latency_reason": "synchronous whole-waveform API; first chunk not observed",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "settings": {
+    "device": "cpu",
+    "cpu_autocast": true,
+    "seed": 1234,
+    "torch_threads": 4,
+    "torch_interop_threads": 1,
+    "upstream_onnx_intra_op_threads": 2,
+    "max_decode_steps": 128,
+    "text_normalization": false,
+    "raw_text": true,
+    "cfg": 2.0,
+    "sigma": 0.25,
+    "temperature": 0.0,
+    "reference_audio_used": false
+  },
+  "cases": [
+    {
+      "language": "en",
+      "text": "Welcome. This is a local speech test.",
+      "status": "completed_waveform_smoke",
+      "request": {
+        "text": "Welcome. This is a local speech test.",
+        "language_id": "en",
+        "raw_text": true,
+        "use_spk_emb": false,
+        "use_zero_spk_emb": true,
+        "task": "IP",
+        "controls": {
+          "ip": "US_Emma"
+        },
+        "instruction_schema": "en"
+      },
+      "inference_attempted": true,
+      "generation_seconds": 22.597304499999154,
+      "audio": {
+        "sample_count": 127890,
+        "sample_rate": 44100,
+        "audio_duration_seconds": 2.9,
+        "finite": true,
+        "nonzero": true,
+        "absolute_peak": 0.43205538392066956,
+        "rms": 0.06258497566331683,
+        "samples_outside_pcm_unit_range": 0,
+        "pcm_clipping_fraction": 0.0
+      },
+      "rtf": 7.79217396551695,
+      "wav_file": "synthetic-en.wav",
+      "wav_sha256": "409c15e06e6f226cf00e00a700dcaaec62ed04238a92a08821f187222d82d4ff",
+      "pcm16_sha256": "f62aa2cbc5ff34d1ca7c81fa14c4f9b16d8b5e68fd90c6aebbcd0e7409c3dd47",
+      "format": "mono PCM16 WAV; clamp only, no loudness normalization",
+      "semantic_quality": "not_evaluated",
+      "utterance_completeness": "not_evaluated",
+      "end_of_sequence_observed": null,
+      "decode_cap_reached": null,
+      "first_audio_latency_seconds": null,
+      "memory": {
+        "method": "resource.getrusage(RUSAGE_SELF).ru_maxrss",
+        "scope": "process lifetime high water; excludes children and GPU/device memory",
+        "os": "Linux",
+        "peak_mib": 2525.04296875,
+        "raw_value": 2585644,
+        "raw_unit": "KiB"
+      }
+    },
+    {
+      "language": "ko",
+      "text": "안녕하세요. 로컬 음성 시험입니다.",
+      "status": "completed_waveform_smoke",
+      "request": {
+        "text": "안녕하세요. 로컬 음성 시험입니다.",
+        "language_id": "ko",
+        "raw_text": true,
+        "use_spk_emb": false,
+        "use_zero_spk_emb": true,
+        "task": "MULTILINGUAL"
+      },
+      "inference_attempted": true,
+      "generation_seconds": 13.96295870799986,
+      "audio": {
+        "sample_count": 88200,
+        "sample_rate": 44100,
+        "audio_duration_seconds": 2.0,
+        "finite": true,
+        "nonzero": true,
+        "absolute_peak": 0.6581128239631653,
+        "rms": 0.106503937590179,
+        "samples_outside_pcm_unit_range": 0,
+        "pcm_clipping_fraction": 0.0
+      },
+      "rtf": 6.98147935399993,
+      "wav_file": "synthetic-ko.wav",
+      "wav_sha256": "42842c0ec4e76a9032ea17d2455916995fac9701e20aa48711668b65e1a3b165",
+      "pcm16_sha256": "476a201850bf2543a4eb7bda4e345a75a20a88f40782c6115ef1e9b5a3b6028f",
+      "format": "mono PCM16 WAV; clamp only, no loudness normalization",
+      "semantic_quality": "not_evaluated",
+      "utterance_completeness": "not_evaluated",
+      "end_of_sequence_observed": null,
+      "decode_cap_reached": null,
+      "first_audio_latency_seconds": null,
+      "memory": {
+        "method": "resource.getrusage(RUSAGE_SELF).ru_maxrss",
+        "scope": "process lifetime high water; excludes children and GPU/device memory",
+        "os": "Linux",
+        "peak_mib": 2542.41796875,
+        "raw_value": 2603436,
+        "raw_unit": "KiB"
+      }
+    },
+    {
+      "language": "ja",
+      "text": "こんにちは。ローカル音声のテストです。",
+      "status": "completed_waveform_smoke",
+      "request": {
+        "text": "こんにちは。ローカル音声のテストです。",
+        "language_id": "ja",
+        "raw_text": true,
+        "use_spk_emb": false,
+        "use_zero_spk_emb": true,
+        "task": "MULTILINGUAL"
+      },
+      "inference_attempted": true,
+      "generation_seconds": 16.858457037000335,
+      "audio": {
+        "sample_count": 101430,
+        "sample_rate": 44100,
+        "audio_duration_seconds": 2.3,
+        "finite": true,
+        "nonzero": true,
+        "absolute_peak": 0.7250359654426575,
+        "rms": 0.09123032131693576,
+        "samples_outside_pcm_unit_range": 0,
+        "pcm_clipping_fraction": 0.0
+      },
+      "rtf": 7.329763929130581,
+      "wav_file": "synthetic-ja.wav",
+      "wav_sha256": "1c08fc9779eccce69429c2f93851ec818fb9257a5c56b55f4bc2d93570b355d5",
+      "pcm16_sha256": "820b57e757ed517e0ef09cb028a45c00c4c6e017945485f0230afb81470015c0",
+      "format": "mono PCM16 WAV; clamp only, no loudness normalization",
+      "semantic_quality": "not_evaluated",
+      "utterance_completeness": "not_evaluated",
+      "end_of_sequence_observed": null,
+      "decode_cap_reached": null,
+      "first_audio_latency_seconds": null,
+      "memory": {
+        "method": "resource.getrusage(RUSAGE_SELF).ru_maxrss",
+        "scope": "process lifetime high water; excludes children and GPU/device memory",
+        "os": "Linux",
+        "peak_mib": 2545.21484375,
+        "raw_value": 2606300,
+        "raw_unit": "KiB"
+      }
+    }
+  ],
+  "model_load_seconds": 1.619521516999157,
+  "dependency_import_seconds": 4.50818860399886,
+  "network": {
+    "python_socket_guard_installed": true,
+    "denied_attempt_count": 0,
+    "denied_events": {},
+    "scope": "audited Python DNS/connect/send events during import/load/synthesis",
+    "os_packet_audit_performed": false,
+    "native_or_subprocess_egress_audited": false
+  },
+  "native_network_isolation": {
+    "installed": true,
+    "mechanism": "Linux libseccomp; EPERM for socket creation/connect/send and io_uring_setup",
+    "thread_synchronized": true,
+    "inherited_by_children": true,
+    "denied_syscalls": [
+      "socket",
+      "socketpair",
+      "connect",
+      "sendto",
+      "sendmsg",
+      "sendmmsg",
+      "io_uring_setup"
+    ],
+    "native_socket_probes": [
+      {
+        "probe": "ipv4_tcp",
+        "blocked": true,
+        "errno": 1
+      },
+      {
+        "probe": "ipv4_udp",
+        "blocked": true,
+        "errno": 1
+      },
+      {
+        "probe": "ipv6_tcp",
+        "blocked": true,
+        "errno": 1
+      },
+      {
+        "probe": "ipv6_udp",
+        "blocked": true,
+        "errno": 1
+      }
+    ],
+    "packet_capture_performed": false,
+    "scope": "process network syscall isolation; not a full hostile-code sandbox",
+    "helper_sha256": "f8efbdf18a5f74f9f2d5d8b53eeddd78fd866366f4b60f59f078f219b4d469e5"
+  },
+  "onnxruntime_telemetry": {
+    "disable_environment_requested": true,
+    "disable_api_called_successfully": true
+  },
+  "offline_environment_during_execution": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "HF_DATASETS_OFFLINE": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "DO_NOT_TRACK": "1",
+    "TOKENIZERS_PARALLELISM": "false",
+    "ORT_DISABLE_TELEMETRY": "1"
+  },
+  "memory": {
+    "method": "resource.getrusage(RUSAGE_SELF).ru_maxrss",
+    "scope": "process lifetime high water; excludes children and GPU/device memory",
+    "os": "Linux",
+    "peak_mib": 2545.21484375,
+    "raw_value": 2606300,
+    "raw_unit": "KiB"
+  },
+  "completed_case_count": 3,
+  "failed_case_count": 0,
+  "assets": {
+    "source_dir": "<WORKSPACE>/Ming-3.0-tts",
+    "model_path": "<WORKSPACE>/ming-preparation/Ming-3.0-tts-0.5B/7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+    "source_revision": "a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+    "tracked_source_clean": true,
+    "source_files_sha256": {
+      "ming_tts.py": "0e543f51238c2e1dd457ad48589f9538781e65282d9db91d37bd5a49a4e3f73d",
+      "tts_tasks.py": "26a40e152cd5b84ce9c180b8286bc0cb9081eb7f0c804ee0dea54ce44bdf27c0",
+      "modeling_bailingmm.py": "61f80e8fb7b82c40f48165e1a667a2812af29c67c44ee4cb24a5e8fcea7c3b7f",
+      "configuration_bailingmm.py": "4583284dbcba4e07b0e3c276dcdfabe5682f9f666dd3379ff2870b584e6c3a0e",
+      "spkemb_extractor.py": "6e53a812fd9620d1e3c8a6d16c38fb63624c22743c518fd30189c4015e039a3d"
+    },
+    "model_files": {
+      "config.json": {
+        "sha256": "2fb0767361b3cd3f41dc9392709fc23fe5b40a39f19d70a38d04acabe991822c",
+        "bytes": 4754,
+        "verified_against_expected_sha256": false
+      },
+      "tokenizer.json": {
+        "sha256": "87d54ca3b44ea2f822ba39a0a45cb1b61644bd6606d9d3536dea75367bffb06d",
+        "bytes": 11431389,
+        "verified_against_expected_sha256": false
+      },
+      "tokenizer_config.json": {
+        "sha256": "12d6162c815edef24f8606e65b60d43fe0d92b0a4e150a0db8fa01c523aaf36a",
+        "bytes": 16260,
+        "verified_against_expected_sha256": false
+      },
+      "model.safetensors": {
+        "sha256": "45c4d78d8ad6b1d942e3da86ba035fece02de569f7b2ca7e9d121dfaf18d674c",
+        "bytes": 2959055504,
+        "verified_against_expected_sha256": true
+      },
+      "campplus.onnx": {
+        "sha256": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73",
+        "bytes": 28303423,
+        "verified_against_expected_sha256": true
+      }
+    },
+    "identity_scope": "weights and campplus verified; tokenizer/config hashes recorded only"
+  },
+  "dependencies": {
+    "torch": "2.6.0+cpu",
+    "torchaudio": "2.6.0+cpu",
+    "transformers": "4.46.3",
+    "onnxruntime": "1.32.0"
+  },
+  "finished_at": "2026-11-16T08:33:34.177646+00:00"
+}

@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-16",
+  "pr": "https://github.com/JDeun/LangTextFlow/pull/469",
+  "executed_code_commit": "9448720c720483bc2c40b748dfa4785ff714c44d",
+  "ci_job": "https://github.com/JDeun/LangTextFlow/actions/runs/43832873240/job/133182182620",
+  "observed_failure": "Ruff I001: one extra blank line after imports in scripts/local_model_network_guard.py",
+  "change": "Removed exactly one blank line; no import ordering or executable statement changed.",
+  "executed_guard_sha256": "f8efbdf18a5f74f9f2d5d8b53eeddd78fd866366f4b60f59f078f219b4d469e5",
+  "formatted_guard_sha256": "02007576792aacb1cce3cd8f920122cad06799155c9a5d1d2702c79cc275dae8",
+  "model_inference_rerun": false,
+  "prior_reports_modified": false,
+  "unit_tests_after_formatting": {
+    "passed": 19,
+    "model_execution": false
+  },
+  "scope": "Publication-only formatting follow-up. Experimental hashes continue to identify the original executed file at executed_code_commit, not this later formatting edit."
+}

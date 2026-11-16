@@ -1,0 +1,9 @@
+{
+  "returncode": 0,
+  "wall_seconds": 64.28040920200147,
+  "report": "<WORKSPACE>/ming-results/cpu-isolated-autocast-en-ko-ja/report.json",
+  "child_cpu_usage": {
+    "user": 215.698667,
+    "system": 2.837154
+  }
+}

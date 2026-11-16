@@ -6,6 +6,7 @@ This index is maintained by the agent under the [wiki schema](../schema.md). The
 |---|---|---|---|
 | Prior work / failed experiments | [prior-work-ledger.md](prior-work-ledger.md) | [research index](../../research/README.md) and issue evidence | Issue-level audit; measurements not independently rerun |
 | Research landscape | [research-landscape.md](research-landscape.md) | [research index](../../research/README.md) | Existing reports indexed; field measurements not established |
+| Cicada reuse, Ming and Apple local speech | [cicada-local-speech.md](cicada-local-speech.md) | [canonical research and execution evidence](../../research/cicada-local-speech-experiments.md) | Manual Linux TTS waveform smoke; telemetry correction; Ming audio resource block; Apple native execution pending |
 | Research and implementation audit | [Current full issue audit](../../M0_ISSUE_AUDIT.md); [historical coverage matrix](audit-coverage-matrix.md) | [prior work ledger](prior-work-ledger.md), source, artifacts and linked issues | All 65 issue bodies/comments reconciled; required code, research and field gates remain |
 
 For a new question, read this index first, then the cited reports and source links. Add new entries only when the corresponding page exists.

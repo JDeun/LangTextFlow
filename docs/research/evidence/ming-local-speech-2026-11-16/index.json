@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "published_on": "2026-11-16",
+  "scope": "Synthetic local TTS waveform feasibility; no quality, ASR, MT, Apple-native or field qualification",
+  "field_ready": false,
+  "base_repository_commit": "cfa7f9df7bca03b533d21ea303a16aa9f62cd43a",
+  "plan_sha256": "813d1a317fc9d45fa8ff7050fb2e01707694e40506a6f09d0c5d923298b0fdac",
+  "runner_sha256": "a21890c9ed23c1080f6a33a9756a9243d05d2425adf75337e76a096ea4ab4b83",
+  "guard_sha256": "f8efbdf18a5f74f9f2d5d8b53eeddd78fd866366f4b60f59f078f219b4d469e5",
+  "publication_transform": "Only the scratch workspace prefix is replaced by <WORKSPACE> in JSON strings. Original report SHA256 is recorded per entry; original local evidence was not overwritten.",
+  "reports": [
+    {
+      "file": "environment-preflight.json",
+      "evidence_class": "resource_and_platform_checks_only",
+      "original_sha256": "8bccde9ba632c781f3f00b0f39a9e95f7f738cb01c3705ef33fbcbeb8f9d9b2a",
+      "published_sha256": "983afb9fcd37c01ecaf6048bc3e6be6307c2db7144f025c25c9ab4aab9324563"
+    },
+    {
+      "file": "dependencies.json",
+      "evidence_class": "exact_installed_distribution_versions",
+      "original_sha256": "91eefdf507085496e4d93e4c1f35a9f84b99eecdf743745dea0d32c09db6cdae",
+      "published_sha256": "060154611d19ecd589d9be9c43d71a4f75236976551dbc04aab4d537c0433885"
+    },
+    {
+      "file": "opt-in-guard.json",
+      "evidence_class": "model_not_exercised",
+      "original_sha256": "ad1d0267e6af7bcc171db288a7f08fd28b85ea166a594ceccc03d6faac6a19e1",
+      "published_sha256": "ad1d0267e6af7bcc171db288a7f08fd28b85ea166a594ceccc03d6faac6a19e1"
+    },
+    {
+      "file": "historical-en-32steps.json",
+      "evidence_class": "historical_privacy_unqualified; different settings; runner content hash unavailable",
+      "original_sha256": "805e0aaaf1b944d03e1cc1b7be67ab5576d63e6d2a0910fb2d6c97dd5b4c72bb",
+      "published_sha256": "4990111ddae9c54861cfed327e689d0efe042c2285e098aea12f2f4a50daf06f"
+    },
+    {
+      "file": "historical-zero-baseline.json",
+      "evidence_class": "historical_privacy_unqualified; dtype_failure",
+      "original_sha256": "0038adf1aca746572f3d0ca38a26c0e01f279506e7a68aac154b01a3eab35498",
+      "published_sha256": "d687d273a1361950ad2c1b89f8009d8405ddc4eaaeb7f9c883a1ca1baf49b747"
+    },
+    {
+      "file": "historical-interrupted-autocast.json",
+      "evidence_class": "historical_privacy_unqualified; automatic_review_interrupted",
+      "original_sha256": "203307d03727f5af0fbecaa78726ef7147552b7c774f24a6522ed3a021a04ea7",
+      "published_sha256": "433086b64f3def30e7eb6d318c97c3eae328e62c6c2cea5ec54a43ebb323d518"
+    },
+    {
+      "file": "isolated-zero-baseline-en.json",
+      "evidence_class": "isolated_cpu_dtype_failure",
+      "original_sha256": "f39463261a1b0220efa720e6752464b54439efb9bf706b44a51d5c03f546144d",
+      "published_sha256": "4e5235b8f2f2e62120fc4418b66057ed3c490acb0f9fc2b2c792ef275c853883"
+    },
+    {
+      "file": "isolated-zero-baseline-en-launch.json",
+      "evidence_class": "pre_execution_limits_and_hashes",
+      "original_sha256": "f75143508410f8ceb40ae202c6436f193ab17c95a2b5bd8240b97c119b8966a4",
+      "published_sha256": "ced42e46078c750f8de2b6395222cfe7f2c1f47589881855560c9aaa947026be"
+    },
+    {
+      "file": "isolated-autocast-en-ko-ja.json",
+      "evidence_class": "isolated_completed_waveform_smoke_only",
+      "original_sha256": "0b75d53bf08e04e258c6c84d3c3c7ab976d1dbc3b5f697ec622a3b3a3824922c",
+      "published_sha256": "161b3bf1a1756b6760462e5a9603747eed576faf1c9b6cf5b288486d8b7e41ec"
+    },
+    {
+      "file": "isolated-autocast-en-ko-ja-launch.json",
+      "evidence_class": "pre_execution_limits_and_hashes",
+      "original_sha256": "fdcc9f812576414500d5a6e11a60962e213384f3b2862000a492cee5d9f45f82",
+      "published_sha256": "dc235e7236aa3d8dfeee84de7b915b3c72c2cee69fff8f0109bdc8796d8a4406"
+    },
+    {
+      "file": "isolated-autocast-en-ko-ja-outcome.json",
+      "evidence_class": "launcher_exit_and_resource_usage",
+      "original_sha256": "925fe3b9b56a10747a53c8c35b6e1702be5db2756af72e993e1000ed4619a664",
+      "published_sha256": "ca00a453360bf19fb9d1ebfc4e6d0d139a956c13e61008479ca4218ca5e1882f"
+    }
+  ],
+  "waveforms": [
+    {
+      "file": "synthetic-en.wav",
+      "language": "en",
+      "sha256": "409c15e06e6f226cf00e00a700dcaaec62ed04238a92a08821f187222d82d4ff",
+      "input": "Welcome. This is a local speech test.",
+      "reference_audio_used": false,
+      "quality_review": "not_evaluated",
+      "record": "isolated-autocast-en-ko-ja.json"
+    },
+    {
+      "file": "synthetic-ko.wav",
+      "language": "ko",
+      "sha256": "42842c0ec4e76a9032ea17d2455916995fac9701e20aa48711668b65e1a3b165",
+      "input": "안녕하세요. 로컬 음성 시험입니다.",
+      "reference_audio_used": false,
+      "quality_review": "not_evaluated",
+      "record": "isolated-autocast-en-ko-ja.json"
+    },
+    {
+      "file": "synthetic-ja.wav",
+      "language": "ja",
+      "sha256": "1c08fc9779eccce69429c2f93851ec818fb9257a5c56b55f4bc2d93570b355d5",
+      "input": "こんにちは。ローカル音声のテストです。",
+      "reference_audio_used": false,
+      "quality_review": "not_evaluated",
+      "record": "isolated-autocast-en-ko-ja.json"
+    }
+  ],
+  "privacy_incident": {
+    "observed": "Automatic approval review rejected unexpected Microsoft telemetry connection during the earlier Python-audit-only run.",
+    "original_attempt": "cpu-autocast-ko-en-ja",
+    "payload_inspected": false,
+    "transfer_completion_known": false,
+    "prior_runs_prove_no_egress": false,
+    "likely_dependency": "onnxruntime 1.32.0; dependency path and official Privacy.md support this attribution, not a payload capture.",
+    "repair": "Before native imports: ORT_DISABLE_TELEMETRY=1 and Linux seccomp socket/connect/send/io_uring_setup deny, then ONNX telemetry API disable. New CLI child launched with close_fds=True.",
+    "native_probes": "IPv4/IPv6 TCP/UDP libc socket creation rejected with EPERM.",
+    "native_attempt_count_known": false,
+    "packet_capture_performed": false,
+    "personal_recording_or_transcript_used": false,
+    "paid_inference_api_used": false
+  },
+  "preserved_logs": [
+    {
+      "file": "cpu-autocast-ko-en-ja.process.log",
+      "original_sha256": "9092395dfe254d64674f65beef32b86ab721eef828f12d0cbcdb2a1132eca86d",
+      "publication": "original local log retained; JSON reports include outcomes, source identity and errors"
+    },
+    {
+      "file": "cpu-baseline-en.process.log",
+      "original_sha256": "cbe5f786c522fa4a7e7a825eb078666bfb91b200d560ddf7dab969a5276cfb18",
+      "publication": "original local log retained; JSON reports include outcomes, source identity and errors"
+    },
+    {
+      "file": "cpu-isolated-autocast-en-ko-ja.process.log",
+      "original_sha256": "6bdb4659a55294b2fd63fd28e89ccf3ad42f9e909203d25309f82bf482bbc053",
+      "publication": "original local log retained; JSON reports include outcomes, source identity and errors"
+    },
+    {
+      "file": "cpu-isolated-zero-baseline-en.process.log",
+      "original_sha256": "76aea14900b888ec2e0e14be3d94d7510226247928df209c1552eb1deed34e38",
+      "publication": "original local log retained; JSON reports include outcomes, source identity and errors"
+    },
+    {
+      "file": "cpu-zero-baseline-en.process.log",
+      "original_sha256": "cf9c12977c9cfd9c45416911c6a936e57dcfc6d21a5ca41619fdb20c99cf2cda",
+      "publication": "original local log retained; JSON reports include outcomes, source identity and errors"
+    }
+  ]
+}

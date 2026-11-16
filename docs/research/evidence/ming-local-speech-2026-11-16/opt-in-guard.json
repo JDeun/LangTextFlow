@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "status": "not_exercised",
+  "phase": "preflight",
+  "started_at": "2026-11-16T08:18:58.686214+00:00",
+  "model_id": "inclusionAI/Ming-3.0-tts-0.5B",
+  "expected_model_revision": "7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+  "expected_source_revision": "a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+  "actual_model_execution": false,
+  "model_load_attempted": false,
+  "field_ready": false,
+  "semantic_quality": "not_evaluated",
+  "measurement_scope": "synthetic TTS waveform smoke; no ASR/MT/caption qualification",
+  "first_audio_latency_seconds": null,
+  "first_audio_latency_reason": "synchronous whole-waveform API; first chunk not observed",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "settings": {
+    "device": "cpu",
+    "cpu_autocast": false,
+    "seed": 1234,
+    "torch_threads": 4,
+    "torch_interop_threads": 1,
+    "upstream_onnx_intra_op_threads": 2,
+    "max_decode_steps": 256,
+    "text_normalization": false,
+    "raw_text": true,
+    "cfg": 2.0,
+    "sigma": 0.25,
+    "temperature": 0.0,
+    "reference_audio_used": false
+  },
+  "cases": [
+    {
+      "language": "en",
+      "text": "Welcome. This is a local speech test.",
+      "status": "not_exercised"
+    },
+    {
+      "language": "ko",
+      "text": "안녕하세요. 로컬 음성 시험입니다.",
+      "status": "not_exercised"
+    },
+    {
+      "language": "ja",
+      "text": "こんにちは。ローカル音声のテストです。",
+      "status": "not_exercised"
+    }
+  ],
+  "model_load_seconds": null,
+  "dependency_import_seconds": null,
+  "network": {
+    "python_socket_guard_installed": false,
+    "os_packet_audit_performed": false
+  },
+  "reason": "explicit --allow-model-execution was not supplied",
+  "assets_checked": false,
+  "memory": {
+    "method": "resource.getrusage(RUSAGE_SELF).ru_maxrss",
+    "scope": "process lifetime high water; excludes children and GPU/device memory",
+    "os": "Linux",
+    "peak_mib": 17.125,
+    "raw_value": 17536,
+    "raw_unit": "KiB"
+  }
+}
