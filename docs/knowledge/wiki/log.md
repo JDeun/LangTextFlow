@@ -39,3 +39,14 @@ are untouched. All six native arms, the one failed target, 96-cell/12-track
 denominators, numeric mismatches and partial memory/process observations remain
 explicit. Private originals are preserved. No extra native inference occurred
 for scoring/publication; no model/default, issue closure or field approval follows.
+
+## 2026-11-16 — ingest | Cicada local speech feasibility
+
+Recorded fixed Ming model/runtime provenance, the user's supported-Mac Apple local
+preference, resource/platform preflight and bounded Linux CPU TTS attempts in the
+[canonical report](../../research/cicada-local-speech-experiments.md) and
+[wiki synthesis](cicada-local-speech.md), linked to #468. Preserved the earlier
+telemetry-related automatic-review interruption and dtype failure separately from
+the later kernel-isolated three-language waveform smoke. No private recording was
+used; no Apple native or Ming audio inference occurred. This ingestion records
+completed research work for review, not model/default promotion or field acceptance.

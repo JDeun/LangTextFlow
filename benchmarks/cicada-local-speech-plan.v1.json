@@ -1,0 +1,382 @@
+{
+  "schema_version": 1,
+  "study": "langtextflow-cicada-local-speech",
+  "status": "manual_preregistration",
+  "created_on": "2026-11-16",
+  "issue": "https://github.com/JDeun/LangTextFlow/issues/468",
+  "automated": false,
+  "controller": "Manual, explicitly selected experiments only; this file is not consumed by the translation conveyor.",
+  "scope": "Prospective feasibility and short smoke protocol. It contains no inference results, model ranking, product approval or field acceptance.",
+  "preregistration": {
+    "freeze_plan_sha256_before_each_future_run": true,
+    "record_tested_git_sha_and_dirty_diff": true,
+    "no_retroactive_preregistration_of_runs_already_started": true,
+    "preserve_all_attempts_and_deviations": true,
+    "implementation_and_measurements_require_separate_reports": true
+  },
+  "product_effect": {
+    "runtime_defaults_changed_by_this_plan": false,
+    "provider_integrations_implemented_by_this_plan": false,
+    "automated_workflows_modified": false,
+    "model_or_provider_promoted": false,
+    "field_ready": false,
+    "architecture_authority": "Preserve the Rust orchestration core and Python inference-worker direction. A native Apple helper is a separate adapter, not a replacement runtime."
+  },
+  "user_direction": {
+    "paid_api_usage": "forbidden",
+    "meeting_audio_or_text_to_external_ai": "denied_by_default",
+    "preferred_mac_route": "Prefer each ready Apple local capability independently; readiness is not inferred from the Mac brand or the availability of a different capability.",
+    "notes": "Use a separately configured local LLM, or report unavailable. Apple ASR, MT and system TTS do not imply a local notes model.",
+    "external_fallback": "never",
+    "other_local_fallback": "Only a preconfigured local provider, with explicit actual-provider provenance. An exact-provider benchmark records failure instead of changing providers."
+  },
+  "evidence": {
+    "classifications": {
+      "source_code": "Behavior read at a pinned revision; not proof that an adapted executable ran.",
+      "source_metadata": "Upstream repository or model-file metadata; not locally measured RAM, latency or quality.",
+      "upstream_reported": "Author-reported model properties or metrics; never copied into LangTextFlow measurement fields.",
+      "locally_measured": "Only a separate actual run with inputs, revisions, environment, raw results and failure accounting.",
+      "proposed": "Policy or experiment specified in this plan; not evidence of implementation.",
+      "unverified": "Capability or claim not established on the tested host."
+    },
+    "cicada": {
+      "revision": "d8ed8ca61d7fe7e57035e4f0d8e84b3fb50f75af",
+      "code_license": "Apache-2.0",
+      "url": "https://github.com/wquguru/cicada/tree/d8ed8ca61d7fe7e57035e4f0d8e84b3fb50f75af",
+      "license_url": "https://github.com/wquguru/cicada/blob/d8ed8ca61d7fe7e57035e4f0d8e84b3fb50f75af/LICENSE",
+      "recognition_url": "https://github.com/wquguru/cicada/blob/d8ed8ca61d7fe7e57035e4f0d8e84b3fb50f75af/Sources/Cicada/Recognition.swift",
+      "translation_url": "https://github.com/wquguru/cicada/blob/d8ed8ca61d7fe7e57035e4f0d8e84b3fb50f75af/Sources/Cicada/Translator.swift",
+      "tts_url": "https://github.com/wquguru/cicada/blob/d8ed8ca61d7fe7e57035e4f0d8e84b3fb50f75af/Sources/Cicada/SpeakEngine.swift"
+    },
+    "langtextflow_research_baseline": {
+      "revision": "cfa7f9df7bca03b533d21ea303a16aa9f62cd43a",
+      "apple_mt_document": "docs/APPLE_SYSTEM_TRANSLATION.md",
+      "apple_mt_probe": "experiments/apple_translation/AppleTranslationProbe.swift",
+      "apple_mt_runner": "scripts/benchmark_apple_translation.py",
+      "knowledge_contract": "docs/knowledge/schema.md",
+      "integration_contract": "docs/REALTIME_ARCHITECTURE_V2.md"
+    }
+  },
+  "required_coverage": {
+    "source_languages": [
+      "ko",
+      "en",
+      "ja"
+    ],
+    "translation_directions_in_priority_order": [
+      "en->ko",
+      "ja->ko",
+      "ko->en",
+      "ko->ja",
+      "en->ja",
+      "ja->en"
+    ],
+    "tts_languages": [
+      "ko",
+      "en",
+      "ja"
+    ],
+    "no_substitution_of_english_for_unsupported_korean_or_japanese": true,
+    "report_each_language_and_direction_separately": true,
+    "smoke_subset_does_not_reduce_product_scope": true,
+    "mt_source_text_must_not_be_reported_as_successful_target_text": true,
+    "unsupported_or_missing_assets_are_not_quality_scores": true
+  },
+  "preparation_and_privacy": {
+    "preparation": {
+      "separate_from_session_inference": true,
+      "purpose": "Provision pinned source, dependencies, model files or Apple language assets, with no meeting audio or text.",
+      "automatic_download_from_this_plan": false,
+      "metadata_and_file_downloads_are_not_inference_measurements": true,
+      "record_urls_revisions_file_sizes_hashes_and_rights": true,
+      "unknown_or_incompatible_rights": "Stop the affected arm and record the unresolved component; do not treat the overall repository license as a license for every asset.",
+      "apple_assets": "Prepare explicitly outside the measurement session. The existing Apple MT probe only uses installed assets."
+    },
+    "inference": {
+      "input_policy": "Synthetic text for initial TTS; licensed or consented nonconfidential fixtures for ASR and MT. Never use private meeting material in a public report.",
+      "local_paths_only_for_model_and_source": true,
+      "no_api_credentials_required_or_used": true,
+      "hf_hub_offline": true,
+      "transformers_offline": true,
+      "hf_datasets_offline": true,
+      "disable_library_telemetry_where_supported": true,
+      "no_google_ling_ming_api_or_other_remote_ai_fallback": true,
+      "no_cloud_voice_clone_notes_or_share_requests": true,
+      "local_endpoint_policy": "If an endpoint is necessary, verify its operator and no-upstream-proxy configuration; localhost or LAN naming alone is not proof of local inference.",
+      "guard_contract": "Record the actual egress controls and denied attempts. Python socket guards and offline environment variables are defense in depth, not an OS packet audit.",
+      "stronger_privacy_validation": "After preparation, run on a host with outbound network denied or disconnected and inspect the applicable native/subprocess paths. If not performed, mark it not verified.",
+      "model_missing_or_network_attempt": "Fail closed; preserve the incomplete or failed report, without fetching assets or changing providers.",
+      "dependency_updates_and_release_checks": "Keep outside inference timing and do not upload meeting data; such metadata traffic is distinct from remote inference."
+    }
+  },
+  "experiment_arms": [
+    {
+      "id": "ming_audio_local",
+      "role": "Audio understanding / ASR and, separately, speech-to-translated-text feasibility",
+      "independent_of": [
+        "ming_tts_local",
+        "apple_asr_local",
+        "apple_mt_local"
+      ],
+      "model_id": "inclusionAI/Ming-3.0-audio-flash",
+      "model_revision": "db94e0de19f6d05adc0413c255a28eb480cd1fae",
+      "model_url": "https://huggingface.co/inclusionAI/Ming-3.0-audio-flash/tree/db94e0de19f6d05adc0413c255a28eb480cd1fae",
+      "model_card_url": "https://huggingface.co/inclusionAI/Ming-3.0-audio-flash/blob/db94e0de19f6d05adc0413c255a28eb480cd1fae/README.md",
+      "source_model_card_license": "MIT",
+      "license_evidence_scope": "Model-card declaration; not blanket dependency, asset, redistribution or deployment approval.",
+      "upstream_reported": {
+        "nominal_total_parameters_billions": 126,
+        "nominal_active_parameters_billions": 6.5,
+        "interpretation": "Active parameters are a compute-routing property, not a guarantee that only 6.5B parameters or their equivalent RAM must be resident."
+      },
+      "source_metadata": {
+        "main_safetensors_file_count": 25,
+        "main_safetensors_total_bytes": 256370360248,
+        "main_plus_optional_talker_safetensors_total_bytes": 259329407384,
+        "size_scope": "Checkpoint tensor-file metadata at the pinned revision; excludes any uncounted configs, tokenizer, code, runtime and temporary loading workspace.",
+        "disk_bytes_are_not_peak_ram_or_vram": true
+      },
+      "implementation_state": "No local audio inference adapter is implemented by this plan.",
+      "initial_phase": "Metadata, rights and resource feasibility only; no full checkpoint download or CPU inference is scheduled by this JSON.",
+      "inference_gate": [
+        "Pin and review the actual inference source, environment and checkpoint configuration before execution.",
+        "Confirm storage, available RAM/VRAM, loading overhead and any quantization implementation; do not infer fit from active-parameter count.",
+        "Record a suitable host and hard resource/time limits before scheduling an inference attempt.",
+        "Use an audio-to-text mode first; optional talker weights are not required merely to compare ASR.",
+        "A failed hardware or runtime prerequisite is BLOCKED_RESOURCE or BLOCKED_RUNTIME, not a model-quality result."
+      ],
+      "initial_budget": {
+        "inference_repetitions": 0,
+        "metadata_preflight_max_wall_seconds": 120,
+        "metadata_preflight_max_aggregate_cpu_seconds": 60
+      },
+      "future_first_inference_protocol": "After a separate resource manifest is frozen, one short licensed clip per KO/EN/JA source, no longer than 10 seconds each, with one attempt per clip. Record ASR separately from every translation direction. No blanket 126B CPU run is authorized by this resource plan."
+    },
+    {
+      "id": "ming_tts_local",
+      "role": "Synthetic text-to-waveform smoke; not ASR, MT or caption performance",
+      "independent_of": [
+        "ming_audio_local",
+        "apple_asr_local",
+        "apple_mt_local"
+      ],
+      "model_id": "inclusionAI/Ming-3.0-tts-0.5B",
+      "model_revision": "7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+      "model_url": "https://huggingface.co/inclusionAI/Ming-3.0-tts-0.5B/tree/7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+      "model_card_url": "https://huggingface.co/inclusionAI/Ming-3.0-tts-0.5B/blob/7247f4c94a5b2e987404ed28a5cfec41b1a4ca61/README.md",
+      "source_url": "https://github.com/inclusionAI/Ming-3.0-tts/tree/a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+      "source_revision": "a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+      "source_model_card_license": "MIT",
+      "rights_note": "Review upstream LICENSE and preserve component notices, including Apache-origin configuration/code headers. This declaration is not a redistribution approval for every dependency or auxiliary asset.",
+      "source_metadata": {
+        "file": "model.safetensors",
+        "bytes": 2959055504,
+        "size_scope": "This tensor file only; auxiliary speaker-embedding model, tokenizer/config files, dependencies and runtime memory are additional.",
+        "model_label_is_not_peak_memory": true
+      },
+      "runner": "scripts/benchmark_ming_tts_local.py",
+      "runner_status": "Opt-in research harness; record its actual content hash and implementation revision at run time.",
+      "fixtures": [
+        {
+          "language": "en",
+          "text": "Welcome. This is a local speech test."
+        },
+        {
+          "language": "ko",
+          "text": "안녕하세요. 로컬 음성 시험입니다."
+        },
+        {
+          "language": "ja",
+          "text": "こんにちは。ローカル音声のテストです。"
+        }
+      ],
+      "protocol": {
+        "model_loads_per_attempt": 1,
+        "initial_case_order": [
+          "en",
+          "ko",
+          "ja"
+        ],
+        "repetitions_per_language": 1,
+        "warmup_repetitions": 0,
+        "maximum_attempts": 2,
+        "repeat_rule": "At most one additional whole-process attempt for a documented infrastructure/setup failure. Preserve the original failure; do not retry selectively to improve timing or waveform results.",
+        "cold_and_resident_timing": "Record load time separately. Only the first synthesis is the first invocation of that loaded process; do not label each language as a separate cold run.",
+        "cpu_threads_max": 4,
+        "max_decode_steps": 256,
+        "cpu_max_wall_seconds_per_attempt": 900,
+        "cpu_max_aggregate_cpu_seconds_per_attempt": 3600,
+        "enforcement": "Use an external timeout and an appropriate aggregate CPU/process-group limit. These JSON values do not implement limits in the runner.",
+        "memory_preflight": "Record available memory and a host-specific hard memory cap before loading; do not treat the 0.5B label or tensor-file size as a fit guarantee.",
+        "reference_audio_used": false,
+        "voice_cloning": false,
+        "text_normalization": false,
+        "record_seed_dtype_autocast_voice_and_decode_settings": true,
+        "capped_waveform_is_not_proof_of_complete_utterance": true
+      },
+      "interpretation": "Finite nonempty audio establishes only waveform execution. Korean/Japanese intelligibility, correct pronunciation, language fidelity and utterance completion require separate human review."
+    },
+    {
+      "id": "apple_asr_local",
+      "role": "Same PCM to original-text events; existing LTF MT and audience path remain outside the ASR comparison",
+      "implementation_state": "Minimal native ASR helper is not yet implemented or integrated.",
+      "source_reference": "Cicada RecognitionStream / Recognition.Piece / Analyzer at the pinned revision; extract only required code and preserve Apache-2.0 provenance.",
+      "readiness": {
+        "apple_silicon_macos_26_plus": "Require compatible native helper/SDK, SpeechTranscriber availability, supported locale, installed assets and successful prepare/start.",
+        "apple_silicon_macos_14_4_to_15": "Legacy SFSpeechRecognizer requires supportsOnDeviceRecognition, authorization, enabled Dictation/Siri and prepared Dictation language; set requiresOnDeviceRecognition=true.",
+        "intel_or_x86_64": "Cicada cloudOnly returns available/installed for its remote path. Never reuse those booleans as proof of Apple local ASR; explicitly report the local capability unavailable.",
+        "hardware_and_process_architecture": "Record both; a compiled architecture check is not a complete hardware capability check.",
+        "permissions": "ASR framework authorization and microphone/system-audio capture authorization are separate. The first PCM-fed experiment does not require replacing the capture layer.",
+        "language_readiness": "Check KO/EN/JA locales independently. OS version alone does not imply installed assets.",
+        "failure": "Unavailable or a preconfigured local provider; no cloud ASR and no implicit model download."
+      },
+      "protocol": {
+        "input": "The identical licensed PCM and conversion policy used for the baseline; explicit source locale for the first experiment.",
+        "first_smoke_clips_per_source_language": 1,
+        "first_smoke_clip_max_seconds": 10,
+        "repetitions_per_clip": 1,
+        "max_wall_seconds_per_attempt": 300,
+        "max_aggregate_cpu_seconds_per_attempt": 1200,
+        "lifecycle": [
+          "bounded PCM/results",
+          "sample-clock timestamps",
+          "partial/final revisions",
+          "cancel",
+          "flush/drain",
+          "late callback rejection",
+          "helper termination/reap"
+        ],
+        "final_semantics": "ASR final maps to the existing stable-source stage, not automatically to a committed corrected/translated caption.",
+        "current_non_mac_host": "NOT RUN until the native helper is implemented, compiled and exercised on a suitable Mac."
+      }
+    },
+    {
+      "id": "apple_mt_local",
+      "role": "Text-to-text translation; separate from ASR and Apple's private system live-translation products",
+      "implementation_state": "Reuse the existing research probe; it is not an integrated default product provider.",
+      "probe": "experiments/apple_translation/AppleTranslationProbe.swift",
+      "runner": "scripts/benchmark_apple_translation.py",
+      "readiness": {
+        "direct_probe": "macOS 26+ and a compatible SDK; query installed support for each exact source/target pair.",
+        "source_language": "Explicit, resolved source language; do not rely on Cicada's Apple fallback for source=auto.",
+        "required_pairs": [
+          "en->ko",
+          "ja->ko",
+          "ko->en",
+          "ko->ja",
+          "en->ja",
+          "ja->en"
+        ],
+        "low_latency": "Primary initial strategy; use only installed resources.",
+        "high_fidelity": "Separate optional comparison on macOS 26.4+ with applicable capability. Requested strategy is not proof of effective model identity; preserve effectiveStrategyVerified=false unless independently established.",
+        "legacy_and_intel": "Do not infer MT capability from ASR architecture checks or claim that all earlier macOS translation APIs are absent. Report the existing probe's own runtime, pair and asset support.",
+        "failure": "Preserve the original and mark that target unavailable. No Google, cloud LLM or source-text-as-translation fallback."
+      },
+      "protocol": {
+        "fixture_source": "Existing Apple translation benchmark fixtures, frozen by content hash; add no duplicate native helper.",
+        "repetitions_per_fixture_direction": 1,
+        "warmup_repetitions": 0,
+        "max_wall_seconds_per_native_process": 900,
+        "max_aggregate_cpu_seconds_per_native_process": 3600,
+        "report_missing_pairs_individually": true,
+        "missing_assets_status": "NOT_EXERCISED_ASSETS",
+        "current_non_mac_host": "NOT RUN; syntax/protocol checks on Linux are not native translation execution."
+      }
+    },
+    {
+      "id": "apple_tts_local",
+      "role": "Installed system voice synthesis; independent of Ming cloning and Apple ASR/MT",
+      "implementation_state": "Capability/smoke proposal; no native TTS adapter is implemented by this plan.",
+      "api": "AVSpeechSynthesizer and AVSpeechSynthesisVoice",
+      "readiness": "Enumerate available installed voices for KO/EN/JA and verify actual synthesis. Record voice identifier, language, quality and OS; do not assume every voice is installed.",
+      "protocol": {
+        "fixture_source": "The same short synthetic texts as the Ming TTS arm.",
+        "repetitions_per_language": 1,
+        "warmup_repetitions": 0,
+        "max_wall_seconds_per_attempt": 300,
+        "max_aggregate_cpu_seconds_per_attempt": 1200,
+        "failure": "Disable only the unavailable voice output, preserving captions; no remote voice or cloning fallback."
+      }
+    }
+  ],
+  "measurement_protocol": {
+    "shared_run_manifest": [
+      "plan SHA256 and deviations, tested code SHA/diff and runner hashes",
+      "exact model/source revisions, all consumed local asset hashes and rights",
+      "OS/SDK, hardware and process architecture, CPU/GPU/RAM, power state and background workload",
+      "dependency versions, device/dtype/quantization, thread counts and memory/time caps",
+      "fixture provenance, consent/license, hashes, duration, language and glossary snapshot",
+      "actual provider, readiness, configured egress controls and any denied requests",
+      "start/end timestamps, all attempts, errors, incomplete output and stop reasons"
+    ],
+    "asr_metrics": [
+      "per-language CER and WER with explicit normalization/tokenization",
+      "time to first partial, stable-source latency and finalization delay when observed",
+      "processing RTF using input audio duration",
+      "revision churn, missed/duplicate source events and sample-clock timestamp provenance"
+    ],
+    "mt_metrics": [
+      "per-direction text latency and completion/unavailable rate",
+      "chrF++ only with an independent frozen reference and declared normalization",
+      "independent human review of meaning, negation, numbers, names and domain terminology",
+      "glossary OFF/ON comparison using the same content and an independently prepared glossary"
+    ],
+    "tts_metrics": [
+      "dependency import and model load time, whole-waveform generation time",
+      "generated audio duration and RTF = generation seconds / generated audio seconds",
+      "sample rate, channel count, finite/nonzero samples, RMS/peak and clipping",
+      "first-audio latency only if a streaming first chunk is actually observed; otherwise unavailable",
+      "EOS/decode-cap/utterance-completion evidence separately from nonempty waveform",
+      "independent KO/EN/JA listening review before intelligibility or quality claims"
+    ],
+    "resource_metrics": [
+      "peak process and co-resident RSS with measurement method and baseline",
+      "available system memory, swap and GPU/unified-memory observations when available",
+      "aggregate CPU time and wall time, including interrupted attempts"
+    ],
+    "small_sample_rule": "Initial one-case smoke reports per-case timings and completion only. Do not present a reliable p95/p99, general model ranking or accuracy qualification from these samples.",
+    "comparison_rule": "Use matched fixtures, glossary, hardware and input conditions for any later comparison. A synthetic TTS waveform is not ASR, MT, streaming or audience evidence.",
+    "status_values": [
+      "NOT_RUN",
+      "NOT_EXERCISED_ASSETS",
+      "BLOCKED_RESOURCE",
+      "BLOCKED_RUNTIME",
+      "BLOCKED_RIGHTS",
+      "UNSUPPORTED_LANGUAGE_OR_PAIR",
+      "FAILED",
+      "TIMEOUT",
+      "INCOMPLETE",
+      "COMPLETED_SMOKE"
+    ],
+    "limits": "Stop at the first applicable wall/CPU/memory cap, preserve evidence, and report incomplete or timeout. Do not extend limits or change model/provider silently after observing results."
+  },
+  "rights_and_publication": {
+    "cicada_reuse": "Preserve upstream paths, pinned revision, notices, license and a record of modifications. Cicada code is Apache-2.0, not MIT.",
+    "ming_reuse": "MIT model-card declarations do not replace exact source, component, auxiliary asset and redistribution review; keep origin notices.",
+    "apple_models": "Use supported system APIs and installed assets. Do not copy, convert or distribute Apple's system-managed weights or invent checkpoint hashes.",
+    "voice_and_fixture_rights": "Initial TTS uses authored synthetic text with no speaker reference. Future recorded audio or cloning requires appropriate license/consent and separate scope.",
+    "public_reports": "Publish only approved synthetic/nonconfidential artifacts and metadata. Do not commit credentials, private transcripts, private recordings or downloaded model weights.",
+    "immutable_results": "Keep actual run records append-only and distinct from this plan; link canonical research and reviewed PRs according to docs/knowledge/schema.md."
+  },
+  "never_promote_from_this_plan": {
+    "automatic_model_or_provider_promotion": false,
+    "automatic_runtime_default_change": false,
+    "automatic_adr_change_or_issue_closure": false,
+    "automatic_conveyor_registration": false,
+    "api_model_equals_local_checkpoint_quality": false,
+    "active_parameters_equal_required_ram": false,
+    "successful_load_equals_successful_inference": false,
+    "successful_waveform_equals_correct_speech": false,
+    "apple_asr_success_equals_mt_or_notes_readiness": false,
+    "smoke_success_equals_field_readiness": false,
+    "mac_success_equals_low_memory_windows_success": false,
+    "requires_before_product_adoption": [
+      "reproducible native execution and bounded/cancellable integration",
+      "all required KO/EN/JA source languages and six MT directions",
+      "independent bilingual/domain quality review with preserved source, numbers and negation",
+      "glossary ablation and actual audience/caption path verification",
+      "privacy/rights review and explicit reviewer sign-off through the existing decision process",
+      "physical-device long-session and 4GB/8GB Windows acceptance remain separate gates under #468, #106 and #107"
+    ]
+  }
+}

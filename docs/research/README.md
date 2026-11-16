@@ -6,6 +6,7 @@ This directory stores **evidence and hypotheses**, not an unreviewed wiki or aut
 
 | Topic | Evidence | Status | Follow-up |
 |---|---|---|---|
+| Cicada local reuse, Ming audio/TTS and Apple preference | [Local speech experiments](cicada-local-speech-experiments.md) | Manual local TTS smoke; Ming audio resource block; Apple native run pending; no product/default promotion | #468 |
 | Model issue execution coverage | [Original-artifact audit](model-issue-evidence-coverage-2026-11.md) | Seven ZIPs inspected; real inference, mock wiring, negative results and rights blocks distinguished; no current-main/field promotion | #111–#115, #117–#118, #121–#122, #127–#128, #341, #344, #349 |
 | Open-source dictation architectures (Handy, OpenWhispr, Wisper, FluidVoice, OpenWhisper, Hush, AuraScribe) | [Comparison](OPEN_SOURCE_DICTATION_COMPARISON.md) | README-level analysis; code audit, license review and measurements **pending** | #209, #216–#222 |
 | Whistle 16.9MB CPU ASR (English-focused, ko/ja unsupported) | [Evaluation note](whistle-cpu-asr-evaluation.md) | Third-party claims only; no independent benchmark or adapter | #274 |

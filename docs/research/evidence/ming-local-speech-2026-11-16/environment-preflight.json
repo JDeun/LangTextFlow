@@ -1,0 +1,49 @@
+{
+  "observed_at": "2026-11-16T08:17:11.992167+00:00",
+  "os": "Linux",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "architecture": "x86_64",
+  "cpu_count": 9,
+  "memory": {
+    "MemTotal": 10451423232,
+    "MemAvailable": 8577499136
+  },
+  "disk_free_bytes": 59701325824,
+  "swift_available": false,
+  "cuda_device_nodes": false,
+  "model_inference_performed": false,
+  "field_ready": false,
+  "ming_audio": {
+    "model_id": "inclusionAI/Ming-3.0-audio-flash",
+    "revision": "db94e0de19f6d05adc0413c255a28eb480cd1fae",
+    "metadata_source": "https://huggingface.co/api/models/inclusionAI/Ming-3.0-audio-flash/revision/db94e0de19f6d05adc0413c255a28eb480cd1fae?blobs=true",
+    "metadata_sha256": "69e79292f0a45c380209f77ba7a3063e921ae6d128a7fd425eb65f65f54dc04a",
+    "main_shards": 25,
+    "main_safetensors_bytes": 256370360248,
+    "all_safetensors_bytes": 259329407384,
+    "status": "blocked",
+    "reason": "Official BF16 checkpoint storage exceeds available disk; inference and quantized-runtime qualification not attempted.",
+    "model_files_downloaded": false,
+    "inference_attempted": false,
+    "quantized_checkpoint_selected": false
+  },
+  "apple": {
+    "status": "not_exercised",
+    "scope": "existing Apple MT runner platform guard only; no ASR helper compiled",
+    "command": [
+      "python",
+      "scripts/benchmark_apple_translation.py",
+      "--probe-bin",
+      "/tmp/ltf-apple-translation-probe",
+      "--strategy",
+      "lowLatency",
+      "--allow-model-execution",
+      "--output",
+      "<WORKSPACE>/LangTextFlow/artifacts/local-speech-2026-11-16/apple-mt.json"
+    ],
+    "exit_code": 2,
+    "stderr": "usage: benchmark_apple_translation.py [-h] [--fixture FIXTURE] --probe-bin\n                                      PROBE_BIN --strategy\n                                      {lowLatency,highFidelity} --output\n                                      OUTPUT [--allow-model-execution]\nbenchmark_apple_translation.py: error: Apple Translation is only available on macOS\n",
+    "probe_executed": false,
+    "native_inference_performed": false
+  }
+}

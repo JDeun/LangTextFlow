@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "status": "failed",
+  "phase": "synthesis:en",
+  "started_at": "2026-11-16T08:23:03.180688+00:00",
+  "model_id": "inclusionAI/Ming-3.0-tts-0.5B",
+  "expected_model_revision": "7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+  "expected_source_revision": "a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+  "actual_model_execution": true,
+  "model_load_attempted": true,
+  "inference_attempted": true,
+  "actual_model_execution_definition": "synthesize invoked; completion reported separately",
+  "runner_sha256_at_start": "231e1387f404636666d589443e74ef8ee68fe997ce79c687fe4461c9cdb03c40",
+  "field_ready": false,
+  "semantic_quality": "not_evaluated",
+  "measurement_scope": "synthetic TTS waveform smoke; no ASR/MT/caption qualification",
+  "first_audio_latency_seconds": null,
+  "first_audio_latency_reason": "synchronous whole-waveform API; first chunk not observed",
+  "python": "3.12.14",
+  "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+  "settings": {
+    "device": "cpu",
+    "cpu_autocast": false,
+    "seed": 1234,
+    "torch_threads": 4,
+    "torch_interop_threads": 1,
+    "upstream_onnx_intra_op_threads": 2,
+    "max_decode_steps": 128,
+    "text_normalization": false,
+    "raw_text": true,
+    "cfg": 2.0,
+    "sigma": 0.25,
+    "temperature": 0.0,
+    "reference_audio_used": false
+  },
+  "cases": [
+    {
+      "language": "en",
+      "text": "Welcome. This is a local speech test.",
+      "status": "failed",
+      "request": {
+        "text": "Welcome. This is a local speech test.",
+        "language_id": "en",
+        "raw_text": true,
+        "use_spk_emb": false,
+        "use_zero_spk_emb": true,
+        "task": "IP",
+        "controls": {
+          "ip": "US_Emma"
+        },
+        "instruction_schema": "en"
+      },
+      "inference_attempted": true,
+      "error": {
+        "type": "RuntimeError",
+        "message": "mat1 and mat2 must have the same dtype, but got Float and BFloat16"
+      },
+      "attempt_wall_seconds": 0.009500729998762836
+    }
+  ],
+  "model_load_seconds": 1.38910920699891,
+  "dependency_import_seconds": 3.718655225000475,
+  "network": {
+    "python_socket_guard_installed": true,
+    "denied_attempt_count": 0,
+    "denied_events": {},
+    "scope": "audited Python DNS/connect/send events during import/load/synthesis",
+    "os_packet_audit_performed": false,
+    "native_or_subprocess_egress_audited": false
+  },
+  "offline_environment_during_execution": {
+    "HF_HUB_OFFLINE": "1",
+    "TRANSFORMERS_OFFLINE": "1",
+    "HF_DATASETS_OFFLINE": "1",
+    "HF_HUB_DISABLE_TELEMETRY": "1",
+    "DO_NOT_TRACK": "1",
+    "TOKENIZERS_PARALLELISM": "false"
+  },
+  "memory": {
+    "method": "resource.getrusage(RUSAGE_SELF).ru_maxrss",
+    "scope": "process lifetime high water; excludes children and GPU/device memory",
+    "os": "Linux",
+    "peak_mib": 527.73828125,
+    "raw_value": 540404,
+    "raw_unit": "KiB"
+  },
+  "completed_case_count": 0,
+  "failed_case_count": 1,
+  "assets": {
+    "source_dir": "<WORKSPACE>/Ming-3.0-tts",
+    "model_path": "<WORKSPACE>/ming-preparation/Ming-3.0-tts-0.5B/7247f4c94a5b2e987404ed28a5cfec41b1a4ca61",
+    "source_revision": "a39b80660bdc5a4394d5e1d41af6dbfd9c443a54",
+    "tracked_source_clean": true,
+    "source_files_sha256": {
+      "ming_tts.py": "0e543f51238c2e1dd457ad48589f9538781e65282d9db91d37bd5a49a4e3f73d",
+      "tts_tasks.py": "26a40e152cd5b84ce9c180b8286bc0cb9081eb7f0c804ee0dea54ce44bdf27c0",
+      "modeling_bailingmm.py": "61f80e8fb7b82c40f48165e1a667a2812af29c67c44ee4cb24a5e8fcea7c3b7f",
+      "configuration_bailingmm.py": "4583284dbcba4e07b0e3c276dcdfabe5682f9f666dd3379ff2870b584e6c3a0e",
+      "spkemb_extractor.py": "6e53a812fd9620d1e3c8a6d16c38fb63624c22743c518fd30189c4015e039a3d"
+    },
+    "model_files": {
+      "config.json": {
+        "sha256": "2fb0767361b3cd3f41dc9392709fc23fe5b40a39f19d70a38d04acabe991822c",
+        "bytes": 4754,
+        "verified_against_expected_sha256": false
+      },
+      "tokenizer.json": {
+        "sha256": "87d54ca3b44ea2f822ba39a0a45cb1b61644bd6606d9d3536dea75367bffb06d",
+        "bytes": 11431389,
+        "verified_against_expected_sha256": false
+      },
+      "tokenizer_config.json": {
+        "sha256": "12d6162c815edef24f8606e65b60d43fe0d92b0a4e150a0db8fa01c523aaf36a",
+        "bytes": 16260,
+        "verified_against_expected_sha256": false
+      },
+      "model.safetensors": {
+        "sha256": "45c4d78d8ad6b1d942e3da86ba035fece02de569f7b2ca7e9d121dfaf18d674c",
+        "bytes": 2959055504,
+        "verified_against_expected_sha256": true
+      },
+      "campplus.onnx": {
+        "sha256": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73",
+        "bytes": 28303423,
+        "verified_against_expected_sha256": true
+      }
+    },
+    "identity_scope": "weights and campplus verified; tokenizer/config hashes recorded only"
+  },
+  "dependencies": {
+    "torch": "2.6.0+cpu",
+    "torchaudio": "2.6.0+cpu",
+    "transformers": "4.46.3",
+    "onnxruntime": "1.32.0"
+  },
+  "error": {
+    "type": "RuntimeError",
+    "message": "mat1 and mat2 must have the same dtype, but got Float and BFloat16"
+  },
+  "finished_at": "2026-11-16T08:23:13.236118+00:00"
+}
