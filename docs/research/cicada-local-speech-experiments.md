@@ -169,6 +169,13 @@ unit test가 통과했다. 이 검증은 특정 process의 차단 설치와 실�
 각각 별도 기록이다. 공개 JSON은 scratch prefix만 `<WORKSPACE>`로 치환했으며
 기존 실패/중단 원본을 덮어쓰지 않았다.
 
+[PR #469](https://github.com/JDeun/LangTextFlow/pull/469)의 최초 CI에서 guard의
+import 뒤 빈 줄 하나에 Ruff I001이 발생해 형식만 수정했다.
+[게시 후속 기록](evidence/ming-local-speech-2026-11-16/publication-followup.json)은
+실제로 실행한 helper와 후속 형식 수정본의 hash를 구분한다. 실행 당시
+소스는 commit `9448720c720483bc2c40b748dfa4785ff714c44d`에 보존되며,
+이 형식 수정 때문에 모델을 다시 실행하거나 기존 결과 hash를 바꾸지 않았다.
+
 실제 실행한 host는 Linux x86_64, vCPU 9개, 총 RAM 10,451,423,232 bytes,
 CUDA 없음이다. torch는 4 threads, interop 1, upstream ONNX는 2 threads를
 사용했다. CPU BF16 autocast, seed 1234, max decode 128, 언어별 한 문장,

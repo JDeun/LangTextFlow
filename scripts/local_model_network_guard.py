@@ -13,7 +13,6 @@ import errno
 import platform
 import socket
 
-
 DENIED_SYSCALLS = (
     "socket", "socketpair", "connect", "sendto", "sendmsg", "sendmmsg",
     "io_uring_setup",
